@@ -1,0 +1,1930 @@
+meta:
+  partition: BE-04
+  repo: ahlabs-trilhas
+  commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+  files_examined:
+    # ---- core/models ----
+    - path: core/models/__init__.py
+      rule_bearing: no
+      note: Re-exports model classes; pure plumbing.
+    - path: core/models/assistido.py
+      rule_bearing: no
+      note: AssistidoPor through-model linking a Leito/Paciente/Usuario to a pathway type + JSON payload_trilha; enum captured in choices/assistido.py. PROTECT FKs only.
+    - path: core/models/checagem_observacao.py
+      rule_bearing: no
+      note: ChecagemObservacao stores per-observation check items (nome<=15, alerta text, recomendacoes array, checado default False, checado_por); structural, no predicate logic.
+    - path: core/models/choices/__init__.py
+      rule_bearing: no
+      note: Re-exports choice classes.
+    - path: core/models/choices/assistido.py
+      rule_bearing: yes
+      note: AssistidoChoices.tipo() — 12 care-pathway (trilha) type slugs.
+    - path: core/models/choices/empresa.py
+      rule_bearing: yes
+      note: EmpresaChoices.whitelabel() (4 brands, unique) and tipo() (manual/automatica/homecare/"") that drive processing mode of Leito/Setor/Estabelecimento.
+    - path: core/models/choices/grupo_acesso.py
+      rule_bearing: yes
+      note: GrupoAcessoChoices.cargos() — 15 clinical/administrative role slugs.
+    - path: core/models/choices/indicador.py
+      rule_bearing: yes
+      note: IndicadorChoices.tipos() — interacao_notificacao / entrada_videochamada; selects validation serializer.
+    - path: core/models/choices/movimentacao.py
+      rule_bearing: yes
+      note: MovimentacaoChoices.tipo_trilha() — trilha1..trilha4 legacy enum (not referenced by in-scope logic).
+    - path: core/models/choices/observacao.py
+      rule_bearing: yes
+      note: ObservacaoChoices.tipo_trilha() — duplicate of AssistidoChoices.tipo() with label variants (SEPSE vs Sepse, Piora Clinica vs Piora Clínica).
+    - path: core/models/choices/permissao.py
+      rule_bearing: yes
+      note: PermissaoChoices.acesso()/nivel_acesso() (r/rw) and PermissionsChoices.permissions() aggregator; associated Permissao model is commented out.
+    - path: core/models/choices/reacao.py
+      rule_bearing: no
+      note: ReacaoChoices.emoji() — 7 reaction emoji slugs; cosmetic, minimal business meaning.
+    - path: core/models/choices/usuario.py
+      rule_bearing: yes
+      note: UsuarioChoices.genero()/acessos(p/u/m)/conselho(7 councils)/estado_conselho(27 UFs).
+    - path: core/models/empresa.py
+      rule_bearing: yes
+      note: Empresa.save owner-access lifecycle; cor_primaria 6-char; tempo_atualizacao default 300s; whitelabel unique.
+    - path: core/models/estabelecimento.py
+      rule_bearing: yes
+      note: unique_together(empresa,codigo); tipo default manual; camera permissions.
+    - path: core/models/glossario.py
+      rule_bearing: no
+      note: Glossario nome unique; plain reference table.
+    - path: core/models/grupo_acesso.py
+      rule_bearing: yes
+      note: GrupoAcesso exactly-one-of(empresa/estabelecimento/setor), Group-name generation and uniqueness, force delete.
+    - path: core/models/indicador.py
+      rule_bearing: yes
+      note: Indicador.save validates JSON dados via tipo-selected serializer.
+    - path: core/models/leito.py
+      rule_bearing: yes
+      note: Bed alert aggregation, automatic/homecare pathway composition, patient resolution/creation, assistido determination, demographic+alert counters.
+    - path: core/models/movimentacao.py
+      rule_bearing: yes
+      note: length-of-stay, -3h timezone display offset, micro_indicadores mapping, alerta_movimentacao default NEUTRO, movimentacao chain walk.
+    - path: core/models/notificacao.py
+      rule_bearing: yes
+      note: Notificacao.save fans out one UsuarioNotificacao per sector user + websocket task on create.
+    - path: core/models/observacao.py
+      rule_bearing: yes
+      note: Observacao.save auto-creates Notificacao when setor present; tipo_mensagem routing leito/setor; ordering -criado_em.
+    - path: core/models/paciente.py
+      rule_bearing: yes
+      note: Paciente payload (fractioned/abbreviated name, age via calcular_idade), genero default N.
+    - path: core/models/permissao.py
+      rule_bearing: no
+      note: Entire Permissao model commented out; no active code.
+    - path: core/models/reacao.py
+      rule_bearing: yes
+      note: unique_together(observacao,usuario) — one reaction per user per observation; save/delete drive Firebase unread counters.
+    - path: core/models/setor.py
+      rule_bearing: yes
+      note: unique_together(estabelecimento,codigo); tipo default manual; auditoria/ocupacoes permissions.
+    - path: core/models/usuario.py
+      rule_bearing: yes
+      note: Usuario.save auto-hashes plaintext password; cpf unique; conselho/estado_conselho/numero_conselho registration fields; pin default.
+    - path: core/models/usuario_empresa.py
+      rule_bearing: yes
+      note: grants 'u' access on save; post_delete removes group memberships and 'u' when no companies remain.
+    - path: core/models/usuario_estabelecimento.py
+      rule_bearing: yes
+      note: save auto-creates UsuarioEmpresa link; post_delete removes establishment-scoped group memberships.
+    - path: core/models/usuario_grupo_acesso.py
+      rule_bearing: yes
+      note: save validates user is a member of group's scope (empresa/estabelecimento/setor); contains super().save(*args,*kwargs) bug.
+    - path: core/models/usuario_notificacao.py
+      rule_bearing: no
+      note: through-model with visto flag and unique_together(notificacao,usuario); structural read-receipt.
+    - path: core/models/usuario_setor.py
+      rule_bearing: yes
+      note: save auto-creates UsuarioEstabelecimento link; post_delete removes sector-scoped group memberships.
+    - path: core/models/usuario_setor_paciente.py
+      rule_bearing: no
+      note: assignment through-model with unique_together(usuario,setor,paciente); structural.
+    # ---- core/use_cases ----
+    - path: core/use_cases/movimentacao/__init__.py
+      rule_bearing: no
+      note: Re-exports use-case classes.
+    - path: core/use_cases/movimentacao/baixa_movimentacao.py
+      rule_bearing: yes
+      note: "Discharge use-case: only current movimentacao can be closed; frees the bed."
+    - path: core/use_cases/movimentacao/cadastrar_nova_movimentacao.py
+      rule_bearing: yes
+      note: "New movimentacao: carry-forward clone of prontuario, noradrenalina, PCR, ventilacao, sedativos, SOFA from previous."
+    - path: core/use_cases/movimentacao/cadastrar_primeira_movimentacao.py
+      rule_bearing: yes
+      note: "First admission: create prontuario+attrs, assemble SOFA inputs, occupy bed, create trilhas."
+    - path: core/use_cases/paciente/__init__.py
+      rule_bearing: no
+      note: Re-export.
+    - path: core/use_cases/paciente/cadastrar_paciente.py
+      rule_bearing: yes
+      note: CadastrarPaciente creates Paciente via serializer, returns pk; thin wrapper.
+    - path: core/use_cases/trilhas/__init__.py
+      rule_bearing: no
+      note: Re-export.
+    - path: core/use_cases/trilhas/criar_trilhas.py
+      rule_bearing: yes
+      note: CriarTrilhas instantiates the 4 manual pathways from a prontuario.
+    - path: core/use_cases/validators/__init__.py
+      rule_bearing: no
+      note: Re-exports validators.
+    - path: core/use_cases/validators/dados_prontuario.py
+      rule_bearing: yes
+      note: Requires 'dados_prontuario' key in request.
+    - path: core/use_cases/validators/data.py
+      rule_bearing: yes
+      note: Date format parsing + no-future-date rule.
+    - path: core/use_cases/validators/leito.py
+      rule_bearing: yes
+      note: Blocks manual movimentacao on automatic beds and on already-occupied beds.
+    - path: core/use_cases/validators/movimentacao.py
+      rule_bearing: yes
+      note: Composite validation for movimentacao creation.
+    - path: core/use_cases/validators/paciente.py
+      rule_bearing: yes
+      note: Requires paciente payload; birthdate not future.
+    # ---- core/filters ----
+    - path: core/filters/__init__.py
+      rule_bearing: no
+      note: Re-exports filters.
+    - path: core/filters/empresa.py
+      rule_bearing: no
+      note: nome icontains search; generic.
+    - path: core/filters/estabelecimento.py
+      rule_bearing: no
+      note: nome/codigo icontains; empresa by name-or-pk substring; generic search predicate.
+    - path: core/filters/evolucoes_empresa.py
+      rule_bearing: yes
+      note: profissional_id filter; data_inicio/data_fim expand to full-day [00:00, 23:59:59.999999] boundaries on dt_registro.
+    - path: core/filters/leito.py
+      rule_bearing: no
+      note: nome/codigo icontains; setor/empresa/estabelecimento by name-or-pk substring; generic search.
+    - path: core/filters/observacao.py
+      rule_bearing: yes
+      note: filter_leito returns observations for the leito OR replies (resposta__leito) to that leito.
+    - path: core/filters/ocupacao.py
+      rule_bearing: no
+      note: DRF serializer exposing nome/ocupado/tipo(choice) query params; validation-only enum reuse.
+    - path: core/filters/paciente.py
+      rule_bearing: no
+      note: nr_atendimento contains / nome icontains; generic search.
+    - path: core/filters/reacao.py
+      rule_bearing: no
+      note: emoji exact filter; generic.
+    - path: core/filters/setor.py
+      rule_bearing: yes
+      note: filter_grupo excludes sectors already in a given access group; plus name/empresa/estabelecimento search.
+    - path: core/filters/usuario.py
+      rule_bearing: yes
+      note: filter_grupo excludes users already in a given access group; plus nome/cpf search.
+    # ---- core/mixins ----
+    - path: core/mixins/__init__.py
+      rule_bearing: no
+      note: Re-exports mixins.
+    - path: core/mixins/filters/__init__.py
+      rule_bearing: no
+      note: Re-exports custom filter classes.
+    - path: core/mixins/filters/fields.py
+      rule_bearing: no
+      note: CustomDateRangeField binds the custom widget; plumbing.
+    - path: core/mixins/filters/filters.py
+      rule_bearing: no
+      note: CustomDateFromToRangeFilter wires custom field; plumbing.
+    - path: core/mixins/filters/widgets.py
+      rule_bearing: no
+      note: CustomDateRangeWidget uses suffixes inicio/fim for range query params; cosmetic naming.
+    - path: core/mixins/permissao.py
+      rule_bearing: yes
+      note: TrilhasPermissaoMixin scope-based RBAC dispatch with method-specific permissions and exceto_metodo bypass.
+    - path: core/mixins/view.py
+      rule_bearing: yes
+      note: EmpresaRequiredMixin gate (request.empresa required) + ManageDataRequiredMixin body re-encode (utf-8 then cp1252 fallback).
+
+rules:
+  # ============================ ENUMS / CHOICES ============================
+  - id: RULE-trilha-BE-04-001
+    name: Care pathway (trilha) type enumeration
+    category: care-pathway
+    type: validation
+    status: OK
+    description: >
+      Canonical set of clinical care-pathway ("trilha") types an assist record / observation can reference.
+    inputs:
+      - name: tipo
+        type: string (slug)
+        unit: null
+        range: "sedacao|estabilizacao|ventilacao|sepse|antimicrobiano|nutricao|equilibrio|profilaxias|piora_clinica|zero_glosa|auditoria|eficiencia"
+    outputs:
+      - name: display_label
+        type: string
+        unit: null
+    logic: |
+      AssistidoChoices.tipo() -> ordered tuples (value, label):
+        sedacao=Sedação, estabilizacao=Estabilização, ventilacao=Ventilação,
+        sepse=Sepse, antimicrobiano=Antimicrobiano, nutricao=Nutrição,
+        equilibrio=Equilíbrio, profilaxias=Profilaxias, piora_clinica="Piora Clínica",
+        zero_glosa="Zero Glosa", auditoria=Auditoria, eficiencia=Eficiência.
+      Used by AssistidoPor.tipo (max_length=65).
+    edge_cases: No default; not enforced beyond Django choices (choices are advisory unless full_clean called).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/assistido.py
+      lines: "4-20"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Duplicated (with label casing/accent differences) in ObservacaoChoices.tipo_trilha (RULE-trilha-BE-04-002).
+      These 12 slugs map onto the automatic/homecare pathway model sets in RULE-trilha-BE-04-016/017.
+
+  - id: RULE-trilha-BE-04-002
+    name: Observacao pathway-type enumeration (variant of RULE-001)
+    category: care-pathway
+    type: validation
+    status: DISCREPANCY
+    description: >
+      Observacao.tipo_trilha choice set; nominally identical to AssistidoChoices.tipo but with different display labels.
+    inputs:
+      - name: tipo_trilha
+        type: string (slug)
+        unit: null
+        range: same 12 slugs as RULE-001
+    outputs:
+      - name: display_label
+        type: string
+        unit: null
+    logic: |
+      ObservacaoChoices.tipo_trilha() identical value slugs to AssistidoChoices.tipo() EXCEPT labels:
+        sepse -> "SEPSE" (vs "Sepse")
+        piora_clinica -> "Piora Clinica" (vs "Piora Clínica", missing accent)
+      Observacao.tipo_trilha is CharField(max_length=20) — note slugs like "estabilizacao"(12), "antimicrobiano"(14) fit, but max_length=20 truncation risk is low.
+    edge_cases: Field is blank/null allowed on Observacao.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/observacao.py
+      lines: "1-17"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      DISCREPANCY vs RULE-001 only in display labels (casing/accent). Two independent enum copies risk drift.
+
+  - id: RULE-empresa-BE-04-003
+    name: Processing-mode (tipo) enumeration for company/bed/sector/establishment
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      The `tipo` field ("manual"/"automatica"/"homecare"/"") selects which pathway engine and alert logic apply to a bed/sector/establishment/company.
+    inputs:
+      - name: tipo
+        type: string
+        unit: null
+        range: "manual|automatica|homecare|'' (Não informado)"
+    outputs:
+      - name: processing_mode
+        type: string
+        unit: null
+    logic: |
+      EmpresaChoices.tipo() -> (manual, automatica, homecare, "").
+      Downstream branching (Leito.save / get_alerta_leito / get_paciente_instance):
+        tipo=="automatica" -> use automatic pathway set + alerta_nao_assistido_automatico
+        tipo=="homecare"   -> use homecare pathway set + alerta_nao_assistido_homecare
+        tipo=="manual"     -> alerta computed from stored movimentacao trilhas (no auto engine)
+      Defaults: Estabelecimento/Setor/Leito default "manual"; Empresa.tipo default "".
+    edge_cases: get_alerta_leito raises ValidationError for any tipo other than homecare/automatica when computing bed alert; get_trilha raises "Tipo de leito inválido" for tipo not in {automatica,homecare}.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/empresa.py
+      lines: "14-21"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Leito.tipo reuses EmpresaChoices.tipo but max_length=64; Estabelecimento/Setor use max_length=65. Same enum reused across four models.
+
+  - id: RULE-empresa-BE-04-004
+    name: Whitelabel brand enumeration (unique per company)
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: Company whitelabel/brand identifier, unique across all companies.
+    inputs:
+      - name: whitelabel
+        type: string
+        unit: null
+        range: "americashealth|ficticia|homecare|outras"
+    outputs:
+      - name: brand
+        type: string
+        unit: null
+    logic: |
+      EmpresaChoices.whitelabel() -> (americashealth, ficticia, homecare, outras).
+      Empresa.whitelabel = CharField(max_length=25, unique=True) -> at most one company per brand slug.
+    edge_cases: unique=True enforced at DB level.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/empresa.py
+      lines: "4-12"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Model field constraint in core/models/empresa.py line 12-14.
+
+  - id: RULE-acesso-BE-04-005
+    name: Clinical/administrative role (cargo) enumeration
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: Allowed job roles for an access group (GrupoAcesso.cargo).
+    inputs:
+      - name: cargo
+        type: string (slug)
+        unit: null
+        range: "administrador|coord_assistencial|coord_medico|medico_diarista|medico_intensivista|enfermeiro|enfermeiro_telemed|medico_telemed|tec_enfermagem|fisioterapeuta|fonoaudiologo|psicologo|nutricionista|odontologo|farmaceutico"
+    outputs:
+      - name: display_label
+        type: string
+        unit: null
+    logic: |
+      GrupoAcessoChoices.cargos() -> 15 (value,label) role tuples covering coordination,
+      physicians (diarista/intensivista/telemedicine), nurses (+ telemedicine), nursing tech,
+      physiotherapist, speech therapist, psychologist, nutritionist, dentist, pharmacist.
+      GrupoAcesso.cargo = CharField(max_length=255, null/blank, choices=cargos()).
+    edge_cases: Nullable/blank; advisory choices.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/grupo_acesso.py
+      lines: "1-20"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-acesso-BE-04-006
+    name: User access-role codes (proprietario/usuario/monitor)
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: >
+      Single-char codes stored in Usuario.acessos ArrayField that gate ownership/user/monitor capabilities and are auto-managed by membership save/delete hooks.
+    inputs:
+      - name: acesso_code
+        type: char(1)
+        unit: null
+        range: "p (Proprietário) | u (Usuario) | m (monitor)"
+    outputs:
+      - name: acesso_set
+        type: list[char]
+        unit: null
+    logic: |
+      UsuarioChoices.acessos() -> (("p","Proprietário"),("u","Usuario"),("m","monitor")).
+      Usuario.acessos = ArrayField(CharField(max_length=1), default=list).
+      "p" managed by Empresa.save (RULE-empresa-BE-04-009);
+      "u" managed by UsuarioEmpresa save/delete (RULE-acesso-BE-04-031).
+      "m" (monitor) defined but not mutated by in-scope code.
+    edge_cases: default empty list; codes appended idempotently by hooks.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/usuario.py
+      lines: "14-20"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-acesso-BE-04-007
+    name: Professional council (conselho) and state-of-council enumerations
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: Brazilian professional-registration council and issuing state for a user (credentialing).
+    inputs:
+      - name: conselho
+        type: string
+        unit: null
+        range: "CRM|COREN|CREFITO|CRN|CRFA|CRP|AGMT"
+      - name: estado_conselho
+        type: string (UF)
+        unit: null
+        range: "27 Brazilian UF codes (AC..TO)"
+    outputs:
+      - name: credential_scope
+        type: string
+        unit: null
+    logic: |
+      UsuarioChoices.conselho() -> CRM(medicine), COREN(nursing), CREFITO(physio/OT),
+        CRN(nutrition), CRFA(speech), CRP(psychology), AGMT(Assoc. Goiana de Musicoterapia).
+      UsuarioChoices.estado_conselho() -> all 26 states + DF.
+      Usuario.conselho CharField(max_length=7), estado_conselho CharField(max_length=2),
+      numero_conselho CharField(max_length=20); all null/blank.
+    edge_cases: Nullable; no cross-field required-if enforcement (conselho can exist without number).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/usuario.py
+      lines: "22-64"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: AGMT is an association (not a formal council) but is grouped in the conselho enum.
+
+  - id: RULE-acesso-BE-04-008
+    name: Access-level enumeration (read vs read-write) — dormant
+    category: billing-administrative
+    type: validation
+    status: AMBIGUOUS
+    description: >
+      Legacy permission access levels ('r'=read, 'rw'=read/write) and coarse roles (admin/medico/enfermeiro); the owning Permissao model is commented out.
+    inputs:
+      - name: nivel_acesso
+        type: string
+        unit: null
+        range: "r|rw"
+      - name: acesso
+        type: string
+        unit: null
+        range: "admin|medico|enfermeiro"
+    outputs:
+      - name: access_level
+        type: string
+        unit: null
+    logic: |
+      PermissaoChoices.acesso() -> (admin, medico, enfermeiro).
+      PermissaoChoices.nivel_acesso() -> (r=Leitura, rw="Leitura e escrita").
+      PermissionsChoices.permissions() aggregates every model._meta.permissions across all apps.
+    edge_cases: Permissao model in core/models/permissao.py is fully commented out; these choices may be unused.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/permissao.py
+      lines: "6-31"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: AMBIGUOUS — enum defined but its model is disabled; real RBAC is enforced via Django group permissions (see RULE-acesso-BE-04-045).
+
+  - id: RULE-indicador-BE-04-009
+    name: Indicator event-type enumeration
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: Usage-metric event types recorded in Indicador; each selects a JSON-payload validation serializer.
+    inputs:
+      - name: tipo
+        type: string
+        unit: null
+        range: "interacao_notificacao|entrada_videochamada"
+    outputs:
+      - name: validated_payload
+        type: json
+        unit: null
+    logic: |
+      IndicadorChoices.tipos() -> (interacao_notificacao, entrada_videochamada).
+      See RULE-indicador-BE-04-018 for the save-time validation dispatch.
+    edge_cases: null
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/choices/indicador.py
+      lines: "1-7"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  # ============================ EMPRESA / ACCESS LIFECYCLE ============================
+  - id: RULE-empresa-BE-04-010
+    name: Company owner (proprietario) access lifecycle on save
+    category: billing-administrative
+    type: workflow
+    status: OK
+    description: >
+      Saving a company guarantees its owner has the 'p' (Proprietário) access code, and revokes 'p' from the previous owner when they no longer own any company.
+    inputs:
+      - name: proprietario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: proprietario_antigo
+        type: Usuario FK (previous)
+        unit: null
+        range: null
+    outputs:
+      - name: proprietario.acessos
+        type: list[char]
+        unit: null
+    logic: |
+      On Empresa.save():
+        original = self.original_object  # DB state before save
+        if "p" not in self.proprietario.acessos: append "p"; save proprietario
+        proprietario_antigo = original.proprietario
+        if self.proprietario != proprietario_antigo
+           and NOT proprietario_antigo.empresas_proprietarias.exclude(pk=self.pk).exists():
+              proprietario_antigo.acessos = [a for a in acessos if a != "p"]; save
+        super().save()
+    edge_cases: >
+      Uses original_object (pre-save snapshot from SetUpModel); on first create the old owner comparison relies on original.proprietario. exclude(pk=self.get_pk) prevents counting the company being reassigned.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/empresa.py
+      lines: "44-62"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Pairs with 'u' management in RULE-acesso-BE-04-031.
+
+  - id: RULE-empresa-BE-04-011
+    name: Company field constraints (primary color length, refresh interval)
+    category: data-validation
+    type: validation
+    status: OK
+    description: Company primary color must be 6 chars (hex without #); default polling/refresh interval is 300 seconds.
+    inputs:
+      - name: cor_primaria
+        type: string
+        unit: null
+        range: "exactly 6 characters (MinLengthValidator(6), max_length=6)"
+      - name: tempo_atualizacao
+        type: integer
+        unit: seconds
+        range: ">=0 (PositiveIntegerField), default 300"
+    outputs:
+      - name: valid_company
+        type: bool
+        unit: null
+    logic: |
+      cor_primaria = CharField(max_length=6, validators=[MinLengthValidator(6)]) -> must be length 6.
+      tempo_atualizacao = PositiveIntegerField(default=300).
+    edge_cases: MinLengthValidator only enforced via full_clean/serializers; no '#' or hex-format check.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/empresa.py
+      lines: "29-35"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: tempo_atualizacao likely the client refresh cadence for bed/alert polling.
+
+  - id: RULE-acesso-BE-04-012
+    name: Access group must belong to exactly one scope (empresa XOR estabelecimento XOR setor)
+    category: data-validation
+    type: validation
+    status: OK
+    description: >
+      A GrupoAcesso must be attached to exactly one of empresa, estabelecimento, or setor; its backing Django Group name is generated and must be unique.
+    inputs:
+      - name: empresa
+        type: FK|null
+        unit: null
+        range: null
+      - name: estabelecimento
+        type: FK|null
+        unit: null
+        range: null
+      - name: setor
+        type: FK|null
+        unit: null
+        range: null
+      - name: nome
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: grupo (Django Group)
+        type: Group
+        unit: null
+    logic: |
+      three_xor(bool(empresa), bool(estabelecimento), bool(setor)) must be True, where
+        three_xor(a,b,c) = (not a and (b ^ c)) or (a and not (b or c))  # exactly one truthy
+      else raise ValidationError({"data":"Inconsistência de dados!"}).
+      group_name = generate_group_name(pk_of_scope_model, nome) = "%s-%s" % (nome, pk)
+        where pk_of_scope_model = the .get_pk of whichever of empresa/estabelecimento/setor is set.
+      if (not self.exists) and Group.objects.filter(name=group_name).exists():
+          raise ValidationError({"nome":"Já existe outro grupo de acesso com este nome."})
+      if grupo_id is None: create Group(name=group_name) else rename existing grupo.
+      delete() always calls super().delete(force_delete=True).
+    edge_cases: >
+      Uniqueness check only runs on create (not self.exists). Group name collision uses the composed "nome-pk" string, so uniqueness is scoped by the foreign object's pk.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/grupo_acesso.py
+      lines: "108-138"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: three_xor defined in core/utils.py:145 (out of partition). Also declares an (unused-by-Django) UniqueTogether helper listing (empresa,nome)/(estabelecimento,nome)/(setor,nome).
+
+  - id: RULE-indicador-BE-04-018
+    name: Indicator payload validated by type-specific serializer at save
+    category: data-validation
+    type: validation
+    status: OK
+    description: Before persisting an Indicador, its JSON `dados` is validated against a serializer chosen by `tipo`.
+    inputs:
+      - name: tipo
+        type: string
+        unit: null
+        range: "interacao_notificacao|entrada_videochamada"
+      - name: dados
+        type: json
+        unit: null
+        range: null
+    outputs:
+      - name: persisted_indicador
+        type: Indicador
+        unit: null
+    logic: |
+      switch_validators = {
+        "interacao_notificacao": InteracaoNotificacaoSerializer,
+        "entrada_videochamada": EntradaVideochamadaSerializer,
+      }
+      serializer = switch_validators.get(tipo)(data=dados.copy())
+      serializer.is_valid(raise_exception=True)
+      super().save()
+    edge_cases: >
+      If tipo not in the map, switch_validators.get(tipo) is None and calling None(data=...) raises TypeError (unhandled). dados defaults to {} .
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/indicador.py
+      lines: "15-24"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Serializers live in core.api.v1.serializers (out of partition).
+
+  - id: RULE-usuario-BE-04-019
+    name: Auto-hash plaintext password on user save
+    category: data-validation
+    type: workflow
+    status: OK
+    description: On saving a Usuario, if the stored password is not already a recognized hash, it is hashed.
+    inputs:
+      - name: password
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: hashed_password
+        type: string
+        unit: null
+    logic: |
+      try: identify_hasher(self.password)      # raises ValueError if not a known hash format
+      except ValueError: self.set_password(self.password)  # hash it
+      super().save()
+    edge_cases: >
+      If password already hashed, left untouched (prevents double-hashing). No None-guard: identify_hasher(None) would raise (caught as ValueError? actually TypeError) — but Usuario.password is required by AbstractBaseUser.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/usuario.py
+      lines: "99-104"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Usuario also enforces cpf unique (max_length=11), username unique with UnicodeUsernameValidator, pin default=settings.PIN_DEFAULT.
+
+  - id: RULE-acesso-BE-04-031
+    name: User-company membership grants 'u' access and cascades group cleanup
+    category: billing-administrative
+    type: workflow
+    status: OK
+    description: >
+      Linking a user to a company adds the 'u' access code; unlinking removes that company's access-group memberships and drops 'u' when the user belongs to no company.
+    inputs:
+      - name: usuario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: empresa
+        type: Empresa FK
+        unit: null
+        range: null
+    outputs:
+      - name: usuario.acessos / group memberships
+        type: side-effect
+        unit: null
+    logic: |
+      UsuarioEmpresa unique_together(usuario, empresa).
+      save(): if "u" not in usuario.acessos: append "u"; save usuario.
+      post_delete(UsuarioEmpresa):
+        delete UsuarioGrupoAcesso where usuario=instance.usuario AND grupo.empresa=instance.empresa
+        if not usuario.empresas.exists():
+            usuario.acessos = [a for a in acessos if a != "u"]; save
+    edge_cases: Cascade only removes empresa-scoped groups; establishment/sector groups handled by their own signals.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/usuario_empresa.py
+      lines: "19-38"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-acesso-BE-04-032
+    name: Establishment membership auto-creates company membership; delete cleans groups
+    category: billing-administrative
+    type: workflow
+    status: OK
+    description: Assigning a user to an establishment auto-creates the parent company membership; removing it deletes that establishment's group memberships.
+    inputs:
+      - name: usuario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: estabelecimento
+        type: Estabelecimento FK
+        unit: null
+        range: null
+    outputs:
+      - name: UsuarioEmpresa / group memberships
+        type: side-effect
+        unit: null
+    logic: |
+      UsuarioEstabelecimento unique_together(usuario, estabelecimento).
+      save(): if not UsuarioEmpresa.exists(usuario, estabelecimento.empresa):
+                 create UsuarioEmpresa(usuario, estabelecimento.empresa).save()
+              super().save()
+      post_delete: delete UsuarioGrupoAcesso where usuario=... AND grupo.estabelecimento=instance.estabelecimento
+    edge_cases: Creating UsuarioEmpresa here transitively triggers RULE-031 ('u' grant).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/usuario_estabelecimento.py
+      lines: "20-40"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-acesso-BE-04-033
+    name: Sector membership auto-creates establishment membership; delete cleans groups
+    category: billing-administrative
+    type: workflow
+    status: OK
+    description: Assigning a user to a sector auto-creates the parent establishment membership; removing it deletes that sector's group memberships.
+    inputs:
+      - name: usuario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: setor
+        type: Setor FK
+        unit: null
+        range: null
+    outputs:
+      - name: UsuarioEstabelecimento / group memberships
+        type: side-effect
+        unit: null
+    logic: |
+      UsuarioSetor unique_together(usuario, setor).
+      @transaction.atomic save():
+        if not UsuarioEstabelecimento.exists(usuario, setor.estabelecimento):
+            create UsuarioEstabelecimento(usuario, setor.estabelecimento).save()
+        super().save()
+      post_delete: delete UsuarioGrupoAcesso where usuario=... AND grupo.setor=instance.setor
+    edge_cases: "Chains upward: sector -> establishment (RULE-032) -> company (RULE-031)."
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/usuario_setor.py
+      lines: "20-39"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-acesso-BE-04-034
+    name: User must belong to a group's scope before joining that access group
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: >
+      Adding a user to an access group requires the user already be a member of the group's empresa/estabelecimento/setor scope; otherwise validation fails.
+    inputs:
+      - name: usuario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: grupo
+        type: GrupoAcesso FK
+        unit: null
+        range: null
+    outputs:
+      - name: valid_membership
+        type: bool
+        unit: null
+    logic: |
+      UsuarioGrupoAcesso unique_together(usuario, grupo).
+      save():
+        if grupo.empresa and not grupo.empresa.usuarios.filter(pk=usuario_pk).exists():
+            raise ValidationError({"usuario":"Usuário não pertence a está empresa"})
+        if grupo.estabelecimento and not grupo.estabelecimento.usuarios.filter(pk=usuario_pk).exists():
+            raise ValidationError({"usuario":"Usuário não pertence a este estabelecimento"})
+        if grupo.setor and not grupo.setor.usuarios.filter(pk=usuario_pk).exists():
+            raise ValidationError({"usuario":"Usuário não pertence a este setor"})
+        super().save(*args, *kwargs)   # <-- BUG: *kwargs (positional) instead of **kwargs
+    edge_cases: >
+      DISCREPANCY: line 38 calls super().save(*args, *kwargs) — the second splat is *kwargs (positional unpacking of a dict yields its keys), not **kwargs; passing keyword save args (e.g. force_insert) would break. Functions correctly only when called with no kwargs.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/usuario_grupo_acesso.py
+      lines: "18-38"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Recorded verbatim per instructions; the *kwargs typo is a latent defect.
+
+  # ============================ BED (LEITO) ALERTS & PATHWAYS ============================
+  - id: RULE-alerta-BE-04-013
+    name: Bed alert color aggregation (with sepse LARANJA override)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: >
+      Computes a bed's overall alert color from its pathway alerts; an interactive sepse alert of LARANJA (automatic beds) takes top priority, else VERMELHO > AMARELO > NEUTRO among un-attended pathways.
+    inputs:
+      - name: pathway alerts
+        type: list[str]
+        unit: null
+        range: "VERMELHO|AMARELO|NEUTRO|LARANJA"
+      - name: tipo (bed)
+        type: string
+        unit: null
+        range: "homecare|automatica"
+    outputs:
+      - name: alerta
+        type: string
+        unit: null
+    logic: |
+      Trilhas = homecare set if tipo==homecare, automatic set if tipo==automatica, else raise ValidationError.
+      alerta = ""; trilhas = []
+      for each pathway t (latest via get_trilha):
+        if t.alerta in ("VERMELHO","AMARELO") and t.assistido is False: trilhas.append(t.alerta)
+        if t.tipo=="sepse" and bed.tipo=="automatica": alerta = t.alerta_trilha_interativa
+      if alerta != "LARANJA":
+        if "VERMELHO" in trilhas: alerta="VERMELHO"
+        elif "AMARELO" in trilhas: alerta="AMARELO"
+        else: alerta="NEUTRO"
+      return alerta
+    edge_cases: >
+      Only un-attended (assistido is False) VERMELHO/AMARELO pathways count toward escalation. LARANJA (interactive sepse) is preserved and overrides everything. Called from Leito.save (only when ocupado) storing into Leito.alerta.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "246-280"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: get_trilha (utils/trilha.py) fetches latest pathway record by nr_atendimento. LARANJA is a fourth color beyond the {VERMELHO,AMARELO,NEUTRO} triad used elsewhere.
+
+  - id: RULE-alerta-BE-04-014
+    name: Automatic-bed alert ignoring attendance (severity precedence)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: Highest-severity alert among an automatic bed's pathways, disregarding whether they were attended.
+    inputs:
+      - name: pathway alerts
+        type: list[str]
+        unit: null
+        range: "VERMELHO|AMARELO|NEUTRO"
+    outputs:
+      - name: alerta_nao_assistido
+        type: string
+        unit: null
+    logic: |
+      alertas = [t.alerta for each pathway t where t and t.alerta != "NEUTRO"] (only if bed.ocupado)
+      if alertas:
+        if "VERMELHO" in alertas: "VERMELHO"
+        elif "AMARELO" in alertas: "AMARELO"
+        else: "NEUTRO"
+      else: "" (empty string)
+    edge_cases: Returns "" when no non-neutral pathways (or bed empty). Stored to Leito.alerta_nao_assistido in save() when tipo=="automatica" and ocupado.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "457-480"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-alerta-BE-04-015
+    name: Homecare-bed alert ignoring attendance (PioraClinica + Sepse)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: Highest-severity alert among a homecare bed's PioraClinica and Sepse pathways, disregarding attendance.
+    inputs:
+      - name: PioraClinica.alerta
+        type: string
+        unit: null
+        range: "VERMELHO|AMARELO|NEUTRO"
+      - name: Sepse.alerta
+        type: string
+        unit: null
+        range: "VERMELHO|AMARELO|NEUTRO"
+    outputs:
+      - name: alerta_nao_assistido
+        type: string
+        unit: null
+    logic: |
+      piora = latest PioraClinica by (sinais_vitais.balanco.leito==self, nr_atendimento) or NEUTRO stub.
+      sepse = latest Sepse by nr_atendimento or NEUTRO stub.
+      alertas = [d.alerta for d in (piora_dict, sepse_dict) if d.alerta in ("VERMELHO","AMARELO")]
+      if alertas: VERMELHO if "VERMELHO" in alertas elif "AMARELO" else NEUTRO
+      else: "" (empty)
+    edge_cases: Missing records default to a NEUTRO stub dict. Stored to Leito.alerta_nao_assistido when tipo=="homecare" and ocupado.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "653-707"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-trilha-BE-04-016
+    name: Automatic-bed pathway composition (v3 + v2 model sets)
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    description: >
+      Which automatic care-pathway models are evaluated for an automatic bed = the v3 set followed by the v2 set; several legacy pathways are commented out.
+    inputs:
+      - name: none (static composition)
+        type: null
+        unit: null
+        range: null
+    outputs:
+      - name: pathway model list
+        type: list[Model]
+        unit: null
+    logic: |
+      get_trilhas_automaticas() = get_trilhas_automaticas_v3() + get_trilhas_automaticas_v2()
+      v3 = [TrilhaSedacaoV3Model, TrilhaEficienciaV3Model, TrilhaEstabilidadeV3Model,
+            TrilhaSepseV3Model, TrilhaProfilaxiaV3Model]
+      v2 = [TrilhaVentilacaoModel, TrilhaAntimicrobianoModel, TrilhaNutricaoModel,
+            TrilhaEquilibrioModel, TrilhaGlozaZeroModel]
+      # commented out in v2: TrilhaSedacaoModel, TrilhaEstabilizacaoModel, TrilhaSEPSEModel, TrilhaProfilaxiasModel
+    edge_cases: Order matters for first-match patient derivation (RULE-paciente-BE-04-020). v3 sedacao/estabilidade/sepse/profilaxia supersede their commented-out v2 equivalents.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "134-163"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      DISCREPANCY flag reflects the v2/v3 duplication and disabled models — engineers must treat v3 variants as canonical. Pathway models live in trilha_automatica.models (out of partition).
+
+  - id: RULE-trilha-BE-04-017
+    name: Homecare-bed pathway composition
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Homecare beds evaluate exactly two pathway models — PioraClinica and Sepse.
+    inputs:
+      - name: none (static)
+        type: null
+        unit: null
+        range: null
+    outputs:
+      - name: pathway model list
+        type: list[Model]
+        unit: null
+    logic: |
+      get_trilhas_homecare() = [PioraClinica, Sepse]  (from trilha_homecare.models)
+    edge_cases: >
+      Homecare bed detail/payload additionally injects static NEUTRO stub cards for PrescricaoContinua, BalancoHidrico, Formulario, Ventilação, and Eficiência (display-only, not scored).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "165-167"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Static stub cards at leito.py lines 521-546 / 585-608.
+
+  - id: RULE-paciente-BE-04-020
+    name: Bed patient resolution and auto-creation
+    category: triage-eligibility
+    type: decision-tree
+    status: OK
+    description: >
+      Resolves the Paciente for a bed by attendance number, falling back to an external Oracle patient record, then to pathway-embedded demographics, creating a Paciente row when found.
+    inputs:
+      - name: nr_atendimento
+        type: string
+        unit: null
+        range: null
+      - name: ocupado
+        type: bool
+        unit: null
+        range: null
+    outputs:
+      - name: Paciente (or {})
+        type: Paciente|dict
+        unit: null
+    logic: |
+      paciente = Paciente.objects.filter(nr_atendimento__isnull=False, nr_atendimento=self.nr_atendimento).first()
+      if not paciente:
+        paciente = {}
+        if self.ocupado:
+          oracle = InfoPaciente.objects.using("oracle").filter(NR_ATENDIMENTO=self.nr_atendimento).first()
+          if oracle:
+            create Paciente(nome=NM_PESSOA_FISICA, nr_atendimento=NR_ATENDIMENTO,
+                            data_nascimento=DT_NASCIMENTO, genero=IE_SEXO, nome_mae=NM_MAE)
+          else:
+            for Trilha in get_trilhas_automaticas() (v3+v2, in order):
+              trilha = get_trilha(Trilha, self, "automatica")
+              if trilha:
+                if trilha NOT in v3 set: fields from trilha.ds_paciente/nr_atendimento/dt_nascimento/ie_sexo
+                else: fields from trilha.paciente.{nome,nr_atendimento,data_nascimento,genero,nome_mae}
+                create Paciente(**fields); break   # first matching pathway wins
+      return paciente
+    edge_cases: >
+      Cross-database read on the "oracle" connection. v2 pathways expose flat ds_paciente/ie_sexo; v3 pathways expose a nested .paciente. Returns {} if bed empty and no source found.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "189-244"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Called in Leito.save() to set self.paciente.
+
+  - id: RULE-alerta-BE-04-021
+    name: Bed "attended" (assistido) determination
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: >
+      Determines whether an occupied bed is fully attended: every non-NEUTRO pathway must be attended; a bed with only NEUTRO pathways is treated as not attended.
+    inputs:
+      - name: pathway (alerta, assistido)
+        type: list[(str,bool)]
+        unit: null
+        range: null
+      - name: tipo
+        type: string
+        unit: null
+        range: "automatica|homecare"
+    outputs:
+      - name: assistido
+        type: bool
+        unit: null
+    logic: |
+      if tipo=="automatica":
+        assistido=True; neutro=True
+        if ocupado:
+          for each pathway t:
+            if t.alerta != "NEUTRO":
+              neutro=False
+              if not t.assistido: return False
+              assistido = assistido and t.assistido
+        return assistido if not neutro else False
+      elif tipo=="homecare":
+        assistidos = [t.assistido for pathway t if t and t.alerta != "NEUTRO"]
+        return bool(assistidos and not assistidos.count(False))
+    edge_cases: >
+      All-NEUTRO bed => not attended (returns False). Homecare: returns False if list empty OR any False. Empty/unoccupied bed => False for automatica (neutro stays True).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "818-848"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Same "NEUTRO present and >1 distinct color" nuance recomputed differently in RULE-022.
+
+  - id: RULE-alerta-BE-04-022
+    name: Automatic-bed payload alert + attendance flag
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: >
+      Builds an automatic bed's payload: overall alert = most severe un-attended pathway color; attended flag requires NEUTRO present alongside at least one other distinct color.
+    inputs:
+      - name: pathway payloads (alerta, assistido)
+        type: list[dict]
+        unit: null
+        range: null
+    outputs:
+      - name: payload.alerta
+        type: string
+        unit: null
+      - name: payload.assistido
+        type: bool
+        unit: null
+    logic: |
+      for each pathway t (if ocupado): cor_alertas.add(t.alerta); if t.alerta!="NEUTRO": assistido = assistido and t.assistido
+      alertas = [t.alerta for t in trilhas if t.alerta in ("VERMELHO","AMARELO") and t.assistido is not True]
+      if alertas: alertas.sort(); payload.alerta = alertas[-1]   # alphabetical: VERMELHO > AMARELO
+      else: payload.alerta = self.alerta
+      payload.assistido = assistido if ("NEUTRO" in cor_alertas and len(cor_alertas) != 1) else False
+    edge_cases: >
+      alertas.sort() then [-1] yields VERMELHO before AMARELO (alphabetical V>A). attendance False if the only color present is NEUTRO OR if no NEUTRO at all (len==1 guard). Also attaches micro_indicadores + procedimentos_invasivos from MicroIndicadores by (NR_ATENDIMENTO, CD_UNIDADE==bed name).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "390-455"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Homecare analog at leito.py 548-651 uses self.alerta fallback and same sort()/[-1] selection.
+
+  - id: RULE-alerta-BE-04-023
+    name: Aggregate alert counts across movimentacoes
+    category: alert-threshold
+    type: scoring
+    status: OK
+    description: >
+      Counts beds/movimentacoes by worst manual-pathway alert (sepse/ventilacao/sedacao/estabilidade), VERMELHO precedence.
+    inputs:
+      - name: ids_movimentacoes
+        type: list[uuid]
+        unit: null
+        range: null
+    outputs:
+      - name: counts {NEUTRO, AMARELO, VERMELHO}
+        type: dict[str,int]
+        unit: null
+    logic: |
+      for each movimentacao's tuple of (trilha_sepse.alerta, trilha_ventilacao.alerta, trilha_sedacao.alerta, trilha_estabilidade.alerta):
+        if "VERMELHO" in tuple: VERMELHO += 1
+        elif "AMARELO" in tuple: AMARELO += 1
+        else: NEUTRO += 1
+    edge_cases: A movimentacao with all-null pathway alerts counts as NEUTRO. Only these four manual pathways considered (not antimicrobiano/nutricao/etc).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "709-736"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: get_total_alertas_automaticos (738-762) instead counts by leito.alerta_nao_assistido; get_total_generos_e_alertas_automaticos (764-816) additionally tallies genero {M,F,N,O}.
+
+  # ============================ MOVIMENTACAO MODEL DERIVATIONS ============================
+  - id: RULE-movimentacao-BE-04-024
+    name: Length-of-stay (tempo de permanência / dias de internação)
+    category: physiological-calculation
+    type: formula
+    status: OK
+    description: Days elapsed since admission (data_entrada) used as tempo_permanencia and dias de internação.
+    inputs:
+      - name: data_entrada
+        type: datetime
+        unit: null
+        range: null
+    outputs:
+      - name: dias
+        type: integer
+        unit: days
+    logic: |
+      tempo_permanencia = diferenca_dias(self.data_entrada.date())
+        where diferenca_dias(entrada) = (timezone.now().date() - entrada).days
+      buscar_dias_internacao = diferenca_dias(data_entrada.date()) if data_entrada else 0
+    edge_cases: Uses .date() so partial days are truncated (whole-day difference). No data_entrada => tempo_permanencia raises AttributeError (only buscar_dias_internacao guards None with 0).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/movimentacao.py
+      lines: "73-103"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: diferenca_dias in utils/handlers.py:63 (out of partition).
+
+  - id: RULE-movimentacao-BE-04-025
+    name: Fixed -3h display offset for prontuario timestamps
+    category: scheduling-operational
+    type: formula
+    status: DISCREPANCY
+    description: Historical prontuario data timestamps are shifted by −3 hours before formatting for display.
+    inputs:
+      - name: dados.criado_em
+        type: datetime
+        unit: null
+        range: null
+    outputs:
+      - name: data label
+        type: string ("%Y-%m-%d %H:%M")
+        unit: null
+    logic: |
+      for each prior prontuario record: label = strftime(dados.criado_em - timedelta(hours=3), "%Y-%m-%d %H:%M")
+    edge_cases: >
+      Hardcoded 3-hour subtraction (Brazil UTC−3) rather than a timezone conversion; would be wrong during daylight-saving periods or in other regions.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/movimentacao.py
+      lines: "105-119"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: DISCREPANCY — naive fixed offset vs proper tz-aware conversion.
+
+  - id: RULE-movimentacao-BE-04-026
+    name: Movimentacao micro-indicators payload (VM / noradrenalina / sedação)
+    category: clinical-scoring
+    type: formula
+    status: OK
+    description: >
+      Bed/movimentacao payload surfaces four ICU micro-indicators: length of stay, mechanical ventilation, noradrenaline (vasopressor) use, and sedation presence.
+    inputs:
+      - name: dados_prontuario
+        type: DadosProntuario
+        unit: null
+        range: null
+    outputs:
+      - name: micro_indicadores
+        type: dict
+        unit: null
+    logic: |
+      vm       = dados_prontuario.verificar_uso_ventilacao_mecanica
+      dva      = dados_prontuario.verificar_uso_noradrenalina
+      sedacao  = dados_prontuario.verificar_existencia_sedativos
+      payload.micro_indicadores = {
+        "tempo_internacao": tempo_permanencia,
+        "ventilacao_mecanica": vm,
+        "noradrenalina": dva,
+        "sedacao": sedacao,
+      }
+      alerta_movimentacao default "NEUTRO" (max_length 8); atual default True.
+    edge_cases: The verificar_* implementations live in trilha_manual.models.DadosProntuario (out of partition).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/movimentacao.py
+      lines: "77-143"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: dva = droga vasoativa (noradrenaline as vasopressor marker).
+
+  # ============================ NOTIFICATION / OBSERVATION / REACTION ============================
+  - id: RULE-notificacao-BE-04-027
+    name: Notification fan-out to all sector users on creation
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: Creating a Notificacao generates one UsuarioNotificacao (unread) per user in the observation's sector and dispatches a websocket task.
+    inputs:
+      - name: observacao.setor.usuarios
+        type: queryset[Usuario]
+        unit: null
+        range: null
+    outputs:
+      - name: UsuarioNotificacao rows + ws task
+        type: side-effect
+        unit: null
+    logic: |
+      @transaction.atomic save():
+        if not exists (new):
+          bulk_create UsuarioNotificacao(notificacao=self, usuario=u) for u in observacao.setor.usuarios.all()
+        super().save()
+        if new: tasks.notificacao_ws_trilha.delay(self.pk)
+    edge_cases: Fan-out and ws dispatch only on first save (not updates). UsuarioNotificacao.visto defaults False; unique_together(notificacao,usuario).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/notificacao.py
+      lines: "15-30"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-observacao-BE-04-028
+    name: Observation auto-creates a notification and routes by target
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: >
+      A newly created Observacao with a sector spawns a Notificacao; its websocket message type is "leito" if bound to a bed, else "setor".
+    inputs:
+      - name: setor
+        type: Setor FK
+        unit: null
+        range: null
+      - name: leito
+        type: Leito FK|null
+        unit: null
+        range: null
+    outputs:
+      - name: Notificacao + tipo_mensagem
+        type: side-effect/string
+        unit: null
+    logic: |
+      @transaction.atomic save():
+        if (not exists) and setor is not None:
+            Notificacao(observacao=self).save()   # triggers RULE-027
+        super().save()
+      tipo_mensagem = "leito" if self.leito else "setor"
+      Meta.ordering = ["-criado_em"] (newest first)
+    edge_cases: No notification if setor is None or on update. Observacao also stores paciente_automatica/paciente_homecare JSON snapshots and a conteudo JSON array.
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/observacao.py
+      lines: "72-108"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-reacao-BE-04-029
+    name: One reaction per user per observation + unread-counter side effect
+    category: scheduling-operational
+    type: validation
+    status: OK
+    description: A user may have at most one reaction on a given observation; saving/deleting a reaction adjusts Firebase unread-message counters.
+    inputs:
+      - name: observacao
+        type: Observacao FK
+        unit: null
+        range: null
+      - name: usuario
+        type: Usuario FK
+        unit: null
+        range: null
+      - name: emoji
+        type: string
+        unit: null
+        range: "sorriso|choro|aprovacao|reprovacao|forca|gratidao|coracao"
+    outputs:
+      - name: Reacao (unique) + firebase counter
+        type: side-effect
+        unit: null
+    logic: |
+      unique_together(observacao, usuario).
+      _trigger_firebase(): if reduzir_qtd(observacao):
+          send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, False, True)
+        else:
+          send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, True)
+      Called on both save() and delete().
+    edge_cases: Counter side-effect fires on every save and delete (idempotency depends on reduzir_qtd).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/reacao.py
+      lines: "8-43"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Emoji enum from ReacaoChoices.emoji().
+
+  # ============================ MOVIMENTACAO USE-CASES ============================
+  - id: RULE-movimentacao-BE-04-035
+    name: Discharge (baixa) — only the current movimentacao can be closed
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: Closing a movimentacao is permitted only if it is the current one; it records discharge fields and frees the bed.
+    inputs:
+      - name: movimentacao (pk)
+        type: uuid
+        unit: null
+        range: null
+      - name: motivo_baixa
+        type: string
+        unit: null
+        range: null
+      - name: data_saida
+        type: date
+        unit: null
+        range: null
+      - name: encerrado_por
+        type: Usuario
+        unit: null
+        range: null
+    outputs:
+      - name: closed movimentacao + freed bed
+        type: side-effect
+        unit: null
+    logic: |
+      movimentacao = get_object_or_404(Movimentacao, pk)
+      if movimentacao.atual:
+          set motivo_baixa, data_saida, encerrado_por; atual=False; save
+      else:
+          raise ValidationError({"ultima_movimentacao":"a movimentação enviada não é a ultima movimentação"})
+      leito = movimentacao.leito; leito.ocupado=False; leito.save()
+    edge_cases: 404 if movimentacao not found. Freeing the bed re-triggers Leito.save alert recomputation (alerta set to None when not ocupado).
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/movimentacao/baixa_movimentacao.py
+      lines: "23-48"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Constructor param misspelled "movito_baixa"; behavior unaffected.
+
+  - id: RULE-movimentacao-BE-04-036
+    name: New movimentacao — carry-forward of clinical data from previous
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: >
+      Creating a subsequent movimentacao deactivates the prior one and clones its prontuario and clinical sub-records (noradrenalina, PCR, ventilação, sedativos, SOFA), applying any newly supplied values, then regenerates pathways.
+    inputs:
+      - name: dados_prontuario (dict incl. ultima_movimentacao, movimentacao, noradrenalina, parada_cardiorrespiratoria, sedativos, ventilacao_mecanica)
+        type: dict
+        unit: null
+        range: null
+    outputs:
+      - name: new DadosProntuario + sub-records + trilhas
+        type: side-effect
+        unit: null
+    logic: |
+      order: get_atributos -> get_ultima_movimentacao(404) -> get_movimentacao(404)
+        -> desativar_ultima_movimentacao (ultima.atual=False)
+        -> gerar_novo_dado_prontuario: clone DadosProntuario(pk of ultima_movimentacao.id) with id/pk=None,
+             movimentacao=new, save; then apply new data via DadosProntuarioSerializer(instance=clone)
+        -> for noradrenalina/parada/ventilacao: if new==empty dict skip; else clone prior tuple
+             (trocar_prontuario_do_atributo) then update with new data if provided
+        -> sedativos: if list provided create each; elif prior sedativos exist clone all
+        -> gerar_novo_escore_sofa: clone prior SOFA, call sofa.atualizar_atributos_sofa(), save
+        -> gerar_trilhas: CriarTrilhas(new prontuario)
+        -> atualizar_alerta_movimentacao(new.movimentacao.pk)
+    edge_cases: >
+      Cloning uses id=None/pk=None to force INSERT. gerar_novo_dado_prontuario fetches DadosProntuario by ultima_movimentacao.id (assumes shared pk with prontuario). Empty {} / [] payloads are treated as "no new data, keep clone".
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/movimentacao/cadastrar_nova_movimentacao.py
+      lines: "47-231"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: >
+      Serializers/models (trilha_manual) out of partition. SOFA regeneration re-runs the scoring via atualizar_atributos_sofa (defined out of partition). Pairs with RULE-039 (pathway creation) and RULE-alerta-BE-04-013 (alert recompute).
+
+  - id: RULE-movimentacao-BE-04-037
+    name: First movimentacao — admission occupies the bed
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: >
+      First admission creates the prontuario and optional clinical sub-records, assembles the SOFA score inputs, marks the bed occupied, then creates pathways and updates the alert.
+    inputs:
+      - name: dados_prontuario (dict, may include noradrenalina/parada/sedativos/ventilacao)
+        type: dict
+        unit: null
+        range: null
+    outputs:
+      - name: DadosProntuario + SOFA + occupied bed + trilhas
+        type: side-effect
+        unit: null
+    logic: |
+      order: get_atributos -> create DadosProntuario (serializer)
+        -> if noradrenalina: create; if parada: create; for each sedativo: create; if ventilacao: create
+        -> __criar_escore_sofa (RULE-sofa-BE-04-038)
+        -> alterar_status_leito: leito.ocupado=True; save   (triggers Leito.save alert recompute)
+        -> CriarTrilhas(prontuario) -> atualizar_alerta_movimentacao(movimentacao.pk)
+    edge_cases: Sub-records created only if truthy payload present. Bed occupancy set BEFORE pathway/alert creation.
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/movimentacao/cadastrar_primeira_movimentacao.py
+      lines: "50-168"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-sofa-BE-04-038
+    name: SOFA score input assembly (first movimentacao)
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: >
+      Builds the input set for the SOFA organ-dysfunction score from prontuario data plus the noradrenaline dose, on first admission.
+    inputs:
+      - name: fio2
+        type: number
+        unit: fraction/percent
+        range: null
+      - name: po2
+        type: number
+        unit: mmHg
+        range: null
+      - name: plaquetas
+        type: number
+        unit: x10^3/µL
+        range: null
+      - name: bilirrubinas
+        type: number
+        unit: mg/dL
+        range: null
+      - name: pam
+        type: number
+        unit: mmHg
+        range: null
+      - name: dobutamina
+        type: number
+        unit: dose
+        range: null
+      - name: glasgow
+        type: integer
+        unit: GCS points
+        range: "3-15 (not enforced here)"
+      - name: debito_urinario_24h
+        type: number
+        unit: mL/24h
+        range: null
+      - name: creatinina
+        type: number
+        unit: mg/dL
+        range: null
+      - name: noradrenalina
+        type: number
+        unit: dose (quantidade)
+        range: null
+    outputs:
+      - name: SOFA record
+        type: model
+        unit: null
+    logic: |
+      dados = {}
+      if prontuario has noradrenalina: dados["noradrenalina"] = prontuario.noradrenalina.quantidade
+      for item in [fio2, po2, plaquetas, bilirrubinas, pam, dobutamina, glasgow, debito_urinario_24h, creatinina]:
+          dados[item] = serializer.data.get(item)
+      SOFA.objects.create(dados_prontuario=prontuario.instance, **dados)
+      # on ValidationError -> raise {"escore_sofa": "...erro na criação do escore sofa..."}
+    edge_cases: >
+      The actual SOFA point computation happens inside the SOFA model (trilha_manual, out of partition). This rule captures WHICH variables feed SOFA and that noradrenaline dose is included only when a noradrenalina record exists.
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/movimentacao/cadastrar_primeira_movimentacao.py
+      lines: "132-159"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      SOFA components implied: PaO2/FiO2 (po2,fio2), platelets, bilirubin, MAP+vasopressors (pam, dobutamina, noradrenalina), GCS (glasgow), renal (creatinina, debito_urinario_24h). NovaMovimentacao instead clones+recalculates prior SOFA via atualizar_atributos_sofa (RULE-036).
+
+  - id: RULE-trilha-BE-04-039
+    name: Manual pathway set created per movimentacao
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: Each prontuario spawns exactly four manual care pathways.
+    inputs:
+      - name: dados_prontuario
+        type: DadosProntuario
+        unit: null
+        range: null
+    outputs:
+      - name: 4 pathway rows
+        type: side-effect
+        unit: null
+    logic: |
+      trilhas = [TrilhaEstabilidade, TrilhaSedacao, TrilhaSepse, TrilhaVentilacao]
+      for trilha in trilhas: trilha.objects.create(dados_prontuario=dados_prontuario)
+        on ValidationError -> raise {"<trilha>": "Ocorreu um erro na criação da <trilha>: ..."}
+    edge_cases: Antimicrobiano/Nutricao/Equilibrio/etc are NOT created here (those are automatic-bed pathways). Ordered creation.
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/trilhas/criar_trilhas.py
+      lines: "24-38"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Pathway models in trilha_manual.models (out of partition).
+
+  - id: RULE-paciente-BE-04-040
+    name: Patient creation wrapper
+    category: data-validation
+    type: workflow
+    status: OK
+    description: CadastrarPaciente validates and creates a Paciente, returning its pk; invalid input raises a domain error.
+    inputs:
+      - name: paciente (dict)
+        type: dict
+        unit: null
+        range: null
+    outputs:
+      - name: paciente_pk
+        type: uuid (string)
+        unit: null
+    logic: |
+      try: create via PacienteSerializer
+      except ValidationError: raise {"paciente":"paciente deve ser um dicionário com os dados do paciente"}
+      return str(instance.pk)
+    edge_cases: Thin wrapper; validation delegated to PacienteSerializer.
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/paciente/cadastrar_paciente.py
+      lines: "7-18"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: null
+
+  # ============================ VALIDATORS ============================
+  - id: RULE-validation-BE-04-041
+    name: Entry date must not be in the future
+    category: data-validation
+    type: validation
+    status: OK
+    description: Validates a datetime string against an expected format and rejects future dates.
+    inputs:
+      - name: data
+        type: string (datetime)
+        unit: null
+        range: "must parse with formato_esperado (default %Y-%m-%dT%H:%M:%S)"
+    outputs:
+      - name: valid | ValidationError
+        type: bool
+        unit: null
+    logic: |
+      data = datetime.strptime(self.data, formato_esperado).replace(tzinfo=pytz.utc)
+        on ValueError -> raise {"data_entrada": "Favor enviar a data no formato <formato>"}
+      if data and data > timezone.now(): raise {"data_entrada": "Data de entrada não pode ser futura"}
+    edge_cases: >
+      Parsed as UTC regardless of source tz. Error key is always "data_entrada" even when validating other dates. all([data, data>now]) — data is always truthy after parse.
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/validators/data.py
+      lines: "19-34"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-validation-BE-04-042
+    name: Bed eligibility for manual movimentacao
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: A manual admission is blocked on automatic-type beds and on already-occupied beds.
+    inputs:
+      - name: leito (pk)
+        type: uuid
+        unit: null
+        range: null
+    outputs:
+      - name: valid | ValidationError
+        type: bool
+        unit: null
+    logic: |
+      leito = get_object_or_404(Leito, pk)
+      if leito.tipo == "automatica": raise ValidationError("Não é possível alterar um leito automático!")
+      if leito.ocupado: raise ValidationError("Leito já se encontra ocupado!")
+    edge_cases: 404 if bed not found. Only "automatica" blocked (homecare/manual allowed).
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/validators/leito.py
+      lines: "13-27"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-validation-BE-04-043
+    name: Birthdate must not be in the future + patient payload required
+    category: data-validation
+    type: validation
+    status: OK
+    description: Patient data is required and the birthdate (YYYY-MM-DD) cannot be a future date.
+    inputs:
+      - name: paciente.data_nascimento
+        type: string (date)
+        unit: null
+        range: "%Y-%m-%d"
+    outputs:
+      - name: valid | ValidationError
+        type: bool
+        unit: null
+    logic: |
+      if not request.data.get("paciente"): raise {"paciente":"O envio dos dados do paciente é obrigatório"}
+      data_nascimento = datetime.strptime(paciente["data_nascimento"], "%Y-%m-%d").replace(tzinfo=pytz.utc)
+      if data_nascimento and data_nascimento > timezone.now():
+          raise {"data_nascimento":"Data de nasicmento não pode ser futura"}
+    edge_cases: >
+      Missing/malformed data_nascimento raises unhandled TypeError/ValueError (no explicit guard). Error message typo "nasicmento".
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/validators/paciente.py
+      lines: "12-27"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-validation-BE-04-044
+    name: dados_prontuario payload required
+    category: data-validation
+    type: validation
+    status: OK
+    description: The request must contain a dados_prontuario key.
+    inputs:
+      - name: request.data
+        type: dict
+        unit: null
+        range: null
+    outputs:
+      - name: valid | ValidationError
+        type: bool
+        unit: null
+    logic: |
+      if "dados_prontuario" not in request.data:
+          raise {"dados_prontuario": "O envio de dados_prontuario é obrigatório"}
+    edge_cases: null
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/validators/dados_prontuario.py
+      lines: "9-13"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-validation-BE-04-045
+    name: Movimentacao creation composite validation
+    category: data-validation
+    type: validation
+    status: OK
+    description: Movimentacao creation runs bed, prontuario, patient, and (conditionally) entry-date validations together.
+    inputs:
+      - name: request, kwargs (leitos__pk)
+        type: mixed
+        unit: null
+        range: null
+    outputs:
+      - name: aggregated validation
+        type: side-effect
+        unit: null
+    logic: |
+      validations = [
+        LeitoValidation(kwargs["leitos__pk"]),          # RULE-042
+        DadosProntuarioValidation(request),             # RULE-044
+        PacienteValidation(request),                    # RULE-043
+      ]
+      if "data_entrada" in request.data:
+        validations.append(DataValidation(request.data["data_entrada"], "%Y-%m-%dT%H:%M:%S"))  # RULE-041
+      ValidationComposite(validations).validate()
+    edge_cases: DataValidation only added when data_entrada present (else defaults to timezone.now on the model).
+    source:
+      repo: ahlabs-trilhas
+      path: core/use_cases/validators/movimentacao.py
+      lines: "10-33"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Composite pattern via utils.composite (out of partition).
+
+  # ============================ FILTERS ============================
+  - id: RULE-filter-BE-04-046
+    name: Exclude entities already in a given access group
+    category: billing-administrative
+    type: eligibility
+    status: OK
+    description: >
+      Sector and user list filters support a `grupo` parameter that EXCLUDES records already belonging to that access group (i.e. surfaces candidates available to add).
+    inputs:
+      - name: grupo (id)
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: filtered queryset
+        type: queryset
+        unit: null
+    logic: |
+      SetorFilter.filter_grupo:  queryset.exclude(grupos_acessos=value)
+      UsuarioFilter.filter_grupo: queryset.exclude(grupos_acessos=value)
+    edge_cases: Excludes by group membership relation; value expected to be the group id.
+    source:
+      repo: ahlabs-trilhas
+      path: core/filters/setor.py
+      lines: "53-54"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Identical logic in core/filters/usuario.py lines 18-19.
+
+  - id: RULE-filter-BE-04-047
+    name: Observation-by-bed includes replies to that bed
+    category: scheduling-operational
+    type: validation
+    status: OK
+    description: Filtering observations by leito returns observations on that bed OR replies whose parent observation is on that bed.
+    inputs:
+      - name: leito (id)
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: filtered queryset
+        type: queryset
+        unit: null
+    logic: |
+      ObservacaoFilter.filter_leito: queryset.filter(Q(leito=value) | Q(resposta__leito=value))
+    edge_cases: Reply observations may have leito=null but are still included via their parent (resposta__leito).
+    source:
+      repo: ahlabs-trilhas
+      path: core/filters/observacao.py
+      lines: "19-20"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-filter-BE-04-048
+    name: Evolution (Formulario) full-day date-range filter
+    category: scheduling-operational
+    type: threshold
+    status: OK
+    description: >
+      Filters clinical evolution forms by professional and an inclusive full-day date range on dt_registro.
+    inputs:
+      - name: data_inicio
+        type: date
+        unit: null
+        range: null
+      - name: data_fim
+        type: date
+        unit: null
+        range: null
+      - name: profissional_id
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: filtered queryset
+        type: queryset
+        unit: null
+    logic: |
+      filter_data_inicio: dt_registro >= combine(value, time.min)          # 00:00:00.000000
+      filter_data_fim:    dt_registro <= combine(value, time.max)          # 23:59:59.999999
+      profissional_id -> preenchido_por_id exact.
+    edge_cases: Boundaries are naive datetimes (no tzinfo); inclusive on both ends.
+    source:
+      repo: ahlabs-trilhas
+      path: core/filters/evolucoes_empresa.py
+      lines: "6-29"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: Model Formulario in trilha_homecare.models (out of partition).
+
+  # ============================ MIXINS (RBAC / GATING) ============================
+  - id: RULE-acesso-BE-04-049
+    name: Scope-based RBAC permission dispatch
+    category: billing-administrative
+    type: decision-tree
+    status: OK
+    description: >
+      Enforces per-view permission requirements resolved against a configurable scope (empresa/estabelecimento/setor), with optional per-HTTP-method permissions and method-based bypass.
+    inputs:
+      - name: permission_trilhas
+        type: str | tuple/list of (str | (str, METHOD))
+        unit: null
+        range: null
+      - name: escopo
+        type: string
+        unit: null
+        range: "empresa|estabelecimento|setor (default empresa)"
+      - name: exceto_metodo
+        type: str | list/tuple
+        unit: null
+        range: null
+    outputs:
+      - name: allow | 403/404/400 error
+        type: HTTP response
+        unit: null
+    logic: |
+      dispatch():
+        if call_permission_mixin() and permission_trilhas is not None:
+          if request.method in exceto_metodo (case-insensitive): allow (super().dispatch)
+          if user.is_anonymous: 403 "Usuário não tem permissão..."
+          resolve required `permission`:
+            - str -> that permission
+            - tuple/list -> for each entry: if str set permission; if (perm, METHOD) and METHOD matches request.method -> permission=perm & break, else permission=""
+            - otherwise -> 400 "Permissão configurada incorretamente"
+          permissoes = switcher[escopo](user, getattr(request, escopo))
+            where switcher = {empresa:get_permissoes_empresa, estabelecimento:get_permissoes_estabelecimento, setor:get_permissoes_setor}
+            if getattr(request, escopo) is None -> 404 "<Escopo> não encontrado!"
+          if permission not in permissoes: 403
+        super().dispatch()
+    edge_cases: >
+      Tuple form with a matching (perm, METHOD) short-circuits; a bare string in the tuple sets permission for all methods. Empty permission "" (no method match) will fail the membership check -> 403. Scope object fetched via getattr(request, escopo).
+    source:
+      repo: ahlabs-trilhas
+      path: core/mixins/permissao.py
+      lines: "37-132"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: get_permissoes_* helpers in core.utils (out of partition). This is the live RBAC path (vs the dormant PermissaoChoices in RULE-008).
+
+  - id: RULE-acesso-BE-04-050
+    name: Company-context required for request
+    category: billing-administrative
+    type: validation
+    status: OK
+    description: Views using EmpresaRequiredMixin reject requests lacking a resolved company context with 404.
+    inputs:
+      - name: request.empresa
+        type: Empresa|None
+        unit: null
+        range: null
+    outputs:
+      - name: allow | 404
+        type: HTTP response
+        unit: null
+    logic: |
+      EmpresaRequiredMixin.dispatch: if not request.empresa -> 404 {"empresa":"Empresa não identificada"}; else super().dispatch()
+      ManageDataRequiredMixin.dispatch: on PUT/PATCH/POST, re-encode body utf-8 (fallback cp1252) then replace with json.dumps(manage_data(...)).
+    edge_cases: cp1252 fallback handles legacy-encoded payloads; body is fully rewritten before downstream parsing.
+    source:
+      repo: ahlabs-trilhas
+      path: core/mixins/view.py
+      lines: "7-41"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: request.empresa is injected by upstream middleware (out of partition).
+
+  # ============================ UNIQUENESS / STRUCTURAL CONSTRAINTS ============================
+  - id: RULE-data-BE-04-051
+    name: Uniqueness constraints across org hierarchy
+    category: data-validation
+    type: validation
+    status: OK
+    description: >
+      Composite uniqueness rules that structure the company > establishment > sector > bed hierarchy and identity fields.
+    inputs:
+      - name: hierarchy identifiers
+        type: mixed
+        unit: null
+        range: null
+    outputs:
+      - name: DB uniqueness
+        type: constraint
+        unit: null
+    logic: |
+      Estabelecimento: unique_together(empresa, codigo)
+      Setor:           unique_together(estabelecimento, codigo)
+      Leito:           unique_together(setor, codigo, nome)
+      Empresa.whitelabel unique; Usuario.username unique; Usuario.cpf unique
+      UsuarioEmpresa unique_together(usuario, empresa)
+      UsuarioEstabelecimento unique_together(usuario, estabelecimento)
+      UsuarioSetor unique_together(usuario, setor)
+      UsuarioGrupoAcesso unique_together(usuario, grupo)
+      UsuarioNotificacao unique_together(notificacao, usuario)
+      UsuarioSetorPaciente unique_together(usuario, setor, paciente)
+      Reacao unique_together(observacao, usuario)  # see RULE-029
+      Glossario.nome unique
+    edge_cases: Enforced at DB level; codes are scoped to their immediate parent (not globally unique).
+    source:
+      repo: ahlabs-trilhas
+      path: core/models/leito.py
+      lines: "56-58"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Aggregated constraint rule. Individual sources: estabelecimento.py:29, setor.py:26, leito.py:58, empresa.py:14, usuario.py:53/18-29, usuario_empresa.py:14, usuario_estabelecimento.py:15, usuario_setor.py:15, usuario_grupo_acesso.py:13, usuario_notificacao.py:13, usuario_setor_paciente.py:15, reacao.py:19, glossario.py:6.

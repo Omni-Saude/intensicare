@@ -1,0 +1,2543 @@
+meta:
+  partition: FE-01
+  repo: trilhas-frontend
+  commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+  files_examined:
+    - path: src/utils/defaultFormRules.ts
+      rule_bearing: yes
+      note: Global default validation rule object ({ required:true }) reused by every form.
+    - path: src/utils/emailFormRules.ts
+      rule_bearing: yes
+      note: Email validation rule using emailPattern regex imported from utils/constants (out of partition).
+    - path: src/utils/dataForms/dataFormPaciente.ts
+      rule_bearing: yes
+      note: Patient registration form; required fields, CPF mask, gender enum M/F/O.
+    - path: src/utils/dataForms/dataFormRemovePaciente.ts
+      rule_bearing: yes
+      note: Patient discharge form; required exit datetime + reason (variable oddly named dataFormPaciente).
+    - path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      rule_bearing: yes
+      note: Fluid-balance form; three sub-forms (entrada/saida/sinais vitais) with conditional decision trees, drug/antibiotic/electrolyte vocabularies, pain scales, HH:MM regex.
+    - path: src/utils/dataForms/dataFormMovimentacao.ts
+      rule_bearing: yes
+      note: Sepsis/SOFA data-collection form; Glasgow interval, RASS scale, extensive vital/lab range validators, vasopressor/sedative dosing, infection-screening booleans.
+    - path: src/utils/dataForms/dataFormFormularioMedico.ts
+      rule_bearing: yes
+      note: Physician evolution; chronic-diagnosis enum (sparse-array bug), device/equipment enums, exam conditionals, ventilation decision tree, Glasgow 3-15.
+    - path: src/utils/dataForms/dataFormEnfermagem.ts
+      rule_bearing: yes
+      note: Nurse evolution; global/abdominal/genitourinary/cardio/neuro enums, LPP pressure-injury staging list, shared nutrition ranges, invasive-device dressing/exchange scheduling.
+    - path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      rule_bearing: yes
+      note: Nursing-technician evolution; global/resp/genito enums, dieta ranges, tegumentary LPP list (variant value), high-cost-drug/antibiotic list, conditional reveals.
+    - path: src/utils/dataForms/dataFormNutricionista.ts
+      rule_bearing: yes
+      note: Dietitian evolution; nutrition therapy ranges, abdominal enums, LPP list, conditional daily-objective volumes; delegates two groups to React fieldsets (out of partition).
+    - path: src/utils/dataForms/dataFormFarmaceutico.ts
+      rule_bearing: yes
+      note: Pharmacist evolution (variable mis-named dataFormFisioterapeuta); antibiotic course list, prophylaxis checklist, medication reconciliation, pharmacist-intervention enum.
+    - path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      rule_bearing: yes
+      note: Physiotherapist evolution; early-mobilization eligibility flags, ventilation decision tree with pressure ranges, motor-function enums, therapy conduct enums.
+    - path: src/utils/dataForms/dataFormFonoaudiologo.ts
+      rule_bearing: yes
+      note: Speech therapist evolution; global enums, FOIS 7-level oral-intake scale, orofacial/language enums.
+    - path: src/utils/dataForms/dataFormPsicologo.ts
+      rule_bearing: yes
+      note: Psychologist evolution; global consciousness/emotional enums, psychological-assessment enums.
+    - path: src/utils/dataForms/dataFormMusicoterapia.ts
+      rule_bearing: yes
+      note: Music therapist evolution; global assessment enums, intramusical-relations multicheck, HH:MM regex.
+    - path: src/utils/dataForms/dataFormIntercorrencia.ts
+      rule_bearing: yes
+      note: Incident/urgency triage form; urgency grading, symptom classification, interventions, disposition outcomes incl home death.
+
+rules:
+  - id: RULE-validation-FE-01-001
+    name: Default required-field rule
+    category: data-validation
+    type: validation
+    status: OK
+    description: Shared antd-style rule object marking a field mandatory with Portuguese error message "Este campo e obrigatorio!".
+    inputs:
+      - name: field value
+        type: any
+        unit: null
+        range: null
+    outputs:
+      - name: valid
+        type: boolean
+        unit: null
+    logic: |
+      defaultFormRules = [ { required: true, message: "Este campo é obrigatório!" } ]
+      // a value that is empty/undefined fails validation.
+    edge_cases: Empty string / undefined fails; whitespace handling delegated to antd form engine (not in this file).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/defaultFormRules.ts
+      lines: "1-5"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Applied wherever `required:true` appears on a field across all forms.
+
+  - id: RULE-validation-FE-01-002
+    name: Email format validation
+    category: data-validation
+    type: validation
+    status: OK
+    description: E-mail fields must match emailPattern regex; error message "E-mail invalido!".
+    inputs:
+      - name: email
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: valid
+        type: boolean
+        unit: null
+    logic: |
+      emailFormRules = [ { pattern: emailPattern, message: "E-mail inválido!" } ]
+      emailPattern = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    edge_cases: Local part allows many special chars; each domain label limited to 1-63 chars; TLD not required to be alphabetic; anchored full-string match.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/emailFormRules.ts
+      lines: "1-5"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: The regex literal itself lives in src/utils/constants.ts:7-9 (outside partition FE-01); reproduced here from that source for completeness.
+
+  - id: RULE-time-FE-01-003
+    name: Optional HH:MM 24h exit-time mask
+    category: data-validation
+    type: validation
+    status: OK
+    description: The horario_saida (exit time) field masked as 00:00 and validated as a 24-hour HH:MM time OR empty string.
+    inputs:
+      - name: horario_saida
+        type: string (masked)
+        unit: HH:MM
+        range: 00:00-23:59
+    outputs:
+      - name: valid
+        type: boolean
+        unit: null
+    logic: |
+      mask = "00:00"
+      regex = /^(?:([01]\d|2[0-3]):([0-5]\d)|)$/   // hours 00-23, minutes 00-59, OR fully empty
+    edge_cases: Empty value is explicitly valid (alternation with empty). "24:00" invalid; "23:59" valid.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "16-22"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Identical field duplicated verbatim in dataFormTecEnfermagem.ts:15-21, dataFormFisioterapeuta.ts:14-21, dataFormFarmaceutico.ts:13-19, dataFormFonoaudiologo.ts:13-19, dataFormNutricionista.ts:17-23, dataFormPsicologo.ts:13-19, dataFormMusicoterapia.ts:13-19, dataFormIntercorrencia.ts:13-19, dataFormFormularioMedico.ts:13-19.
+
+  - id: RULE-time-FE-01-004
+    name: Required HH:MM 24h event-time (fluid balance)
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: Fluid-balance "Horario" field masked 00:00 and validated as strict 24h HH:MM; unlike RULE-003 the regex does NOT permit an empty value.
+    inputs:
+      - name: horario
+        type: string (masked)
+        unit: HH:MM
+        range: 00:00-23:59
+    outputs:
+      - name: valid
+        type: boolean
+        unit: null
+    logic: |
+      mask = "00:00"
+      regex = /^([01][0-9]|2[0-3]):([0-5][0-9])$/   // no empty-string alternative
+    edge_cases: Empty value FAILS here (no `|` empty branch), whereas the discipline-form exit-time regex (RULE-003) allows empty.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "293-299"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Same regex repeated at dataFormBalancoHidrico.ts:459-465 (saida) and 638-644 (sinais vitais). DISCREPANCY = two divergent time regexes coexist in the codebase (empty allowed vs not).
+
+  - id: RULE-patient-FE-01-005
+    name: Patient registration required fields and identifiers
+    category: data-validation
+    type: validation
+    status: OK
+    description: Patient record requires attendance number, name, birth date and CPF; CPF is masked to Brazilian format; gender constrained to M/F/O.
+    inputs:
+      - name: numero_atendimento
+        type: number
+        unit: null
+        range: null
+      - name: paciente.nome
+        type: string
+        unit: null
+        range: null
+      - name: paciente.data_nascimento
+        type: date (no time)
+        unit: null
+        range: null
+      - name: paciente.cpf
+        type: masked string
+        unit: null
+        range: null
+      - name: paciente.genero
+        type: enum
+        unit: null
+        range: M|F|O
+    outputs:
+      - name: valid patient record
+        type: boolean
+        unit: null
+    logic: |
+      required: numero_atendimento(number), paciente.nome(string), paciente.data_nascimento(date, showTime=false), paciente.cpf
+      cpf.mask = "000.000.000-00"
+      genero.options = { Masculino:"M", Feminino:"F", Outro:"O" }
+      paciente.codigo(number) and paciente.observacao(string) optional
+    edge_cases: CPF mask enforces 11 digits in NNN.NNN.NNN-NN layout but no check-digit validation. Birth date has no time component.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormPaciente.ts
+      lines: "1-55"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-patient-FE-01-006
+    name: Patient discharge required fields
+    category: data-validation
+    type: validation
+    status: OK
+    description: Removing/discharging a patient requires an exit datetime and a reason (motivo_baixa).
+    inputs:
+      - name: data_saida
+        type: datetime
+        unit: null
+        range: null
+      - name: motivo_baixa
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: valid discharge
+        type: boolean
+        unit: null
+    logic: |
+      required: data_saida (type "data", showTime=true), motivo_baixa (string)
+    edge_cases: No validation of data_saida vs admission date.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormRemovePaciente.ts
+      lines: "1-22"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: File's exported const is confusingly named `dataFormPaciente` though it is the removal form.
+
+  - id: RULE-fluidbalance-FE-01-007
+    name: Fluid-balance intake type decision tree
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: A fluid intake ("entrada") record selects one of 8 types; each type conditionally reveals type-specific required fields, most terminating in a required volume in ml.
+    inputs:
+      - name: tipo
+        type: enum
+        unit: null
+        range: dieta_enteral|dieta_oral|medicamento|hidratacao_venosa|drogas_hidratacao_bi|antibiotico|reposicao_eletrolito|outra_entrada
+      - name: quantidade
+        type: number
+        unit: ml
+        range: null
+    outputs:
+      - name: intake entry
+        type: object
+        unit: null
+    logic: |
+      tipo required. conditions[tipo]:
+        dieta_enteral   -> quantidade(ml) required
+        dieta_oral      -> aceitacao required (see RULE-008)
+        medicamento     -> nome (route enum, required) + quantidade(ml) required
+        hidratacao_venosa -> nome (solution enum, required) + quantidade(ml) required
+        drogas_hidratacao_bi -> nome (drug enum, required) + quantidade(ml) required
+        antibiotico     -> nome (antibiotic enum, required) + quantidade(ml) required
+        reposicao_eletrolito -> nome (electrolyte enum, required) + quantidade(ml) required
+        outra_entrada   -> nome (free string, required) + quantidade(ml) required
+      Also: observacao(string) optional; horario(masked HH:MM, RULE-004).
+    edge_cases: All quantidade fields required; medicamento route enum = {intravenoso, oral, gastrostomia, sonda nasoenteral, retal}.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "1-302"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Sub-vocabularies broken out as RULE-009..012.
+
+  - id: RULE-fluidbalance-FE-01-008
+    name: Oral-diet acceptance conditional volume
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: For an oral-diet intake, acceptance level determines whether a volume is required.
+    inputs:
+      - name: aceitacao
+        type: enum
+        unit: null
+        range: aceitou|reduzida|recusou
+    outputs:
+      - name: quantidade
+        type: number
+        unit: ml
+    logic: |
+      aceitacao required.
+        aceitou  -> quantidade(ml) required
+        reduzida -> quantidade(ml) required
+        recusou  -> no volume field (patient refused; implicit 0)
+    edge_cases: The recusou branch intentionally collects no volume.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "53-92"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-fluidbalance-FE-01-009
+    name: IV hydration solution vocabulary
+    category: data-validation
+    type: validation
+    status: OK
+    description: Controlled list of intravenous hydration solution types.
+    inputs:
+      - name: nome
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: valid solution
+        type: boolean
+        unit: null
+    logic: |
+      options = { Agua destilada, Solução Hipertônica, Soro Fisiológico, Soro Glicosado,
+                  Soro Ringer, Solução hipotônica, Solução Polarizante }
+    edge_cases: Free-text not allowed for this branch.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "123-145"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-fluidbalance-FE-01-010
+    name: Drugs/hydration-in-BI vocabulary
+    category: drug-dosing
+    type: validation
+    status: OK
+    description: Controlled list of continuous-infusion (BI/bomba de infusao) drugs and hydration selectable for an intake record.
+    inputs:
+      - name: nome
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: valid drug
+        type: boolean
+        unit: null
+    logic: |
+      options include: Sedação, Thiopental, Adrenalina, Heparina, Clanidina, Octeotride, Lidocaina,
+      Dimorf, Hidrocortizona, Propofol, Cisatracúrio, Insulina, Noradrenalina, Dobutamina, Amiodarona,
+      Milrinona, Dopamina, Nipride, Cetamina, Dormonid, Fentanil, Precedex, Ketamin, Encrise, Tridil,
+      Hidratação Venosa, Rocurônio, Sulfentanila, Remifentanila (32 options).
+    edge_cases: Includes some spelling variants/brand names (Clanidina, Hidrocortizona, Ketamin vs Cetamina).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "146-190"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Only volume (ml) captured, no dose/rate.
+
+  - id: RULE-fluidbalance-FE-01-011
+    name: Antibiotic vocabulary (fluid balance)
+    category: drug-dosing
+    type: validation
+    status: OK
+    description: Controlled list of antibiotics/antifungals/antivirals selectable as an intake.
+    inputs:
+      - name: nome
+        type: enum
+        unit: null
+        range: 41 brand/generic names
+    outputs:
+      - name: valid antibiotic
+        type: boolean
+        unit: null
+    logic: |
+      options include Daptomicina, Zitromax, Ceftazidina, Torgena, Ambisome, Amplacilina, Anforicin B,
+      Bactrim, Cancidas, Cipro, Dalacin, Ecalta, Flagyl, Garamicina, Invanz, Kefazol, Keflin, Klaricid,
+      Levaquin, Meronem, Mycamine, Staficilin N, Targocid, Tazocin, Tygacil, Unasyn, Vancocina, Zoltec,
+      Zovirax, Zyvox, Rocefin, Maxcef, Avalox, Linezolida, Aciclovir, Metronidazol, Fluconazol, Zerbaxa,
+      Cefuroxima Sódica, Novamin, Bedfordpoly B.
+    edge_cases: Several entries carry trailing whitespace in value strings (e.g. "Bedfordpoly B ", "Vancocina ").
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "191-247"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-fluidbalance-FE-01-012
+    name: Electrolyte replacement vocabulary
+    category: drug-dosing
+    type: validation
+    status: OK
+    description: Controlled list of electrolytes for a replacement intake.
+    inputs:
+      - name: nome
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: valid electrolyte
+        type: boolean
+        unit: null
+    logic: |
+      options = { Sódio (Na+), Potássio (K+), Cloreto (Cl-), Cálcio (Ca2+), Magnésio (Mg2+),
+                  Bicarbonato (HCO3-), Fosfato (PO42-), Sulfato (SO42-) }
+    edge_cases: Volume in ml only.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "248-271"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-fluidbalance-FE-01-013
+    name: Fluid-balance output type decision tree
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: A fluid output ("saida") record selects one of 5 types; each reveals type-specific required fields including presence-grading and stool aspect enums.
+    inputs:
+      - name: tipo
+        type: enum
+        unit: null
+        range: diurese_sonda|diurese_espontanea|evacuacao|vomito_retorno_sonda|outra_saida
+    outputs:
+      - name: output entry
+        type: object
+        unit: null
+    logic: |
+      tipo required. conditions[tipo]:
+        diurese_sonda      -> quantidade(ml) required
+        diurese_espontanea -> presenca_espontanea required { ausente | presente }
+        evacuacao          -> presenca required { ausente | presente+ | presente++ | presente+++ }
+                              + aspecto required { regular | pastosa | liquida | sangue-melema }
+        vomito_retorno_sonda -> presenca required { ausente | presente+ | presente++ | presente+++ }
+        outra_saida        -> nome (string) required + quantidade(ml) required
+      Also observacao(string) optional; horario HH:MM (RULE-004).
+    edge_cases: Presence grading 1+/2+/3+ has clinical semi-quantitative meaning; only sonda/outra branches capture ml volume.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "304-468"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-fluidbalance-FE-01-014
+    name: Fluid-balance vital-sign ventilation conditional
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: In the fluid-balance vital-signs sub-form, ventilation mode conditionally requires supplemental O2 flow or FiO2.
+    inputs:
+      - name: ventilacao
+        type: enum
+        unit: null
+        range: ambiente|suporte_o2|mecanica
+    outputs:
+      - name: fluxo_o2_sup / fio2
+        type: number
+        unit: null
+    logic: |
+      ventilacao options { ambiente:"Ar ambiente", suporte_o2:"Suporte de O2", mecanica:"Ventilação mecânica" }
+        suporte_o2 -> fluxo_o2_sup (number) required
+        mecanica   -> fio2 (number) required
+    edge_cases: Ar ambiente reveals nothing; no numeric bounds on flow/FiO2 here.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "509-545"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Other vital fields (FC, FR, PAS, PAD, temperatura, saturacao_o2, HGT) captured as unbounded numbers in this sub-form (470-508).
+
+  - id: RULE-fluidbalance-FE-01-015
+    name: Fluid-balance pain-scale conditional (NRS 0-10 / BPS 3-12)
+    category: clinical-scoring
+    type: scoring
+    status: AMBIGUOUS
+    description: Pain assessment branches by patient report; a verbal complaint triggers a 0-10 numeric rating scale, whereas observed pain signs trigger a 3-12 scored scale.
+    inputs:
+      - name: dor
+        type: enum
+        unit: null
+        range: ausente|queixa|sinais
+      - name: escala_dor
+        type: number
+        unit: score
+        range: 0-10
+      - name: sinais_dor
+        type: number
+        unit: score
+        range: 3-12
+    outputs:
+      - name: pain score
+        type: number
+        unit: score
+    logic: |
+      dor options { ausente, queixa, sinais }
+        queixa -> escala_dor required, min 0, max 10
+        sinais -> sinais_dor required, min 3, max 12
+    edge_cases: Boundaries inclusive (min/max). Empty branch for "ausente".
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "582-622"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: medium
+    notes: 0-10 range is consistent with the Numeric Rating Scale; the 3-12 range is consistent with the Behavioral Pain Scale (BPS). Scale identities are inferred, not labelled in code -> AMBIGUOUS.
+
+  - id: RULE-fluidbalance-FE-01-016
+    name: Fluid-balance consciousness level enum (AVDI-like)
+    category: clinical-scoring
+    type: validation
+    status: OK
+    description: Level-of-consciousness captured as an ordered enum of alertness states.
+    inputs:
+      - name: nv_consciencia
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: consciousness level
+        type: enum
+        unit: null
+    logic: |
+      options: acordado(Mantido ou acordado), sonolencia(Sonolência), agitacao(Agitação ou confusão),
+      reage_verbal(Reage/responde ao estímulo verbal), reage_tatil(Reage/responde ao estímulo tátil),
+      coma(Não reage/responde (coma)), convulsao(Convulsão (pós ictal))
+    edge_cases: Not a numeric score; ordinal severity implied by ordering.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "547-581"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: medium
+    notes: Resembles AVPU/AVDI reactivity ladder; not explicitly named.
+
+  - id: RULE-fluidbalance-FE-01-017
+    name: Fluid-balance complaint conditional
+    category: data-validation
+    type: validation
+    status: OK
+    description: If a complaint is flagged, a free-text description becomes required.
+    inputs:
+      - name: queixa
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: motivo_queixa
+        type: string
+        unit: null
+    logic: |
+      queixa == true -> motivo_queixa (string) required
+    edge_cases: false reveals nothing.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormBalancoHidrico.ts
+      lines: "623-637"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-movimentacao-FE-01-018
+    name: Movimentacao chronic-condition / pathway flags
+    category: care-pathway
+    type: validation
+    status: OK
+    description: Boolean diagnosis flags recorded on the movimentacao (transfer/round) form that drive downstream care pathways.
+    inputs:
+      - name: covid_19 / dpoc / eme / shic / historico_cirurgia_abdominal_recente / baixa_aceitacao_dieta_vo
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: pathway flags
+        type: boolean set
+        unit: null
+    logic: |
+      dados_prontuario booleans: covid_19, dpoc (Doença Pulmonar Obstrutiva Crônica),
+      eme (Estado de Mal Epléptico), shic (Síndrome de Hipertensão Intra Craniana),
+      historico_cirurgia_abdominal_recente, baixa_aceitacao_dieta_vo.
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "1-37"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: EME/SHIC are Portuguese acronyms for status epilepticus / intracranial hypertension syndrome.
+
+  - id: RULE-scoring-FE-01-019
+    name: Glasgow Coma Scale range (movimentacao)
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Glasgow Coma Scale captured as an interval constrained to 3-15.
+    inputs:
+      - name: glasgow
+        type: number (interval)
+        unit: score
+        range: 3-15
+    outputs:
+      - name: gcs
+        type: number
+        unit: score
+    logic: |
+      glasgow: type "interval", min 3, max 15   // GCS valid domain
+    edge_cases: Inclusive 3 (deep coma) to 15 (fully alert).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "43-48"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Same GCS 3-15 constraint reimplemented in dataFormFormularioMedico.ts:462-476 (see RULE-037).
+
+  - id: RULE-scoring-FE-01-020
+    name: RASS sedation-agitation scale
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Richmond Agitation-Sedation Scale captured as a select mapping the standard +4..-5 values to descriptive labels.
+    inputs:
+      - name: rass
+        type: enum
+        unit: score
+        range: "+4..-5 plus empty"
+    outputs:
+      - name: rass level
+        type: enum
+        unit: score
+    logic: |
+      options:
+        +4 Combativo, +3 Muito agitado, +2 Agitado, +1 Inquieto, 0 Alerta e calmo,
+        -1 Torporoso, -2 Sedado leve, -3 Sedado moderado, -4 Sedado profundamente, -5 Coma,
+        "" Não informado
+    edge_cases: Value stored as string ("+4","0","-5"); empty allowed = "Não informado".
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "49-66"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Label wording matches standard RASS; -1 "Torporoso" is a localization choice.
+
+  - id: RULE-vitals-FE-01-021
+    name: Blood pressure and heart-rate plausible ranges (movimentacao)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Validation bounds for systolic/diastolic BP and heart rate on the movimentacao form.
+    inputs:
+      - name: pas
+        type: number
+        unit: mmHg
+        range: 50-250
+      - name: pad
+        type: number
+        unit: mmHg
+        range: 0-150
+      - name: frequencia_cardiaca
+        type: number
+        unit: bpm
+        range: 0-200
+    outputs:
+      - name: valid vitals
+        type: boolean
+        unit: null
+    logic: |
+      pas: min 50, max 250
+      pad: min 0, max 150
+      frequencia_cardiaca: min 0, max 200
+    edge_cases: Inclusive bounds; no cross-field check (e.g. PAS>PAD not enforced).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "72-92"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: PAS 50-250 / PAD 0-150 identical in dataFormFormularioMedico.ts:283-296.
+
+  - id: RULE-vitals-FE-01-022
+    name: Capillary refill time range and 5s threshold
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    description: Capillary refill (TEC) captured as a number bounded 3-20 s on movimentacao; recorded elsewhere as a >5s boolean alert.
+    inputs:
+      - name: tec
+        type: number
+        unit: seconds
+        range: 3-20
+    outputs:
+      - name: tec value / alert
+        type: number|boolean
+        unit: seconds
+    logic: |
+      movimentacao: tec number, min 3, max 20
+      enfermagem: tec_maior_5s boolean ("Tempo de Enchimento Capilar maior que 5 segundos?")
+      formulario_medico exame_fisico option: tec_5s "TEC > 5s"
+    edge_cases: Lower bound of 3s excludes physiologically-normal refill (<2s), so normal-perfusion patients cannot record a true TEC on this field.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "93-99"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = min bound of 3 conflicts with normal capillary refill (<2-3s); and same concept encoded three different ways (number 3-20, boolean >5s, checkbox >5s) across forms — see dataFormEnfermagem.ts:462-465 and dataFormFormularioMedico.ts:149.
+
+  - id: RULE-resp-FE-01-023
+    name: Ventilator parameter ranges (movimentacao)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Validation bounds for mechanical-ventilation parameters recorded on the movimentacao form.
+    inputs:
+      - name: fio2
+        type: number (interval)
+        unit: '%'
+        range: 21-100
+      - name: peep
+        type: number
+        unit: cmH2O
+        range: 0-40
+      - name: pressao_inspiratoria (PINS)
+        type: number
+        unit: cmH2O
+        range: 0-30
+      - name: volume_corrente
+        type: number
+        unit: ml
+        range: 0-1500
+      - name: fr (frequencia respiratoria)
+        type: number
+        unit: rpm
+        range: 0-50
+    outputs:
+      - name: valid vent params
+        type: boolean
+        unit: null
+    logic: |
+      fio2: interval 21-100; peep: 0-40; pressão_inspiratoria: 0-30; volume_corrente: 0-1500; fr: 0-50
+    edge_cases: FiO2 floor 21 = room air.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "110-144"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: FormularioMedico reveals the same FiO2 21-100 / PEEP 0-40 / PINS 0-30 / VC 0-1500 set conditionally (RULE-036). Physiotherapist form uses DIFFERENT PEEP/PINS bounds (RULE-053).
+
+  - id: RULE-labs-FE-01-024
+    name: Blood-gas and laboratory plausible ranges (movimentacao)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Validation bounds for arterial gas and lab values that feed sepsis/organ-dysfunction assessment.
+    inputs:
+      - name: po2
+        type: number
+        unit: mmHg
+        range: 0-500
+      - name: paco2
+        type: number
+        unit: mmHg
+        range: 0-150
+      - name: lactato_arterial
+        type: number
+        unit: mmol/L
+        range: 0-20
+      - name: leucocitos
+        type: number
+        unit: /mm3
+        range: 0-40000
+      - name: bilirrubinas
+        type: number
+        unit: mg/dL
+        range: 0-30
+      - name: creatinina
+        type: number
+        unit: mg/dL
+        range: 0-20
+      - name: plaquetas
+        type: number
+        unit: /mm3
+        range: 0-700000
+    outputs:
+      - name: valid labs
+        type: boolean
+        unit: null
+    logic: |
+      po2 0-500; paco2 0-150; lactato_arterial 0-20; leucocitos 0-40000;
+      bilirrubinas 0-30; creatinina 0-20; plaquetas 0-700000
+    edge_cases: Bilirubin/creatinine/platelets/PaO2(→P/F)/lactate are SOFA and sepsis-severity inputs; ranges are validation only, not scoring.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "145-198"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: This form is the collection surface for a downstream SOFA/sepsis score (score formula not present in FE-01 partition).
+
+  - id: RULE-vitals-FE-01-025
+    name: Urine output and temperature ranges (movimentacao)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Validation bounds for 24h urine output and body temperature.
+    inputs:
+      - name: debito_urinario_24h
+        type: number
+        unit: ml
+        range: 0-10000
+      - name: temperatura
+        type: number
+        unit: Celsius
+        range: 20-43
+    outputs:
+      - name: valid values
+        type: boolean
+        unit: null
+    logic: |
+      debito_urinario_24h: 0-10000; temperatura: min 20, max 43
+    edge_cases: Temperature floor 20C admits severe hypothermia; ceiling 43C.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "199-212"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-sepsis-FE-01-026
+    name: Sepsis / infection-source screening flags (movimentacao)
+    category: triage-eligibility
+    type: threshold
+    status: OK
+    description: Boolean flags capturing time-windowed infection/device exposures and vasoactive/steroid use, forming sepsis and device-associated-infection screening criteria.
+    inputs:
+      - name: antibiotico_em_24hrs
+        type: boolean
+        unit: null
+        range: null
+      - name: presenca_cvc_cdl_svd_10_dias
+        type: boolean
+        unit: null
+        range: null
+      - name: cvc_regiao_femoral_7_dias
+        type: boolean
+        unit: null
+        range: null
+      - name: hidrocortisona / vasopressina / anti_hipertensivo / delirium
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: screening flags
+        type: boolean set
+        unit: null
+    logic: |
+      antibiotico_em_24hrs: "Antibiótico iniciado nas últimas 24h?"
+      presenca_cvc_cdl_svd_10_dias: "CVC, CDL ou SVD nos últimos 10 dias?"
+      cvc_regiao_femoral_7_dias: "CVC na região femoral nos últimos 7 dias?"
+      hidrocortisona, vasopressina (adjunct sepsis therapy), anti_hipertensivo, delirium: booleans.
+    edge_cases: The 10-day (any central line/urinary catheter) and 7-day (femoral CVC) windows are device-associated-infection surveillance thresholds.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "67-71,100-109,213-232"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: These booleans plus RULE-024 labs are classic inputs for a sepsis/CLABSI/CAUTI screening engine.
+
+  - id: RULE-sepsis-FE-01-027
+    name: Urea field encodes an unbounded value under a threshold name
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    description: The urea input is stored as a plain number with no bounds although its field key implies a ">50 in 24h" threshold.
+    inputs:
+      - name: ureia_maior_50_24hrs
+        type: number
+        unit: mg/dL
+        range: null
+    outputs:
+      - name: urea value
+        type: number
+        unit: mg/dL
+    logic: |
+      label "Uréia"; nome ["dados_prontuario","ureia_maior_50_24hrs"]; type number; NO min/max.
+    edge_cases: Field name suggests a boolean threshold (urea > 50 within 24h) but the input is a free numeric value with no validation.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "180-184"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: medium
+    notes: AMBIGUOUS = key vs type mismatch; a downstream consumer may (mis)interpret whether this holds a raw value or a >50 flag.
+
+  - id: RULE-drug-FE-01-028
+    name: Vasopressor / inotrope / sedative dosing capture (movimentacao)
+    category: drug-dosing
+    type: validation
+    status: OK
+    description: Continuous vasoactive and sedative drugs recorded with bounded quantities; noradrenaline and sedatives in nullable ("anulavel") groups with start datetime and multi-entry list.
+    inputs:
+      - name: dobutamina
+        type: number
+        unit: null
+        range: 0-30
+      - name: noradrenalina.quantidade
+        type: number
+        unit: null
+        range: 0-200
+      - name: noradrenalina.horario_inicio
+        type: datetime
+        unit: null
+        range: null
+      - name: sedativos[].nome_sedativo
+        type: enum
+        unit: null
+        range: fentanil|midazolam|propofol|cetamina|empty
+      - name: sedativos[].quantidade
+        type: number
+        unit: null
+        range: 0-30
+    outputs:
+      - name: drug entries
+        type: object
+        unit: null
+    logic: |
+      dobutamina: number 0-30 (in "Gerais")
+      Noradrenalina group (anulavel): quantidade 0-200 + horario_inicio datetime
+      Sedativos group (anulavel): list; each row = nome_sedativo enum {fentanil,midazolam,propofol,cetamina,""} + quantidade 0-30
+    edge_cases: Groups flagged anulavel=true may be nulled entirely (drug not in use). Units not specified in code (likely ml/h or mcg/kg/min).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "234-262,353-385"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: medium
+    notes: Missing units is a reimplementation risk; noradrenaline 0-200 vs sedatives/dobutamine 0-30 imply different unit bases.
+
+  - id: RULE-movimentacao-FE-01-029
+    name: Cardiorespiratory arrest capture (nullable group)
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: Records whether a cardiac arrest occurred and its datetime, in a nullable group.
+    inputs:
+      - name: ocorreu_parada_cardiorespiratoria
+        type: boolean
+        unit: null
+        range: null
+      - name: horario_inicio
+        type: datetime
+        unit: null
+        range: null
+    outputs:
+      - name: PCR event
+        type: object
+        unit: null
+    logic: |
+      parada_cardiorrespiratoria (anulavel): ocorreu_parada_cardiorespiratoria(boolean) + horario_inicio(datetime, showTime)
+    edge_cases: No conditional linking of datetime to boolean=true (both independently editable).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "263-288"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-resp-FE-01-030
+    name: Mechanical ventilation descriptors (movimentacao) with mislabeled option
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: Ventilation-mode/device/modality enums; one ventilation-type option pairs an invasive-VM value with a nasal-cannula label.
+    inputs:
+      - name: ventilacao
+        type: enum
+        unit: null
+        range: see logic
+      - name: dispositivo
+        type: enum
+        unit: null
+        range: tot|tqt|empty
+      - name: modalidade
+        type: enum
+        unit: null
+        range: psv|vcv|pcv|empty
+    outputs:
+      - name: vent descriptors
+        type: enum set
+        unit: null
+    logic: |
+      ventilacao options:
+        ar_ambiente "Ar ambiente",
+        vm_invasiva "Cateter Nasal de 02",   // <-- value says invasive VM, label says nasal catheter
+        vm_nao_invasiva "VM Não Invasiva",
+        mascara_facial_o2 "Máscara Facial de O2",
+        tenda_o2_tqt "Tenda de O2 para TQT",
+        "" "Não informado"
+      dispositivo { tot:"TOT", tqt:"TQT", "":"Não informado" }
+      modalidade { psv:"PSV", vcv:"VCV", pcv:"PCV", "":"Não informado" }
+      Also ventilacao_mecanica.horario_inicio datetime. Group is anulavel.
+    edge_cases: The vm_invasiva/"Cateter Nasal de 02" pairing will mislabel data — invasive VM stored but shown as nasal O2.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMovimentacao.ts
+      lines: "289-352"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = option value/label semantic mismatch (line ~305).
+
+  - id: RULE-medico-FE-01-031
+    name: Physician chronic-diagnosis vocabulary (with sparse-array defect)
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: Multicheck list of chronic diagnoses with a free-text observation; the options array ends with a stray empty element producing an undefined hole.
+    inputs:
+      - name: diagnostico.tipos_diagnostico
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+      - name: diagnostico.observacao
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: diagnoses
+        type: enum set
+        unit: null
+    logic: |
+      options include: doenca_arterial_corononariana, doenca_pulmonar_obstrutiva_cronica,
+      esclerose_lateral_amiotrofica, fibrilacao_atrial_cronica, diabetes_mellitus_tipo1,
+      diabettes_mellitus_tipo2, cirrose_hepatica, pos_operatorio_de_cirurgia (label: cirurgia abdominal),
+      encefalopatia_pos_avc, encefalopatia_anoxica_isquemica, demencia_senil, doença_de_alzheimer,
+      doenca_de_parkinson, ventilacao_mecanica_prolongada, desnutricao_cronica,
+      polineuropatia_do_doente_critico, <empty element>
+    edge_cases: Trailing `,` after the last option (line 79) yields a hole/undefined entry in the options array.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "22-83"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = sparse array (undefined option) + typos in values (diabettes, doenca vs doença) that would leak into stored codes.
+
+  - id: RULE-medico-FE-01-032
+    name: Physician in-use invasive devices vocabulary
+    category: data-validation
+    type: validation
+    status: OK
+    description: Multicheck of devices currently in use.
+    inputs:
+      - name: dispositivos_em_uso.tipos_dispositivo
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+    outputs:
+      - name: devices
+        type: enum set
+        unit: null
+    logic: |
+      options { gastrostomia, traquestomia, jejunostopia, svd, avp, picc, avc, sne }
+    edge_cases: Typos in labels (Traquestomia, Jejunostopia).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "95-115"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-medico-FE-01-033
+    name: Physician in-use equipment vocabulary
+    category: data-validation
+    type: validation
+    status: OK
+    description: Multicheck of respiratory/support equipment in use.
+    inputs:
+      - name: equipamentos_em_uso.tipos_equipamento
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+    outputs:
+      - name: equipment
+        type: enum set
+        unit: null
+    logic: |
+      options { concentrador_oxigenio, cilindro_o2, bipap, cpap, coughassist, aspirador, ventilador_mecanico }
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "116-135"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-medico-FE-01-034
+    name: Physician physical-exam enums and conditional reveals
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: Physical-exam findings with several select options that conditionally reveal free-text fields (max-length constrained), plus pupil/edema/elimination enums.
+    inputs:
+      - name: exame_fisico.tipos_exame
+        type: enum[] (multicheck)
+        unit: null
+        range: includes tec_5s "TEC > 5s"
+      - name: exame_fisico.pupilas
+        type: enum
+        unit: null
+        range: isocoricas|mioticas|midriaticas|anisocoricas
+      - name: exame_fisico.edema
+        type: enum[] (multicheck)
+        unit: null
+        range: mmss|mmii|outros
+    outputs:
+      - name: exam findings
+        type: object
+        unit: null
+    logic: |
+      tipos_exame options include regular_estado_geral, lesao_de_pele, tec_5s(TEC>5s), piora_clinica,
+        acesso_venoso_central, vomitos_no_periodo, desnutricao, febre, sonda_vesical_de_demora, edema_periferico
+      pupilas {isocoricas,mioticas,midriaticas,anisocoricas}
+      edema multicheck {mmss,mmii,outros}; outros -> outros_edema (string, max 255)
+      eliminacoes_vesicais {regular,aumentada,diminuida,coloracao}; coloracao -> coloracao_eliminacoes_vesicais (string, max 255)
+      eliminacoes_intestinais {normal,diarreia,constipado}
+      ausculta_cardiaca {sem_alteracoes,outros}; outros -> outros_ausculta_cardiaca (string, max 255)
+      ausculta_pulmonar {sem_alteracoes, mv_bilateral(MV + bilateral com creptos difusos)}
+      intercorrencias (string, max 50)
+    edge_cases: Free-text reveals enforce maxLength (255 or 50).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "136-269"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: tec_5s reiterates the >5s capillary-refill alert (see RULE-022).
+
+  - id: RULE-vitals-FE-01-035
+    name: Physician vital-sign ranges (partial)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: On the physician form only blood pressure is range-bounded; heart rate, respiratory rate, temperature and SpO2 are unbounded numbers.
+    inputs:
+      - name: pas
+        type: number
+        unit: mmHg
+        range: 50-250
+      - name: pad
+        type: number
+        unit: mmHg
+        range: 0-150
+    outputs:
+      - name: valid vitals
+        type: boolean
+        unit: null
+    logic: |
+      pas 50-250; pad 0-150; frequencia_cardiaca/frequencia_respiratoria/temperatura/saturacao_o2: number, no bounds.
+    edge_cases: Inconsistent with movimentacao where HR/FR/temp ARE bounded.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "270-308"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-resp-FE-01-036
+    name: Physician respiratory-assessment ventilation decision tree
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Ventilation type conditionally reveals invasive-VM parameters (with ranges) or a supplemental-O2 flow field.
+    inputs:
+      - name: tipo_ventilacao
+        type: enum
+        unit: null
+        range: ventilacao_ar_ambiente|ventilacao_suporte_o2|ventilacao_mecanica_invasiva|intermitente
+    outputs:
+      - name: vent params
+        type: object
+        unit: null
+    logic: |
+      tipo_ventilacao options (value/label): ventilacao_ar_ambiente "Espontânea",
+        ventilacao_suporte_o2 "VNI", ventilacao_mecanica_invasiva "VM", intermitente "Intermitente".
+      conditions:
+        ventilacao_mecanica_invasiva -> fio2(21-100) + peep(0-40) + pins(0-30) + vc(0-1500)
+        ventilacao_suporte_o2       -> fluxo_o2 (1-15)
+      Also tipo_secrecao {ausente,hialina,espessa,grande_quantidade}; tipos_respiratoria multicheck.
+    edge_cases: Value/label mismatch (ventilacao_ar_ambiente labeled "Espontânea"; ventilacao_suporte_o2 labeled "VNI") — semantic drift but functional.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "309-407"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Same VM parameter ranges as RULE-023; O2 flow bounded 1-15 L/min here (movimentacao had no O2-flow field).
+
+  - id: RULE-scoring-FE-01-037
+    name: Glasgow Coma Scale range (physician neuro)
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Glasgow captured as a number bounded 3-15 in the physician neurological assessment.
+    inputs:
+      - name: avaliacao_neurologica.escala_coma_glasgow
+        type: number
+        unit: score
+        range: 3-15
+    outputs:
+      - name: gcs
+        type: number
+        unit: score
+    logic: |
+      escala_coma_glasgow: number, min 3, max 15
+    edge_cases: Inclusive bounds.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFormularioMedico.ts
+      lines: "462-476"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Duplicate of RULE-019 (movimentacao uses type "interval", physician uses "number").
+
+  - id: RULE-nursing-FE-01-038
+    name: Nursing global assessment enums and risk conditionals
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: Nurse global assessment with edema severity scale, general-state enum, boolean signs, isolation-precaution set, and assistance-risk multicheck that conditionally opens allergy note and wound lists.
+    inputs:
+      - name: avaliacao_global.edema
+        type: enum
+        unit: null
+        range: sem_edema|edema1|edema2|edema3|anasarca
+      - name: avaliacao_global.riscos_assistenciais
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      edema {sem_edema, edema1(MMII1), edema2(MMII2), edema3(MMII3), anasarca}  // ordinal edema grading
+      estado_geral {grave, regular}
+      booleans: hipocorado, ictericia, febre, cianose
+      precaucoes_isolamento multicheck {padrao,contato,goticulas,aerossois,vigilancia}
+      riscos_assistenciais multicheck {queda,alergia,sangramento,trombose_venosa,delirium,broncoaspiracao,
+        flebite,alteracao_glicemica,lpp,outras_lesoes}
+      conditions: alergia -> observacao_alergia(string); lpp -> LPP list (RULE-039); outras_lesoes -> lesion list (RULE-040)
+    edge_cases: Edema scale MMII1..3 is an ordinal lower-limb edema grade.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "25-306"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: riscos_assistenciais enum duplicated in Fisioterapeuta (dataFormFisioterapeuta.ts:48-63) and Farmaceutico (dataFormFarmaceutico.ts:48-63, conditions there commented out).
+
+  - id: RULE-wound-FE-01-039
+    name: Pressure-injury (LPP) staging and wound-bed assessment
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Structured pressure-injury (Lesao Por Pressao) assessment list capturing origin, location, tissue types, secretion, exudate amount, peri-wound skin color, peri-wound edema with distance thresholds, and NPUAP-style stage.
+    inputs:
+      - name: tipo_lpp
+        type: enum
+        unit: null
+        range: nova_lesao|lesao_previa
+      - name: estagio_lpp
+        type: enum
+        unit: null
+        range: suspeita_de_lesao|estagio_i|estagio_ii|estagio_iii|estagio_iv|nao_graduavel
+      - name: edema_tecido
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: wound record
+        type: object
+        unit: null
+    logic: |
+      formList per LPP:
+        tipo_lpp {nova_lesao, lesao_previa(prévia à admissão)}
+        local_lpp: select from localLesoes (anatomical sites vocabulary, defined in utils/localLesoes.ts, out of partition)
+        tipo_tecido multicheck {fibrina_esfacelos, granulacao, necrose, epitelizado}
+        tipo_secrecao multicheck {ausente, fetida, purulenta, serosa, sanguinolenta}
+        exsudato {nada, escasso, moderado, grande}
+        cor_pele {rosa_ou_normal, vermelho_brilhante_palida, branca_cinza_hipopigmentada,
+                  vermelho_escuro_sem_empalidecimento, preta_hiperpigmentada}
+        edema_tecido {minimo_edema, edema_sem_sulco_menor_4cm(<4cm), edema_sem_sulco_maior_4cm(>=4cm),
+                      edema_com_sulco_menor_4cm(<4cm), crepitacao_edema_com_sulco_maior_4cm(>=4cm)}  // 4cm boundary
+        estagio_lpp {suspeita_de_lesao(deep tissue), estagio_i..iv, nao_graduavel}
+        curativo(string)
+    edge_cases: Peri-wound edema classified by a 4cm radius boundary using >= vs < (crepitation escalates to top tier). Stage set matches NPUAP I-IV + suspected deep tissue + unstageable.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "107-247"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Identical LPP list duplicated in dataFormNutricionista.ts:192-335 (disabledOnEdit) and dataFormTecEnfermagem.ts:341-553 — but the Tec version uses value "crepitacao_maior_4cm" instead of "crepitacao_edema_com_sulco_maior_4cm" (variant, see RULE-076). Also present commented-out in dataFormFarmaceutico.ts:72-212.
+
+  - id: RULE-wound-FE-01-040
+    name: Other-lesion assessment list
+    category: data-validation
+    type: validation
+    status: OK
+    description: Structured list for non-pressure lesions with type, location, aspect, dressing, and dressing-change frequency.
+    inputs:
+      - name: tipo_lesao
+        type: enum
+        unit: null
+        range: see logic
+      - name: frequencia_troca
+        type: enum
+        unit: null
+        range: dia|mes|ano
+    outputs:
+      - name: lesion record
+        type: object
+        unit: null
+    logic: |
+      formList: tipo_lesao {ferida_cirurgica, escoriacao, equimose, queimadura, ulcera_vascular,
+        ulcera_neuropatica, ferida_arma_fogo}; local_lesao(localLesoes); aspecto(string);
+        curativo(string); frequencia_troca {dia,mes,ano}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "248-302"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Duplicated in dataFormTecEnfermagem.ts:495-549; commented-out in dataFormFarmaceutico.ts:213-267.
+
+  - id: RULE-nursing-FE-01-041
+    name: Nursing abdominal assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Abdominal exam enums for shape, bowel sounds, pain, palpable masses, peristalsis.
+    inputs:
+      - name: avaliacao_abdominal.*
+        type: enum/boolean
+        unit: null
+        range: see logic
+    outputs:
+      - name: abdominal assessment
+        type: object
+        unit: null
+    logic: |
+      geral multicheck {plano, globoso, escavado, cirurgia_recente}
+      ruidos_hidroaereos multicheck {presentes, diminuidos, ausentes}
+      presenca_dor multicheck {doloroso, indolor, ascitico}
+      massas_palpaveis(boolean); peristalse(boolean)
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "307-359"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Nutricionista variant (RULE-049) adds colostomia to geral and diurese/evacuacoes fields.
+
+  - id: RULE-nursing-FE-01-042
+    name: Nursing genitourinary assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Genitourinary exam with boolean lesion/secretion flags and a diuresis-route multicheck.
+    inputs:
+      - name: avaliacao_genital.diurese
+        type: enum[] (multicheck)
+        unit: null
+        range: ausente|presente|svd|sva|fralda
+    outputs:
+      - name: genitourinary assessment
+        type: object
+        unit: null
+    logic: |
+      booleans: edema_bolsa_escrotal, lesoes, secrecao_uretral, secrecao_vaginal
+      strings: descricao_lesao, aspecto, descrever, aspecto_urina, observacao
+      diurese multicheck {ausente, presente, svd, sva, fralda}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "360-423"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: TecEnfermagem variant adds a fralda->nr_trocas_24h conditional (RULE-074).
+
+  - id: RULE-nursing-FE-01-043
+    name: Nursing cardiovascular assessment enums with TEC>5s flag
+    category: alert-threshold
+    type: validation
+    status: OK
+    description: Cardiovascular exam enums plus a boolean capillary-refill >5s alert.
+    inputs:
+      - name: avaliacao_cardiologica.tec_maior_5s
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: cardiovascular assessment
+        type: object
+        unit: null
+    logic: |
+      pressao_arterial {normotenso, hipotensao, hipertensao, instavel(Instável Hemodinamicamente)}
+      frequencia_cardiaca {normocardio, bradicardico, taquicardio}
+      ritmo_cardiaco {ritmo_sinusal, arritmia, marcapasso, sopro_cardiaco}
+      tec_maior_5s(boolean) "Tempo de Enchimento Capilar maior que 5 segundos?"
+    edge_cases: TEC>5s is a perfusion alert (see RULE-022).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "424-472"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: pressao_arterial/frequencia_cardiaca categorical enums reused in Fisioterapeuta and Farmaceutico cardio sections.
+
+  - id: RULE-nursing-FE-01-044
+    name: Nursing neurological assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Neuro exam enums for pupils, orientation, emotional state, tone, eye-opening, motor deficit.
+    inputs:
+      - name: avaliacao_neurologica.*
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: neuro assessment
+        type: object
+        unit: null
+    logic: |
+      pupilas {isocoricas(Fotoregente), miose, midriase}
+      orientacao {ativo, sonolento, torporoso, comatoso, reativo}
+      emocional {calmo, agitado, agressivo, letargico, nsa}
+      tonus {flacidez, rigidez, flexao_de_pernas, movimentos_ativos}
+      abertura_ocular {espontanea, ao_comando, a_dor, nenhuma}   // GCS eye-opening component labels
+      deficit_motor {sem_deficit, com_deficit, avaliacao_prejudicada(prejudicada pelo nível de consciência)}
+    edge_cases: abertura_ocular mirrors GCS eye-opening subscale but stored categorically.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "473-553"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: orientacao/emocional/abertura_ocular enums reused across Fono, Psico, Fisio, TecEnf forms.
+
+  - id: RULE-nutrition-FE-01-045
+    name: Nutrition-therapy assessment ranges and prophylaxis enum
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Nutrition-therapy block with diet-route booleans, acceptance enum, vomit/gastric-residue/HGT ranges, and stress-ulcer/nutrition prophylaxis indication enum.
+    inputs:
+      - name: vomitos / residuo_gastrico
+        type: number
+        unit: ml
+        range: 0-10000
+      - name: hgt_max / hgt_min
+        type: number
+        unit: mg/dL
+        range: 0-1000
+      - name: indicacao_profilaxia
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: nutrition assessment
+        type: object
+        unit: null
+    logic: |
+      booleans: dieta_zero, dieta_via_oral, enteral_sne_gtt, nutricao_parenteral
+      aceitacao {total, parcial, recusado}
+      vomitos 0-10000; residuo_gastrico 0-10000; hgt_max 0-1000; hgt_min 0-1000
+      indicacao_profilaxia {dva, tce, avc, queimado, jejum_prolongado, nao_indicado, terapeutico, vm_mais_72h(VM > 72h)}
+    edge_cases: HGT max/min not cross-validated (max>=min not enforced).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "554-633"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Identical block in dataFormNutricionista.ts:31-110 (RULE-048). Prophylaxis indications (TCE/AVC/queimado/jejum/VM>72h) are stress-ulcer prophylaxis criteria.
+
+  - id: RULE-resp-FE-01-046
+    name: Nursing ventilation/secretion assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Respiratory secretion, cough, chest-tube and dressing-aspect enums including flogistic-signs classification.
+    inputs:
+      - name: avaliacao_ventilacao.*
+        type: enum/boolean/date
+        unit: null
+        range: see logic
+    outputs:
+      - name: ventilation assessment
+        type: object
+        unit: null
+    logic: |
+      secrecao_traqueal {pouca, media, grande, aspiracao_ausente}
+      aspecto {mucoide, purulenta, mucopurulenta, sanguinolenta}
+      tosse {eficaz, nao_eficaz, ausente}
+      expansibilidade_pulmonar {simetrica, assimetrica}
+      dreno_de_torax {esquerdo, direito, bilateral, ausente}
+      oscilacao(boolean)
+      aspecto_da_secrecao {espessa, purulenta, serosa, fluida_hialina, hematica, sendimentos}
+      aspecto_do_curativo {limpa_seca, flogisticos_secrecao, flogisticos_sem_secrecao, sanguinolento_sem_flogisticos}
+      ausculta {murmurios_vesiculares, pulmoes_livres, roncos, sibilos, estertores}
+      data_troca_selo(date)
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "634-752"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: aspecto_do_curativo flogistic-signs enum reused in every invasive-device group (RULE-047).
+
+  - id: RULE-devices-FE-01-047
+    name: Invasive-device dressing and exchange scheduling
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: Per invasive device, a checkable ("checavel") group records site, insertion/dressing dates, dressing type and aspect, next-exchange date and external-insertion flag; some devices have device-specific fields.
+    inputs:
+      - name: data_proxima_troca
+        type: date
+        unit: null
+        range: null
+      - name: curativo
+        type: enum
+        unit: null
+        range: filme_transparente|curativo_convencional
+    outputs:
+      - name: device record
+        type: object
+        unit: null
+    logic: |
+      Devices (each grupoKey, checavel:true): cateter_venoso_central, colostomia, ileostomia, jejunostomia,
+        traqueostomia, gastrostomia, cateter_duplo_lumen_hemodialise, pressao_arterial_invasiva,
+        acesso_venoso_periferico, fistula_arteriovenosa, hipodermoclise, picc, port_a_cath, observacao.
+      Standard fields (CVC/ostomies/traqueo/gastro/CDL/PAI): local(string), data_insercao(date), data_curativo(date),
+        curativo {filme_transparente, curativo_convencional}, aspecto_do_curativo {limpa_seca, flogisticos_secrecao,
+        flogisticos_sem_secrecao, sanguinolento_sem_flogisticos}, data_proxima_troca(date),
+        inserido_em_outra_instituicao(boolean).
+      acesso_venoso_periferico: local, data_insercao, data_curativo, data_proxima_troca, flebite(boolean) [no dressing enums].
+      fistula_arteriovenosa: local + fremito_palpavel(boolean).
+      hipodermoclise / picc / port_a_cath: local only.
+    edge_cases: data_proxima_troca drives dressing/device exchange scheduling; no automatic interval computed here.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormEnfermagem.ts
+      lines: "781-1596"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: The flag checavel=true marks a device as a checklist/round item. AVP tracks flebite (phlebitis) rather than a dressing.
+
+  - id: RULE-nutrition-FE-01-048
+    name: Dietitian nutrition-therapy block (duplicate of nursing)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Dietitian form re-declares the same nutrition-therapy ranges/enums as the nursing form.
+    inputs:
+      - name: vomitos / residuo_gastrico
+        type: number
+        unit: ml
+        range: 0-10000
+      - name: hgt_max / hgt_min
+        type: number
+        unit: mg/dL
+        range: 0-1000
+    outputs:
+      - name: nutrition assessment
+        type: object
+        unit: null
+    logic: |
+      Same fields/bounds/enum as RULE-045 (booleans, aceitacao, vomitos 0-10000, residuo 0-10000, hgt_* 0-1000,
+      indicacao_profilaxia enum).
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormNutricionista.ts
+      lines: "31-110"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Cross-reference RULE-045; kept separate per instruction to capture per-file occurrences. Avaliacao Global and Meta Terapeutica groups delegate to React fieldsets (FieldsetAvGlobalNutricionista, FieldsetMtTerapeuticaNutricionista) outside partition FE-01.
+
+  - id: RULE-nutrition-FE-01-049
+    name: Dietitian abdominal assessment enums (extended)
+    category: data-validation
+    type: validation
+    status: OK
+    description: Dietitian abdominal exam adds colostomy, ascites, diuresis-route and stool-aspect fields beyond the nursing version.
+    inputs:
+      - name: avaliacao_abdominal.*
+        type: enum/boolean/string
+        unit: null
+        range: see logic
+    outputs:
+      - name: abdominal assessment
+        type: object
+        unit: null
+    logic: |
+      geral multicheck {plano, globoso, escavado, cirurgia_recente, colostomia}
+      ruidos_hidroaereos {presentes, diminuidos, ausentes}
+      presenca_dor {doloroso, indolor, ascitico}
+      massas_palpaveis(bool); peristalse(bool)
+      evacuacoes {ausente, presente}; aspecto_fezes(string)
+      diurese multicheck {ausente, presente, svd, sva, fralda}; aspecto_urina(string)
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormNutricionista.ts
+      lines: "111-190"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-nutrition-FE-01-050
+    name: Dietitian daily-objectives conditional volumes
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Each diet-route toggle, when true, requires a corresponding prescribed detail (consistency or prescribed volume in ml or supplement).
+    inputs:
+      - name: dieta_via_oral / nutricao_enteral / nutricao_parenteral / suplementacao
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: prescribed detail
+        type: string|number
+        unit: ml (for enteral/parenteral)
+    logic: |
+      dieta_via_oral == true    -> consistencia (string)
+      nutricao_enteral == true  -> Volume_prescrito_enteral (number, ml)
+      nutricao_parenteral == true -> Volume_prescrito_parenteral (number, ml)
+      suplementacao == true     -> suplemento (string)
+    edge_cases: Field key "Volume_prescrito_enteral" is capitalized (case-sensitive persistence key).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormNutricionista.ts
+      lines: "347-415"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-physio-FE-01-051
+    name: Physiotherapy early-mobilization eligibility flags
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: Global assessment captures edema grade, general state, delirium, and two boolean contraindications to early mobilization.
+    inputs:
+      - name: instabilidade_hemodinamica_grave
+        type: boolean
+        unit: null
+        range: null
+      - name: contraindicacao_de_mobilizacao_precoce
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: mobilization eligibility flags
+        type: boolean set
+        unit: null
+    logic: |
+      edema {sem_edema, edema1(MMII1), edema2(MMII2), edema3(MMII3), anasarca}
+      estado_geral {grave, regular}
+      presenca_delirium(boolean)
+      instabilidade_hemodinamica_grave(boolean)
+      contraindicacao_de_mobilizacao_precoce(boolean)
+    edge_cases: The two booleans gate whether early mobilization/physiotherapy is appropriate; the form does not auto-block conduct on them.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      lines: "24-77"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: The 'Dados do Paciente' subgroup delegates to FieldSetDadosPacienteFisioterapeuta (React component, out of partition).
+
+  - id: RULE-physio-FE-01-052
+    name: Physiotherapy neuro/cardio/respiratory assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Physiotherapist neuro, cardiovascular and respiratory exam enums (adds peripheral-perfusion, ventilatory rhythm/pattern, adventitious sounds, cough efficacy).
+    inputs:
+      - name: avaliacao_respiratoria.*
+        type: enum[]/enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: exam enums
+        type: object
+        unit: null
+    logic: |
+      neuro: pupilas {isocoricas,miose,midriase}; orientacao {ativo,sonolento,torporoso,comatoso,reativo};
+             emocional {calmo,agitado,agressivo,letargico,nsa}; abertura_ocular {espontanea,ao_comando,a_dor,nenhuma}
+      cardio: pressao_arterial {normotenso,hipotensao,hipertensao,instavel}; frequencia_cardiaca {normocardio,bradicardico,taquicardio};
+              drogas_vasoativas(bool); perfusao_periferica multicheck {regular,irregular,hipocorado,icterico}
+      resp: ritmo_ventilatorio multicheck {repouso,eupneico,dispneico,bradipneico,taquipneico,pequenos_esforcos,medios_esforcos,grandes_esforcos};
+            padrao_ventilatorio {apical,superficial,diafragmatico,misto}; murmurio_vesicular {presente,diminuido,abolido};
+            local_murmurio_vesicular {base_direita,base_esquerda,abolido,bases,htxd,htxe,difusos};
+            estados_respiracao multicheck {estertores_crepitantes,estertores_bolhosos,estridor,sibilos,ronco};
+            secrecao_traqueal {pouca,media,grande,aspiracao_ausente}; aspecto {mucoide,purulenta,mucopurulenta,sanguinolenta};
+            tosse {eficaz,nao_eficaz,ausente}; expansibilidade_pulmonar {simetrica,assimetrica};
+            dreno_de_torax {esquerdo,direito,bilateral,ausente};
+            aspecto_da_secrecao {espessa,purulenta,serosa,fluida_hialina,hematica,sendimentos};
+            ausculta {murmurios_vesiculares,pulmoes_livres,roncos,sibilos,estertores}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      lines: "79-330"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-resp-FE-01-053
+    name: Physiotherapy ventilation decision tree with divergent pressure ranges
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    description: Ventilation type reveals spontaneous vs invasive vs non-invasive parameter sets; nested intermittent mode reveals hourly load and shift; PEEP/PINS ranges differ from other forms.
+    inputs:
+      - name: tipo_ventilacao
+        type: enum
+        unit: null
+        range: espontanea|mecanica_invasiva|mecanica_nao_invasiva
+      - name: pressao_expiratoria_pulmonar (PEEP)
+        type: number
+        unit: cmH2O
+        range: 5-18
+      - name: pressao_inspiratoria
+        type: number
+        unit: cmH2O
+        range: 5-40
+    outputs:
+      - name: ventilation params
+        type: object
+        unit: null
+    logic: |
+      tipo_respiracao {nasal,bucal,mista,tqt}
+      tipo_ventilacao conditions:
+        espontanea -> tipo_oxigenoterapia {ar_ambiente,cateter_nasal,mascara_venturi,macronebulizacao,continuo,intermitente}
+                      + o2_minuto(0-1000 lt/min) + carga_horaria(0-1000 h) + turno {diurno,noturno}
+        mecanica_invasiva / mecanica_nao_invasiva (identical field sets):
+          tipo_ventilacao_mecanica {intermitente,continua};
+            intermitente -> carga_horaria(0-1000) + turno {diurno,noturno}
+          parametros_ventilatorios {vcv,simv,psv,pcv,bilevel,ac}
+          pressao_expiratoria_pulmonar (PEEP): 5-18
+          pressao_inspiratoria: 5-40
+          + free-string params: fracao_inspiratoria_oxigenio, volume_corrente, frequencia_respiratoria,
+            ventilacao_minuto, tempo_inspiratorio, relacao_inspiratoria_expiratoria,
+            limite_maximo_pressao_inspiratoria, pressao_inspiratoria_plato, pressao_suporte, fluxo, tigger, pressao_balonete
+      Section-level: indice_tobim, pimax, pemax, cuff_leak, iwi (all free strings).
+    edge_cases: PEEP bounded 5-18 here vs 0-40 on movimentacao/physician forms; PINS 5-40 here vs 0-30 elsewhere — divergent validation for the same clinical parameter.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      lines: "331-677"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = inconsistent PEEP/PINS ranges across forms (cf. RULE-023, RULE-036). "indice_tobim" = Tobin index (RSBI); IWI = Integrative Weaning Index — weaning predictors captured as free text.
+
+  - id: RULE-physio-FE-01-054
+    name: Physiotherapy motor-function enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Motor-function assessment enums for mobility (plegia/paresis patterns), tone, trophism and deformities/contractures.
+    inputs:
+      - name: avaliacao_funcao_motora.*
+        type: enum[]/enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: motor assessment
+        type: object
+        unit: null
+    logic: |
+      mobilidade multicheck {ativo,hipoativo,inativa,quadriplegico,hemiplegico,paraplegico,quadriparetico,
+        hemiparetico,paraparetico,tetraplegia}
+      localizacao_mobilidade {direito,esquerdo}
+      tonus_muscular multicheck {normotonia,hipotonia,hipertonia_plastica,hipertonia_elastica}
+      trofismo multicheck {normotrofia,hipotrofia,hipertrofia}
+      deformidades_contraturas multicheck {membro_superior_direito,membro_superior_esquerdo,membro_inferior_direito,
+        membro_inferior_esquerdo,membros_inferiores,membros_superiores,ausente}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      lines: "678-757"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-physio-FE-01-055
+    name: Physiotherapy conduct enums (respiratory & motor techniques)
+    category: care-pathway
+    type: validation
+    status: OK
+    description: Physiotherapy interventions selectable as respiratory and motor technique multichecks.
+    inputs:
+      - name: fisioterapia_respiratoria / fisioterapia_motora
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+    outputs:
+      - name: therapy conduct
+        type: enum set
+        unit: null
+    logic: |
+      fisioterapia_respiratoria multicheck {manobras_higiene_bronquica, padroes_ventilatorios,
+        tecnicas_de_reexpansao_pulmonar, tosse_dirigida, tosse_assistida, tosse_induzida,
+        treinamento_de_musculatura_respiratoria, aspiracao_de_via_aerea_superiore_traqueostomia,
+        bag_squeezing, ajuste_de_oxigenoterapia, epap, ajuste_de_parametros_ventilatorios, aspiracao}
+      uso_de_cough_assist(string)
+      fisioterapia_motora multicheck {cinesioterapia_passiva, cinesioterapia_ativo_assistida, cinesioterapia_ativa,
+        cinesioterapia_ativa_livre, cinesioterapia_resistida, sedestacao_no_leito, sedestacao_fora_do_leito,
+        ortostatismo, deambulacao, treino_de_marcha, treino_de_equilibrio, exercicios_calistenicos,
+        exercicios_isometricos, alongamento, mobilizacao_passiva, posicionamento_funcional, crioterapia,
+        termoterapia, eletroterapia}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFisioterapeuta.ts
+      lines: "758-859"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-pharma-FE-01-056
+    name: Pharmacist form variable/file naming mismatch
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: The pharmacist form file declares and exports a const named dataFormFisioterapeuta though its content and filename are pharmaceutical.
+    inputs:
+      - name: N/A
+        type: null
+        unit: null
+        range: null
+    outputs:
+      - name: N/A
+        type: null
+        unit: null
+    logic: |
+      dataFormFarmaceutico.ts: `const dataFormFisioterapeuta = [...]; export default dataFormFisioterapeuta;`
+      Content = pharmacist groups (Antibioticos em uso, Profilaxias, Conciliacao Medicamentosa, Conduta farmaceutica).
+      Two files therefore both define a symbol named dataFormFisioterapeuta.
+    edge_cases: Cosmetic to runtime (default export) but a maintenance/traceability hazard.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "1-3,690-693"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = filename says farmaceutico, symbol says fisioterapeuta.
+
+  - id: RULE-pharma-FE-01-057
+    name: Pharmacist global assessment (risks with dead conditionals)
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: Pharmacist global assessment reuses the assistance-risk multicheck but all conditional reveals (allergy note, LPP list, other-lesion list) are commented out, so no fields open on selection.
+    inputs:
+      - name: avaliacao_global.riscos_assistenciais
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+      - name: presenca_de_delirium
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      idade(number, disabledOnEdit), peso(number), estado_geral {grave,regular}
+      riscos_assistenciais multicheck {queda,alergia,sangramento,trombose_venosa,delirium,broncoaspiracao,
+        flebite,alteracao_glicemica,lpp,outras_lesoes}
+      conditions: {} // alergia/lpp/outras_lesoes blocks all commented out
+      presenca_de_delirium(boolean)
+    edge_cases: Selecting alergia/lpp/outras_lesoes opens NO detail field (unlike nursing RULE-038).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "22-275"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = risk categories present but their required-detail logic is disabled vs the nurse form.
+
+  - id: RULE-pharma-FE-01-058
+    name: Antibiotic course tracking list (with malformed field)
+    category: scheduling-operational
+    type: workflow
+    status: DISCREPANCY
+    description: List of antibiotics in use with start/end dates, renal/hepatic dose-adjustment note and adjustment date, and positive-culture note; one row-field is malformed (uses key "Data" instead of "label").
+    inputs:
+      - name: antibiotico
+        type: string
+        unit: null
+        range: null
+      - name: data_inicio / data_fim / data_reajuste
+        type: date
+        unit: null
+        range: null
+    outputs:
+      - name: antibiotic course record
+        type: object
+        unit: null
+    logic: |
+      formList: antibiotico(string, disabledOnEdit), data_inicio(date, disabledOnEdit), data_fim(date, disabledOnEdit),
+        reajuste_funcao_renal_hepatica(string), data_reajuste(date) [defined as { Data:"Data reajuste", nome:["data_reajuste"], type:"date" } — has no `label` key],
+        cura_positiva(string, disabledOnEdit)
+    edge_cases: The data_reajuste field object omits `label` and instead has a stray `Data` property (line 401) -> renders without a proper label.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "367-414"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = malformed field descriptor (key `Data` vs `label`).
+
+  - id: RULE-pharma-FE-01-059
+    name: Pharmacist prophylaxis checklist
+    category: care-pathway
+    type: validation
+    status: OK
+    description: Free-text prophylaxis fields covering constipation/diarrhea, delirium, glycemic control, tube meds, VTE, stress-ulcer, analgesia and sedation.
+    inputs:
+      - name: profilaxias.*
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: prophylaxis plan
+        type: object
+        unit: null
+    logic: |
+      strings: profilaxia_constipacao_diarreia, profilaxia_delirium, profilaxia_controle_glicemico,
+      medicamento_sonda, profilaxia_tev(TEV/VTE), profilaxia_ulcera_estresse, analgesia, sedacao
+    edge_cases: All optional free-text.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "415-461"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: TEV = tromboembolismo venoso (VTE prophylaxis).
+
+  - id: RULE-pharma-FE-01-060
+    name: Medication reconciliation logic
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Reconciliation captures high-risk medication classes, treatment adherence (low adherence requires a reason), admission-reconciliation decision and reconciliation completeness.
+    inputs:
+      - name: medicamentos_uso
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+      - name: adesao_tratamento
+        type: enum
+        unit: null
+        range: baixa|alta
+    outputs:
+      - name: reconciliation record
+        type: object
+        unit: null
+    logic: |
+      medicamentos_uso multicheck {corticoides, analgesicos_tempo_prolongado, antibioticos_antifungicos,
+        medicamentos_controlados, medicamentos_potencialmente_perigosos}
+      adesao_tratamento {baixa, alta}; baixa -> motivo_adesao_tratamento(string) required-if
+      paciente_conciliado_admissao {manter_prescricao_original, alterar_prescricao}
+      realizada_conciliacao_medicamentosa {parcial, total, nao_realizada, aguardando_informacoes}
+    edge_cases: Only "baixa" adherence opens the reason field.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "462-539"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-pharma-FE-01-061
+    name: Pharmacist intervention vocabulary
+    category: data-validation
+    type: validation
+    status: OK
+    description: Multicheck vocabulary of pharmacist interventions/conducts.
+    inputs:
+      - name: conduta_farmaceutica.condutas
+        type: enum[] (multicheck)
+        unit: null
+        range: 33 options
+    outputs:
+      - name: interventions
+        type: enum set
+        unit: null
+    logic: |
+      options include: ajuste_de_dose_de_medicamento, ajuste_de_dose_de_antimicrobiano, ajuste_de_posologia,
+      ausencia_ou_aprazamento_incorreto, correcao_de_eletrólitos, diluição, estabilidade,
+      indicacao_medicamento_alternativo, indicacao_de_forma_farmaceutica, dosagem_sérica,
+      interacao_medicamentosa_x_alimento_nutriente, interacao_medicamentosa_contra_indicada,
+      medicamentos_contra_indicados_via_sonda, nao_padrao_atendido, nao_padrao_substituido, ajuste_de_prescricao,
+      inclusao_exclusao_de_medicamento, substituicao_de_via_endovenosa_por_oral, substitiicao_de_antimicrobiano,
+      reconstituinte, sinalizacao_de_alegria, subdosagem_superdosagem, sugestao_suspensao_de_antimicrobiano,
+      sugestao_suspensao_outros_medicamentos, transcricao_de_prescricao_medica, tratamento_com_atb_duracao_alteracao,
+      velocidade_de_infusao, via_de_administracco, profilaxia_para_tev, profixia_para_lamg,
+      orientacoes_de_armazenamento_de_medicamentos
+    edge_cases: Contains typos in values (substitiicao, via_de_administracco, profixia, sinalizacao_de_alegria) that persist to stored data.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFarmaceutico.ts
+      lines: "540-677"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: The value sinalizacao_de_alegria ('signaling of joy') is almost certainly a typo for 'alergia' (allergy) — recorded verbatim.
+
+  - id: RULE-fono-FE-01-062
+    name: Speech-therapy global assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Speech therapist global assessment with communication mode, respiration/airway type, oxygen use, feeding acceptance and feeding route.
+    inputs:
+      - name: avaliacao_global.*
+        type: enum/boolean
+        unit: null
+        range: see logic
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      estado_geral {grave,regular}; orientacao {ativo,sonolento,torporoso,comatoso,reativo};
+      emocional {calmo,agitado,agressivo,letargico,nsa};
+      comunicacao {verbal,gestual,expressoes_faciais,comunicacao_alternativa,ausencia_comunicacao};
+      respiracao {espontanea_ar_ambiente,espontanea_suporte_o2,traqueostomia_plastica,traqueostomia_metalica,
+        ventilacao_mecanica,ventilacao_nao_invasiva};
+      uso_oxigenoterapia(boolean);
+      alimentacao {total,parcial,recusa}; via {oral,sonda_nasoenteral,gastrostomia}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFonoaudiologo.ts
+      lines: "22-132"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-scoring-FE-01-063
+    name: FOIS Functional Oral Intake Scale
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Functional Oral Intake Scale captured as a 7-level select with the standard level descriptions.
+    inputs:
+      - name: avaliacao_fonoaudiologica.fois
+        type: enum
+        unit: level
+        range: nivel1-nivel7
+    outputs:
+      - name: fois level
+        type: enum
+        unit: level
+    logic: |
+      fois options:
+        nivel1 Nada por via oral
+        nivel2 Dependente de via alternativa e mínima via oral de algum alimento/líquido
+        nivel3 Dependente de via alternativa com consistente via oral de alimento/líquido
+        nivel4 Via oral total de uma única consistência
+        nivel5 Via oral total com múltiplas consistências, com preparo especial/compensações
+        nivel6 Via oral total com múltiplas consistências, sem preparo especial mas com restrições
+        nivel7 Via oral total sem restrições
+    edge_cases: Ordinal 1(worst)->7(best); labels match published FOIS.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFonoaudiologo.ts
+      lines: "146-181"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Standard 7-point FOIS (Crary et al.). Level-6 label has a typo ("oucompensações").
+
+  - id: RULE-fono-FE-01-064
+    name: Speech-therapy orofacial and language enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Orofacial structure motility/tone and expressive/receptive language state enums.
+    inputs:
+      - name: avaliacao_fonoaudiologica.*
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: speech assessment
+        type: object
+        unit: null
+    logic: |
+      motilidade {adequada,inadequada}; tonicidade {adequada,inadequada}
+      expressiva {presente,alterada,ausente}; receptiva {presente,alterada,ausente}
+    edge_cases: Label "Ausênte" mis-accented; value "ausente" correct.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormFonoaudiologo.ts
+      lines: "184-232"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-psico-FE-01-065
+    name: Psychology global assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Psychologist global assessment covering general state, orientation/reactivity, emotional state, eye-opening.
+    inputs:
+      - name: avaliacao_global.*
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      estado_geral {grave,regular}
+      orientacao {ativo,sonolento,torporoso,comatoso,reativo}
+      emocional {calmo,agitado,agressivo,letargico,nsa}
+      abertura_ocular {espontanea,ao_comando,a_dor,nenhuma}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormPsicologo.ts
+      lines: "22-77"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-psico-FE-01-066
+    name: Psychological-assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Psychological assessment covering attitude toward interviewer, mood, disease awareness, thought pattern.
+    inputs:
+      - name: avaliacao_psicologica.*
+        type: enum/string
+        unit: null
+        range: see logic
+    outputs:
+      - name: psych assessment
+        type: object
+        unit: null
+    logic: |
+      atitude {cooperativo,resistente,indiferente}
+      humor {normal,exaltado,baixa_de_humor,quebra_subita}
+      consciencia_da_doenca {sim,parcial,nao}
+      pensamento {acelerado,hipocondria,confuso,fuga_negacao}
+      sintomas_psicologicos(string); queixa_ou_motivo(string)
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormPsicologo.ts
+      lines: "78-139"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-music-FE-01-067
+    name: Music-therapy global assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Music therapist global assessment covering general state (5-level), communication language, visual contact, spatiotemporal orientation, gross/fine motor coordination.
+    inputs:
+      - name: avaliacao_global.*
+        type: enum/boolean
+        unit: null
+        range: see logic
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      estado_geral {otimo,bom,regular,ruim,pessimo}
+      linguagem_comunicacao {verbal,nao_verbal,musical,nao_musical,corporal,nao_corporal}
+      contato_visual(boolean); orientacao_espaco_temporal(boolean)
+      coordenacao_motora_grossa {otima,boa,regular,ruim,pessima}
+      coordenacao_motora_fina {otima,boa,regular,ruim,pessima}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMusicoterapia.ts
+      lines: "22-90"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-music-FE-01-068
+    name: Intramusical-relations assessment enum
+    category: data-validation
+    type: validation
+    status: OK
+    description: Multicheck of the patient's relationship to musical instruments (music-therapy specific scale).
+    inputs:
+      - name: avaliacao_global.relacoes_intramusicais
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+    outputs:
+      - name: intramusical relations
+        type: enum set
+        unit: null
+    logic: |
+      options: nao_registra_presenca_de_instrumentos_musicais, manipula_instrumentos_musicais,
+      realiza_atividade_a_partir_dos_instrumentos_musicais, registra_a_presenca_de_instrumentos_musicais,
+      explora_instrumentos_musicais, realiza_atividade..._com_intencao_intermusical
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormMusicoterapia.ts
+      lines: "91-128"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-intercorrencia-FE-01-069
+    name: Incident triage - urgency grade and symptom classification
+    category: triage-eligibility
+    type: decision-tree
+    status: OK
+    description: Home-care incident record captures trigger type, urgency grade, and a symptom classification multicheck used for triage.
+    inputs:
+      - name: tipo_acionamento
+        type: enum
+        unit: null
+        range: intercorrencia|ocorrencia
+      - name: grau_urgencia
+        type: enum
+        unit: null
+        range: normal|urgencia|sem_urgencia|emergencia
+      - name: classificacao_intercorrencia
+        type: enum[] (multicheck)
+        unit: null
+        range: symptom list
+    outputs:
+      - name: triage record
+        type: object
+        unit: null
+    logic: |
+      tipo_acionamento {intercorrencia, ocorrencia}
+      grau_urgencia {normal, urgencia, sem_urgencia, emergencia}
+      classificacao_intercorrencia multicheck: sintomas_respiratorios, sintomas_urinarios, sintomas_gripais,
+        taquicardia, bradicardia, febre, cefaleia, prostracao, problemas_estoma, nauseas_e_vomitos, hipodermoclise,
+        hipoglicemia, hiperglicemia, dor_abdominal, confusao_mental, constipacao_intestinal, dor_garganta, edemas,
+        problemas_oculares, problemas_vaginais, problemas_penianos, reacao_alergica, dor_precordial, lesoes_cutaneas,
+        crise_convulsiva, sincope
+      observacao(string)
+    edge_cases: grau_urgencia set is unordered enum (normal/sem_urgencia both benign; emergencia most severe).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormIntercorrencia.ts
+      lines: "23-87"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-intercorrencia-FE-01-070
+    name: Incident intervention/conduct with conditional specific-intervention
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Interventions performed during an incident; a boolean flag reveals a required free-text specific intervention.
+    inputs:
+      - name: intervencao
+        type: enum[] (multicheck)
+        unit: null
+        range: see logic
+      - name: realizado_intervencao_especifica
+        type: boolean
+        unit: null
+        range: null
+    outputs:
+      - name: intervention record
+        type: object
+        unit: null
+    logic: |
+      intervencao multicheck {passagem_sne, passagem_sng, troca_traqueostomia, passagem_sonda_gastrostomia,
+        exames_laboratoriais, acesso_venoso_central, acesso_venoso_periferico}
+      realizado_intervencao_especifica == true -> qual_intervencao_especifica (string)
+      observacao(string) "Conduta"
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormIntercorrencia.ts
+      lines: "88-133"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-intercorrencia-FE-01-071
+    name: Incident disposition/outcome enum
+    category: care-pathway
+    type: validation
+    status: OK
+    description: Disposition of an incident, from referral to medical/nursing/APH/hospital visits through telephone guidance to home death.
+    inputs:
+      - name: itens_desfecho
+        type: enum
+        unit: null
+        range: see logic
+    outputs:
+      - name: disposition
+        type: enum
+        unit: null
+    logic: |
+      itens_desfecho options: encaminhada_visita_medica, encaminhada_visita_enfermagem, encaminhado_visita_aph_medico,
+      encaminhado_hospital_prestador, encaminhado_hospital_familiar, encaminhada_visita_fisio,
+      orientacao_telefonica, obito_domiciliar
+    edge_cases: obito_domiciliar (home death) is a terminal disposition.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormIntercorrencia.ts
+      lines: "134-173"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: relato_gastos (cost report) free-text group follows (174-185).
+
+  - id: RULE-tecnursing-FE-01-072
+    name: Nursing-technician global assessment with locomotion
+    category: data-validation
+    type: validation
+    status: OK
+    description: Technician global assessment covering edema grade, general state, boolean signs, and a locomotion enum.
+    inputs:
+      - name: avaliacao_global.locomocao
+        type: enum
+        unit: null
+        range: acamado|deambula|deambula_auxilio|cadeirante
+    outputs:
+      - name: global assessment
+        type: object
+        unit: null
+    logic: |
+      edema {sem_edema,edema1,edema2,edema3,anasarca}; estado_geral {grave,regular}
+      booleans: hipocorado, ictericia, febre, cianose
+      locomocao {acamado, deambula, deambula_auxilio, cadeirante}
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "24-82"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-tecnursing-FE-01-073
+    name: Nursing-technician respiratory assessment with aspiration conditional
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: Technician respiratory exam; an aspiration boolean reveals a per-shift aspiration count; O2 flow bounded 0-1000.
+    inputs:
+      - name: aspiracao
+        type: boolean
+        unit: null
+        range: null
+      - name: litros_por_minuto
+        type: number
+        unit: L/min
+        range: 0-1000
+    outputs:
+      - name: respiratory assessment
+        type: object
+        unit: null
+    logic: |
+      secrecao_traqueal {pouca,media,grande,aspiracao_ausente}; aspecto {mucoide,purulenta,mucopurulenta,sanguinolenta};
+      tosse {eficaz,nao_eficaz,ausente}; dreno_de_torax {esquerdo,direito,bilateral,ausente};
+      aspecto_da_secrecao {espessa,purulenta,serosa,fluida_hialina,hematica,sendimentos}; data_troca_selo(date)
+      aspiracao == true -> nr_aspiracoes_plantao (string, "Nº de aspirações x plantão")
+      dispositivos multicheck {ausente,tqt,cateter_o2,mascara_o2,vni,vm}
+      litros_por_minuto: number 0-1000
+    edge_cases: O2 flow ceiling 1000 L/min is physiologically implausible (same loose bound as physio o2_minuto).
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "114-215"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-tecnursing-FE-01-074
+    name: Nursing-technician genitourinary with diaper-change conditional
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: Technician genitourinary exam; selecting "fralda" (diaper) in the diuresis multicheck reveals a 24h change-count field.
+    inputs:
+      - name: diurese
+        type: enum[] (multicheck)
+        unit: null
+        range: ausente|presente|svd|sva|fralda
+      - name: nr_trocas_24h
+        type: string
+        unit: null
+        range: null
+    outputs:
+      - name: genitourinary assessment
+        type: object
+        unit: null
+    logic: |
+      booleans: edema_bolsa_escrotal, lesoes, secrecao_uretral, secrecao_vaginal
+      diurese multicheck {ausente,presente,svd,sva,fralda}; fralda -> nr_trocas_24h (string, "Nº trocas/24 horas")
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "216-288"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Nursing (RULE-042) has no fralda conditional.
+
+  - id: RULE-tecnursing-FE-01-075
+    name: Nursing-technician diet ranges (subset)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Technician diet block with route booleans, acceptance enum and vomit/gastric-residue ranges (no HGT/prophylaxis unlike nurse/dietitian).
+    inputs:
+      - name: vomitos / residuo_gastrico
+        type: number
+        unit: ml
+        range: 0-10000
+    outputs:
+      - name: diet assessment
+        type: object
+        unit: null
+    logic: |
+      booleans: dieta_zero, dieta_via_oral, enteral_sne_gtt, nutricao_parenteral
+      aceitacao {total,parcial,recusado}; vomitos 0-10000; residuo_gastrico 0-10000
+    edge_cases: Omits hgt_max/hgt_min and indicacao_profilaxia present in RULE-045/048.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "289-339"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: null
+
+  - id: RULE-tecnursing-FE-01-076
+    name: Nursing-technician tegumentary LPP list (variant value)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: Technician pressure-injury list is reached via a lesions multicheck and reuses the LPP staging list but with a divergent peri-wound-edema top-tier value.
+    inputs:
+      - name: lesoes
+        type: enum[] (multicheck)
+        unit: null
+        range: lpp|outras_lesoes
+    outputs:
+      - name: wound record
+        type: object
+        unit: null
+    logic: |
+      lesoes multicheck {lpp, outras_lesoes}
+        lpp -> LPP formList (same structure as RULE-039) BUT edema_tecido top option value = "crepitacao_maior_4cm"
+               (vs "crepitacao_edema_com_sulco_maior_4cm" in nursing/dietitian forms)
+        outras_lesoes -> other-lesion formList (as RULE-040)
+    edge_cases: Same clinical label, different stored value -> data inconsistency across disciplines for the same wound finding.
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "340-553"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: DISCREPANCY = enum value drift ("crepitacao_maior_4cm" at line 467 vs RULE-039).
+
+  - id: RULE-tecnursing-FE-01-077
+    name: Nursing-technician high-cost drug/antibiotic list and other info
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: Technician records high-cost drugs/antibiotics with administration route and body site (route "outras" reveals free text), plus equipment-in-use (with "outros" reveal), bathing type and 24h incidents.
+    inputs:
+      - name: medicamentos[].via_administracao
+        type: enum[] (multicheck)
+        unit: null
+        range: ev|im|sc|sl|it|outras
+      - name: medicamentos[].local
+        type: enum[] (multicheck)
+        unit: null
+        range: mid|mie|msd|mse|vjd|vje
+    outputs:
+      - name: medication + other-info record
+        type: object
+        unit: null
+    logic: |
+      medicamentos formList: nome(string); via_administracao multicheck {ev,im,sc,sl,it,outras};
+        outras -> outras_vias(string); local multicheck {mid,mie,msd,mse,vjd,vje}
+      equipamentos_em_uso multicheck {aspirador,concentrador,nebulizador,cilindro_de_o2,oximetro,outros};
+        outros -> outros_equipamentos(string)
+      banho multicheck {leito,aspersao}
+      intercorrencias_24h(string)
+    edge_cases: null
+    source:
+      repo: trilhas-frontend
+      path: src/utils/dataForms/dataFormTecEnfermagem.ts
+      lines: "555-655"
+      commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    confidence: high
+    notes: Administration-route/site codes (EV/IM/SC/SL/IT; MID/MIE/MSD/MSE/VJD/VJE) are clinical abbreviations.
