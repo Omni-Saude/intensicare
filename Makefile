@@ -23,13 +23,10 @@ RUFF       ?= ruff
 MYPY       ?= mypy
 PYTEST     ?= pytest
 ALEMBIC    ?= alembic
-NPM        ?= npm
-NPX        ?= npx
 
 VENV       ?= .venv
 SRC_DIR    := src
 TEST_DIR   := tests
-FRONTEND_DIR := frontend
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Ajuda
@@ -81,15 +78,14 @@ setup-env-file: ## Cria arquivo .env a partir do .env.example
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: dev-up
-dev-up: ## Sobe o ambiente Docker (API + Frontend + Postgres + Redis)
+dev-up: ## Sobe o ambiente Docker (API + Postgres + Redis)
 	@echo "$(GREEN)[docker]$(NC) Iniciando serviços..."
-	$(COMPOSE) up -d --build api frontend postgres redis
+	$(COMPOSE) up -d --build api postgres redis
 	@echo "$(GREEN)[docker]$(NC) Aguardando serviços ficarem saudáveis..."
 	@sleep 3
 	$(COMPOSE) ps
 	@echo "$(GREEN)[docker]$(NC) ✓ API:        http://localhost:8000"
 	@echo "$(GREEN)[docker]$(NC)   Docs:       http://localhost:8000/docs"
-	@echo "$(GREEN)[docker]$(NC)   Frontend:   http://localhost:3000"
 	@echo "$(GREEN)[docker]$(NC)   Postgres:   localhost:5432"
 	@echo "$(GREEN)[docker]$(NC)   Redis:      localhost:6379"
 
@@ -119,7 +115,15 @@ dev-status: ## Status dos serviços Docker
 	$(COMPOSE) ps
 	@echo ""
 	@echo "$(CYAN)Health checks:$(NC)"
-	@$(COMPOSE) ps --format json 2>/dev/null | python3 -c "import json,sys;[print(f'  {json.loads(l).get(\"Name\",\"?\"):30s} → {json.loads(l).get(\"State\",\"?\")} ({json.loads(l).get(\"Health\",\"N/A\")})') for l in sys.stdin]" 2>/dev/null || echo "  (docker compose ps não retornou dados)"
+	@$(COMPOSE) ps --format json 2>/dev/null | python3 -c "
+import json, sys
+for line in sys.stdin:
+    s = json.loads(line)
+    name = s.get('Name', '?')
+    status = s.get('State', '?')
+    health = s.get('Health', 'N/A')
+    print(f'  {name:30s} → {status} ({health})')
+" 2>/dev/null || echo "  (docker compose ps não retornou dados)"
 
 .PHONY: dev-clean
 dev-clean: ## Remove containers, volumes e redes Docker
@@ -132,47 +136,27 @@ dev-clean: ## Remove containers, volumes e redes Docker
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: test
-test: test-docker ## Executa todos os testes dentro do container Docker
-
-.PHONY: test-local
-test-local: ## Executa todos os testes localmente (requer venv + dependências)
+test: ## Executa todos os testes (exceto slow)
 	$(VENV)/bin/$(PYTEST) $(TEST_DIR) -v
 
 .PHONY: test-all
-test-all: ## Executa todos os testes, inclusive os lentos (Docker)
-	$(COMPOSE) exec api pytest $(TEST_DIR) -v --run-slow
-
-.PHONY: test-docker
-test-docker: ## Executa todos os testes dentro do container Docker
-	@echo "$(GREEN)[test]$(NC) Executando todos os testes no container..."
-	$(COMPOSE) exec api pytest $(TEST_DIR) -v
-
-.PHONY: test-scoring
-test-scoring: ## Executa apenas os testes de scoring (MEWS, NEWS2, qSOFA, SOFA) no Docker
-	@echo "$(GREEN)[test]$(NC) Executando testes de scoring..."
-	$(COMPOSE) exec api pytest $(TEST_DIR) \
-		$(TEST_DIR)/test_mews.py \
-		$(TEST_DIR)/test_news2.py \
-		$(TEST_DIR)/test_qsofa.py \
-		$(TEST_DIR)/test_sofa.py \
-		-v
-
-.PHONY: test-integration
-test-integration: ## Executa apenas os testes de integração (marcados com @pytest.mark.integration) no Docker
-	@echo "$(GREEN)[test]$(NC) Executando testes de integração..."
-	$(COMPOSE) exec api pytest $(TEST_DIR) -v -m integration
+test-all: ## Executa todos os testes, inclusive os lentos
+	$(VENV)/bin/$(PYTEST) $(TEST_DIR) -v --run-slow
 
 .PHONY: test-cov
-test-cov: ## Executa testes com relatório de cobertura no Docker
-	@echo "$(GREEN)[test]$(NC) Executando testes com cobertura..."
-	$(COMPOSE) exec api pytest $(TEST_DIR) -v \
-		--cov=src/intensicare \
+test-cov: ## Executa testes com relatório de cobertura
+	$(VENV)/bin/$(PYTEST) $(TEST_DIR) -v \
+		--cov=$(SRC_DIR)/intensicare \
 		--cov-report=html \
 		--cov-report=term-missing
-	@echo "$(GREEN)[test]$(NC) ✓ Relatório HTML: htmlcov/index.html (dentro do container em /app/htmlcov)"
+	@echo "$(GREEN)[test]$(NC) ✓ Relatório HTML: htmlcov/index.html"
+
+.PHONY: test-docker
+test-docker: ## Executa testes no container Docker
+	$(COMPOSE) --profile testing run --rm tests
 
 .PHONY: test-watch
-test-watch: ## Executa testes com re-execução em mudanças (requer ptw, local)
+test-watch: ## Executa testes com re-execução em mudanças (requer ptw)
 	$(VENV)/bin/ptw -- $(TEST_DIR) -v
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -243,38 +227,6 @@ security-scan: ## Varredura de segurança com bandit + pip-audit
 
 .PHONY: check
 check: lint test ## Executa lint + testes (use antes de commitar)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Frontend (React 19 + TypeScript + Vite)
-# ═══════════════════════════════════════════════════════════════════════════
-
-.PHONY: frontend-install
-frontend-install: ## Instala dependências do frontend (npm ci)
-	@echo "$(GREEN)[frontend]$(NC) Instalando dependências..."
-	cd $(FRONTEND_DIR) && $(NPM) ci
-	@echo "$(GREEN)[frontend]$(NC) ✓ Dependências instaladas"
-
-.PHONY: frontend-dev
-frontend-dev: ## Inicia o servidor de desenvolvimento Vite (porta 3000, hot reload)
-	@echo "$(GREEN)[frontend]$(NC) Iniciando Vite dev server em http://localhost:3000"
-	cd $(FRONTEND_DIR) && $(NPM) run dev
-
-.PHONY: frontend-build
-frontend-build: ## Gera build de produção do frontend (dist/)
-	@echo "$(GREEN)[frontend]$(NC) Build de produção..."
-	cd $(FRONTEND_DIR) && $(NPM) run build
-	@echo "$(GREEN)[frontend]$(NC) ✓ Build gerado em $(FRONTEND_DIR)/dist/"
-
-.PHONY: frontend-lint
-frontend-lint: ## Executa linter do frontend (oxlint)
-	@echo "$(GREEN)[frontend]$(NC) Linting..."
-	cd $(FRONTEND_DIR) && $(NPM) run lint
-	@echo "$(GREEN)[frontend]$(NC) ✓ Lint concluído"
-
-.PHONY: frontend-preview
-frontend-preview: ## Faz preview local da build de produção
-	@echo "$(GREEN)[frontend]$(NC) Preview da build em http://localhost:4173"
-	cd $(FRONTEND_DIR) && $(NPM) run preview
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Build & Release

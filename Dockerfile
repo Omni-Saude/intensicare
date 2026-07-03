@@ -1,88 +1,81 @@
 # =============================================================================
 # Intensicare — Dockerfile multi-estágio
+# Estágios: development (dev) e production (prod)
 # =============================================================================
 
-FROM python:3.12-slim-bookworm AS development
+# ---------------------------------------------------------------------------
+# Estágio base — dependências comuns
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim-bookworm AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    DEBIAN_FRONTEND=noninteractive \
-    ENVIRONMENT=development \
-    LOG_LEVEL=DEBUG \
-    PYTHONPATH=/app/src
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
 
+# Dependências de sistema para asyncpg + build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev curl && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Runtime dependencies
-RUN pip install --upgrade pip \
-    && pip install \
-        "fastapi[standard]" \
-        "uvicorn[standard]" \
-        "sqlalchemy[asyncio]" \
-        alembic \
-        asyncpg \
-        "redis[hiredis]" \
-        pydantic \
-        pydantic-settings \
-        hl7apy \
-        httpx \
-        python-multipart \
-        tenacity \
-        "python-jose[cryptography]" \
-        "passlib[bcrypt]"
+# Instala dependências Python via pyproject.toml
+COPY pyproject.toml .
 
-# Dev dependencies
-RUN pip install pytest pytest-asyncio pytest-cov ruff mypy pre-commit
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install -e ".[dev]"
 
+# ---------------------------------------------------------------------------
+# Estágio de desenvolvimento — código montado via volume
+# ---------------------------------------------------------------------------
+FROM base AS development
+
+ENV ENVIRONMENT=development \
+    LOG_LEVEL=DEBUG
+
+# Copia código mínimo (a maior parte vem por volume mount)
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY alembic/ ./alembic/
-COPY alembic.ini .
-COPY pyproject.toml ./
 
 EXPOSE 8000
 
 CMD ["uvicorn", "intensicare.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "src"]
 
-
+# ---------------------------------------------------------------------------
+# Estágio de produção — código copiado, sem dev dependencies
+# ---------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS production
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive \
-    ENVIRONMENT=production \
-    PYTHONPATH=/app/src
+    ENVIRONMENT=production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev curl && rm -rf /var/lib/apt/lists/*
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# Copia e instala apenas dependências de runtime
+COPY pyproject.toml .
 RUN pip install --upgrade pip \
-    && pip install \
-        "fastapi[standard]" \
-        "uvicorn[standard]" \
-        "sqlalchemy[asyncio]" \
-        alembic \
-        asyncpg \
-        "redis[hiredis]" \
-        pydantic \
-        pydantic-settings \
-        hl7apy \
-        httpx \
-        tenacity \
-        "python-jose[cryptography]" \
-        "passlib[bcrypt]"
+    && pip install -e ".[test]"  # test inclui httpx para healthcheck
+RUN pip uninstall -y pytest pytest-cov pytest-asyncio factory-boy faker ruff mypy pre-commit || true
 
+# Copia código fonte
 COPY src/ ./src/
 COPY alembic/ ./alembic/
-COPY alembic.ini .
 
+# Cria usuário não-root
 RUN groupadd -r intensicare && useradd -r -g intensicare -d /app -s /sbin/nologin intensicare \
     && chown -R intensicare:intensicare /app
 USER intensicare

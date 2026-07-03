@@ -1,16 +1,16 @@
 """
-Configuracao centralizada da aplicacao usando pydantic-settings.
+Configuração centralizada da aplicação usando pydantic-settings.
 """
 
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, computed_field
+from pydantic import PostgresDsn, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Configuracoes da aplicacao Intensicare."""
+    """Configurações da aplicação Intensicare."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -19,21 +19,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    environment: Literal["development", "testing", "staging", "production"] = "development"
+    # Ambiente
+    environment: Literal["development", "testing", "staging", "production"] = (
+        "development"
+    )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     debug: bool = False
     secret_key: SecretStr = SecretStr("change-me-in-production")
 
+    # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_reload: bool = False
     api_workers: int = 1
     cors_origins: list[str] = ["*"]
 
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 30
-    jwt_refresh_expire_days: int = 7
-
+    # PostgreSQL / TimescaleDB
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "intensicare"
@@ -45,21 +46,34 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def database_url(self) -> str:
-        pw = self.postgres_password.get_secret_value()
-        return f"postgresql+asyncpg://{self.postgres_user}:{pw}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        """Connection string assíncrona para SQLAlchemy."""
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+asyncpg",
+                username=self.postgres_user,
+                password=self.postgres_password.get_secret_value(),
+                host=self.postgres_host,
+                port=self.postgres_port,
+                path=self.postgres_db,
+            )
+        )
 
     @computed_field
     @property
     def database_sync_url(self) -> str:
-        pw = self.postgres_password.get_secret_value()
-        return f"postgresql+psycopg2://{self.postgres_user}:{pw}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        """Connection string síncrona (usada pelo Alembic)."""
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+psycopg2",
+                username=self.postgres_user,
+                password=self.postgres_password.get_secret_value(),
+                host=self.postgres_host,
+                port=self.postgres_port,
+                path=self.postgres_db,
+            )
+        )
 
-    # FHIR R4 integration (HAPI FHIR / AMH Data Platform)
-    # Leave fhir_base_url empty to disable FHIR enrichment.
-    fhir_base_url: str = ""
-    fhir_auth_token: SecretStr = SecretStr("")
-    fhir_timeout: float = 15.0
-
+    # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
@@ -68,15 +82,20 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def redis_url(self) -> str:
-        pw = self.redis_password.get_secret_value()
-        if pw:
-            return f"redis://:{pw}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
-        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        """Connection string para Redis."""
+        pwd = self.redis_password.get_secret_value()
+        if pwd:
+            url = "redis://" + pwd + "@" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
+        else:
+            url = "redis://" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
+        return url
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Retorna instância cacheada das configurações."""
     return Settings()
 
 
+# Instância global
 settings = get_settings()
