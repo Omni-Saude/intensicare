@@ -1,0 +1,2416 @@
+cluster: auth-usuarios
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+- id: RULE-AUTH-USUARIOS-001
+  name: GrupoAcesso permission catalog payload computation
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    get_permissoes builds a full permission-codename dict from the system's permission catalog (PermissionsChoices), defaulting every entry to False, then flips to True only permissions that are both assigned to the underlying Django group and present in the recognized system catalog.
+  inputs:
+  - name: instance.grupo.permissions
+    type: queryset of Permission
+  outputs:
+  - name: permissoes
+    type: object (codename->bool)
+  logic: |
+    all_permissions = PermissionsChoices.permissions()   # list of (codename, label)
+    all_codenames = [p[0] for p in all_permissions]
+    payload = {codename: False for codename in all_codenames}
+    for perm in instance.grupo.permissions.all():
+        if perm.codename in all_codenames:
+            payload[perm.codename] = True
+    return payload
+  edge_cases: |
+    Permissions assigned to the Django group that are NOT in PermissionsChoices.permissions() are silently ignored/omitted from the output entirely (neither True nor False key present).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-035
+  - RULE-AUTH-USUARIOS-037
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-acesso-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 95-103
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    verify=true because Phase-1 type is 'formula' per audit criteria (non-clinical RBAC payload construction, not a clinical calculation).
+- id: RULE-AUTH-USUARIOS-002
+  name: User cargos (roles) empresa-scoped lookup
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    get_cargos returns the list of 'cargo' values from all non-deleted GrupoAcesso records linking this user within the company (empresa) currently injected on the request. If no empresa is present on the request context, returns None (not an empty list).
+  inputs:
+  - name: request.empresa
+    type: object|null
+  outputs:
+  - name: cargos
+    type: array of string | null
+  logic: |
+    request = context.get("request")
+    if request and request.empresa:
+        grupos = GrupoAcesso.objects_without_deleted.filter(
+            usuarios=instance, empresa=request.empresa
+        ).values_list("cargo", flat=True)
+        return grupos if grupos else []
+    else:
+        return None
+  edge_cases: |
+    Distinguishes 'no empresa in context' (returns None) from 'empresa present but user has no groups' (returns []).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-044
+  merged_from:
+  - RULE-usuario-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 32-46
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    verify=true because Phase-1 type is 'formula' per audit criteria (non-clinical empresa-scoped roles lookup, not a clinical calculation).
+- id: RULE-AUTH-USUARIOS-003
+  name: Super-admin (chatbot) permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    Grants access only to users flagged as chatbot superusers.
+  inputs:
+  - name: request.user.is_chatbot_superuser
+    type: boolean
+    range: true|false
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: |
+    class IsSuperAdminPermission:
+        def has_permission(request, view): return request.user.is_chatbot_superuser
+  edge_cases: |
+    Anonymous/user without attribute would raise AttributeError (no guard).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-006
+  merged_from:
+  - RULE-ACCESS-BE-12-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 4-6
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Uses a bespoke is_chatbot_superuser flag (not Django is_superuser).
+- id: RULE-AUTH-USUARIOS-004
+  name: Partner-required permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    Grants access only when the request is associated with a (non-null) partner.
+  inputs:
+  - name: request.partner
+    type: object|null
+    range: None => denied
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: |
+    class HasPartnerPermission:
+        def has_permission(request, view): return request.partner is not None
+  edge_cases: |
+    Strict is-not-None check.
+  confidence: high
+  merged_from:
+  - RULE-ACCESS-BE-12-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 9-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    request.partner presumably set by an API-key/partner auth middleware.
+- id: RULE-AUTH-USUARIOS-005
+  name: Owner-organization object permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    Object-level access granted only when the requesting user's id equals the object's owner id (or the object's own id if it has no owner attribute).
+  inputs:
+  - name: request.user.id
+    type: id
+    range: '-'
+  - name: obj.owner|obj
+    type: object
+    range: '-'
+  outputs:
+  - name: has_object_permission
+    type: boolean
+  logic: |
+    def has_object_permission(request, view, obj):
+        if hasattr(obj, 'owner'): obj = obj.owner
+        return request.user.id == obj.id
+  edge_cases: |
+    If obj lacks 'owner', compares user.id to obj.id directly (self-ownership).
+  confidence: high
+  merged_from:
+  - RULE-ACCESS-BE-12-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 14-19
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    -
+- id: RULE-AUTH-USUARIOS-006
+  name: Authenticated-user predicate (IsAuthenticated)
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    Grants access to any user that exists and is not anonymous.
+  inputs:
+  - name: request.user
+    type: object
+    range: must be truthy and not anonymous
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: |
+    def has_permission(request, view):
+        return bool(request.user and not request.user.is_anonymous)
+  edge_cases: |
+    Null user or AnonymousUser -> denied.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-007
+  merged_from:
+  - RULE-ACCESS-BE-12-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions/authenticated.py
+    lines: 4-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Re-implements DRF IsAuthenticated. Same body reused by both empresa permissions (RULE-018).
+- id: RULE-AUTH-USUARIOS-007
+  name: Empresa read vs read-write permissions are identical
+  category: access-control
+  type: eligibility
+  status: DISCREPANCY
+  verify: false
+  description: |
+    Both the empresa read-only permission and the empresa read-and-write permission are implemented identically, checking only that the user is authenticated (non-anonymous); neither actually distinguishes read from write.
+  inputs:
+  - name: request.user
+    type: object
+    range: authenticated non-anonymous => allowed
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: |
+    class LeituraEmpresaPermission:      # "read"
+        def has_permission(request, view): return bool(request.user and not request.user.is_anonymous)
+    class ReadAndWriteEmpresaPermission:  # "read+write"
+        def has_permission(request, view): return bool(request.user and not request.user.is_anonymous)
+    # identical bodies
+  edge_cases: |
+    Anonymous -> denied; any authenticated user -> allowed for BOTH read and write.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-006
+  - RULE-AUTH-USUARIOS-047
+  merged_from:
+  - RULE-ACCESS-BE-12-018
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions/empresa.py
+    lines: 4-13
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY - class names imply differentiated read vs write authorization, but both grant identical access to any authenticated user (no write-specific gating). Same predicate as core/permissions/authenticated.py IsAuthenticated (RULE-...-019? no, see below).
+- id: RULE-AUTH-USUARIOS-008
+  name: Hierarchical permission cascade (get_permissoes_empresa/estabelecimento/setor)
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    A user's effective permission codenames at a level are the union of permissions granted by access-groups at that level plus all permissions inherited from the parent level(s) - setor inherits estabelecimento, which inherits empresa.
+  inputs:
+  - name: usuario
+    type: object
+    range: '-'
+  - name: empresa|estabelecimento|setor
+    type: object
+    range: may be null (empresa)
+  outputs:
+  - name: permissoes
+    type: list<string>
+    unit: codenames
+  logic: |
+    get_permissoes_empresa(usuario, empresa):
+        if not empresa: return []
+        payload = []
+        for grupo_acesso in empresa.grupos_acessos.filter(usuarios=usuario):
+            payload += grupo_acesso.grupo.permissions.values_list("codename")
+        return list(set(payload))
+    get_permissoes_estabelecimento(usuario, estab):
+        payload = get_permissoes_empresa(usuario, estab.empresa)         # inherit up
+        payload += (estab.grupos_acessos.filter(usuarios=usuario) permissions)
+        return list(set(payload))
+    get_permissoes_setor(usuario, setor):
+        payload = get_permissoes_estabelecimento(usuario, setor.estabelecimento)  # inherit up
+        payload += (setor.grupos_acessos.filter(usuarios=usuario) permissions)
+        return list(set(payload))
+  edge_cases: |
+    Null empresa short-circuits to empty list. De-duplicated via set(). Only groups whose membership includes this usuario contribute. Permissions strictly cascade DOWN (parent perms flow to children); child perms do not flow up.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-009
+  - RULE-AUTH-USUARIOS-010
+  - RULE-AUTH-USUARIOS-011
+  - RULE-AUTH-USUARIOS-002
+  merged_from:
+  - RULE-ACCESS-BE-12-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 107-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    category 'access-control' added (none of the enumerated categories cover authorization; guidance lists permission/authorization predicates as rule-bearing). Org hierarchy - Empresa > Estabelecimento > Setor.
+- id: RULE-AUTH-USUARIOS-009
+  name: Scope-based RBAC permission dispatch
+  category: billing-administrative
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Enforces per-view permission requirements resolved against a configurable scope (empresa/estabelecimento/setor), with optional per-HTTP-method permissions and method-based bypass.
+  inputs:
+  - name: permission_trilhas
+    type: str | tuple/list of (str | (str, METHOD))
+  - name: escopo
+    type: string
+    range: empresa|estabelecimento|setor (default empresa)
+  - name: exceto_metodo
+    type: str | list/tuple
+  outputs:
+  - name: allow | 403/404/400 error
+    type: HTTP response
+  logic: |
+    dispatch():
+      if call_permission_mixin() and permission_trilhas is not None:
+        if request.method in exceto_metodo (case-insensitive): allow (super().dispatch)
+        if user.is_anonymous: 403 "Usuário não tem permissão..."
+        resolve required `permission`:
+          - str -> that permission
+          - tuple/list -> for each entry: if str set permission; if (perm, METHOD) and METHOD matches request.method -> permission=perm & break, else permission=""
+          - otherwise -> 400 "Permissão configurada incorretamente"
+        permissoes = switcher[escopo](user, getattr(request, escopo))
+          where switcher = {empresa:get_permissoes_empresa, estabelecimento:get_permissoes_estabelecimento, setor:get_permissoes_setor}
+          if getattr(request, escopo) is None -> 404 "<Escopo> não encontrado!"
+        if permission not in permissoes: 403
+      super().dispatch()
+  edge_cases: |
+    Tuple form with a matching (perm, METHOD) short-circuits; a bare string in the tuple sets permission for all methods. Empty permission "" (no method match) will fail the membership check -> 403. Scope object fetched via getattr(request, escopo).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-008
+  - RULE-AUTH-USUARIOS-015
+  - RULE-AUTH-USUARIOS-056
+  merged_from:
+  - RULE-acesso-BE-04-049
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/mixins/permissao.py
+    lines: 37-132
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    get_permissoes_* helpers in core.utils (out of partition). This is the live RBAC path (vs the dormant PermissaoChoices in RULE-008).
+- id: RULE-AUTH-USUARIOS-010
+  name: GrupoAcesso hierarchical scope resolution
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    GrupoAcesso queryset filtering and creation scope resolve in priority order: setor (if setor__pk in URL) > estabelecimento (if estabelecimento__pk in URL) > empresa (default/fallback).
+  inputs:
+  - name: setor__pk
+    type: uuid
+  - name: estabelecimento__pk
+    type: uuid
+  outputs:
+  - name: queryset_scope
+    type: string enum
+  logic: |
+    qs = GrupoAcesso.objects_without_deleted.all()
+    if kwargs.get("setor__pk"):
+        qs = qs.filter(setor=request.setor.pk)
+    elif kwargs.get("estabelecimento__pk"):
+        qs = qs.filter(estabelecimento=request.estabelecimento.pk)
+    else:
+        qs = qs.filter(empresa=request.empresa.pk)
+    # create() mirrors this: injects request.data["setor"|"estabelecimento"|"empresa"] using same if/elif/else order
+  edge_cases: |
+    Soft-deleted groups excluded via objects_without_deleted manager. Only one of the three scopes is ever applied, never combined.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-011
+  - RULE-AUTH-USUARIOS-008
+  merged_from:
+  - RULE-acesso-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/grupo_acesso.py
+    lines: 21-39
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Same setor>estabelecimento>empresa priority pattern is reused in PermissaoDeUsuarioViewSet (RULE-acesso-BE-05-007).
+- id: RULE-AUTH-USUARIOS-011
+  name: Permission lookup hierarchical scope resolution
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    PermissaoDeUsuarioViewSet.list resolves which permission-computation function to call using the same priority order as GrupoAcesso: setor > estabelecimento > empresa.
+  inputs:
+  - name: setor__pk
+    type: uuid
+  - name: estabelecimento__pk
+    type: uuid
+  outputs:
+  - name: permissions
+    type: object
+  logic: |
+    if kwargs.get("setor__pk"):
+        permissions = get_permissoes_setor(usuario, request.setor)
+    elif kwargs.get("estabelecimento__pk"):
+        permissions = get_permissoes_estabelecimento(usuario, request.estabelecimento)
+    else:
+        permissions = get_permissoes_empresa(usuario, request.empresa)
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-010
+  - RULE-AUTH-USUARIOS-008
+  merged_from:
+  - RULE-acesso-BE-05-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/permissao.py
+    lines: 28-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    get_permissoes_setor/estabelecimento/empresa implementations live in core/utils, out of this partition's scope.
+- id: RULE-AUTH-USUARIOS-012
+  name: GrupoAcesso usuarios field suppressed on list/destroy actions
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    The serialized 'usuarios' array (full nested user objects) is added to the response payload for every view action EXCEPT 'list' and 'destroy', to avoid the cost of serializing all members on list endpoints.
+  inputs:
+  - name: view.action
+    type: string
+  outputs:
+  - name: payload.usuarios
+    type: array of object
+  logic: |
+    payload = super().to_representation(instance)
+    if context["view"].action not in ["list", "destroy"]:
+        payload["usuarios"] = UsuarioSerializer(instance.usuarios.all(), many=True, context=...).data
+    return payload
+  edge_cases: |
+    'usuarios' key is entirely absent from the response body (not null/empty) for list and destroy actions.
+  confidence: high
+  merged_from:
+  - RULE-acesso-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 110-116
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-013
+  name: User representation scopes setores list to current empresa
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    UsuarioSerializer.to_representation adds a 'setores' array to the payload containing only sectors whose estabelecimento belongs to the request's current empresa, hiding sector memberships from other companies (multi-tenant scoping), but only when a request is present in context.
+  inputs:
+  - name: request.empresa
+    type: object
+  outputs:
+  - name: payload.setores
+    type: array of object
+  logic: |
+    payload = super().to_representation(instance)
+    if context and context.get("request"):
+        payload["setores"] = SetorUsuarioSerializer(
+            instance.setores.filter(estabelecimento__empresa=request.empresa), many=True
+        ).data
+    return payload
+  edge_cases: |
+    If no request in context, 'setores' key is absent entirely.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-039
+  merged_from:
+  - RULE-usuario-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 193-203
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-014
+  name: User queryset restricted to active users scoped to empresa
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    UsuarioViewSet.get_queryset only returns users with is_active=True, additionally filtered to users belonging to request.empresa when present on the request.
+  inputs:
+  - name: request.empresa
+    type: object|null
+  outputs:
+  - name: queryset
+    type: queryset of Usuario
+  logic: |
+    qs = Usuario.objects.filter(is_active=True)
+    if request.empresa:
+        qs = qs.filter(empresas=request.empresa)
+    return qs
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-040
+  merged_from:
+  - RULE-usuario-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 42-48
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-015
+  name: GET and PATCH bypass can_manage_usuario permission
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    UsuarioViewSet declares permission_trilhas=('can_manage_usuario',) with exceto_metodo=('GET','PATCH') meaning read operations and partial updates are exempted from this trilha-permission check (enforced by TrilhasPermissaoMixin, out of partition scope); only POST/PUT/DELETE require the permission.
+  inputs:
+  - name: request.method
+    type: string
+  outputs:
+  - name: permission_required
+    type: boolean
+  logic: |
+    escopo = "empresa"
+    permission_trilhas = ("can_manage_usuario",)
+    exceto_metodo = ("GET", "PATCH")
+    # enforcement logic lives in TrilhasPermissaoMixin (core/mixins, out of scope)
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-009
+  - RULE-AUTH-USUARIOS-056
+  merged_from:
+  - RULE-usuario-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 22-24
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    The actual permission-check enforcement mechanism (TrilhasPermissaoMixin) lives outside this partition (core/mixins); this rule records the declared configuration values observed in-scope.
+- id: RULE-AUTH-USUARIOS-016
+  name: Permission gate for rejecting/closing SEPSE protocol
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    On the interactive SEPSE trilha viewset, when the request does not accept the protocol (aceito falsy) during create/update/partial_update, the required trilha permission is set to "can_recusar_protocolo_sepse", so only users holding that permission may reject or close the protocol. The acting user is recorded as registrado_por and the parent trilha id is injected from the URL.
+  inputs:
+  - name: data.aceito
+    type: boolean
+  - name: action
+    type: enum
+    range: '{create, update, partial_update}'
+  outputs:
+  - name: permission_trilhas
+    type: tuple
+  logic: |
+    data["trilha"] = kwargs["trilhas__pk"]
+    data["registrado_por_id"] = request.user.get_pk
+    if not data.get("aceito") and action in ("partial_update", "update", "create"):
+        self.permission_trilhas = ("can_recusar_protocolo_sepse",)
+  edge_cases: |
+    Only the rejection/closure path is permission-gated here; acceptance is not restricted by this branch. Permission enforced via TrilhasPermissaoMixin (core.mixins, out of partition).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-authz-BE-02-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/trilha_interativa_sepse.py
+    lines: 40-52
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    A commented-out sibling gate (can_rejeitar_protocolo_sepse, exceto POST) exists in item_trilha_interativa_sepse.py view.
+- id: RULE-AUTH-USUARIOS-017
+  name: Sector-card click and audit-button permission gating
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    On the dashboard list, clicking a sector's card only fires the navigation callback if the card is not sector-scoped, or if it is sector-scoped and the user has `can_view_ocupacoes`; an "Auditar" button is shown only when the card is sector-scoped and the user has `can_view_auditoria`.
+  inputs:
+  - name: isSetor
+    type: boolean
+  - name: can_view_ocupacoes
+    type: boolean (permission)
+  - name: can_view_auditoria
+    type: boolean (permission)
+  outputs:
+  - name: canClick
+    type: boolean
+  - name: showButtonAuditoria
+    type: boolean
+  logic: |
+    canClick = isSetor ? can_view_ocupacoes : true
+    onCardClick = () => { if (isSetor) { if (can_view_ocupacoes) onClick(item.id) } else { onClick(item.id) } }
+    showButtonAuditoria = isSetor && can_view_auditoria
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-022
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/ListDashboard.tsx
+    lines: 41-73
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Consumed by DashboardCard.tsx (also this partition) via the canClick/showButtonAuditoria props.
+- id: RULE-AUTH-USUARIOS-018
+  name: Settings-gear header icon visibility
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    The header "configurações" gear-icon button is shown only if the current user holds at least one of the administrative permissions: manage empresa, manage grupo de acesso, or manage usuário.
+  inputs:
+  - name: can_manage_empresa
+    type: boolean (permission)
+  - name: can_manage_grupo_acesso
+    type: boolean (permission)
+  - name: can_manage_usuario
+    type: boolean (permission)
+  outputs:
+  - name: canAccessConfigs
+    type: boolean
+  logic: |
+    canAccessConfigs = can_manage_empresa || can_manage_grupo_acesso || can_manage_usuario
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-023
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/PageContainer/PageContainer.tsx
+    lines: 99-101
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Same file also renders the footer environment label (baseURL.includes("homol") ? "Homologação" : "Produção") at lines 476-480, a minor operational (not clinical) display rule.
+- id: RULE-AUTH-USUARIOS-019
+  name: Company-switch dropdown visibility
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    The header's company (empresa) name renders as a plain, non-clickable tag when the signed-in user has access to one or zero companies; only when the user has more than one company does it render as a clickable dropdown, whose menu lists every accessible company except the currently selected one.
+  inputs:
+  - name: user.usuario.empresas
+    type: array
+  outputs:
+  - name: showDropdown
+    type: boolean
+  - name: dropdownItems
+    type: array (excludes current empresa)
+  logic: |
+    showDropdown = (user.usuario.empresas || []).length > 1
+    dropdownItems = user.usuario.empresas.filter(e => e.id !== empresaAtual.id)
+    // if empresas.length === 0, menu shows a single disabled "Nenhuma permissão encontrada" item (though dropdown itself is unreachable, since showDropdown is false at length<=1)
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-024
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/SelectEmpresaAtual/SelectEmpresaAtual.tsx
+    lines: 16-55
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-AUTH-USUARIOS-020
+  name: Permission-string SSR route guard (validateRoute), incl. dead-code token check
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: |
+    validateRoute(ctx, ignorePermission=true, permission='') is the shared getServerSideProps guard used across the app. It parses the 'trilhas.token' and 'trilhas.permissions' cookies and redirects to '/' unless the permission check passes. For pages that pass an explicit permission string (ignorePermission=false), the page is rendered only if the parsed 'trilhas.permissions' array (JSON-decoded) includes that exact permission string; otherwise the request is redirected. However, the local `token` variable used in the guard's OTHER clause is initialized as `{} as string` (a plain, always-truthy object literal) rather than an empty string or null, so the `!token` half of the guard condition can never be true and never contributes to the redirect decision, regardless of whether a real 'trilhas.token' cookie is present. Combined with the common call pattern validateRoute(ctx) (defaults: ignorePermission=true, permission=''), pages that call it with no explicit permission perform NO effective server-side authentication check at all.
+  inputs:
+  - name: ignorePermission
+    type: boolean
+    range: true | false
+  - name: permission
+    type: string (Models.Permission enum)
+    range: one of the app's permission slugs
+  - name: ctx.req.cookies["trilhas.permissions"]
+    type: JSON-encoded string array
+  - name: ctx.req.cookies["trilhas.token"]
+    type: string | undefined
+  outputs:
+  - name: redirect-or-render
+    type: decision
+  logic: |
+    export const validateRoute = (ctx, ignorePermission = true, permission = "" as Models.Permission) =>
+      async (callback) => {
+        const { "trilhas.token": userToken } = parseCookies(ctx)
+        const { "trilhas.permissions": userPermissions } = parseCookies(ctx)
+        const { "theme.light": light } = parseCookies(ctx)
+        const isLight = light === "true"
+
+        let token = {} as string        // <-- BUG: truthy object, not "" or null
+        let permissions = [] as Models.Permission[]
+
+        if (userToken) token = userToken
+        if (userPermissions) permissions = JSON.parse(userPermissions)
+
+        if (!token || (!permissions.includes(permission) && !ignorePermission)) {
+          return { redirect: { destination: "/", permanent: false } }
+        }
+        return callback({ token, isLight } as Models.ReturnWithProps)
+      }
+    // !token is ALWAYS false (object literal is truthy) -> the token-presence half of the
+    // guard is dead code; only the (!permissions.includes(permission) && !ignorePermission)
+    // half can ever trigger a redirect. With default args (no permission passed), that half
+    // is also always false, so the whole condition is always false.
+  edge_cases: |
+    No cookie at all: token stays {} (truthy) -> !token is false -> guard relies entirely on the second clause. With the common call pattern validateRoute(ctx) (ignorePermission defaults to true), !ignorePermission is always false, so the whole condition is false and the page renders with no server-side authentication check whatsoever.
+
+    Malformed/missing "trilhas.permissions" cookie => permissions = [] => guard always fails closed (redirects) whenever ignorePermission is false, regardless of the token bug in RULE-acesso-FE-08-001.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-021
+  - RULE-AUTH-USUARIOS-022
+  - RULE-AUTH-USUARIOS-023
+  - RULE-AUTH-USUARIOS-025
+  - RULE-AUTH-USUARIOS-026
+  divergence: |
+    Not a BE/FE reconciliation — an intra-file merge of two Phase-1 captures of the same function (src/hocs/validateRoute.ts:5-38 fully contains :17-35). The 'no permission' code path (token-presence guard) is unreachable dead code due to `let token = {} as string` being always truthy; only the explicit permission-string branch (RULE-acesso-FE-08-002's original capture) is behaviorally live.
+  merged_from:
+  - RULE-acesso-FE-08-001
+  - RULE-acesso-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/hocs/validateRoute.ts
+    lines: 5-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/hocs/validateRoute.ts
+    lines: 17-35
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: |
+    Concrete (permission-string, page) pairs observed in this partition: can_manage_empresa -> configuracoes/empresa/index.tsx (lines 131-143),
+                           configuracoes/estabelecimentos/index.tsx (lines 348-360);
+    can_manage_grupo_acesso -> configuracoes/grupos/index.tsx (lines 211-223),
+                                configuracoes/grupos/[id_grupo]/index.tsx (lines 232-244),
+                                configuracoes/leitos/index.tsx (lines 364-376) [see RULE-acesso-FE-08-003];
+    can_manage_usuario -> configuracoes/profissionais/index.tsx (lines 216-228); can_access_camera -> setor/[id_setor]/cameras/index.tsx (lines 112-124); can_access_relatorio_evolucao -> relatorio-evolucao/index.tsx (lines 53-65).
+
+    ---
+    This is the single highest-impact finding in this partition: every page that calls validateRoute(ctx) with default arguments (no explicit permission) performs NO effective server-side authentication check. Affected pages in this partition: src/pages/empresa/index.tsx, src/pages/empresa/[id_empresa].tsx, configuracoes/index.tsx, configuracoes/profissionais/[id_profissional]/index.tsx, configuracoes/setores/index.tsx, estabelecimento/[id_estabelecimento].tsx, chats/index.tsx, chats/[id_setor]/[id_usuario].tsx, setor/[id_setor].tsx, setor/[id_setor]/dashboard/index.tsx, setor/[id_setor]/inconsistencias/index.tsx, setor/[id_setor]/auditoria/index.tsx, setor/[id_setor]/auditoria/[id_ocupacao]/index.tsx, leito/.../ocupacao/[id_ocupacao].tsx, .../balanco/index.tsx, .../prescricao/index.tsx, .../sepse/[id_trilha]/index.tsx, feed/index.tsx. Rendering still depends on client-side API calls succeeding (which presumably enforce auth server-side in the backend), so real-world exposure depends on backend API behavior, which is out of scope for this partition. Recorded verbatim per ground rules; not corrected.
+- id: RULE-AUTH-USUARIOS-021
+  name: Bed-management page reuses access-group permission
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: |
+    The Leitos (beds) management page is gated by the "can_manage_grupo_acesso" permission (the same permission that gates Grupos/access-group management), rather than a bed-specific or establishment-management permission such as can_manage_empresa.
+  inputs:
+  - name: permission
+    type: string
+    range: can_manage_grupo_acesso
+  outputs:
+  - name: redirect-or-render
+    type: decision
+  logic: |
+    getServerSideProps = validateRoute(ctx, false, "can_manage_grupo_acesso")(...)
+    // identical permission string used for both /configuracoes/grupos and
+    // /configuracoes/leitos
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-020
+  merged_from:
+  - RULE-acesso-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/leitos/index.tsx
+    lines: 363-376
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Recorded verbatim; may be an intentional coarse-grained "admin" permission reused across multiple config screens, or a copy-paste artifact. Compare with configuracoes/estabelecimentos/index.tsx and configuracoes/empresa/index.tsx, which both use "can_manage_empresa" for structurally similar company-configuration screens.
+- id: RULE-AUTH-USUARIOS-022
+  name: Automatica-only shortcuts not enforced server-side
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: |
+    The sector occupancy page only shows navigation buttons to the Inconsistências and Dashboard analítico pages when the current company's tipo === "automatica". However, both destination pages (setor/[id_setor]/inconsistencias and setor/[id_setor]/dashboard) use the default validateRoute(ctx) call with no permission and no server-side re-check of empresa.tipo, so the restriction is UI-only and can be bypassed by direct URL navigation.
+  inputs:
+  - name: empresaData.tipo
+    type: string enum
+    range: manual | automatica | homecare (observed values)
+  outputs:
+  - name: button-visibility
+    type: boolean
+  logic: |
+    // setor/[id_setor].tsx (parent page, CircularMenu items)
+    show "Relatórios" (Inconsistências) button  IF empresaData.tipo === "automatica"
+    show "Dashboard" button                     IF empresaData.tipo === "automatica"
+
+    // dashboard/index.tsx and inconsistencias/index.tsx (destination pages)
+    getServerSideProps = validateRoute(ctx)(...)   // no permission, no tipo check
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-060
+  merged_from:
+  - RULE-acesso-FE-08-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor].tsx
+    lines: 165-206
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Destination pages confirmed at src/pages/.../setor/[id_setor]/dashboard/index.tsx lines 171-182 and src/pages/.../setor/[id_setor]/inconsistencias/index.tsx lines 61-72.
+- id: RULE-AUTH-USUARIOS-023
+  name: Redirect authenticated user away from login page
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    On the login page's getServerSideProps, if the "trilhas.token" cookie is present, the user is redirected to /empresa instead of seeing the login form.
+  inputs:
+  - name: ctx.req.cookies["trilhas.token"]
+    type: string | undefined
+  outputs:
+  - name: redirect-or-props
+    type: decision
+  logic: |
+    if (token) {
+      redirect -> "/empresa", permanent: false
+    } else {
+      props = { light: light === "true" }
+    }
+  edge_cases: |
+    Empty-string token cookie is falsy in JS, so an empty token does not redirect.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-024
+  merged_from:
+  - RULE-login-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/index.tsx
+    lines: 81-99
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Uses a plain string cookie check (unlike validateRoute's buggy object-typed token), so this particular guard behaves correctly.
+- id: RULE-AUTH-USUARIOS-024
+  name: Post-login company-selection redirect decision tree
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    After a successful login, the app decides where to send the user based on how many companies (empresas) the account is associated with — zero companies is treated as an error and forces logout; exactly one company auto-selects it and skips the selector screen; more than one sends the user to the company-selection screen.
+  inputs:
+  - name: usuario.empresas.length
+    type: integer
+    range: 0, 1, or >1
+  outputs:
+  - name: redirect route
+    type: string (route path)
+  logic: |
+    if usuario.empresas.length == 0:
+      show error "Você não tem nenhuma permissão nesse perfil"
+      logout()
+    else if usuario.empresas.length == 1:
+      refreshToken(token)
+      router.push(`/empresa/${usuario.empresas[0].id}`)
+    else:  // > 1
+      refreshToken(token)
+      router.push(`/empresa/`)
+  edge_cases: |
+    The refreshToken(token) call happens for both the ==1 and >1 branches but NOT for the ==0 branch (which logs out instead). Errors thrown inside the try block (including from the API login call itself) are caught and shown as a generic "Algo deu errado no login." message.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-023
+  - RULE-AUTH-USUARIOS-041
+  merged_from:
+  - RULE-auth-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/contexts/AuthContext/AuthContext.tsx
+    lines: 128-160
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-025
+  name: Professional profile self-or-permission access gate
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    A user may view/edit a professional's profile page only if the profile belongs to themself, or if they hold the can_manage_usuario permission. Otherwise an "Acesso negado" (403) result is shown instead of the profile tabs. This check happens entirely client-side (getServerSideProps for this route has no permission requirement).
+  inputs:
+  - name: id_profissional (route param)
+    type: string
+  - name: user.usuario.id
+    type: string
+  - name: permissions
+    type: string array
+  outputs:
+  - name: verifyUser
+    type: boolean
+  logic: |
+    verifyUser = (id_profissional === user.usuario?.id) || permissions?.includes("can_manage_usuario")
+    if (verifyUser && currentUser) {
+      render profile Tabs
+    } else {
+      render <Result status="403" title="Acesso negado" .../>
+    }
+  edge_cases: |
+    currentUser must have loaded (async fetch) in addition to verifyUser being true, else the 403 branch is shown even for a permitted user while data is still loading.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-026
+  merged_from:
+  - RULE-profissional-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/profissionais/[id_profissional]/index.tsx
+    lines: 49-101
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Because the server-side validateRoute(ctx) call for this route uses the default (no permission), this access boundary exists only client-side; see RULE-acesso-FE-08-001.
+- id: RULE-AUTH-USUARIOS-026
+  name: Homecare-only "Gestão de Pacientes" tab
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    On the professional profile page, the "Gestão de Pacientes" (patient management) tab is only rendered when the viewer has can_manage_usuario permission AND the current company's tipo === "homecare".
+  inputs:
+  - name: can_manage_usuario
+    type: boolean
+  - name: currentEmpresa.tipo
+    type: string enum
+    range: homecare | manual | automatica (observed)
+  outputs:
+  - name: tab-visibility
+    type: boolean
+  logic: |
+    if (can_manage_usuario && currentEmpresa && currentEmpresa.tipo === "homecare") {
+      show "Gestão de Pacientes" tab
+    }
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-025
+  - RULE-AUTH-USUARIOS-060
+  merged_from:
+  - RULE-profissional-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/profissionais/[id_profissional]/index.tsx
+    lines: 76-91
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-AUTH-USUARIOS-027
+  name: Admin sidebar menu-item visibility gating
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    The administrative sidebar menu shows/hides six navigation items strictly based on three permission flags — "Empresa", "Estabelecimentos", "Setores", and "Leitos" all require can_manage_empresa; "Grupos" requires can_manage_grupo_acesso; "Profissionais" requires can_manage_usuario.
+  inputs:
+  - name: can_manage_empresa
+    type: boolean
+  - name: can_manage_grupo_acesso
+    type: boolean
+  - name: can_manage_usuario
+    type: boolean
+  outputs:
+  - name: menuItens
+    type: Utils.PropsMenuItem[]
+  logic: |
+    menuItens = []
+    if can_manage_empresa: menuItens += "empresa"
+    if can_manage_grupo_acesso: menuItens += "grupos"
+    if can_manage_empresa: menuItens += "estabelecimentos"
+    if can_manage_empresa: menuItens += "setores"
+    if can_manage_empresa: menuItens += "leitos"
+    if can_manage_usuario: menuItens += "profissionais"
+    // order above is exactly the order items are appended (Empresa, Grupos, Estabelecimentos, Setores, Leitos, Profissionais)
+  edge_cases: |
+    A user with can_manage_grupo_acesso but not can_manage_empresa sees only "Grupos" and (if applicable) "Profissionais" — the four other admin sections are entirely hidden, not just disabled.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-018
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useMenuByPermissions.tsx
+    lines: 9-111
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-028
+  name: Per-professional evolution-form authoring eligibility
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    For each of 10 professional roles (médico, enfermeiro, técnico de enfermagem, fisioterapeuta, musicoterapeuta, nutricionista, psicólogo, farmacêutico, fonoaudiólogo, intercorrência), the evolution-form tab is visible based on that role's specific "can_preencher_formulario_X" permission, but the ability to actually submit a new entry (canAdd passed into EvolucaoDefault) additionally requires the global can_manage_evolucao permission.
+  inputs:
+  - name: can_preencher_formulario_<role>
+    type: boolean
+  - name: can_manage_evolucao
+    type: boolean
+  outputs:
+  - name: canAdd (per role)
+    type: boolean
+  logic: |
+    for each role in {medico, enfermagem(via can_preencher_formulario_enfermeiro), tec_enfermagem,
+                       fisioterapeuta, musicoterapeuta, nutricionista, psicologo, farmaceutico,
+                       fonoaudiologo, intercorrencia}:
+      tab_visible = can_preencher_formulario_<role>
+      canAdd = can_preencher_formulario_<role> AND can_manage_evolucao
+  edge_cases: |
+    A user who can_preencher_formulario_medico but lacks can_manage_evolucao still sees the "Médico" tab (tab_visible true) but cannot submit a new entry (canAdd false) — a view-without-edit state.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useEvolucaoMenu.tsx
+    lines: 30-386
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001). See RULE-evolucao-FE-07-006 for a naming discrepancy on the pharmacist ('farmaceutica') role key specifically.
+- id: RULE-AUTH-USUARIOS-029
+  name: Login cascade - local auth first (incl. HTTP 202 status)
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    On login, the system first attempts Django local authentication (username+password) before trying any external identity provider. Both the local-auth success path and the external-SSO success path (RULE-AUTH-USUARIOS-030) return this exact same payload shape and status code.
+  inputs:
+  - name: username
+    type: string
+  - name: password
+    type: string
+  outputs:
+  - name: jwt_payload
+    type: object
+  - name: http_status
+    type: int
+  logic: |
+    usuario = authenticate(username=username, password=password)
+    if usuario:
+        payload = jwt_payload_handler(usuario)
+        token = jwt_encode_handler(payload)
+        context = jwt_response_payload_handler(token, usuario)
+        return Response(context, status=202)
+    # else fall through to RULE-auth-BE-05-002
+
+    # Confirmed by core/tests/test_usuario.py:35-38: POST /api/v1/login/ with a valid
+    # {username, password} asserts response.status_code == status.HTTP_202_ACCEPTED (202, not 200/201).
+  edge_cases: |
+    authenticate() returns None for inactive or unknown users, or wrong password; falls through to external SSO attempt rather than failing immediately. Non-standard success status (202 rather than 200/201).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-030
+  - RULE-AUTH-USUARIOS-052
+  - RULE-AUTH-USUARIOS-057
+  merged_from:
+  - RULE-auth-BE-05-001
+  - RULE-ACCESS-BE-12-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/login.py
+    lines: 29-42
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/tests/test_usuario.py
+    lines: 35-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: |
+    Success status code is 202 (Accepted), not 200. Login view implementation outside partition; behavior asserted by test. Merged: RULE-ACCESS-BE-12-032 independently captured the same 202-status fact via a test-file assertion (core/tests/test_usuario.py) that RULE-auth-BE-05-001 captured directly from the view source (core/api/v1/views/login.py); folded together to avoid double-counting one behavior.
+- id: RULE-AUTH-USUARIOS-030
+  name: External SSO fallback with auto-provisioning
+  category: triage-eligibility
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: |
+    If local auth fails, the system POSTs credentials to an external SSO (americashealth.co). If the SSO responds with a JSON dict, the user is treated as authenticated: a local Usuario is looked up by email=username, and auto-created if missing, then issued a JWT. No project-specific (Trilhas) entitlement/access check is performed before provisioning or issuing the token.
+  inputs:
+  - name: username
+    type: string
+    range: treated as an email address for the Usuario.get(email=username) lookup
+  - name: password
+    type: string
+  outputs:
+  - name: jwt_payload
+    type: object
+  logic: |
+    requisicao = POST https://nps.americashealth.co/api/v2/auth-user/  {username, password}
+    requisicao_json = json.loads(requisicao.text)
+    if type(requisicao_json) is dict:
+        try:
+            usuario = Usuario.objects.get(email=username)
+        except Usuario.DoesNotExist:
+            usuario = Usuario.objects.create_user(
+                username=username, nome=requisicao_json.get("nome"),
+                email=username, password=password)
+        context = montar_payload_de_usuario(usuario)
+        return Response(context, status=202)
+    else:
+        raise AuthenticationFailed("Falha na autenticação")
+  edge_cases: |
+    requisicao_json could raise json.JSONDecodeError if the external service returns non-JSON (uncaught); a non-dict JSON payload (e.g., list, string, error) leads to AuthenticationFailed.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-029
+  - RULE-AUTH-USUARIOS-052
+  merged_from:
+  - RULE-auth-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/login.py
+    lines: 44-69
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Code contains an explicit TODO comment ('Adicionar verificação se tem acesso ao projeto Trilhas.') and no such check exists anywhere in the visible code path between the external dict response and user provisioning/JWT issuance - any user who can auth against the shared americashealth SSO gets a Trilhas account and token, regardless of Trilhas project entitlement.
+- id: RULE-AUTH-USUARIOS-031
+  name: Auto-hash plaintext password on user save
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    On saving a Usuario, if the stored password is not already a recognized hash, it is hashed.
+  inputs:
+  - name: password
+    type: string
+  outputs:
+  - name: hashed_password
+    type: string
+  logic: |
+    try: identify_hasher(self.password)      # raises ValueError if not a known hash format
+    except ValueError: self.set_password(self.password)  # hash it
+    super().save()
+  edge_cases: |
+    If password already hashed, left untouched (prevents double-hashing). No None-guard: identify_hasher(None) would raise (caught as ValueError? actually TypeError) — but Usuario.password is required by AbstractBaseUser.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-054
+  merged_from:
+  - RULE-usuario-BE-04-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario.py
+    lines: 99-104
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Usuario also enforces cpf unique (max_length=11), username unique with UnicodeUsernameValidator, pin default=settings.PIN_DEFAULT.
+- id: RULE-AUTH-USUARIOS-032
+  name: User-company membership grants 'u' access and cascades group cleanup
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Linking a user to a company adds the 'u' access code; unlinking removes that company's access-group memberships and drops 'u' when the user belongs to no company.
+  inputs:
+  - name: usuario
+    type: Usuario FK
+  - name: empresa
+    type: Empresa FK
+  outputs:
+  - name: usuario.acessos / group memberships
+    type: side-effect
+  logic: |
+    UsuarioEmpresa unique_together(usuario, empresa).
+    save(): if "u" not in usuario.acessos: append "u"; save usuario.
+    post_delete(UsuarioEmpresa):
+      delete UsuarioGrupoAcesso where usuario=instance.usuario AND grupo.empresa=instance.empresa
+      if not usuario.empresas.exists():
+          usuario.acessos = [a for a in acessos if a != "u"]; save
+  edge_cases: |
+    Cascade only removes empresa-scoped groups; establishment/sector groups handled by their own signals.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-033
+  merged_from:
+  - RULE-acesso-BE-04-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario_empresa.py
+    lines: 19-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-033
+  name: Establishment membership auto-creates company membership; delete cleans groups
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Assigning a user to an establishment auto-creates the parent company membership; removing it deletes that establishment's group memberships.
+  inputs:
+  - name: usuario
+    type: Usuario FK
+  - name: estabelecimento
+    type: Estabelecimento FK
+  outputs:
+  - name: UsuarioEmpresa / group memberships
+    type: side-effect
+  logic: |
+    UsuarioEstabelecimento unique_together(usuario, estabelecimento).
+    save(): if not UsuarioEmpresa.exists(usuario, estabelecimento.empresa):
+               create UsuarioEmpresa(usuario, estabelecimento.empresa).save()
+            super().save()
+    post_delete: delete UsuarioGrupoAcesso where usuario=... AND grupo.estabelecimento=instance.estabelecimento
+  edge_cases: |
+    Creating UsuarioEmpresa here transitively triggers RULE-031 ('u' grant).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-032
+  - RULE-AUTH-USUARIOS-034
+  merged_from:
+  - RULE-acesso-BE-04-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario_estabelecimento.py
+    lines: 20-40
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-034
+  name: Sector membership auto-creates establishment membership; delete cleans groups
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Assigning a user to a sector auto-creates the parent establishment membership; removing it deletes that sector's group memberships.
+  inputs:
+  - name: usuario
+    type: Usuario FK
+  - name: setor
+    type: Setor FK
+  outputs:
+  - name: UsuarioEstabelecimento / group memberships
+    type: side-effect
+  logic: |
+    UsuarioSetor unique_together(usuario, setor).
+    @transaction.atomic save():
+      if not UsuarioEstabelecimento.exists(usuario, setor.estabelecimento):
+          create UsuarioEstabelecimento(usuario, setor.estabelecimento).save()
+      super().save()
+    post_delete: delete UsuarioGrupoAcesso where usuario=... AND grupo.setor=instance.setor
+  edge_cases: |
+    Chains upward: sector -> establishment (RULE-032) -> company (RULE-031).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-033
+  merged_from:
+  - RULE-acesso-BE-04-033
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario_setor.py
+    lines: 20-39
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-035
+  name: GrupoAcesso update() replaces entire permission set
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    On update, if assign_permissions is a dict, the group's Django permission set is fully REPLACED (not merged) with only the permissions whose value is truthy AND whose codename is in the recognized system catalog.
+  inputs:
+  - name: assign_permissions
+    type: object (codename->bool)
+  outputs:
+  - name: grupo.permissions
+    type: M2M set of Permission
+  logic: |
+    permissions_of_system = [p[0] for p in PermissionsChoices.permissions()]
+    if assign_permissions and isinstance(assign_permissions, dict):
+        truthy = {k: v for k, v in assign_permissions.items() if v}
+        valid_codenames = [k for k in truthy if k in permissions_of_system]
+        permission_ids = Permission.objects.filter(codename__in=valid_codenames).values_list("id", flat=True)
+        GrupoSerializer(instance.grupo, {"permissions": permission_ids}, partial=True).save()
+        # this REPLACES instance.grupo.permissions entirely with permission_ids
+  edge_cases: |
+    Codenames not in the system catalog are dropped even if truthy. Passing assign_permissions=None (unset) leaves existing permissions untouched (branch only runs when truthy dict). Passing an empty dict {} also skips the branch (falsy), leaving permissions unchanged - cannot be used to clear all permissions.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-050
+  - RULE-AUTH-USUARIOS-053
+  merged_from:
+  - RULE-acesso-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 118-136
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Uses ModelSerializer M2M replace-all semantics via GrupoSerializer (fields=('id','permissions','name')).
+- id: RULE-AUTH-USUARIOS-036
+  name: GrupoAcesso update() replaces entire usuarios membership
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    On update, if 'usuarios' is a list (even empty), the group's user membership is fully replaced via .set(), meaning an empty list DOES clear membership (unlike the permissions branch).
+  inputs:
+  - name: usuarios
+    type: array of uuid
+  outputs:
+  - name: grupo_acesso.usuarios
+    type: M2M set of Usuario
+  logic: |
+    if isinstance(usuarios, list):
+        instance.usuarios.set(Usuario.objects.filter(pk__in=usuarios))
+  edge_cases: |
+    usuarios=[] (empty list) passes isinstance check and DOES clear all group members - contrast with RULE-acesso-BE-05-004 where an empty permissions dict does NOT clear permissions.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-050
+  - RULE-AUTH-USUARIOS-053
+  merged_from:
+  - RULE-acesso-BE-05-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 138-139
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-037
+  name: Full permission catalog exposure
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    TodasPermissoesViewSet.list returns the entire system permission catalog (codename->label) unconditionally to any authenticated user, with no scoping.
+  inputs: []
+  outputs:
+  - name: permissions_catalog
+    type: object (codename->label)
+  logic: |
+    return Response(dict(PermissionsChoices.permissions()))
+  edge_cases: |
+    No filtering by user's own permissions/role - any authenticated caller sees the full catalog of all possible permission codenames in the system.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-001
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-acesso-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/permissao.py
+    lines: 14-22
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-038
+  name: User creation links to current empresa and syncs setores/grupos
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    When a Usuario is created, it is always linked to request.empresa via UsuarioEmpresa. If setores_id is supplied, all sectors must belong to that empresa (validated by verificar_setor_da_empresa, which raises if not); the user is bulk-linked to every listed setor (UsuarioSetor) and to every distinct parent Estabelecimento not already linked (UsuarioEstabelecimento). If grupos_acessos_ids is a list, the user's access groups are set (replace-all).
+  inputs:
+  - name: setores_id
+    type: array of uuid
+  - name: grupos_acessos_ids
+    type: array of uuid
+  outputs:
+  - name: usuario
+    type: object
+  logic: |
+    usuario = super().create(validated_data)
+    UsuarioEmpresa.objects.create(usuario=usuario, empresa=request.empresa)
+    if isinstance(setores, list):
+        verificar_setor_da_empresa(setores, request.empresa)  # raises if any setor not in empresa
+        estabelecimentos_novos = Estabelecimento.objects.filter(
+            Q(setores__in=setores), ~Q(usuarios=usuario)
+        ).distinct("pk")
+        bulk_create UsuarioSetor(usuario, setor_id) for setor in setores
+        bulk_create UsuarioEstabelecimento(usuario, estabelecimento) for estabelecimento in estabelecimentos_novos
+    if isinstance(grupos_acessos_ids, list):
+        usuario.grupos_acessos.set(grupos_acessos_ids)
+  edge_cases: |
+    foto_perfil_b64, if provided, is converted to a file before create. No duplicate-check on UsuarioSetor bulk_create beyond what's implied by the caller-supplied list (could error on unique constraint if duplicated).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-039
+  merged_from:
+  - RULE-usuario-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 107-139
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-039
+  name: User update performs diff-based setor sync scoped to current empresa
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    When updating a user's setores_id, the serializer computes a symmetric difference against the user's currently-known setores: newly listed setores are added (UsuarioSetor + UsuarioEstabelecimento bulk_create), and setores no longer listed are removed - but the removal query is additionally scoped to setor__estabelecimento__empresa=request.empresa, so setores belonging to a different empresa than the current context are never removed even if absent from the new list.
+  inputs:
+  - name: setores_id
+    type: array of uuid
+  outputs:
+  - name: usuario.setores
+    type: M2M-like set (through UsuarioSetor)
+  logic: |
+    setores_existentes = list(instance.setores.values_list("pk", flat=True))
+    setores_novos = [s for s in setores if s not in setores_existentes]
+    remover_setores = [s for s in setores_existentes if s not in setores]
+    if remover_setores:
+        UsuarioSetor.objects.filter(
+            usuario=usuario, setor__in=remover_setores,
+            setor__estabelecimento__empresa=empresa
+        ).delete()
+    if setores_novos:
+        bulk_create UsuarioSetor(usuario, setor_id) for setor in setores_novos
+        bulk_create UsuarioEstabelecimento(usuario, estabelecimento) for new estabelecimentos not already linked
+  edge_cases: |
+    verificar_setor_da_empresa(setores, empresa) is called before the diff, so all NEW setores in the payload must belong to the current empresa (raises otherwise); setores from other companies already assigned to the user are left untouched even if omitted from the payload.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-038
+  merged_from:
+  - RULE-usuario-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 141-189
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-040
+  name: User deletion is a soft-delete (is_active flag)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Deleting a user does not remove the record; it sets is_active=False and returns 204.
+  inputs: []
+  outputs:
+  - name: usuario.is_active
+    type: boolean
+  logic: |
+    def perform_destroy(instance):
+        instance.is_active = False
+        instance.save()
+    def destroy(request, *a, **kw):
+        instance = get_object()
+        perform_destroy(instance)
+        return Response(status=204)
+  edge_cases: |
+    The user record and its FK relations are preserved; combined with RULE-usuario-BE-05-006, a soft-deleted user simply disappears from subsequent listing/filtering.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-014
+  merged_from:
+  - RULE-usuario-BE-05-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 50-57
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-041
+  name: Session cookie lifetimes and token verify/refresh workflow
+  category: access-control
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    On sign-in, the auth token cookie ("trilhas.token") is set with a 30-day lifetime; on permission fetch, the permissions cookie ("trilhas.permissions") is set with a 1-day (86400s) lifetime. On every mount, if a token cookie exists it is verified against the backend; on verification failure the app attempts a token refresh, and if no token cookie exists at all the user is logged out immediately.
+  inputs:
+  - name: trilhas.token cookie
+    type: string
+  outputs:
+  - name: session state
+    type: authenticated / refreshed / logged-out
+  logic: |
+    // cookie lifetimes:
+    trilhas.token maxAge = 30 * 24 * 60 * 60 seconds (30 days), path "/"
+    trilhas.permissions maxAge = 86400 seconds (1 day), path "/"
+
+    // on mount:
+    token = cookie("trilhas.token")
+    if token:
+      _getAllPermissions()
+      try:
+        POST /verify-token/ {token} -> user data -> setUser(data)
+        if id_empresa in route query:
+          _getPermissions(id_empresa); _getEmpresaTipo(id_empresa)
+      catch:
+        show "Erro ao recuperar sessão"
+        refreshToken(token)   // POST /refresh-token/ {token}; on failure -> logout()
+    else:
+      logout()
+  edge_cases: |
+    refreshToken destroys the "trilhas.token" cookie before attempting the refresh POST; if the refresh call itself fails, the catch handler both shows an error message AND calls logout() — a double-notification (verify-failure message, then implicitly whatever logout()'s own side effects are).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-024
+  - RULE-AUTH-USUARIOS-057
+  merged_from:
+  - RULE-auth-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/contexts/AuthContext/AuthContext.tsx
+    lines: 39-126
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-042
+  name: Effective-permission intersection computation
+  category: access-control
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    A user's effective permission map is computed by intersecting the system's known permission catalog (allPermissions, fetched from the backend) with the specific permissions granted to the user (permissions array on the auth context); any permission not present in the system catalog is silently excluded from the effective map even if it were somehow present in the user's own permissions array.
+  inputs:
+  - name: allPermissions
+    type: Record<Permission, string>
+  - name: userPermissions
+    type: Permission[]
+  outputs:
+  - name: effectivePermissions
+    type: Models.Permissions (Record<Permission, boolean>)
+  logic: |
+    for each permission in Object.keys(allPermissions):
+      effectivePermissions[permission] = userPermissions.includes(permission)
+    // permissions in userPermissions but NOT in allPermissions are never surfaced
+  edge_cases: |
+    On unmount / when allPermissions or userPermissions changes, effectivePermissions resets to {} before recomputing (via the effect cleanup), causing a brief moment where all permission checks evaluate to undefined/falsy.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useEffectivePermissions.tsx
+    lines: 5-29
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-043
+  name: API key name uniqueness
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Refuses to create a new API key when an API key with the same name already exists; otherwise creates and prints the key.
+  inputs:
+  - name: name_key
+    type: string
+    range: must be unique among APIKey.name
+  outputs:
+  - name: created_key | error
+    type: string
+  logic: |
+    if APIKey.objects.filter(name=name).exists():
+        error("Chave ja existe")
+    else:
+        api_key, key = APIKey.objects.create_key(name=name)
+        success("Chave criada com sucesso ...")
+  edge_cases: |
+    Exact-name match check; runs inside a DB transaction (@transaction.atomic).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-004
+  merged_from:
+  - RULE-VALIDATION-BE-12-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/management/commands/generate_api_key.py
+    lines: 12-19
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Management command 'generate_api_key'.
+- id: RULE-AUTH-USUARIOS-044
+  name: Clinical/administrative role (cargo) enumeration — backend model vs frontend copy
+  category: billing-administrative
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: |
+    Allowed job roles for an access group (GrupoAcesso.cargo). The frontend independently re-declares the identical 15-value list (same codes, same labels, same order) as the `cargos` select-options array consumed for GrupoAcesso.cargo form fields, and additionally maintains a broader `cargosObject` humanize/label map that is a strict superset of `cargos` plus 6 extra codenames that have NO corresponding entry in the backend's GrupoAcesso.cargo choices.
+  inputs:
+  - name: cargo
+    type: string (slug)
+    range: administrador|coord_assistencial|coord_medico|medico_diarista|medico_intensivista|enfermeiro|enfermeiro_telemed|medico_telemed|tec_enfermagem|fisioterapeuta|fonoaudiologo|psicologo|nutricionista|odontologo|farmaceutico
+  outputs:
+  - name: display_label
+    type: string
+  logic: "# Backend — core/models/choices/grupo_acesso.py:1-20 (GrupoAcesso.cargo field choices)\nGrupoAcessoChoices.cargos() -> 15 (value,label) role tuples covering coordination,\nphysicians (diarista/intensivista/telemedicine), nurses (+ telemedicine), nursing tech,\nphysiotherapist, speech therapist, psychologist, nutritionist, dentist, pharmacist.\nGrupoAcesso.cargo = CharField(max_length=255, null/blank, choices=cargos()).\n\n# Frontend — src/utils/cargos.ts:1-62 (`cargos`, select options; identical 15 values/labels/order)\ncargos = [administrador, coord_assistencial, coord_medico, medico_diarista, medico_intensivista,\n          enfermeiro, tec_enfermagem, fisioterapeuta, fonoaudiologo, psicologo, nutricionista,\n          odontologo, farmaceutico, enfermeiro_telemed, medico_telemed]  # (value,label) pairs\n\n# Frontend — src/utils/cargos.ts:64-87 (`cargosObject`, humanize map; SUPERSET of `cargos`)\ncargosObject = { ...all 15 cargos codes..., \n  medico: \"Médico\", terapeuta: \"Terapeuta\", tecnico_enfermagem: \"Técnico de Enfermagem\",\n  enfermagem: \"Enfermeiro\", musicoterapeuta: \"Musicoterapeuta\", intercorrencia: \"Intercorrência\" }\n"
+  edge_cases: |
+    Nullable/blank; advisory choices. cargosObject is a superset of cargos. Both "tec_enfermagem" and "tecnico_enfermagem" map to "Técnico de Enfermagem"; both "enfermeiro" and "enfermagem" map to "Enfermeiro" (synonym codes). "musicoterapeuta" and "intercorrencia" appear only in the humanize map, not the select list.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-002
+  - RULE-AUTH-USUARIOS-046
+  divergence: |
+    Frontend `cargosObject` (src/utils/cargos.ts:64-87) contains 6 codename keys with no corresponding value in the backend's GrupoAcessoChoices.cargos()/GrupoAcesso.cargo choices (core/models/choices/grupo_acesso.py:1-20): `medico`, `terapeuta`, `tecnico_enfermagem`, `enfermagem`, `musicoterapeuta`, `intercorrencia`. Two are synonym/legacy duplicates of already-valid backend codes (`tecnico_enfermagem`~`tec_enfermagem`, `enfermagem`~`enfermeiro`); `musicoterapeuta` and `intercorrencia` correspond to permission-flag suffixes (can_preencher_formulario_musicoterapeuta/intercorrencia) that exist in the permission catalog but have no GrupoAcesso.cargo counterpart. The backend model would reject any of these 6 as a GrupoAcesso.cargo value (not in choices); cargosObject is presumably used to humanize a broader set of string fields than strictly GrupoAcesso.cargo, but no code path confirming that scope is cited in either partition.
+  merged_from:
+  - RULE-acesso-BE-04-005
+  - RULE-cargos-FE-02-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/grupo_acesso.py
+    lines: 1-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/cargos.ts
+    lines: 1-87
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: |
+    ---
+    AMBIGUOUS because the two structures diverge: select options (cargos, 1-62) vs display map (cargosObject, 64-87). Verifier should reconcile against backend role choices; synonym pairs (tec_enfermagem/tecnico_enfermagem, enfermeiro/enfermagem) suggest legacy code drift. odontologo appears in select list but not in choicesConselho.
+
+    ---
+    Frontend Phase-1 capture used category 'data-validation'; backend capture (kept as primary here) used 'billing-administrative' per its own Phase-1 taxonomy choice.
+- id: RULE-AUTH-USUARIOS-045
+  name: User access-role codes (proprietario/usuario/monitor) — backend model vs frontend type
+  category: billing-administrative
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    Single-char codes stored in Usuario.acessos ArrayField that gate ownership/user/monitor capabilities and are auto-managed by membership save/delete hooks.
+     The frontend independently re-declares the identical 3-value union (`Usuario.acessos = "u" | "p" | "m"`) but its JSDoc only documents "u" and "p"; the backend source resolves the frontend's undocumented third value "m" as "monitor", though no code in either partition mutates/enforces what the 'monitor' access level actually grants.
+  inputs:
+  - name: acesso_code
+    type: char(1)
+    range: p (Proprietário) | u (Usuario) | m (monitor)
+  outputs:
+  - name: acesso_set
+    type: list[char]
+  logic: |
+    # Backend — core/models/choices/usuario.py:14-20
+    UsuarioChoices.acessos() -> (("p","Proprietário"),("u","Usuario"),("m","monitor")).
+    Usuario.acessos = ArrayField(CharField(max_length=1), default=list).
+    "p" managed by Empresa.save (RULE-empresa-BE-04-009);
+    "u" managed by UsuarioEmpresa save/delete (RULE-acesso-BE-04-031).
+    "m" (monitor) defined but not mutated by in-scope code.
+
+    # Frontend — src/@types/models/User.d.ts:37-43
+    /**
+     * @description Acessos do usuário
+     * @property {string} u usuário
+     * @property {string} p proprietário
+     */
+    type acessos = "u" | "p" | "m"   // "m" undocumented in FE; backend labels it "monitor"
+  edge_cases: |
+    default empty list; codes appended idempotently by hooks. None demonstrated; "m" is simply unused/undocumented in this partition.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-032
+  - RULE-AUTH-USUARIOS-007
+  divergence: |
+    No divergence in the option list itself (both sides agree on exactly u|p|m). Kept AMBIGUOUS (not downgraded to OK) because, even after cross-referencing, no code in either partition mutates or consumes the "m"/monitor value — backend's own capture states "m" (monitor) defined but not mutated by in-scope code — so its functional meaning remains unconfirmed despite the label now being known.
+  merged_from:
+  - RULE-acesso-BE-04-006
+  - RULE-usuario-FE-07-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/usuario.py
+    lines: 14-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/User.d.ts
+    lines: 37-43
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: |
+    ---
+    Best guess for 'm' is 'moderador' or a role tied to medical staff (e.g. 'médico'), but this is speculation — flagged per ground rules rather than guessed silently. Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-046
+  name: Professional council (conselho) and state-of-council enumerations — backend model vs frontend copy
+  category: billing-administrative
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Brazilian professional-registration council and issuing state for a user (credentialing). The frontend independently re-declares the identical 7-value `conselho` codeset (same codes, same order) as `choicesConselho`, using shorter display labels (e.g. "CR de Medicina" vs backend's "Conselho Regional de Medicina") — a cosmetic label-wording difference only; the `estado_conselho` (Brazilian state) enumeration has no frontend copy in this cluster's partitions.
+  inputs:
+  - name: conselho
+    type: string
+    range: CRM|COREN|CREFITO|CRN|CRFA|CRP|AGMT
+  - name: estado_conselho
+    type: string (UF)
+    range: 27 Brazilian UF codes (AC..TO)
+  outputs:
+  - name: credential_scope
+    type: string
+  logic: |
+    # Backend — core/models/choices/usuario.py:22-64
+    UsuarioChoices.conselho() -> CRM(medicine), COREN(nursing), CREFITO(physio/OT),
+      CRN(nutrition), CRFA(speech), CRP(psychology), AGMT(Assoc. Goiana de Musicoterapia).
+    UsuarioChoices.estado_conselho() -> all 26 states + DF.
+    Usuario.conselho CharField(max_length=7), estado_conselho CharField(max_length=2),
+    numero_conselho CharField(max_length=20); all null/blank.
+
+    # Frontend — src/utils/choicesConselho.ts:1-30 (same 7 codes/order, abbreviated labels)
+    choicesConselho = [
+      {CRM: "CR de Medicina"}, {COREN: "CR de Enfermagem"},
+      {CREFITO: "CR de Fisioterapia e Terapia Ocupacional"}, {CRN: "CR de Nutrição"},
+      {CRFA: "CR de Fonoaudiologia"}, {CRP: "CR de Psicologia"}, {AGMT: "Ass. Go. de Musicoterapia"},
+    ]
+  edge_cases: |
+    Nullable; no cross-field required-if enforcement (conselho can exist without number). 7 councils; no council for pharmacist/dentist/physician-assistant despite those cargos existing (farmaceutico, odontologo have no matching conselho entry).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-044
+  merged_from:
+  - RULE-acesso-BE-04-007
+  - RULE-cargos-FE-02-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/usuario.py
+    lines: 22-64
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/choicesConselho.ts
+    lines: 1-30
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: |
+    AGMT is an association (not a formal council) but is grouped in the conselho enum.
+    ---
+    Cross-check with cargos.ts: farmaceutico and odontologo roles lack a council option here.
+
+    ---
+    Label text differs in verbosity/wording only (full council name vs UI-abbreviated "CR de X"); the option list (7 codes, same order) is identical, so this is not treated as a functional divergence per the values/operators/units/option-list/rounding comparison axes.
+- id: RULE-AUTH-USUARIOS-047
+  name: Access-level enumeration (read vs read-write) — dormant
+  category: billing-administrative
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    Legacy permission access levels ('r'=read, 'rw'=read/write) and coarse roles (admin/medico/enfermeiro); the owning Permissao model is commented out.
+  inputs:
+  - name: nivel_acesso
+    type: string
+    range: r|rw
+  - name: acesso
+    type: string
+    range: admin|medico|enfermeiro
+  outputs:
+  - name: access_level
+    type: string
+  logic: |
+    PermissaoChoices.acesso() -> (admin, medico, enfermeiro).
+    PermissaoChoices.nivel_acesso() -> (r=Leitura, rw="Leitura e escrita").
+    PermissionsChoices.permissions() aggregates every model._meta.permissions across all apps.
+  edge_cases: |
+    Permissao model in core/models/permissao.py is fully commented out; these choices may be unused.
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-007
+  merged_from:
+  - RULE-acesso-BE-04-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/permissao.py
+    lines: 6-31
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    AMBIGUOUS — enum defined but its model is disabled; real RBAC is enforced via Django group permissions (see RULE-acesso-BE-04-045).
+- id: RULE-AUTH-USUARIOS-048
+  name: Access group must belong to exactly one scope (empresa XOR estabelecimento XOR setor)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    A GrupoAcesso must be attached to exactly one of empresa, estabelecimento, or setor; its backing Django Group name is generated and must be unique.
+  inputs:
+  - name: empresa
+    type: FK|null
+  - name: estabelecimento
+    type: FK|null
+  - name: setor
+    type: FK|null
+  - name: nome
+    type: string
+  outputs:
+  - name: grupo (Django Group)
+    type: Group
+  logic: |
+    three_xor(bool(empresa), bool(estabelecimento), bool(setor)) must be True, where
+      three_xor(a,b,c) = (not a and (b ^ c)) or (a and not (b or c))  # exactly one truthy
+    else raise ValidationError({"data":"Inconsistência de dados!"}).
+    group_name = generate_group_name(pk_of_scope_model, nome) = "%s-%s" % (nome, pk)
+      where pk_of_scope_model = the .get_pk of whichever of empresa/estabelecimento/setor is set.
+    if (not self.exists) and Group.objects.filter(name=group_name).exists():
+        raise ValidationError({"nome":"Já existe outro grupo de acesso com este nome."})
+    if grupo_id is None: create Group(name=group_name) else rename existing grupo.
+    delete() always calls super().delete(force_delete=True).
+  edge_cases: |
+    Uniqueness check only runs on create (not self.exists). Group name collision uses the composed "nome-pk" string, so uniqueness is scoped by the foreign object's pk.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-010
+  - RULE-AUTH-USUARIOS-051
+  merged_from:
+  - RULE-acesso-BE-04-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/grupo_acesso.py
+    lines: 108-138
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    three_xor defined in core/utils.py:145 (out of partition). Also declares an (unused-by-Django) UniqueTogether helper listing (empresa,nome)/(estabelecimento,nome)/(setor,nome).
+- id: RULE-AUTH-USUARIOS-049
+  name: Company-context required for request
+  category: billing-administrative
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Views using EmpresaRequiredMixin reject requests lacking a resolved company context with 404.
+  inputs:
+  - name: request.empresa
+    type: Empresa|None
+  outputs:
+  - name: allow | 404
+    type: HTTP response
+  logic: |
+    EmpresaRequiredMixin.dispatch: if not request.empresa -> 404 {"empresa":"Empresa não identificada"}; else super().dispatch()
+    ManageDataRequiredMixin.dispatch: on PUT/PATCH/POST, re-encode body utf-8 (fallback cp1252) then replace with json.dumps(manage_data(...)).
+  edge_cases: |
+    cp1252 fallback handles legacy-encoded payloads; body is fully rewritten before downstream parsing.
+  confidence: high
+  merged_from:
+  - RULE-acesso-BE-04-050
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/mixins/view.py
+    lines: 7-41
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    request.empresa is injected by upstream middleware (out of partition).
+- id: RULE-AUTH-USUARIOS-050
+  name: GrupoAcesso incoming permissoes payload rewrite
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    On input, if the client sends a non-empty 'permissoes' dict, it is renamed to 'assign_permissions' before internal validation.
+  inputs:
+  - name: permissoes
+    type: object (codename->bool)
+  outputs:
+  - name: assign_permissions
+    type: object (codename->bool)
+  logic: |
+    def to_internal_value(data):
+        if bool(data.get("permissoes", {})):
+            data["assign_permissions"] = data.pop("permissoes")
+        return super().to_internal_value(data)
+  edge_cases: |
+    An empty dict/falsy 'permissoes' value is left untouched (not renamed), so it will not reach assign_permissions and update() permission logic will not run for it.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-035
+  merged_from:
+  - RULE-acesso-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 105-108
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-AUTH-USUARIOS-051
+  name: User must belong to a group's scope before joining that access group
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: |
+    Adding a user to an access group requires the user already be a member of the group's empresa/estabelecimento/setor scope; otherwise validation fails.
+  inputs:
+  - name: usuario
+    type: Usuario FK
+  - name: grupo
+    type: GrupoAcesso FK
+  outputs:
+  - name: valid_membership
+    type: bool
+  logic: |
+    UsuarioGrupoAcesso unique_together(usuario, grupo).
+    save():
+      if grupo.empresa and not grupo.empresa.usuarios.filter(pk=usuario_pk).exists():
+          raise ValidationError({"usuario":"Usuário não pertence a está empresa"})
+      if grupo.estabelecimento and not grupo.estabelecimento.usuarios.filter(pk=usuario_pk).exists():
+          raise ValidationError({"usuario":"Usuário não pertence a este estabelecimento"})
+      if grupo.setor and not grupo.setor.usuarios.filter(pk=usuario_pk).exists():
+          raise ValidationError({"usuario":"Usuário não pertence a este setor"})
+      super().save(*args, *kwargs)   # <-- BUG: *kwargs (positional) instead of **kwargs
+  edge_cases: |
+    DISCREPANCY: line 38 calls super().save(*args, *kwargs) — the second splat is *kwargs (positional unpacking of a dict yields its keys), not **kwargs; passing keyword save args (e.g. force_insert) would break. Functions correctly only when called with no kwargs.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-048
+  merged_from:
+  - RULE-acesso-BE-04-034
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario_grupo_acesso.py
+    lines: 18-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Recorded verbatim per instructions; the *kwargs typo is a latent defect.
+- id: RULE-AUTH-USUARIOS-052
+  name: LoginSerializer required-field validation never enforced
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: |
+    LoginSerializer declares username and password as required=True, but LoginViewSet.create() never instantiates/validates the serializer - it reads request.data.get(...) directly, so missing fields are never rejected with a 400; they instead become None and flow into authenticate() and the external POST.
+  inputs:
+  - name: username
+    type: string
+    range: required=True (declared, not enforced)
+  - name: password
+    type: string
+    range: required=True (declared, not enforced)
+  outputs: []
+  logic: |
+    # Declared but unused:
+    # LoginSerializer(username=CharField(required=True), password=CharField(required=True))
+    # Actual view:
+    username = request.data.get("username")   # None if absent, no validation error
+    password = request.data.get("password")
+  edge_cases: |
+    Missing username/password does not raise ValidationError; authenticate(username=None, password=None) simply returns None, and the flow proceeds to the external SSO POST with None values.
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-029
+  - RULE-AUTH-USUARIOS-030
+  merged_from:
+  - RULE-auth-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/login.py
+    lines: 8-17
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Cross-reference: core/api/v1/views/login.py lines 29-34 confirm request.data.get direct access, bypassing serializer validation entirely.
+- id: RULE-AUTH-USUARIOS-053
+  name: User payload field renames with empty-list edge case
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: |
+    UsuarioViewSet.manage_data renames incoming client fields for internal processing: 'setores' (list) -> 'setores_id'; 'foto_perfil' (string) -> 'foto_perfil_b64'; 'grupos_acessos' -> 'grupos_acessos_ids' but ONLY if truthy - an empty list [] for grupos_acessos is falsy in the check 'if data.get("grupos_acessos")', so it is never renamed/forwarded, meaning a client cannot use this endpoint to remove ALL of a user's access groups by sending an empty array.
+  inputs:
+  - name: setores
+    type: array of uuid
+  - name: foto_perfil
+    type: string (base64)
+  - name: grupos_acessos
+    type: array of uuid
+  outputs:
+  - name: setores_id
+    type: array of uuid
+  - name: foto_perfil_b64
+    type: string
+  - name: grupos_acessos_ids
+    type: array of uuid
+  logic: |
+    foto_perfil = data.pop("foto_perfil", None)
+    setores = data.pop("setores", None)
+    if isinstance(setores, list):
+        data["setores_id"] = setores
+    if foto_perfil and isinstance(foto_perfil, str):
+        data["foto_perfil_b64"] = foto_perfil
+    if data.get("grupos_acessos"):          # falsy for [] or None
+        data["grupos_acessos_ids"] = data.pop("grupos_acessos", None)
+  edge_cases: |
+    grupos_acessos=[] is silently dropped (never popped, never renamed) - it remains as an unrecognized 'grupos_acessos' key in the data dict, ignored by the serializer since only grupos_acessos_ids is a declared field. Contrast with setores=[] which DOES pass isinstance(list) and would be forwarded/synced.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-036
+  merged_from:
+  - RULE-usuario-BE-05-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 26-40
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Contrast with RULE-acesso-BE-05-005 where usuarios=[] DOES clear a GrupoAcesso's membership - here the equivalent operation on the Usuario side for grupos_acessos is unreachable via empty array.
+- id: RULE-AUTH-USUARIOS-054
+  name: CPFValidator — Brazilian CPF check-digit validation
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Validates a Brazilian CPF taxpayer-ID string using the standard two-check-digit algorithm after stripping '-' and '.' separators. Rejects empty/short (<11 char) values and values where all characters are identical. Computes two check digits from the first 9 digits with descending weights and modulo-11, then compares the reconstructed 11-digit number to the input.
+  inputs:
+  - name: cpf
+    type: string
+    range: 11 digits after stripping '.' and '-'
+  outputs:
+  - name: validity
+    type: raises ValidationError('CPF invalido') if invalid; returns nothing otherwise
+  logic: |
+    cpf = cpf.replace("-", "").replace(".", "")
+    IF NOT cpf OR len(cpf) < 11: RAISE Invalid
+    IF cpf == cpf[0] * len(cpf): RAISE Invalid            # all-identical-digit CPFs rejected
+    inteiros = [int(c) for c in cpf]
+    novo = inteiros[:9]
+    WHILE len(novo) < 11:
+      r = sum((len(novo) + 1 - i) * v for i, v in enumerate(novo)) % 11
+      f = 11 - r IF r > 1 ELSE 0
+      novo.append(f)
+    IF novo != inteiros: RAISE Invalid
+  edge_cases: |
+    CPF strings longer than 11 digits after stripping separators pass the length check but always fail the final novo==inteiros comparison (novo is fixed at 11 elements), so they are still rejected, just not via an explicit upper-bound message. Non-numeric characters raise via int() conversion (unhandled here, propagates as a ValueError rather than ValidationError).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-031
+  merged_from:
+  - RULE-cpf-BE-11-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/validators.py
+    lines: 7-29
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Verified against the standard published CPF algorithm (weights 10..2 then 11..2 over the digits, modulo 11, remainder<2 -> check digit 0 else 11-remainder): implementation matches; status OK, not a discrepancy.
+- id: RULE-AUTH-USUARIOS-055
+  name: Username normalization before login submit
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Before submitting login credentials, the username field is trimmed of leading/trailing whitespace and lower-cased; the password field is passed through unchanged.
+  inputs:
+  - name: values.username
+    type: string
+  outputs:
+  - name: username (normalized)
+    type: string
+  logic: |
+    normalizedUsername = values.username?.trim().toLocaleLowerCase()
+    login({ ...values, username: normalizedUsername })
+  edge_cases: |
+    If values.username is undefined, optional chaining yields undefined (no crash).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-023
+  merged_from:
+  - RULE-login-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/index.tsx
+    lines: 61-67
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-AUTH-USUARIOS-056
+  name: exceto_metodo misspells PATCH as PATH across write viewsets
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    Four viewsets (Entradas, Saidas, SinaisVitais, HorarioPrescricao) each declare exceto_metodo = ("GET", "POST", "PUT", "PATH") alongside a permission_trilhas requirement (e.g. "can_delete_balanco_hidrico"). The string "PATH" does not match the actual HTTP method name "PATCH". If the consuming mixin (ManageDataRequiredMixin, out of partition) checks `request.method in self.exceto_metodo` to decide whether permission_trilhas should be enforced, PATCH requests would NOT be excepted (since "PATCH" is absent from the tuple), meaning partial-update requests would be subject to a permission named for deletion ("can_delete_..."), inconsistent with GET/POST/PUT being excepted.
+  inputs:
+  - name: request.method
+    type: string
+    range: '''GET''|''POST''|''PUT''|''PATCH''|''DELETE'''
+  outputs:
+  - name: permission_trilhas enforcement
+    type: boolean (inferred)
+  logic: |
+    exceto_metodo = ("GET", "POST", "PUT", "PATH")   # should plausibly be "PATCH"
+    # assumed consumer logic (in core.mixins.view.ManageDataRequiredMixin, out of scope):
+    # if request.method not in self.exceto_metodo: enforce(permission_trilhas)
+  edge_cases: |
+    Exact enforcement semantics depend on core.mixins.view.ManageDataRequiredMixin, which is outside partition BE-08. Recorded verbatim as found; the identical typo appears in all four files listed below.
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-009
+  - RULE-AUTH-USUARIOS-015
+  merged_from:
+  - RULE-permissao-BE-08-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/entradas.py
+    lines: 26-27
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Identical tuple ("GET","POST","PUT","PATH") also present in trilha_homecare/api/v1/views/saidas.py:24-25, trilha_homecare/api/v1/views/sinais_vitais.py:26-27, and trilha_homecare/api/v1/views/horario_prescricao.py:27-28. Contrast with all BaseFormViewSet subclasses, which instead use a single string exceto_metodo = "GET" (whose Python `in` substring semantics happen to work correctly for excepting only GET).
+- id: RULE-AUTH-USUARIOS-057
+  name: Authorization header format
+  category: access-control
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    All authenticated API requests carry a bearer-style Authorization header formatted as the literal string "JWT" followed by a space and the raw token value (not the more common "Bearer" scheme).
+  inputs:
+  - name: token
+    type: string
+  outputs:
+  - name: Authorization header
+    type: string
+  logic: |
+    api.defaults.headers.common["Authorization"] = `JWT ${token}`
+  edge_cases: |
+    On sign-in, the Authorization header is first explicitly cleared to "" before the login POST is made, then set to `JWT ${token}` once login succeeds.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-029
+  - RULE-AUTH-USUARIOS-041
+  merged_from:
+  - RULE-auth-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/contexts/AuthContext/AuthContext.tsx
+    lines: 47-47,132-138
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001). API-layer request-transformation rule per scope instructions.
+- id: RULE-AUTH-USUARIOS-058
+  name: RBAC permission catalog
+  category: access-control
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The system defines a closed catalog of 28 permission flags spanning patient/occupancy management, camera access, auditing, user/group management, sepsis-protocol refusal, evolution-report access, per-professional evolution-form authoring (10 roles), and fluid-balance/prescription management.
+  inputs:
+  - name: permission
+    type: string enum
+    range: 28 literal values (see logic)
+  outputs:
+  - name: Permissions
+    type: Record<Permission, boolean>
+  logic: |
+    Permission =
+      can_create_paciente | can_add_movimentacao | can_remove_paciente | can_assist_ocupacao |
+      can_upload_files_amhdocs | can_manage_empresa | can_access_camera | can_manage_camera |
+      can_view_auditoria | can_view_ocupacoes | can_manage_usuario | can_manage_grupo_acesso |
+      can_recusar_protocolo_sepse | can_access_relatorio_evolucao |
+      can_preencher_formulario_medico | can_preencher_formulario_tec_enfermagem |
+      can_preencher_formulario_enfermeiro | can_preencher_formulario_fisioterapeuta |
+      can_preencher_formulario_musicoterapeuta | can_preencher_formulario_nutricionista |
+      can_preencher_formulario_terapeuta | can_preencher_formulario_psicologo |
+      can_preencher_formulario_fonoaudiologo | can_preencher_formulario_farmaceutico |
+      can_preencher_formulario_intercorrencia | can_manage_evolucao | can_manage_prescricao |
+      can_delete_horario_prescricao | can_delete_balanco_hidrico | can_manage_balanco_hidrico
+    Permissions = { [key in Permission]: boolean }
+  edge_cases: |
+    can_preencher_formulario_terapeuta (generic "therapist") exists alongside more specific role permissions (fisioterapeuta, musicoterapeuta, psicologo, fonoaudiologo) — overlap/scope of this generic flag vs the specific ones is not clarified in this partition.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-001
+  - RULE-AUTH-USUARIOS-037
+  - RULE-AUTH-USUARIOS-016
+  merged_from:
+  - RULE-permissoes-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Permissions.d.ts
+    lines: 4-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' because RBAC rules fit none of the 9 supplied categories; grouped here with session/menu-gating rules for the verifier's convenience. Cross-cluster note: this static 28-permission union is the frontend counterpart of the backend's dynamically-aggregated PermissionsChoices.permissions() catalog (RULE-AUTH-USUARIOS-001/RULE-AUTH-USUARIOS-037); several underlying model Meta.permissions declarations that feed that catalog live in other clusters' partitions (e.g. balanco-hidrico's Balanco model, prescricao's PrescricaoContinua/HorarioPrescricao models, sepse's TrilhaInterativaSepse model, formularios-clinicos' Formulario model), so a full item-by-item BE/FE catalog reconciliation is out of this cluster's scope; spot-checked codenames (can_manage_empresa, can_manage_usuario, can_manage_grupo_acesso, can_recusar_protocolo_sepse, can_access_camera, can_view_auditoria/ocupacoes, can_create_paciente/can_add_movimentacao/can_remove_paciente, can_preencher_formulario_*) all have a matching backend Meta.permissions declaration.
+- id: RULE-AUTH-USUARIOS-059
+  name: Access group aggregates the full permission map
+  category: access-control
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    An access group (Grupo) is modeled as a named bundle of the entire Permissions boolean map plus a list of member users, implying permission grants are managed at the group level and presumably inherited by its member users (inheritance mechanism itself not present in this partition).
+  inputs:
+  - name: permissoes
+    type: Models.Permissions
+  outputs:
+  - name: Grupo
+    type: object
+  logic: |
+    Grupo = { id: string, nome: string, permissoes: Models.Permissions (all 28 keys), usuarios: any[] }
+  edge_cases: |
+    usuarios is typed as `any[]`, so no shape constraint is enforced on group membership at the type level in this partition.
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Grupo.d.ts
+    lines: 4-9
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' (see RULE-permissoes-FE-07-001).
+- id: RULE-AUTH-USUARIOS-060
+  name: Company monitoring-modality enumeration (duplicate of LeitoTipo)
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Each company (Usuario.Empresa.tipo) is classified using the identical three-value literal union already used for bed monitoring modality (manual / automatica / homecare) — see RULE-ocupacao-FE-07-002.
+  inputs:
+  - name: tipo
+    type: string enum
+    range: manual | automatica | homecare
+  outputs:
+  - name: tipo
+    type: string enum
+  logic: |
+    Usuario.Empresa.tipo: "manual" | "automatica" | "homecare"
+  edge_cases: |
+    None; values are consistent with Ocupacao.LeitoTipo (no drift observed, unlike the Arquivo/Leito category-enum pair).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-022
+  - RULE-AUTH-USUARIOS-026
+  merged_from:
+  - RULE-usuario-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/User.d.ts
+    lines: 28-36
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Independently redeclared rather than referencing Models.Ocupacao.LeitoTipo directly — a duplication risk (see RULE-arquivo-FE-07-002 for an example where an identical duplication pattern DID drift). This Empresa.tipo union is also used within this cluster to gate RULE-AUTH-USUARIOS-022 (automatica-only shortcuts) and RULE-AUTH-USUARIOS-026 (homecare-only tab); its canonical definition/duplication risk (vs Ocupacao.LeitoTipo) is more fully addressed under whichever cluster owns the Leito/Ocupacao model (movimentacao-adt / sinais-vitais).
+- id: RULE-AUTH-USUARIOS-061
+  name: Context-switch destinations exclude bed level
+  category: access-control
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The organizational context-switcher (e.g. for changing which company/establishment/sector the UI is scoped to) supports exactly three destination levels — empresa, estabelecimento, setor — explicitly excluding "leito" (bed) as a switchable destination.
+  inputs:
+  - name: destiny
+    type: string enum
+    range: empresa | estabelecimento | setor
+  outputs:
+  - name: destiny
+    type: string enum
+  logic: |
+    Utils.SwitchDestiny = "empresa" | "estabelecimento" | "setor"   // no "leito" member
+  edge_cases: |
+    None demonstrated beyond the closed 3-value set.
+  confidence: low
+  related:
+  - RULE-AUTH-USUARIOS-008
+  - RULE-AUTH-USUARIOS-010
+  merged_from:
+  - RULE-usuario-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Utils.d.ts
+    lines: 109-109
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Extends the fixed category taxonomy with 'access-control' as the closest fit for a context/navigation-scope switcher; low practical significance but included per the 'choice enums with business meaning' instruction.
+- id: RULE-AUTH-USUARIOS-062
+  name: JWT token expiration/refresh policy
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: Authentication JWT access tokens and refresh tokens are both valid for 30 days; expiration is enforced (JWT_VERIFY_EXPIRATION=True) and refresh is allowed (JWT_ALLOW_REFRESH=True).
+  inputs: []
+  outputs:
+  - name: JWT_EXPIRATION_DELTA
+    type: timedelta
+    unit: days
+    range: '30'
+  - name: JWT_REFRESH_EXPIRATION_DELTA
+    type: timedelta
+    unit: days
+    range: '30'
+  logic: |
+    JWT_AUTH = {
+      "JWT_VERIFY": True,
+      "JWT_VERIFY_EXPIRATION": True,
+      "JWT_EXPIRATION_DELTA": timedelta(days=30),
+      "JWT_ALLOW_REFRESH": True,
+      "JWT_REFRESH_EXPIRATION_DELTA": timedelta(days=30),
+    }
+  edge_cases: Both the original token and its refresh token share the same 30-day validity window; there is no sliding/shorter-lived access-token pattern here (fairly long-lived tokens for a clinical system).
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-041
+  merged_from:
+  - RULE-settings-BE-11-064
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/settings.py
+    lines: 173-181
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Categorized as data-validation for lack of a better-fitting category in the given taxonomy; this is really a security/session-policy rule rather than input validation — flagged for the rebuild's auth design to reconsider token lifetimes for a clinical system.
+integrated_misroutes:
+- id: RULE-settings-BE-11-064
+  disposition: appended:RULE-AUTH-USUARIOS-062
+dropped:
+- id: RULE-cons-BE-10-067
+  reason: misrouted:estabilidade — Auto start-time default (now) for Noradrenalina (vasopressor infusion) & ParadaCardioRespiratoria (cardiac arrest) is a clinical data-model default-value rule (trilha_manual/models/noradrenalina.py), unrelated to authentication/authorization/user-management; feeds the 'started in last 24h' criteria used by sepse C4, estabilidade C2 and sedacao PCR-24h — hemodynamic-instability domain.
+- id: RULE-cons-BE-10-068
+  reason: misrouted:sedacao — Unique-sedative-per-prontuario + dose-unit constraint (trilha_manual/models/sedativo.py) is a clinical sedation-drug data-model rule, unrelated to authentication/authorization/user-management.
+- id: RULE-rotas-BE-08-001
+  reason: misrouted:formularios-clinicos — Duplicate DRF router registration of FormularioEnfermagemViewSet under two URL path segments is a clinical-form routing/URL-configuration artifact (trilha_homecare/api/v1/urls.py), with no authentication/authorization/user-management content.
+- id: RULE-usuario-FE-07-003
+  reason: misrouted:operacional-infra — Per-company auto-refresh/polling interval field (tempo_atualizacao) is an operational UI-refresh configuration value (category 'scheduling-operational' per Phase-1), unrelated to authentication/authorization/user-management.

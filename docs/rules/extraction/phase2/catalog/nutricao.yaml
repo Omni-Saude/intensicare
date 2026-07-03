@@ -1,0 +1,420 @@
+cluster: nutricao
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+  - id: RULE-NUTRICAO-001
+    name: BMI (IMC) auto-calculation
+    category: physiological-calculation
+    type: formula
+    status: OK
+    verify: true
+    description: >
+      Body Mass Index is computed live as weight divided by height squared whenever height
+      (altura, meters) or weight (peso, Kg) changes in the nutritionist Global Assessment
+      fieldset, and written read-only to the imc field rounded to 2 decimals.
+    inputs:
+      - {name: altura, type: number, unit: m, range: "0-3"}
+      - {name: peso, type: number, unit: kg, range: null}
+    outputs:
+      - {name: imc, type: "string (fixed 2 decimals)", unit: "kg/m^2"}
+    logic: |
+      on altura change (value = new altura):
+        imc = (peso / (value * value)) || 0
+        setFieldsValue(avaliacao_global.imc = imc.toFixed(2))
+      on peso change (value = new peso):
+        imc = (value / Math.pow(altura, 2)) || 0
+        setFieldsValue(avaliacao_global.imc = imc.toFixed(2))
+      # IMC = peso / altura^2   (standard BMI, altura in meters, peso in kg)
+    edge_cases: >
+      Division-by-zero / missing inputs handled by `|| 0`: if numerator is 0 or result is NaN
+      (e.g. altura undefined -> Math.pow(undefined,2)=NaN), imc falls back to 0 -> "0.00".
+      However if peso>0 and altura==0, peso/0 = Infinity, and Infinity||0 = Infinity ->
+      imc.toFixed(2) = "Infinity" (not guarded). imc stored as a STRING via toFixed. altura
+      constrained to [0,3] by field rules (RULE-NUTRICAO-008); peso has no range rule; imc
+      field is disabled (read-only).
+    confidence: high
+    related: [RULE-NUTRICAO-008]
+    merged_from: [RULE-nutricao-FE-04-029]
+    sources:
+      - {repo: trilhas-frontend, path: src/components/FieldsetAvGlobalNutricionista/FieldsetAvGlobalNutricionista.tsx, lines: "43-90", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Verified against source lines 43-90. Formula matches standard BMI. The "Infinity" string
+      when altura=0 & peso>0 is a minor unguarded edge but the formula itself is correct, so
+      status OK. Frontend-only; no backend IMC counterpart in this cluster.
+
+  - id: RULE-NUTRICAO-002
+    name: FOIS (Functional Oral Intake Scale) - enum of 7 levels
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    verify: true
+    description: >
+      Functional Oral Intake Scale classifying oral intake in 7 ordinal levels from
+      nil-per-oral (nivel1, worst) to full oral without restriction (nivel7, best).
+    inputs:
+      - {name: fois level, type: enum, unit: null, range: "nivel1..nivel7"}
+    outputs:
+      - {name: fois classification, type: string, unit: null}
+    logic: |
+      nivel1: Nada por via oral
+      nivel2: Dependente de via alternativa e minima via oral de algum alimento ou liquido
+      nivel3: Dependente de via alternativa com consistente via oral de alimento ou liquido
+      nivel4: Via oral total de uma unica consistencia
+      nivel5: Via oral total com multiplas consistencias, porem com necessidade de preparo especial ou compensacoes
+      nivel6: Via oral total com multiplas consistencias, porem sem necessidade de preparo especial (sic "oucompensacoes"), porem com restricoes alimentares
+      nivel7: Via oral total sem restricoes
+    edge_cases: >
+      Ordinal levels 1 (worst) to 7 (best). No computation; classification enum used in
+      ConteudoFormulario.fois. Source has a typo in the nivel6 label ("especial oucompensacoes")
+      preserved verbatim.
+    confidence: high
+    related: []
+    merged_from: [RULE-nutri-BE-06-001]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/models/choices/formulario.py, lines: "375-403", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Verified against source lines 375-403. Matches published FOIS scale. Field wired in
+      conteudo_formulario.py (fois, lines 105-111). Backend-only in this cluster.
+
+  - id: RULE-NUTRICAO-003
+    name: Nutrition-therapy pathway (payload_trilha_nutricao) - tolerance, gastric-residual and contraindication thresholds
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: true
+    description: >
+      Nutrition pathway (= nutricao / trilha6): per-criterion alert text and recommendations
+      covering diet prescription, SNE need, tolerance/gastric-residual limits, diarrhea
+      management, malperfusion feeding, prokinetics, GI bleed, NPT and hyperglycemia. Defined
+      as the dict payload_trilha_nutricao and consumed by the nutrition alert model
+      (RULE-NUTRICAO-004) via get_detalhe for criteria [4,7,10].
+    inputs:
+      - {name: volume residual gastrico (VRG), type: float, unit: ml/6h, range: null}
+      - {name: numero de evacuacoes, type: int, unit: count/24h, range: null}
+      - {name: noradrenalina rate, type: float, unit: ml/h, range: null}
+      - {name: Hb / plaquetas, type: float, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 sem dieta prescrita -> prescrever dieta ou "Dieta Zero" justificada. Do NOT suspend
+        nutrition merely for: vomito, diarreia, reducao de RHA, exames (com TOT), VRG < 500ml/6h,
+        DVA, prona, pancreatite aguda grave, encefalopatia hepatica, varizes esofagicas, pre-traqueo.
+        Consider Fonoaudiologia for altered consciousness / elderly starting oral diet.
+      criterio_2 necessidade de SNE -> passar SNE, iniciar infusao apos conferir posicionamento.
+      criterio_3 dieta interrompida sem justificativa -> checar contraindicacoes: perfusao muito
+        reduzida (enchimento capilar/lactato aumentados), noradrenalina > 30 ml/h (= 0,05 mcg/kg/min),
+        melena/hematemese/enterorragia, cirurgia media/grande porte pendente, VRG > 500 ml nas ultimas 6h.
+      criterio_4 diarreia >= 5 evacuacoes OR >= 3 "liquidas" em 24h -> Saccharomyces boulardii,
+        loperamida (se sem febre/distensao); nao suspender/reduzir dieta por diarreia; se >48h com
+        febre/piora -> pesquisar toxina A/B C. difficile + precaucao de contato + Metronidazol 500 mg 8/8h.
+      criterio_5 intolerancia (VRG aumentado pela SNE aberta) -> procineticos; se VRG > 500 ml nas
+        ultimas 6h, interromper infusao de dieta por 2h e reavaliar reinicio.
+      criterio_6 dieta em paciente mal perfundido -> procineticos + infundir dieta a 30 ml/h (trofismo);
+        considerar parecer de infectologia.
+      criterio_7 VM sem procineticos -> iniciar metoclopramida/bromoprida/domperidona/simeticona.
+      criterio_8 hemorragia digestiva -> Dieta Zero, suspender heparina profilatica/AAS/clopidogrel,
+        EDA, omeprazol 40 mg EV 12/12h; hemotransfusao SO se Hb < 7 E plaquetas < 150000. Para pacientes
+        estaveis, otimizar profilaxia mecanica de TEV (deambulacao, cicloergometro, CPI, sedestacao).
+      criterio_9 NPT -> acesso venoso profundo dedicado + reposicao vitaminica programada
+        (Acido folinico 24/24h, Complexo B 72/72h, Cianocobalamina, Vit K, Polivitaminico, Oligoelementos, Tiamina);
+        considerar parecer de Nutrologia.
+      criterio_10 hiperglicemia em paciente instavel -> Insulina em BIC (protocolo de controle glicemico UTI).
+    edge_cases: >
+      Gastric residual cutoff 500 ml/6h (interrupt infusion for 2h). "Do not suspend" list uses VRG
+      < 500ml/6h; interruption trigger uses VRG > 500ml/last 6h. Diarrhea cutoff >=5 total OR >=3
+      liquid stools / 24h. Vasopressor feeding contraindication noradrenaline >30 ml/h equated to
+      0,05 mcg/kg/min. GI-bleed transfusion trigger Hb<7 AND platelets<150000.
+    confidence: high
+    related: [RULE-NUTRICAO-004, RULE-NUTRICAO-005]
+    merged_from: [RULE-nutricao-BE-01-017]
+    sources:
+      - {repo: ahlabs-trilhas, path: core/facade/trilha_nutricao.py, lines: "1-87", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Verified against source lines 1-87 (dict payload_trilha_nutricao). trilha_automatica/facade/nutricao.py
+      aliases this exact dict as payload_nutricao_automatica, imported by trilha6.py:7 and consumed by
+      TrilhaNutricaoModel.get_detalhe (RULE-NUTRICAO-004) for criteria [4,7,10] only -- so of the 10
+      criteria, only 4/7/10 currently surface in the automatic alert detail. verify:true because the
+      pathway embeds published clinical anchors worth checking: transfusion trigger (Hb<7), vasopressor
+      dose equivalence (noradrenaline 30 ml/h = 0,05 mcg/kg/min) and the 500 ml/6h gastric-residual cutoff.
+
+  - id: RULE-NUTRICAO-004
+    name: Nutrition alert computation (calcular_alerta) - AMARELO branch unreachable
+    category: alert-threshold
+    type: decision-tree
+    status: DISCREPANCY
+    verify: false
+    description: >
+      TrilhaNutricaoModel.calcular_alerta aggregates the nutrition criteria into an alert color.
+      AMARELO requires amarelo > 2 but the amarelo list has only 2 entries, so AMARELO is unreachable.
+    inputs:
+      - {name: "criterio_4, criterio_7 (amarelo list); criterio_10 (vermelho list)", type: "IntegerField (nullable)", unit: null}
+    outputs:
+      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}", unit: null}
+    logic: |
+      # trilha6.py TrilhaNutricaoModel.calcular_alerta (lines 123-142)
+      escores = {"amarelo": [criterio_4, criterio_7], "vermelho": [criterio_10]}
+      amarelo  = escores["amarelo"].count(True)     # max possible value = 2
+      vermelho = escores["vermelho"].count(True)     # max possible value = 1
+      if vermelho == 1:   return "VERMELHO"
+      elif amarelo > 2:   return "AMARELO"            # 2 > 2 is False -> never AMARELO
+      else:               return "NEUTRO"
+      # on save(): if alerta == "NEUTRO": assistido = False
+    edge_cases: >
+      amarelo can be at most 2, so `amarelo > 2` is never true -> AMARELO is unreachable (dead branch).
+      VERMELHO uses `== 1` (would miss a hypothetical count of 2, but the vermelho list has a single
+      entry so max is 1). count(True) matches only values exactly == 1 (Python 1 == True); criterio_*
+      are IntegerFields, so any truthy value other than 1 (e.g. 2) would NOT be counted -- criteria are
+      expected to be 0/1/None. NEUTRO clears the assistido flag on save.
+    confidence: high
+    divergence: >
+      Internal inconsistency (single backend source, not a cross-copy divergence). The class defines
+      _CRITERIOS_ALERTA = {"amarelo": 2, "vermelho": 3} implying intended thresholds of 2 and 3, but
+      calcular_alerta ignores that dict and hardcodes `amarelo > 2` and `vermelho == 1`. Combined with an
+      amarelo list of length 2, AMARELO can never fire. Status DISCREPANCY carried from Phase 1.
+    merged_from: [RULE-nutricao-BE-03-017]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha6.py, lines: "123-142", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Verified against source lines 123-142. Commented-out criterio_11/criterio_12 remain in the amarelo
+      list, hinting the boundary `> 2` predates their removal (with 4 entries, `> 2` would have been
+      reachable). Same file also defines TrilhaNutricaoTasyModel (identical _CRITERIOS_ALERTA, no
+      calcular_alerta) and TrilhaSeisSintetico ("Profilaxias", different scheme amarelo:3/vermelho:4) --
+      those are not this rule. verify:false: the alert coloring is an internal product heuristic with no
+      published clinical anchor. Related to RULE-NUTRICAO-003 (shares the payload for criterion detail).
+
+  - id: RULE-NUTRICAO-005
+    name: Nutrition-therapy assessment block (frontend) - diet routes, acceptance, ranges and prophylaxis enum
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: true
+    description: >
+      Frontend "Terapia Nutricional" form group with diet-route booleans, acceptance enum,
+      vomit/gastric-residue/HGT numeric ranges, and the stress-ulcer/nutrition prophylaxis
+      indication enum. Declared identically in the nursing form (dataFormEnfermagem) and the
+      dietitian form (dataFormNutricionista).
+    inputs:
+      - {name: "dieta_zero / dieta_via_oral / enteral_sne_gtt / nutricao_parenteral", type: boolean, unit: null, range: null}
+      - {name: aceitacao, type: enum, unit: null, range: "total | parcial | recusado"}
+      - {name: vomitos, type: number, unit: ml, range: "0-10000"}
+      - {name: residuo_gastrico, type: number, unit: ml, range: "0-10000"}
+      - {name: hgt_max, type: number, unit: mg/dL, range: "0-1000"}
+      - {name: hgt_min, type: number, unit: mg/dL, range: "0-1000"}
+      - {name: indicacao_profilaxia, type: enum, unit: null, range: "see logic"}
+    outputs:
+      - {name: nutrition assessment, type: object, unit: null}
+    logic: |
+      booleans: dieta_zero, dieta_via_oral, enteral_sne_gtt (label "Enteral (SNN/GTT)"), nutricao_parenteral
+      aceitacao (select): total | parcial | recusado
+      vomitos: number 0-10000 (ml)
+      residuo_gastrico: number 0-10000 (ml)
+      hgt_max: number 0-1000 (mg/dL)
+      hgt_min: number 0-1000 (mg/dL)
+      indicacao_profilaxia (select):
+        dva | tce | avc | queimado | jejum_prolongado | nao_indicado | terapeutico | vm_mais_72h (VM > 72h)
+    edge_cases: >
+      HGT max/min not cross-validated (max>=min not enforced). Ranges are UI input caps, not clinical
+      decision thresholds. All fields optional.
+    confidence: high
+    related: [RULE-NUTRICAO-003, RULE-NUTRICAO-006]
+    merged_from: [RULE-nutrition-FE-01-045, RULE-nutrition-FE-01-048]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormEnfermagem.ts, lines: "554-633", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormNutricionista.ts, lines: "31-110", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: duplicate}
+    notes: >
+      MERGED RULE-nutrition-FE-01-045 (nursing) + RULE-nutrition-FE-01-048 (dietitian). Compared both
+      source blocks line-by-line: byte-identical field set, bounds, option lists and enum -> status OK,
+      no divergence. The aceitacao {total,parcial,recusado} and indicacao_profilaxia (8 values) enums are
+      exact copies of backend TerapiaNutricionalChoices (terapia_nutricional.py) -> no backend/frontend
+      divergence (see RULE-NUTRICAO-006). verify:true because the block carries the stress-ulcer
+      prophylaxis eligibility enum (VM>72h) which has a published clinical anchor.
+
+  - id: RULE-NUTRICAO-006
+    name: Stress-ulcer / nutrition prophylaxis indication enum
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    verify: true
+    description: >
+      Enumerated indications for stress-ulcer / nutritional prophylaxis on the terapia_nutricional
+      model, including a threshold-bearing option "mechanical ventilation for more than 72h".
+    inputs:
+      - {name: indicacao_profilaxia, type: enum, unit: null, range: "dva|tce|avc|queimado|jejum_prolongado|nao_indicado|terapeutico|vm_mais_72h"}
+    outputs:
+      - {name: prophylaxis indication, type: string, unit: null}
+    logic: |
+      indicacao_profilaxia (value, label):
+        dva              -> DVA (vasoactive drugs)
+        tce              -> TCE (traumatic brain injury)
+        avc              -> AVC (stroke)
+        queimado         -> Queimado (burn)
+        jejum_prolongado -> Jejum Prolongado (prolonged fasting)
+        nao_indicado     -> Nao indicado (not indicated)
+        terapeutico      -> Terapeutico (therapeutic)
+        vm_mais_72h      -> VM por mais de 72hs (mechanical ventilation > 72 hours)
+    edge_cases: >
+      The value vm_mais_72h encodes a 72-hour ventilation threshold as an eligibility category
+      (categorical label, not a computed threshold).
+    confidence: high
+    related: [RULE-NUTRICAO-005]
+    merged_from: [RULE-nutri-BE-06-002]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/models/choices/terapia_nutricional.py, lines: "10-21", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Verified against source lines 10-21 (TerapiaNutricionalChoices.indicacao_profilaxia). The identical
+      8-value enum (and the aceitacao enum in the same class) is replicated verbatim in the frontend forms
+      (RULE-NUTRICAO-005) -> backend/frontend copies match exactly, no divergence. Kept separate from the
+      frontend block to preserve backend-model granularity. verify:true: encodes a clinical prophylaxis
+      eligibility threshold (VM>72h) with a plausible published anchor (stress-ulcer prophylaxis guidance;
+      classic SUP indication is mechanical ventilation, often cited >48h, whereas this uses >72h).
+
+  - id: RULE-NUTRICAO-007
+    name: Dietitian daily-objectives conditional prescribed volumes
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: false
+    description: >
+      In the dietitian "Objetivos diarios e pendencias" group, each diet-route toggle, when true,
+      reveals a corresponding prescribed-detail field (consistency string, prescribed volume in ml,
+      or supplement string).
+    inputs:
+      - {name: "dieta_via_oral / nutricao_enteral / nutricao_parenteral / suplementacao", type: boolean, unit: null, range: null}
+    outputs:
+      - {name: prescribed detail, type: "string|number", unit: "ml (for enteral/parenteral)"}
+    logic: |
+      group key = objetivos_diarios_pendencias
+      dieta_via_oral == true      -> consistencia (string)
+      nutricao_enteral == true    -> Volume_prescrito_enteral (number, ml)
+      nutricao_parenteral == true -> Volume_prescrito_parenteral (number, ml)
+      suplementacao == true       -> suplemento (string)
+    edge_cases: >
+      Field key "Volume_prescrito_enteral" (and "Volume_prescrito_parenteral") is capitalized
+      (case-sensitive persistence key), unlike the surrounding snake_case keys.
+    confidence: high
+    related: []
+    merged_from: [RULE-nutrition-FE-01-050]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormNutricionista.ts, lines: "347-415", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Verified against source lines 347-415. Conditional field reveals via `conditions.true`. No clinical
+      threshold/anchor -> verify:false.
+
+  - id: RULE-NUTRICAO-008
+    name: Height (altura) range validation 0-3 m
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Nutrition altura field is constrained to the numeric range [0, 3] meters.
+    inputs:
+      - {name: altura, type: number, unit: m, range: "0-3"}
+    outputs:
+      - {name: valid, type: boolean, unit: null}
+    logic: |
+      rules = [{ max: 3, min: 0, type: "number" }]
+    edge_cases: >
+      No required rule (optional field). peso and imc have no range validation; imc is disabled.
+    confidence: high
+    related: [RULE-NUTRICAO-001]
+    merged_from: [RULE-nutricao-FE-04-030]
+    sources:
+      - {repo: trilhas-frontend, path: src/components/FieldsetAvGlobalNutricionista/FieldsetAvGlobalNutricionista.tsx, lines: "43-47", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: Verified against source lines 43-47. Feeds RULE-NUTRICAO-001 (BMI) altura input.
+
+  - id: RULE-NUTRICAO-009
+    name: Food intolerance / aversion enums with conditional description
+    category: data-validation
+    type: decision-tree
+    status: OK
+    verify: false
+    description: >
+      Intolerancia and Aversao are each captured as {sim, nao, desconhece}. Selecting "sim" reveals a
+      free-text field asking which intolerance / aversion.
+    inputs:
+      - {name: intolerancia, type: enum, unit: null, range: "sim | nao | desconhece"}
+      - {name: aversao, type: enum, unit: null, range: "sim | nao | desconhece"}
+    outputs:
+      - {name: showDescription, type: boolean, unit: null}
+    logic: |
+      intolerancia select options: sim / nao / desconhece
+      if (intolerancia === "sim") render textarea avaliacao_global.descricao_intolerancia ("Qual intolerancia?")
+      aversao select options: sim / nao / desconhece
+      if (aversao === "sim") render textarea avaliacao_global.descricao_aversao ("Qual aversao?")
+    edge_cases: >
+      Description fields are optional (no required rule). All inputs disabled when mode === "in_page".
+    confidence: high
+    related: []
+    merged_from: [RULE-nutricao-FE-04-031]
+    sources:
+      - {repo: trilhas-frontend, path: src/components/FieldsetAvGlobalNutricionista/FieldsetAvGlobalNutricionista.tsx, lines: "98-130", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: Verified against source lines 98-130.
+
+  - id: RULE-NUTRICAO-010
+    name: Care-risk (riscos assistenciais) checklist with allergy detail
+    category: data-validation
+    type: decision-tree
+    status: OK
+    verify: false
+    description: >
+      A "Riscos assistenciais" master switch, when on, reveals a multi-select of care risks
+      {lpp = pressure skin injury, broncoaspiracao, alergia_alimentar}. Selecting food allergy reveals
+      a free-text field for the allergy description.
+    inputs:
+      - {name: riscosAssistenciais (switch), type: boolean, unit: null, range: null}
+      - {name: riscos_assistenciais (checkbox group), type: "string[]", unit: null, range: "lpp | broncoaspiracao | alergia_alimentar"}
+      - {name: alergia_alimentar checked, type: boolean, unit: null, range: null}
+    outputs:
+      - {name: descricao_alergia_alimentar visible, type: boolean, unit: null}
+    logic: |
+      riscosAssistenciais initial = (getFieldValue(avaliacao_global.riscos_assistenciais) != null)
+      alergias initial          = (getFieldValue(avaliacao_global.descricao_alergia_alimentar) != null)
+      if (riscosAssistenciais):
+        render Checkbox.Group avaliacao_global.riscos_assistenciais:
+          "lpp"               -> "Lesao de pele por pressao"
+          "broncoaspiracao"   -> "Broncoaspiracao"
+          "alergia_alimentar" -> "Alergias alimentares" (onChange -> setAlergias(checked))
+        if (alergias): render textarea avaliacao_global.descricao_alergia_alimentar ("Qual alergia?")
+    edge_cases: >
+      The master switch is UI-only (no bound form name); persisted value is riscos_assistenciais.
+      Other nutrition boolean flags captured as CustomSwitch (no derived logic):
+      ventilacao_mecanica_invasiva, uso_previo_protese_dentaria, edema_periferico, terapia_de_hemodialise.
+    confidence: high
+    related: []
+    merged_from: [RULE-nutricao-FE-04-032]
+    sources:
+      - {repo: trilhas-frontend, path: src/components/FieldsetAvGlobalNutricionista/FieldsetAvGlobalNutricionista.tsx, lines: "166-211", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: Verified against source lines 166-212.
+
+  - id: RULE-NUTRICAO-011
+    name: Dietitian abdominal assessment enums (extended)
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      Dietitian abdominal exam adds colostomy, ascites, diuresis-route and stool-aspect fields beyond
+      the nursing version.
+    inputs:
+      - {name: "avaliacao_abdominal.*", type: "enum/boolean/string", unit: null, range: "see logic"}
+    outputs:
+      - {name: abdominal assessment, type: object, unit: null}
+    logic: |
+      geral (multicheck): plano | globoso | escavado | cirurgia_recente | colostomia
+      ruidos_hidroaereos (multicheck): presentes | diminuidos | ausentes
+      presenca_dor (multicheck): doloroso | indolor | ascitico
+      massas_palpaveis (boolean); peristalse (boolean)
+      evacuacoes (select): ausente | presente; aspecto_fezes (string)
+      diurese (multicheck): ausente | presente | svd | sva | fralda; aspecto_urina (string)
+    edge_cases: null
+    confidence: high
+    related: []
+    merged_from: [RULE-nutrition-FE-01-049]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormNutricionista.ts, lines: "111-190", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Verified against source lines 111-190. Phase-1 note flags this as extended vs a nursing abdominal
+      version; the nursing counterpart was not present in the nutricao partition (likely captured in
+      another cluster) so no cross-copy comparison was possible here.
+
+dropped: []

@@ -1,0 +1,3453 @@
+cluster: sepse
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+- id: RULE-SEPSE-001
+  name: SEPSE v1 alert maiores/menores dual threshold
+  category: clinical-scoring
+  type: scoring
+  status: OK
+  verify: true
+  description: |
+    SEPSE v1 alert from two criterion groups: 9 major (criterio_1..9) and 11 minor (criterio_10..20). Requires simultaneous major AND minor thresholds.
+  inputs:
+  - criterio_1..9 (maiores) (int flag (1))
+  - criterio_10..20 (menores) (int flag (1))
+  outputs:
+  - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+  logic: |
+    maiores = [criterio_1..criterio_9].count(1)
+    menores = [criterio_10..criterio_20].count(1)
+    if maiores >= 3 and menores >= 4: return "VERMELHO"
+    elif maiores >= 2 and menores >= 3: return "AMARELO"
+    else: return "NEUTRO"
+  edge_cases: Uses AND between groups (both must clear). Contrast with v3 which uses OR (RULE-sepse-BE-03-100).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-003
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-03-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha4.py
+    lines: 139-174
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: v3 counterpart (TrilhaSepseV3Model.calcular_alerta) changed AND to OR - see notes on RULE-sepse-BE-03-100.
+- id: RULE-SEPSE-002
+  name: SEPSE v3 alert maiores/menores (OR thresholds) + risk message
+  category: clinical-scoring
+  type: scoring
+  status: DISCREPANCY
+  verify: true
+  description: |
+    SEPSE v3 alert from 11 major (criterio_1..11) and 9 minor (criterio_12..20) criteria; VERMELHO when either major>=3 OR minor>=4; AMARELO when major>=2 OR minor>=3. Also emits a risk message.
+  inputs:
+  - criterio_1..11 (maiores) (boolean)
+  - criterio_12..20 (menores) (boolean)
+  outputs:
+  - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+  - mensagem (string)
+  logic: |
+    maiores = [criterio_1..criterio_11].count(True)
+    menores = [criterio_12..criterio_20].count(True)
+    if maiores >= 3 or menores >= 4: alerta = "VERMELHO"
+    elif maiores >= 2 or menores >= 3: alerta = "AMARELO"
+    else: alerta = "NEUTRO"
+    mensagem = "" if NEUTRO else ("Moderado risco para SEPSE." if AMARELO else "Alto risco para SEPSE.")
+    # save(): if alerta == "NEUTRO": assistido = False
+  edge_cases: count(True) only counts boolean True. Group boundary changed vs v1.
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-003
+  - RULE-SEPSE-004
+  - RULE-SEPSE-058
+  - RULE-SEPSE-007
+  - RULE-SEPSE-008
+  - RULE-SEPSE-009
+  - RULE-SEPSE-010
+  - RULE-SEPSE-011
+  - RULE-SEPSE-012
+  - RULE-SEPSE-013
+  - RULE-SEPSE-014
+  - RULE-SEPSE-015
+  - RULE-SEPSE-016
+  - RULE-SEPSE-017
+  - RULE-SEPSE-018
+  - RULE-SEPSE-019
+  - RULE-SEPSE-020
+  - RULE-SEPSE-021
+  - RULE-SEPSE-022
+  - RULE-SEPSE-023
+  - RULE-SEPSE-024
+  - RULE-SEPSE-025
+  - RULE-SEPSE-026
+  divergence: v1 (RULE-SEPSE-001) requires maiores AND menores (>=3 AND >=4 -> VERMELHO; >=2 AND >=3 ->
+    AMARELO); v3 uses OR (maiores>=3 OR menores>=4 -> VERMELHO; >=2 OR >=3 -> AMARELO) and shifts the
+    major group to 11 criteria (criterio_11 moved from minor to major).
+  merged_from:
+  - RULE-sepse-BE-03-100
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 187-231
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY vs v1 (RULE-sepse-BE-03-014): v1 required maiores AND menores; v3 uses OR and also shifts the major group to 11 criteria (criterio_11 moved from minor to major). Numbered 100 to cross-reference the 20 v3 criteria below.
+- id: RULE-SEPSE-003
+  name: Sepse - Classificacao de alerta (maiores/menores)
+  category: alert-threshold
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: Aggregates the 11 boolean criteria into a color alert. Criteria 1-7 are "maiores" (major)
+    and 8-11 are "menores" (minor). VERMELHO (high risk) if >2 majors or exactly 4 minors; AMARELO (risk)
+    if exactly 2 majors or exactly 3 minors; otherwise NEUTRO.
+  inputs:
+  - criterio_1..criterio_7 (maiores) (array[boolean])
+  - criterio_8..criterio_11 (menores) (array[boolean])
+  outputs:
+  - alerta (enum)
+  - mensagem (string)
+  logic: |
+    maiores = [c1,c2,c3,c4,c5,c6,c7].count(True)
+    menores = [c8,c9,c10,c11].count(True)
+    if maiores > 2 or menores == 4:
+        alerta = "VERMELHO"
+    elif maiores == 2 or menores == 3:
+        alerta = "AMARELO"
+    else:
+        alerta = "NEUTRO"
+    mensagem = ""
+    if alerta != "NEUTRO":
+        mensagem = "Risco para SEPSE." if alerta == "AMARELO" else "Alto risco para SEPSE."
+  edge_cases: |
+    count(True) counts only Python True; None (e.g. criterio_10 unset) is not counted. Boundaries: maiores==2 -> AMARELO, maiores==3 -> VERMELHO. Default field value alerta="NEUTRO". This alerta is recomputed and persisted on every save().
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-002
+  - RULE-SEPSE-004
+  - RULE-SEPSE-027
+  - RULE-SEPSE-028
+  - RULE-SEPSE-029
+  - RULE-SEPSE-030
+  - RULE-SEPSE-031
+  - RULE-SEPSE-032
+  - RULE-SEPSE-033
+  - RULE-SEPSE-034
+  - RULE-SEPSE-035
+  - RULE-SEPSE-036
+  - RULE-SEPSE-037
+  divergence: '''menores == 4'' branch is unreachable because criterio_11 (RULE-SEPSE-037) is hard-coded
+    False, so the minor group maxes at 3; VERMELHO is reachable only via maiores>2. Note this homecare
+    classifier uses strict maiores>2 / ==2 and menores==4 / ==3 bands, unlike v1 (RULE-SEPSE-001) and
+    manual (RULE-SEPSE-004) which use >= comparisons.'
+  merged_from:
+  - RULE-sepse-BE-06-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 350-383
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY: `menores == 4` is unreachable because criterio_11 is always False (see RULE-sepse-BE-06-011), so the minors group maxes at 3. Thus VERMELHO can only be reached via `maiores > 2`. A superseded soma-based classifier (0-7/8-14/15-21 bands) is present commented-out at lines 394-419 and is NOT active. save() (lines 89-103) recomputes all criteria then alerta inside a transaction.atomic.
+- id: RULE-SEPSE-004
+  name: Sepsis pathway alert (major/minor two-axis threshold)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: Sepsis alert requires simultaneous counts of "major" (C1-9) and "minor" (C10-20) criteria.
+  inputs:
+  - maiores (int, count of C1..C9 True, 0-9)
+  - menores (int, count of C10..C20 True, 0-11)
+  outputs:
+  - alerta (str enum {VERMELHO,AMARELO,NEUTRO})
+  logic: |
+    maiores = count(True in [c1..c9]); menores = count(True in [c10..c20])
+    if maiores >= 3 and menores >= 4: 'VERMELHO'
+    elif maiores >= 2 and menores >= 3: 'AMARELO'
+    else: 'NEUTRO'
+  edge_cases: |
+    BOTH axes must clear the bar simultaneously; e.g. many majors but 0 minors -> NEUTRO. AMARELO band requires maiores>=2 AND menores>=3.
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-002
+  - RULE-SEPSE-003
+  - RULE-SEPSE-066
+  - RULE-SEPSE-038
+  - RULE-SEPSE-039
+  - RULE-SEPSE-040
+  - RULE-SEPSE-041
+  - RULE-SEPSE-042
+  - RULE-SEPSE-043
+  - RULE-SEPSE-044
+  - RULE-SEPSE-045
+  - RULE-SEPSE-046
+  - RULE-SEPSE-047
+  - RULE-SEPSE-048
+  - RULE-SEPSE-049
+  - RULE-SEPSE-050
+  - RULE-SEPSE-051
+  - RULE-SEPSE-052
+  - RULE-SEPSE-053
+  - RULE-SEPSE-054
+  - RULE-SEPSE-055
+  - RULE-SEPSE-056
+  - RULE-SEPSE-057
+  merged_from:
+  - RULE-sepse-BE-10-046
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 526-561
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Distinct from the other three pathways (which use a single count). Major set = criterio_1..9, minor set = criterio_10..20. Test test_trilha_sepse.py:337-360 (2 major+3 minor->AMARELO; 3 major+4 minor->VERMELHO).
+- id: RULE-SEPSE-005
+  name: Sepse - Hierarquia de nivel de consciencia
+  category: clinical-scoring
+  type: formula
+  status: OK
+  verify: true
+  description: Ordinal severity mapping of consciousness levels used to detect changes between successive
+    readings.
+  inputs:
+  - nv_consciencia (enum, acordado|sonolencia|agitacao|convulsao|reage_verbal|reage_tatil|coma)
+  outputs:
+  - rank (int)
+  logic: |
+    { "acordado":1, "sonolencia":2, "agitacao":3, "convulsao":3, "reage_verbal":4, "reage_tatil":5, "coma":6 }
+  edge_cases: |
+    "agitacao" and "convulsao" share rank 3. The "coma" consciousness value from BalancoChoices.consciencia() is present; the value "reage_verbal"/"reage_tatil" map to 4/5. Values not in the map return None via .get().
+  confidence: high
+  related:
+  - RULE-SEPSE-033
+  merged_from:
+  - RULE-sepse-BE-06-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 229-239
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Consumed by RULE-sepse-BE-06-007. Note BalancoChoices.consciencia has a "mantido ou acordado"
+    key "acordado".
+- id: RULE-SEPSE-006
+  name: SEPSE v3 assistencial info snapshot (diurese/BH aggregation)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    Builds a clinical snapshot including 24h urine output and 24h fluid balance from summed balance fields.
+  inputs:
+  - balanco.qt_vol_espontanea/svd/cistostomia, qt_vol_ganhos, qt_vol_perdas (float, mL)
+  outputs:
+  - diurese_24h (float, mL)
+  - balanco_hidrico_24h (float, mL)
+  logic: |
+    diurese_24h = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-24h)
+    balanco_hidrico_24h = Sum(qt_vol_ganhos + qt_vol_perdas) over balancos(dt>=now-24h)
+    # delirium/noradrenalina rendered as "Presente"/"Ausente" via presenca map on bool(value)
+  edge_cases: |
+    balanco_hidrico_24h ADDS ganhos + perdas (does not subtract) - net balance would normally be ganhos - perdas; here perdas is expected pre-signed or this yields a sum, not a net.
+  confidence: medium
+  related:
+  - RULE-SEPSE-002
+  merged_from:
+  - RULE-sepse-BE-03-122
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 121-177
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Method currently not wired into get_detalhe (call commented out at line 301).
+- id: RULE-SEPSE-007
+  name: SEPSE v3 criterio_1 - fever without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - absence of noradrenaline (6h) AND temperature > 38.2C in last 24h.
+  inputs:
+  - balanco.qt_vol_nora (float, ml/h)
+  - balanco.temp (float, Celsius)
+  outputs:
+  - criterio_1 (boolean)
+  logic: |
+    balanco_6h  = balancos(dt >= now-6h); balanco_24h = balancos(dt >= now-24h)
+    return all([
+      balanco_6h.filter(qt_vol_nora__gt=0).exists(),     # PRESENCE (docstring says absence)
+      balanco_24h.filter(temp__gt=38.2).exists(),
+    ]) if balanco_6h and balanco_24h else False
+  edge_cases: Guarded False if either window empty.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: |
+    DISCREPANCY - docstring specifies "ausencia de noradrenalina" but code omits the negation (uses qt_vol_nora__gt=0 presence). Temperature threshold 38.2C strict >.
+  merged_from:
+  - RULE-sepse-BE-03-101
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 362-382
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY - docstring specifies "ausencia de noradrenalina" but code omits the negation (uses qt_vol_nora__gt=0 presence). Temperature threshold 38.2C strict >.
+- id: RULE-SEPSE-008
+  name: SEPSE v3 criterio_2 - tachypnea/hypoxemia without vasopressor or invasive vent
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND no invasive mechanical ventilation AND (FR>20 OR SatO2<94).
+  inputs:
+  - balanco.qt_vol_nora, balanco.fr, balanco.sat_o2 (float, ml/h / ipm / %)
+  - cpoe.vent_mecanica_invasiva, evolucao.diurna_ventilacao (float / string)
+  outputs:
+  - criterio_2 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      any([ not get_number(cpoe.vent_mecanica_invasiva),
+            (not evolucao.diurna_ventilacao.strip().lower() in get_ventilacao("ventilacao_mecanica_invasiva")) if evolucao.diurna_ventilacao else False ]),
+      any([ get_number(balanco.fr) > 20, get_number(balanco.sat_o2) < 94 ]),
+    ]) if balanco_6h and ultimo_balanco and ultima_evolucao and ultima_cpoe else False
+  edge_cases: get_number coerces null/blank to 0 (SatO2 0<94 would spuriously satisfy). fr here is the
+    frequencia respiratoria column.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-102
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 384-425
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: get_ventilacao categories defined in trilha_automatica/utils.py (outside BE-03).
+- id: RULE-SEPSE-009
+  name: SEPSE v3 criterio_3 - respiratory failure prescription
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended absence of noradrenaline (12h) AND prescription of invasive vent or intubation
+    (24h).
+  inputs:
+  - balanco.qt_vol_nora (float, ml/h)
+  - cpoe.vent_mecanica_invasiva, cpoe.intubacao_orotraqueal (float)
+  outputs:
+  - criterio_3 (boolean)
+  logic: |
+    return all([
+      balanco_12h.filter(qt_vol_nora__gt=0).exists(),      # PRESENCE (docstring says absence)
+      cpoe_24h.filter(Q(vent_mecanica_invasiva__gt=0) | Q(intubacao_orotraqueal__gt=0)).exists(),
+    ]) if cpoe_24h and balanco_12h else False
+  edge_cases: Guarded False if windows empty.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - missing negation on noradrenaline vs docstring.
+  merged_from:
+  - RULE-sepse-BE-03-103
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 427-450
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - missing negation on noradrenaline vs docstring.
+- id: RULE-SEPSE-010
+  name: SEPSE v3 criterio_4 - newly started vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: Noradrenaline OR vasopressin started in last 6h AND absent beyond ~24h (26h window).
+  inputs:
+  - balanco.qt_vol_nora, balanco.qt_vol_vaso (float, ml/h)
+  outputs:
+  - criterio_4 (boolean)
+  logic: |
+    balanco_6h = balancos(dt >= now-6h); balanco_mais_24h = balancos(dt < now-26h)
+    return all([
+      balanco_6h.filter(Q(qt_vol_nora__gt=0) | Q(qt_vol_vaso__gt=0)).exists(),
+      not balanco_mais_24h.filter(Q(qt_vol_nora__gt=0) | Q(qt_vol_vaso__gt=0)).exists(),
+    ]) if balanco_6h and balanco_mais_24h else False
+  edge_cases: Beyond-24h absence implemented as strictly older than now-26h (2h grace).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-104
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 452-477
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-011
+  name: SEPSE v3 criterio_5 - hypotension without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (12h) AND (PAS<90 OR PAD<60 OR PAM<65) in last 6h.
+  inputs:
+  - balanco.pas, balanco.pad, balanco.pam, balanco.qt_vol_nora (float, mmHg / ml/h)
+  outputs:
+  - criterio_5 (boolean)
+  logic: |
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      balanco_6h.filter(Q(pas__lt=90) | Q(pad__lt=60) | Q(pam__lt=65)).exists(),
+    ]) if balanco_6h and balanco_12h else False
+  edge_cases: DB-level filter; NULL BP values are excluded by the < comparison (not coerced to 0 here).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-105
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 479-502
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Docstring mislabels PAD as "Pressao arterial sistolica (PAD)"; code correctly filters pad.
+- id: RULE-SEPSE-012
+  name: SEPSE v3 criterio_6 - thrombocytopenia without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND platelets < 100000 in last 24h.
+  inputs:
+  - evolucao.diurna_plaquetas (int (via DB filter), /mm3)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_6 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      evolucao_24h.filter(diurna_plaquetas__lt=100000).exists(),
+    ]) if balanco_6h and evolucao_24h else False
+  edge_cases: diurna_plaquetas is a CharField; DB __lt compares as text/number depending on backend -
+    potential lexical comparison risk.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-106
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 504-526
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-013
+  name: SEPSE v3 criterio_7 - hyperlactatemia without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (12h) AND arterial lactate >= 3.
+  inputs:
+  - evolucao.diurna_lactato (float, mmol/L)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_7 (boolean)
+  logic: |
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      get_number(ultima_evolucao.diurna_lactato) >= 3,
+    ]) if balanco_12h and ultima_evolucao else False
+  edge_cases: get_number(null)->0, so lactate>=3 fails safely on missing values.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-107
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 528-548
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-014
+  name: SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: |
+    No noradrenaline (12h) AND no hemodialysis AND "DRC em TRS" present in diagnosis AND hourly urine output < 0.5 mL/kg/h computed over last 12h.
+  inputs:
+  - balanco.qt_vol_espontanea, qt_vol_svd, qt_vol_cistostomia (float, mL)
+  - evolucao.peso (string parsed to float, kg)
+  - evolucao.diurna_terapia_hemo, diagnostico_1..4 (float / string)
+  outputs:
+  - criterio_8 (boolean)
+  logic: |
+    diurese_total = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-12h)
+    peso = float("".join(re.findall(r"\d+", evolucao.peso.replace(",", ".")))) if evolucao.peso else 0
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      not get_number(evolucao.diurna_terapia_hemo),
+      list(filter(lambda x: x == "DRC em TRS", vars(evolucao).fromkeys(("diagnostico_1".."diagnostico_4")))),  # always [] -> False
+      ((diurese_total / 12) / peso) < 0.5 if (peso and diurese_total is not None) else False,
+    ]) if balanco_12h and ultima_evolucao and diurese_balanco_12hrs else False
+  edge_cases: |
+    peso parse strips decimal point (findall of \d+ then join) so "70.5"/"70,5" -> 705 kg (BUG - inflates weight, understates mL/kg/h). Division guarded by peso truthiness. diurese/12 assumes exactly 12h regardless of actual samples.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: |
+    DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em TRS" diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE of DRC, code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears (commented) in trilha_profilaxia.py c8.
+  merged_from:
+  - RULE-sepse-BE-03-108
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 550-613
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em TRS" diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE of DRC, code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears (commented) in trilha_profilaxia.py c8.
+- id: RULE-SEPSE-015
+  name: SEPSE v3 criterio_9 - acute kidney injury without vasopressor/dialysis
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: |
+    No noradrenaline (12h) AND no hemodialysis AND no "DRC em TRS" AND (creatinine>2 OR creatinine rise >0.5 over last 2 evolutions).
+  inputs:
+  - evolucao.diurna_creatinina (last & penultimate) (float, mg/dL)
+  - balanco.qt_vol_nora, evolucao.diurna_terapia_hemo, diag_inter_1..4 (float / string)
+  outputs:
+  - criterio_9 (boolean)
+  logic: |
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      not get_number(ultima_evolucao.diurna_terapia_hemo),
+      any([ get_number(ultima.diurna_creatinina) > 2,
+            get_number(ultima.diurna_creatinina) - get_number(penultima.diurna_creatinina) > 0.5 ]),
+      not list(filter(lambda x: x == "DRC em TRS", vars(ultima).fromkeys(("diag_inter_1".."diag_inter_4")))),  # always True
+    ]) if balanco_12h and penultima_evolucao and ultima_evolucao else False
+  edge_cases: Requires at least 2 evolutions (penultima). The DRC absence gate is vacuously True (fromkeys
+    bug).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - DRC exclusion always-true due to fromkeys bug (RULE-systemic-BE-03-001); remaining
+    creatinine logic is sound.
+  merged_from:
+  - RULE-sepse-BE-03-109
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 615-671
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - DRC exclusion always-true due to fromkeys bug (RULE-systemic-BE-03-001); remaining
+    creatinine logic is sound.
+- id: RULE-SEPSE-016
+  name: SEPSE v3 criterio_10 - acute encephalopathy/delirium
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: |
+    No noradrenaline (12h) AND no invasive vent AND no dementia AND (GCS drop >=2 over 48h OR delirium in 24h OR GCS<14), with no prior delirium beyond 24h.
+  inputs:
+  - evolucao.diurna_glasgow (last & penultimate), evolucao.diurna_delirium (float, GCS points)
+  - balanco.qt_vol_nora, cpoe.vent_mecanica_invasiva, diagnostico_1..4 (float / string)
+  outputs:
+  - criterio_10 (boolean)
+  logic: |
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      not get_number(ultima_cpoe.vent_mecanica_invasiva),
+      not evolucao_mais_que_24h(dt>=now-26h).filter(diurna_delirium__lt=0).exists(),
+      any([ get_number(ultima.diurna_glasgow) - get_number(penultima.diurna_glasgow) >= 2,   # INCREASE, docstring says reduction
+            evolucao_24h.filter(diurna_delirium__gt=0).exists(),
+            get_number(ultima.diurna_glasgow) < 14 ]),
+      not list(filter(lambda x: x == "Demências", vars(ultima).fromkeys(("diagnostico_1".."diagnostico_4")))),  # always True
+    ]) if balanco_12h and ultima_evolucao and penultima_evolucao and ultima_cpoe else False
+  edge_cases: |
+    GCS-change condition computes (last - penultimate) >= 2 which detects an INCREASE of >=2, opposite of the intended "reduction of >=2 points". delirium-absence window uses dt>=now-26h with __lt=0.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - GCS delta sign inverted vs docstring; dementia exclusion vacuously true (fromkeys
+    bug).
+  merged_from:
+  - RULE-sepse-BE-03-110
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 673-739
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - GCS delta sign inverted vs docstring; dementia exclusion vacuously true (fromkeys
+    bug).
+- id: RULE-SEPSE-017
+  name: SEPSE v3 criterio_11 - hyperbilirubinemia/jaundice (incomplete)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - no noradrenaline (12h) AND (bilirubin>2 OR jaundice present).
+  inputs:
+  - evolucao.diurna_ictericia (float/string (truthiness))
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_11 (boolean)
+  logic: |
+    return all([
+      not balanco_12h.filter(qt_vol_nora__gt=0).exists(),
+      get_number(ultima_evolucao.diurna_ictericia),   # truthy jaundice value only
+    ]) if balanco_12h and ultima_evolucao else False
+  edge_cases: Missing values -> get_number 0 -> criterion False.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: |
+    DISCREPANCY - the "bilirubina > 2mg/dl" branch from the docstring is not implemented; only the jaundice (diurna_ictericia) truthiness is checked. criterio_11 counts as a MAJOR in v3 alert.
+  merged_from:
+  - RULE-sepse-BE-03-111
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 741-761
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY - the "bilirubina > 2mg/dl" branch from the docstring is not implemented; only the jaundice (diurna_ictericia) truthiness is checked. criterio_11 counts as a MAJOR in v3 alert.
+- id: RULE-SEPSE-018
+  name: SEPSE v3 criterio_12 - hypothermia (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND temperature < 36C in last 6h.
+  inputs:
+  - balanco.temp, balanco.qt_vol_nora (float, Celsius / ml/h)
+  outputs:
+  - criterio_12 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      balanco_6h.filter(temp__lt=36).exists(),
+    ]) if balanco_6h else False
+  edge_cases: DB filter temp<36; nulls excluded.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-112
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 763-781
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Minor criterion.
+- id: RULE-SEPSE-019
+  name: SEPSE v3 criterio_13 - tachycardia (minor, wrong column)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - no noradrenaline (6h) AND heart rate > 100 bpm in last 6h.
+  inputs:
+  - balanco.fr (used), balanco.fc (intended) (float, ipm / bpm)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_13 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      balanco_6h.filter(fr__gt=100).exists(),     # fr = respiratory rate; docstring wants FC (heart rate)
+    ]) if balanco_6h else False
+  edge_cases: Filters fr>100 (respiratory rate), physiologically almost never true.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - filters fr (frequencia respiratoria) instead of fc (frequencia cardiaca) despite
+    docstring "Frequencia cardiaca > 100 bpm".
+  merged_from:
+  - RULE-sepse-BE-03-113
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 783-801
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - filters fr (frequencia respiratoria) instead of fc (frequencia cardiaca) despite
+    docstring "Frequencia cardiaca > 100 bpm".
+- id: RULE-SEPSE-020
+  name: SEPSE v3 criterio_14 - respiratory alkalosis/hypoxemia spontaneous vent (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND spontaneous ventilation AND (PaCO2<32 OR PaO2/FiO2<300).
+  inputs:
+  - evolucao.diurna_pco2, diurna_po2, diurna_fio2, diurna_ventilacao (float / string, mmHg / ratio)
+  outputs:
+  - criterio_14 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      (evolucao.diurna_ventilacao.strip().lower() in get_ventilacao("ventilacao_espontanea")) if evolucao.diurna_ventilacao else False,
+      any([ get_number(diurna_pco2) < 32,
+            (get_number(diurna_po2) / get_number(diurna_fio2) < 300) if get_number(diurna_fio2) > 0 else False ]),
+    ]) if balanco_6h else False
+  edge_cases: Division guarded by fio2>0. P/F uses raw diurna_po2/diurna_fio2 (fio2 as fraction vs percent
+    not normalized).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-114
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 803-842
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Guard uses only balanco_6h truthiness; ultima_evolucao may be None (AttributeError risk if no
+    evolucao but balanco exists).
+- id: RULE-SEPSE-021
+  name: SEPSE v3 criterio_15 - leukocytosis/leukopenia/bandemia/CRP (minor)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: |
+    Intended - no noradrenaline (6h) AND (leukocytes>12000 OR <4000 OR bands>10% OR PCR>100) in 24h. Parses leukocytes (strip . and ,) and bands (strip %) to float.
+  inputs:
+  - evolucao.diurna_leucocitos, diurna_bastoes, diurna_pcr (string parsed to float, /mm3 / % / mg/L)
+  outputs:
+  - criterio_15 (boolean)
+  logic: |
+    evolucao_24h = evolucoes(dt>=now-24h, leucocitos not null, bastoes not null)
+                     .exclude(leucocitos in {"", " ", ","}).exclude(bastoes in {"", " ", ","})
+                     .annotate(leucocitos=Cast(replace(replace(diurna_leucocitos,".",""),",",""), Float),
+                               bastoes   =Cast(replace(replace(diurna_bastoes,"%",""),",","."), Float))
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      evolucao_24h.filter(Q(leucocitos__gt=12000) | Q(leucocitos__lt=4000) | Q(bastoes__gt=10)).exists(),
+      evolucao_24h.filter(diurna_pcr__gt=100).exists(),          # PCR ANDed, docstring says OR
+    ]) if balanco_6h else False
+  edge_cases: |
+    Requires BOTH a WBC/band abnormality AND PCR>100 (two separate all([]) entries), so PCR is a mandatory co-condition, not an alternative. leucocitos parse removes both "." and "," (thousands), bastoes removes "%" and converts decimal comma.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - PCR>100 is AND-combined with the leukocyte/band clause; docstring lists all
+    four as OR alternatives.
+  merged_from:
+  - RULE-sepse-BE-03-115
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 844-913
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - PCR>100 is AND-combined with the leukocyte/band clause; docstring lists all four
+    as OR alternatives.
+- id: RULE-SEPSE-022
+  name: SEPSE v3 criterio_16 - prolonged capillary refill (minor, new onset)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND TEC>3s in last 24h AND not TEC>3s before 24h (new onset).
+  inputs:
+  - evolucao.tempo_enchimento_capilar (float, seconds)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_16 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      evolucao_24h(dt>=now-24h).filter(tempo_enchimento_capilar__gt=3).exists(),
+      not evolucao_mais_24h(dt<now-24h).filter(tempo_enchimento_capilar__gt=3).exists(),
+    ]) if balanco_6h and evolucao_24h else False
+  edge_cases: tempo_enchimento_capilar is CharField; DB __gt=3 comparison backend-dependent.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-116
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 915-942
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-023
+  name: SEPSE v3 criterio_17 - enteral tube with adequate GCS (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No invasive vent AND GCS>=13 AND nasoenteral tube prescription in last 12h.
+  inputs:
+  - evolucao.diurna_glasgow, diurna_ventilacao (float / string, GCS)
+  - cpoe.passagem_sonda_naso, cpoe.vent_mecanica_invasiva (float)
+  outputs:
+  - criterio_17 (boolean)
+  logic: |
+    return all([
+      any([ not get_number(cpoe.vent_mecanica_invasiva),
+            (not evolucao.diurna_ventilacao.strip().lower() in get_ventilacao("ventilacao_mecanica_invasiva")) if evolucao.diurna_ventilacao else False ]),
+      get_number(evolucao.diurna_glasgow) >= 13,
+      cpoe_12h.filter(passagem_sonda_naso__gt=0).exists(),
+    ]) if ultima_cpoe and ultima_evolucao else False
+  edge_cases: Note this is the only sepse minor with no noradrenaline gate.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-117
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 944-978
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-024
+  name: SEPSE v3 criterio_18 - central line > 7 days (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND CVC or CDL present in an evolution older than 7 days.
+  inputs:
+  - evolucao.enf_cvc, evolucao.enf_cdl (float)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_18 (boolean)
+  logic: |
+    evolucao_7dias = evolucoes(dt < now-7d)
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      evolucao_7dias.filter(Q(enf_cvc__gt=0) | Q(enf_cdl__gt=0)).exists(),
+    ]) if evolucao_7dias and balanco_6h else False
+  edge_cases: More-than-7-days implemented as existence of any evolution record older than 7d with the
+    device flagged.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-118
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 980-1001
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-025
+  name: SEPSE v3 criterio_19 - femoral central line > 5 days (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND CVC/CDL in femoral site (VFD/VFE) in evolution older than 5 days.
+  inputs:
+  - evolucao.enf_cvc + enf_cvc_local, enf_cdl + enf_cdl_local (float + string)
+  - regiao_femural (tuple {VFD, VFE})
+  outputs:
+  - criterio_19 (boolean)
+  logic: |
+    regiao_femural = ("VFD", "VFE")
+    evolucao_5dias = evolucoes(dt < now-5d)
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      evolucao_5dias.filter(Q(enf_cvc__gt=0, enf_cvc_local__in=regiao_femural)
+                            | Q(enf_cdl__gt=0, enf_cdl_local__in=regiao_femural)).exists(),
+    ]) if evolucao_5dias and balanco_6h else False
+  edge_cases: Femoral site codes hardcoded VFD/VFE (veia femoral direita/esquerda).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-119
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 1003-1028
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-026
+  name: SEPSE v3 criterio_20 - recent abdominal surgery (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND recent surgery flag present in latest evolution.
+  inputs:
+  - evolucao.enf_cirurgia_recente (float)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_20 (boolean)
+  logic: |
+    return all([
+      not balanco_6h.filter(qt_vol_nora__gt=0).exists(),
+      get_number(ultima_evolucao.enf_cirurgia_recente),
+    ]) if ultima_evolucao and balanco_6h else False
+  edge_cases: Uses generic enf_cirurgia_recente flag (not abdominal-specific despite docstring).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-120
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 1030-1051
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-027
+  name: Sepse criterio_1 - Febre (fever)
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Sepsis screening major criterion 1 fires when the most recent vital-sign temperature exceeds
+    38 C and was recorded within the last 24 hours.
+  inputs:
+  - sinais_vitais.temperatura (float, Celsius)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_1 (boolean)
+  logic: |
+    temperatura = sinais_vitais.temperatura if sinais_vitais else None
+    if temperatura:                      # falsy guard: None OR 0.0 -> return False
+        return temperatura > 38 if sinais_vitais.tempo_criacao() <= 24 else False
+    return False
+  edge_cases: |
+    temperatura == 0.0 is falsy and yields False. Strict > 38 (38.0 exactly does NOT fire). tempo_criacao() uses timedelta.seconds (see RULE-balanco-BE-06-006) so it is always < 24, making the "<= 24" window guard effectively always true.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 105-112
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: One of 7 "maiores" criteria. Paired with hypothermia criterio_8 (<36) which is a "menor".
+- id: RULE-SEPSE-028
+  name: Sepse criterio_2 - Taquipneia / dessaturacao sob O2
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 2 fires if the patient is NOT on mechanical ventilation and respiratory
+    rate > 20, OR is on O2 support and SpO2 < 96%.
+  inputs:
+  - sinais_vitais.ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.frequencia_respiratoria (int, breaths/min)
+  - sinais_vitais.saturacao_o2 (float, percent)
+  outputs:
+  - criterio_2 (boolean)
+  logic: |
+    branch_A = (ventilacao != "mecanica" if ventilacao else True) AND (frequencia_respiratoria > 20 if frequencia_respiratoria else False)
+    branch_B = (ventilacao == "suporte_o2" if ventilacao else False) AND (saturacao_o2 < 96 if saturacao_o2 else False)
+    return any([branch_A if sinais_vitais else False, branch_B if sinais_vitais else False])
+  edge_cases: |
+    If ventilacao is null, branch_A treats it as "not mechanical" (True). FR strict > 20. SpO2 strict < 96. Falsy FR/SpO2 (None or 0) fail their sub-conditions.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 114-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Branch_B (suporte_o2 AND SpO2<96) is duplicated verbatim as one branch of criterio_6.
+- id: RULE-SEPSE-029
+  name: Sepse criterio_3 - Escalonamento de suporte ventilatorio
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 3 fires if current ventilation is mechanical while the previous vital-sign
+    reading was room air, OR current ventilation is O2 support (within a 24h window guard).
+  inputs:
+  - sinais_vitais.ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.anterior(nr_atendimento).ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_3 (boolean)
+  logic: |
+    anterior = sinais_vitais.anterior(nr_atendimento) if sinais_vitais else None
+    branch_A = (ventilacao == "mecanica") AND (anterior.ventilacao == "ambiente" if anterior else False)
+    branch_B = (ventilacao == "suporte_o2") if sinais_vitais.tempo_criacao() <= 24 else False
+    return any([branch_A, branch_B]) if sinais_vitais else False
+  edge_cases: |
+    anterior is the SECOND most recent reading (index [1]) per RULE-balanco-BE-06-007; if fewer than 2 readings exist, anterior is None. tempo_criacao <= 24 always true (see RULE-balanco-BE-06-006) so branch_B reduces to ventilacao == "suporte_o2".
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 144-166
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Major criterion.
+- id: RULE-SEPSE-030
+  name: Sepse criterio_4 - Tempo de enchimento capilar > 5s
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 4 fires when the linked nursing evolution's physical exam lists 'tec_5s'
+    (capillary refill time > 5 seconds).
+  inputs:
+  - evolucao.exame_fisico.tipos_exame (array[enum])
+  outputs:
+  - criterio_4 (boolean)
+  logic: |
+    tipos_exames = evolucao.exame_fisico.tipos_exame if (evolucao and hasattr(evolucao, "exame_fisico")) else []
+    if tipos_exames:
+        return "tec_5s" in tipos_exames
+    return False
+  edge_cases: Returns False if no evolucao, no exame_fisico relation, or empty list.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 168-176
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: The 'tec_5s' choice is defined in FormularioChoices.tipo_exame() with label "TEC > 5s".
+- id: RULE-SEPSE-031
+  name: Sepse criterio_5 - Hipotensao
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 5 fires when systolic BP (PAS) < 90 mmHg, or diastolic BP (PAD) < 60 mmHg,
+    on the most recent reading within 24h.
+  inputs:
+  - sinais_vitais.pas (float, mmHg)
+  - sinais_vitais.pad (float, mmHg)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_5 (boolean)
+  logic: |
+    branch_A = (pas < 90) if (pas and tempo_criacao() <= 24) else False
+    branch_B = (pad < 60) if (pad and tempo_criacao() <= 24) else False
+    return any([branch_A, branch_B]) if sinais_vitais else False
+  edge_cases: |
+    Strict < 90 / < 60. pas/pad == 0 falsy -> sub-branch False. tempo_criacao <= 24 always true (RULE-balanco-BE-06-006).
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 178-194
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Major criterion.
+- id: RULE-SEPSE-032
+  name: Sepse criterio_6 - Oliguria (sonda) ou dessaturacao
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 6 fires if the last fluid-output was catheter diuresis (diurese_sonda)
+    with volume <= 100 recorded within the last 2 hours, OR patient on O2 support with SpO2 < 96%.
+  inputs:
+  - balanco.ultima_saida().tipo (enum)
+  - balanco.ultima_saida().quantidade (float, mL)
+  - balanco.ultima_saida().criado_em (datetime)
+  - sinais_vitais.ventilacao (enum)
+  - sinais_vitais.saturacao_o2 (float, percent)
+  outputs:
+  - criterio_6 (boolean)
+  logic: |
+    branch_A = all([
+        ultima_saida.tipo == "diurese_sonda",
+        ultima_saida.quantidade <= 100,
+        (timezone.now() - ultima_saida.criado_em).seconds / 3600 < 2,
+    ]) if (sinais_vitais and balanco.saidas.exists()) else False
+    branch_B = (ventilacao == "suporte_o2" if ventilacao else False) AND (saturacao_o2 < 96 if saturacao_o2 else False)
+    return any([branch_A, branch_B])
+  edge_cases: |
+    quantidade <= 100 uses the raw units stored (mL assumed). The 2-hour recency check uses timedelta.seconds/3600 (only the intra-day seconds component, 0-86399) so an output older than 24h wraps and may spuriously satisfy "< 2". quantidade could be null (default 0) -> 0 <= 100 True.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 196-227
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Branch_B duplicates criterio_2 branch_B. Recency uses .seconds (same bug family as RULE-balanco-BE-06-006).
+- id: RULE-SEPSE-033
+  name: Sepse criterio_7 - Variacao do nivel de consciencia
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion 7 compares previous vs current consciousness level via a numeric severity
+    hierarchy and returns True when the PREVIOUS severity rank is greater than the current rank.
+  inputs:
+  - sinais_vitais.nv_consciencia (current) (enum, acordado|sonolencia|agitacao|convulsao|reage_verbal|reage_tatil|coma)
+  - sinais_vitais.anterior(nr_atendimento).nv_consciencia (previous) (enum, same)
+  outputs:
+  - criterio_7 (boolean)
+  logic: |
+    H = {acordado:1, sonolencia:2, agitacao:3, convulsao:3, reage_verbal:4, reage_tatil:5, coma:6}
+    anterior = H.get(previous.nv_consciencia)      # None if no previous reading
+    atual    = H.get(current.nv_consciencia)
+    if anterior and atual is not None:
+        return anterior > atual                    # fires when previous rank > current rank
+    return False
+  edge_cases: |
+    Guard uses `if anterior and atual is not None`. anterior truthiness excludes rank None; note rank 0 impossible so fine. Requires at least 2 readings (anterior via index [1]).
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  - RULE-SEPSE-005
+  divergence: |
+    DISCREPANCY: In hierarquia_consciencia higher number = worse (coma=6, acordado=1). Returning `anterior > atual` (previous worse than current) fires on clinical IMPROVEMENT, not deterioration. A worsening-detection criterion would expect `atual > anterior`. Recorded verbatim; direction appears inverted.
+  merged_from:
+  - RULE-sepse-BE-06-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 229-254
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY: In hierarquia_consciencia higher number = worse (coma=6, acordado=1). Returning `anterior > atual` (previous worse than current) fires on clinical IMPROVEMENT, not deterioration. A worsening-detection criterion would expect `atual > anterior`. Recorded verbatim; direction appears inverted.
+- id: RULE-SEPSE-034
+  name: Sepse criterio_8 - Hipotermia
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 8 fires when temperature < 36 C on the latest reading within 24h.
+  inputs:
+  - sinais_vitais.temperatura (float, Celsius)
+  outputs:
+  - criterio_8 (boolean)
+  logic: |
+    temperatura = sinais_vitais.temperatura if sinais_vitais else None
+    if temperatura:
+        return temperatura < 36 if sinais_vitais.tempo_criacao() <= 24 else False
+    return False
+  edge_cases: Strict < 36. temperatura falsy (None/0.0) -> False. tempo_criacao <= 24 effectively always
+    true.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 256-262
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: One of 4 "menores" criteria.
+- id: RULE-SEPSE-035
+  name: Sepse criterio_9 - Taquicardia
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 9 fires when heart rate > 110 bpm on the latest reading within a 12-hour
+    window.
+  inputs:
+  - sinais_vitais.frequencia_cardiaca (int, bpm)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_9 (boolean)
+  logic: |
+    fc = sinais_vitais.frequencia_cardiaca if sinais_vitais else None
+    if fc:
+        return fc > 110 if sinais_vitais.tempo_criacao() <= 12 else False
+    return False
+  edge_cases: |
+    Strict > 110. The 12-hour guard is a real filter here (unlike the 24h guards) because tempo_criacao() returns 0..~24 via timedelta.seconds/3600; readings whose creation seconds-of-day/3600 exceed 12 fail. See RULE-balanco-BE-06-006 for the seconds-vs-total_seconds caveat.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 264-268
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Minor criterion. 12h threshold (vs 24h for others).
+- id: RULE-SEPSE-036
+  name: Sepse criterio_10 - Dispositivo invasivo com permanencia > 7 dias
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 10 fires when a peripheral venous access in use has been inserted > 7 days
+    ago, OR a double-lumen dialysis catheter in use has been inserted > 7 days ago; uses the latest nursing
+    evolution's invasive-devices data.
+  inputs:
+  - dispositivos_invasivos.acesso_venoso_periferico {em_uso, data_insercao} (json)
+  - dispositivos_invasivos.cateter_duplo_lumen_hemodialise {em_uso, data_insercao} (json)
+  outputs:
+  - criterio_10 (boolean or None)
+  logic: |
+    formulario = get_evolucao_enfermagem()   # latest Formulario tipo="enfermagem" for nr_atendimento
+    if formulario and formulario.dispositivos_invasivos:
+        avp_em_uso = acesso_venoso_periferico.get("em_uso") if acesso_venoso_periferico else False
+        avp_data   = acesso_venoso_periferico.get("data_insercao") if acesso_venoso_periferico else False
+        dl_em_uso  = cateter_duplo_lumen_hemodialise.get("em_uso", None) if cateter_duplo_lumen_hemodialise else False
+        dl_data    = cateter_duplo_lumen_hemodialise.get("data_insercao") if cateter_duplo_lumen_hemodialise else False
+        return any([
+            all([avp_em_uso, (diferenca_dias(strptime(avp_data,"%Y-%m-%d").date()) > 7) if avp_data else False]),
+            all([dl_em_uso,  (diferenca_dias(strptime(dl_data,"%Y-%m-%d").date())  > 7) if dl_data  else False]),
+        ])
+    # implicit: returns None when no formulario or no dispositivos_invasivos
+  edge_cases: |
+    Strict > 7 days. Returns None (falsy, counted as not-True) when there is no nursing evolution or no invasive-devices record. data_insercao parsed with strptime "%Y-%m-%d"; malformed/absent date -> ValueError or False sub-branch. diferenca_dias() lives in utils.handlers (OUTSIDE this partition) and defines the exact day-difference semantics.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 270-330
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    get_evolucao_enfermagem() (lines 385-392) selects latest Formulario tipo="enfermagem" by leito__nr_atendimento, order_by -criado_em. Verifier must inspect utils.handlers.diferenca_dias (out of partition) for exact >7-day arithmetic. Minor criterion.
+- id: RULE-SEPSE-037
+  name: Sepse criterio_11 - Placeholder (sempre False)
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Minor criterion 11 is hard-coded to always return False (unimplemented placeholder).
+  inputs: []
+  outputs:
+  - criterio_11 (boolean)
+  logic: |
+    def calcular_criterio_11(self):
+        return False
+  edge_cases: Always False.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  divergence: |
+    DISCREPANCY/consequence: because criterio_11 is always False, the "menores" group (c8,c9,c10,c11) can hold at most 3 True values, so the alert condition `menores == 4` in RULE-sepse-BE-06-013 is UNREACHABLE.
+  merged_from:
+  - RULE-sepse-BE-06-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 332-333
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY/consequence: because criterio_11 is always False, the "menores" group (c8,c9,c10,c11) can hold at most 3 True values, so the alert condition `menores == 4` in RULE-sepse-BE-06-013 is UNREACHABLE.
+- id: RULE-SEPSE-038
+  name: Sepsis C1 (major) - fever
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major sepsis criterion - temperature > 38.3 C.
+  inputs:
+  - temperatura (float, Celsius, 0 or 20-43)
+  outputs:
+  - criterio_1 (bool)
+  logic: |
+    (temperatura > 38.3) if temperatura else False
+  edge_cases: temperatura 0/None -> False. Strict >38.3. Test 37->False, 38.5->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-026
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 225-230
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:66-71.
+- id: RULE-SEPSE-039
+  name: Sepsis C2 (major) - spontaneous respiratory distress
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Major criterion - (FR>20 OR SatO2<96) AND no mechanical ventilation.
+  inputs:
+  - fr (int, ipm, 0-50)
+  - sato2 (int, percent)
+  - ventilacao_mecanica_exists (bool)
+  outputs:
+  - criterio_2 (bool)
+  logic: |
+    all([
+      any([ (fr>20) if fr else False, (sato2<96) if sato2 else False ]),
+      not verificar_objeto_existe(dp,'ventilacao_mecanica')])
+  edge_cases: fr/sato2 falsy -> that disjunct False. Presence of VM forces False. Test fr=22->True; add
+    VM->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-027
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 232-249
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:73-88.
+- id: RULE-SEPSE-040
+  name: Sepsis C3 (major) - recent start of mechanical ventilation
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - mechanical ventilation started less than 1 day ago.
+  inputs:
+  - ventilacao_mecanica.horario_inicio (datetime)
+  outputs:
+  - criterio_3 (bool)
+  logic: |
+    (vm.horario_inicio > now - 1day) if verificar_objeto_existe(dp,'ventilacao_mecanica') else False
+  edge_cases: Strict > (exactly 24h ago -> False). Test 23h->True, 24h->False, 2d->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-028
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 251-257
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:90-101.
+- id: RULE-SEPSE-041
+  name: Sepsis C4 (major) - noradrenaline started in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - noradrenaline infusion started within the last 24h.
+  inputs:
+  - noradrenalina.horario_inicio (datetime)
+  outputs:
+  - criterio_4 (bool)
+  logic: |
+    (noradrenalina.horario_inicio >= now - 1day) if verificar_objeto_existe(dp,'noradrenalina') else False
+  edge_cases: Inclusive >= (contrast with C3 strict >). Test 23h->True, 20h->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-029
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 259-267
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:103-113.
+- id: RULE-SEPSE-042
+  name: Sepsis C5 (major) - slow capillary refill
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - capillary refill time > 5 s.
+  inputs:
+  - tec (int, seconds, 0 or 3-20)
+  outputs:
+  - criterio_5 (bool)
+  logic: |
+    (tec > 5) if tec else False
+  edge_cases: tec 0 -> False. Strict >5. Test tec=5->False, 6->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-030
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 269-270
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:115-122.
+- id: RULE-SEPSE-043
+  name: Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h)
+  category: triage-eligibility
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion - current PAS < 90 OR the most recent 24h diastolic (PAD) < 90.
+  inputs:
+  - pas (float, mmHg)
+  - pad_em_24hrs (float, mmHg)
+  outputs:
+  - criterio_6 (bool)
+  logic: |
+    queryset = DadosProntuario.filter(pk__in=buscar_ultimos_dados).order_by('-criado_em')
+    pad_em_24hrs = queryset.filter(criado_em__gt=now-24h).values_list('pad').first()
+    any([ (pas < 90) if pas else False, (pad_em_24hrs < 90) if pad_em_24hrs else False ])
+  edge_cases: pas/pad falsy -> excluded. pad drawn from most recent record in the lookback chain within
+    24h.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  divergence: |
+    DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).
+  merged_from:
+  - RULE-sepse-BE-10-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 272-286
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).
+- id: RULE-SEPSE-044
+  name: Sepsis C7 (major) - oliguria or rising creatinine
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion - 24h urine output <= 1200 ml OR (creatinine > 2 AND not on hemodialysis).
+  inputs:
+  - debito_urinario_24h (float, mL/24h, 0-10000)
+  - creatinina (float, mg/dL, 0-20)
+  - hemodialise (bool)
+  outputs:
+  - criterio_7 (bool)
+  logic: |
+    any([
+      (debito_urinario_24h <= 1200) if debito_urinario_24h else False,
+      all([(creatinina > 2) if creatinina else False, not hemodialise])])
+  edge_cases: debito 0 -> falsy -> that disjunct False (so anuria recorded as 0 is NOT flagged). Inclusive
+    <=1200. Test debito 1200->True,1201->False; creat 3 with hemodialise True->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  divergence: |
+    DISCREPANCY: fixed 1200 mL/24h threshold rather than weight-based (<0.5 mL/kg/h). _ANTIGAS_REGRAS used the weight-based version. Also debito==0 evaluates falsy so true anuria is excluded. Test test_trilha_sepse.py:140-151.
+  merged_from:
+  - RULE-sepse-BE-10-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 288-303
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY: fixed 1200 mL/24h threshold rather than weight-based (<0.5 mL/kg/h). _ANTIGAS_REGRAS used the weight-based version. Also debito==0 evaluates falsy so true anuria is excluded. Test test_trilha_sepse.py:140-151.
+- id: RULE-SEPSE-045
+  name: Sepsis C8 (major) - Glasgow drop or delirium
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Major criterion - Glasgow decreased by >= 2 points vs the most-recent 24h value OR delirium
+    present.
+  inputs:
+  - glasgow (current) (int)
+  - glasgow_em_24 (prior 24h) (int)
+  - delirium (bool)
+  outputs:
+  - criterio_8 (bool)
+  logic: |
+    glasgow_em_24 = filter(pk__in lookback, criado_em>now-24h).order_by('-criado_em').values_list('glasgow').first()
+    any([
+      (glasgow - glasgow_em_24 <= -2) if (glasgow_em_24 and glasgow) else False,
+      delirium if delirium else False])
+  edge_cases: Needs both current and prior glasgow truthy. Drop of exactly 2 (delta -2) triggers. Test
+    current=3 prior=5 -> -2 -> True; prior=4 -> -1 -> False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-033
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 305-323
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:153-166.
+- id: RULE-SEPSE-046
+  name: Sepsis C9 (major) - hyperbilirubinemia
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - bilirubin > 2 mg/dL.
+  inputs:
+  - bilirrubinas (float, mg/dL, 0-30)
+  outputs:
+  - criterio_9 (bool)
+  logic: |
+    (bilirrubinas > 2) if bilirrubinas else False
+  edge_cases: Strict >2 (2 -> False). Test 2->False, 3->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-034
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 325-330
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:168-173.
+- id: RULE-SEPSE-047
+  name: Sepsis C10 (minor) - hypothermia in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h temperature < 36 C.
+  inputs:
+  - temp_24hrs (float, Celsius)
+  outputs:
+  - criterio_10 (bool)
+  logic: |
+    temp_24hrs = filter(pk__in lookback, criado_em>now-24h).values_list('temperatura').first()
+    (temp_24hrs < 36) if temp_24hrs else False
+  edge_cases: Value pulled from lookback chain, not current record. Test prior temp=36->False, 35->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-035
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 332-341
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:175-187.
+- id: RULE-SEPSE-048
+  name: Sepsis C11 (minor) - tachycardia
+  category: triage-eligibility
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: Minor criterion - heart rate > 100 bpm using 24h value (falling back to 12h).
+  inputs:
+  - fc_24hrs (int, bpm)
+  - fc_12hrs (int, bpm)
+  outputs:
+  - criterio_11 (bool)
+  logic: |
+    fc_24hrs = filter(lookback, criado_em>now-24h).values_list('frequencia_cardiaca').first()
+    fc_12hrs = filter(lookback, criado_em>now-12h).values_list('frequencia_cardiaca').first()
+    return (fc_24hrs>100) if fc_24hrs else (False or fc_12hrs>100) if fc_12hrs else False
+    # parsed: if fc_24hrs: fc_24hrs>100 ; elif fc_12hrs: fc_12hrs>100 ; else False
+  edge_cases: Because 12h data is a subset of 24h, the 24h branch dominates; 12h branch only reached when
+    no 24h value. Strict >100.
+  confidence: medium
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-036
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 343-364
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    AMBIGUOUS: convoluted conditional-expression precedence; the intended OR of 24h/12h collapses to "use 24h if present else 12h". Test test_trilha_sepse.py:189-201 (fc=110->True).
+- id: RULE-SEPSE-049
+  name: Sepsis C12 (minor) - hypocapnia or poor oxygenation
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Minor criterion - (PaCO2<32 AND no VM) OR P/F ratio < 300.
+  inputs:
+  - paco2 (float, mmHg, 0-150)
+  - ventilacao_mecanica_exists (bool)
+  - relacao_po2_fio2 (float)
+  outputs:
+  - criterio_12 (bool)
+  logic: |
+    any([
+      all([(paco2 < 32) if paco2 else False, not verificar_objeto_existe(dp,'ventilacao_mecanica')]),
+      (relacao_po2_fio2 < 300) if (po2 and fio2) else False])
+  edge_cases: paco2 falsy excluded. Ratio path requires po2 and fio2 present. Strict <32 and <300. Test
+    paco2=31->True; ratio 300->False, 299->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-037
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 366-383
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:203-217.
+- id: RULE-SEPSE-050
+  name: Sepsis C13 (minor) - elevated arterial lactate
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - arterial lactate >= 2.5 mmol/L.
+  inputs:
+  - lactato_arterial (float, mmol/L, 0-20)
+  outputs:
+  - criterio_13 (bool)
+  logic: |
+    bool((lactato_arterial >= 2.5) if lactato_arterial else False)
+  edge_cases: Inclusive >=2.5. lactato 0 -> False. Test 2.4->False, 2.5->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-038
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 385-390
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:219-224.
+- id: RULE-SEPSE-051
+  name: Sepsis C14 (minor) - leukocytosis in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h leukocytes > 12000/mm3.
+  inputs:
+  - leucocitos (float, /mm3, 0-40000)
+  outputs:
+  - criterio_14 (bool)
+  logic: |
+    leucocitos = filter(lookback, criado_em>now-24h).order_by('-criado_em').values_list('leucocitos').first()
+    (leucocitos > 12000) if leucocitos else False
+  edge_cases: Strict >12000. From lookback chain. Test 12000->False, 12001->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-039
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 392-402
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    _ANTIGAS_REGRAS C17 was ">15000 OR <4000"; current active version only checks >12000 (no leukopenia branch). The leukopenia/delta variant is commented out (lines 427-456). Test test_trilha_sepse.py:226-238.
+- id: RULE-SEPSE-052
+  name: Sepsis C15 (minor) - thrombocytopenia in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h platelets < 100000/mm3.
+  inputs:
+  - plaquetas (int, /mm3, 0-700000)
+  outputs:
+  - criterio_15 (bool)
+  logic: |
+    plaquetas = filter(lookback, criado_em>now-24h).values_list('plaquetas').first()
+    (plaquetas < 100000) if plaquetas else False
+  edge_cases: plaquetas falsy (0/None) -> False (so 0 platelets recorded as 0 not flagged). Strict <100000.
+    Test 100000->False, 99999->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 404-413
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:240-252.
+- id: RULE-SEPSE-053
+  name: Sepsis C16 (minor) - poor oral intake with preserved consciousness
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Minor criterion - low oral diet acceptance AND Glasgow >= 13.
+  inputs:
+  - baixa_aceitacao_dieta_vo (bool)
+  - glasgow (int)
+  outputs:
+  - criterio_16 (bool)
+  logic: |
+    all([ baixa_aceitacao_dieta_vo, (glasgow >= 13) if glasgow else False ])
+  edge_cases: Both required. Inclusive glasgow>=13. Test baixa+glasgow13 -> True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-041
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 415-425
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:254-259.
+- id: RULE-SEPSE-054
+  name: Sepsis C17 (minor) - depressed consciousness in last 12h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 12h Glasgow <= 13.
+  inputs:
+  - glasgow (int)
+  outputs:
+  - criterio_17 (bool)
+  logic: |
+    glasgow = filter(lookback, criado_em>now-12h).order_by('-criado_em').values_list('glasgow').first()
+    (glasgow <= 13) if glasgow else False
+  edge_cases: Inclusive <=13. 12h window (not 24h). glasgow falsy -> False. Test glasgow=14->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-042
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 458-468
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: There is an earlier commented-out leukocyte-based criterio_17 (lines 427-456); the active one
+    is Glasgow-based. Test test_trilha_sepse.py:261-272.
+- id: RULE-SEPSE-055
+  name: Sepsis C18 (minor) - central line > 7 days
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - presence of CVC/CDL for more than 7 days (boolean flag).
+  inputs:
+  - presenca_cvc_cdl_7_dias (bool)
+  outputs:
+  - criterio_18 (bool)
+  logic: |
+    return dp.presenca_cvc_cdl_7_dias
+  edge_cases: Direct boolean passthrough (may return None if field null). Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-043
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 470-475
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Duration threshold (7 days) is captured by the human at data entry, not computed. Test test_trilha_sepse.py:274-277.
+- id: RULE-SEPSE-056
+  name: Sepsis C19 (minor) - femoral central line > 5 days
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - CVC/CDL in femoral site for more than 5 days (boolean flag).
+  inputs:
+  - cvc_cdl_femoral_5_dias (bool)
+  outputs:
+  - criterio_19 (bool)
+  logic: |
+    return dp.cvc_cdl_femoral_5_dias
+  edge_cases: Direct boolean passthrough. Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-044
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 477-482
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:279-282.
+- id: RULE-SEPSE-057
+  name: Sepsis C20 (minor) - recent abdominal surgery
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - history of recent abdominal surgery (boolean flag).
+  inputs:
+  - historico_cirurgia_abdominal_recente (bool)
+  outputs:
+  - criterio_20 (bool)
+  logic: |
+    return dp.historico_cirurgia_abdominal_recente
+  edge_cases: Direct boolean passthrough. Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-045
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 484-489
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:284-287.
+- id: RULE-SEPSE-058
+  name: Sepse v3 automatica - trigger threshold table (20 criteria)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: |
+    Sepsis screening pathway variant "v3" (payload_sepse_automatica_v3). Each of 20 criteria, when flagged by the model layer, surfaces an alert whose label encodes the exact clinical threshold that defines that criterion. This payload documents the full threshold set for the v3 sepsis trigger engine.
+  inputs:
+  - TAX (axillary temperature) (float, degC)
+  - FR (respiratory rate) (float, ipm)
+  - VMI onset time (float, hours)
+  - DVA (vasoactive) onset time (float, hours)
+  - PAS / PAM (float, mmHg)
+  - TEC (capillary refill) (float, s)
+  - arterial lactate (float, mmol/L)
+  - diurese (float, ml/Kg/h)
+  - creatinina (trend) (float, mg/dl)
+  - GCS (int, points, 3-15)
+  - bilirrubinas (float, mg/dl)
+  - FC (float, bpm)
+  - PCO2 / P/F ratio (float)
+  - plaquetas (int, /mm3)
+  - CVC dwell time (central / femoral) (float, days)
+  - abdominal surgery recency (float, days)
+  outputs:
+  - alerta text per criterion (string)
+  logic: |
+    criterio_1  Febre:                  TAX >= 38.2 degC
+    criterio_2  Taquipnea:              FR > 20 ipm
+    criterio_3  Falencia respiratoria:  VMI started < 24h ago
+    criterio_4  Hipotensao refrataria:  DVA started < 6h ago
+    criterio_5  Hipotensao:             PAS < 90  OR  PAM < 60
+    criterio_6  Ma perfusao:            TEC > 3 s
+    criterio_7  Hiperlactatemia:        lactato >= 3 mmol/L
+    criterio_8  Oliguria:               diurese <= 0.5 ml/Kg/h over last 12h
+    criterio_9  Piora funcao renal:     creatinina rising (no numeric cutoff given)
+    criterio_10 Alt. nivel consciencia: GCS < 14
+    criterio_11 Ictericia:              bilirrubinas > 2 mg/dl
+    criterio_12 Hipotermia:             TAX < 36 degC
+    criterio_13 Taquicardia:            FC > 100 bpm
+    criterio_14 Disturbio respiratorio: PCO2 < 32  OR  P/F < 300
+    criterio_15 Piora infecciosa:       Leucocitos & PCR altered (no numeric cutoff)
+    criterio_16 Plaquetopenia:          plaquetas < 150000
+    criterio_17 Necessidade de SNE:     low oral diet acceptance (qualitative)
+    criterio_18 CVC:                    central venous catheter >= 7 days
+    criterio_19 CVC femoral:            femoral central venous catheter >= 5 days
+    criterio_20 Cirurgia abdominal:     recent abdominal surgery (< 20 days)
+  edge_cases: |
+    recomendacoes list is empty for every criterion in v3 (only the alerta label carries content). Thresholds use mixed inclusive/exclusive operators exactly as written (>=, >, <=, <). No null handling in this payload (predicate lives out of scope).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-007
+  - RULE-SEPSE-008
+  - RULE-SEPSE-009
+  - RULE-SEPSE-010
+  - RULE-SEPSE-011
+  - RULE-SEPSE-012
+  - RULE-SEPSE-013
+  - RULE-SEPSE-014
+  - RULE-SEPSE-015
+  - RULE-SEPSE-016
+  - RULE-SEPSE-017
+  - RULE-SEPSE-018
+  - RULE-SEPSE-019
+  - RULE-SEPSE-020
+  - RULE-SEPSE-021
+  - RULE-SEPSE-022
+  - RULE-SEPSE-023
+  - RULE-SEPSE-024
+  - RULE-SEPSE-025
+  - RULE-SEPSE-026
+  divergence: 'Alert-label catalog (core/facade/trilha_sepse_v3.py, payload_sepse_automatica_v3) vs the
+    v3 model predicates (trilhas_v3/trilha_sepse.py, RULE-SEPSE-007..026): (a) the catalog uses a DIFFERENT
+    criterion numbering than the model (e.g. catalog criterio_6=''Ma perfusao TEC>3s'', criterio_16=''Plaquetopenia'';
+    model criterio_6=thrombocytopenia, criterio_16=capillary refill); (b) Plaquetopenia label ''<150.000''
+    but model predicate RULE-SEPSE-012 uses <100000; (c) Febre label ''TAX >= 38,2'' but model RULE-SEPSE-007
+    uses temp > 38.2 (>= vs >); (d) Hipotensao label ''PAS<90 ou PAM<60'' but model RULE-SEPSE-011 uses
+    PAS<90 OR PAD<60 OR PAM<65; (e) Oliguria label ''diurese <= 0,5'' but model RULE-SEPSE-014 uses <0.5;
+    (f) ''Cateter venoso central >= 7 dias'' / ''femoral >= 5 dias'' labels vs model RULE-SEPSE-024/025
+    which use strictly > 7d / > 5d. Catalog carries display text only (all recomendacoes lists empty).'
+  merged_from:
+  - RULE-sepse-BE-01-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sepse_v3.py
+    lines: 1-85
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Wired via trilha_automatica/facade/sepse_v3.py -> payload_sepse_automatica_v3. DISCREPANCY vs variant B (RULE-sepse-BE-01-002): femoral CVC threshold is 5 days here vs "femoral >7 dias" text elsewhere; CVC threshold >=7d here vs >10d in variant B criterio_22; hipotermia <36 here. Cross-ref RULE-sepse-BE-01-002/003.
+- id: RULE-SEPSE-059
+  name: Sepse automatica variant B - 27-criterion alert catalog + global recommendation
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: |
+    Sepsis pathway variant B (payload_sepse_automatica). 27 flagged-criterion alert labels plus one shared "recomendacao" block prescribing the sepsis work-up and resuscitation.
+  inputs:
+  - criterio_1..criterio_27 (flags set by model layer) (bool)
+  outputs:
+  - alerta per criterion (string)
+  - shared recomendacao block (list[string])
+  logic: |
+    Flagged-criterion -> alert label mapping (qualitative unless noted):
+    1 taquipneico; 2 falencia respiratoria c/ necessidade de suporte ventilatorio;
+    3 hipotenso; 4 oligurico (disfuncao renal); 5 ictericia (disfuncao hepatica);
+    6 febre; 7 taquicardico; 8 hipocapnia/hiperventilacao; 9 P/F baixa (troca gasosa);
+    10 hiperlactatemia; 11 aumento TEC; 12 SOFA > 6; 13 piora do SOFA;
+    14 piora disfuncao respiratoria c/ aumento FiO2; 15 elevacao da pressao positiva;
+    16 conversao p/ modo ventilatorio controlado; 17 leucocitose OU leucopenia;
+    18 plaquetopenia; 19 prejuizo nivel consciencia; 20 piora nivel consciencia;
+    21 baixa aceitacao dieta VO; 22 dispositivo invasivo > 10 dias;
+    23 dispositivo vascular femoral > 7 dias; 24 inicio antibiotico nas ultimas 24h;
+    25 cirurgia abdominal recente; 26 instabilidade + uso de noradrenalina;
+    27 piora funcao renal nas ultimas 24h.
+    GLOBAL RECOMMENDATION when pathway opens: hemocultura x2 perifericas; cultura secrecao
+    traqueal; urocultura; hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA;
+    RX torax. Antibiotico amplo espectro; se necessidade de noradrenalina -> dupla cobertura
+    GRAM negativo. Se hipotensao + hipoperfusao (lactato > 2.5 mg/dl, oliguria, TEC aumentado,
+    alt. consciencia, livedo) -> ressuscitacao volemica 30 ml/kg Ringer Lactato. Trocar/retirar
+    cateter vascular se > 7 dias ou hiperemia/secrecao. USG p/ fluido-responsividade -> dobutamina.
+    Cuidados de fim de vida -> descontinuar protocolo.
+  edge_cases: All per-criterion recomendacoes lists are empty; content only in shared block.
+  confidence: high
+  related:
+  - RULE-SEPSE-058
+  - RULE-SEPSE-060
+  merged_from:
+  - RULE-sepse-BE-01-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sepse.py
+    lines: 1-108
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    = sepse_automatica (facade/sepse.py). SOFA>6 (criterio_12) is the only explicit score threshold. Lactate threshold here is 2.5 mg/dl (note unit mg/dl, unusual for lactate; v3 uses 3 mmol/L). Fluid bolus 30 ml/kg vs variant A 1500ml fixed. Cross-ref -001, -003.
+- id: RULE-SEPSE-060
+  name: Sepse pathway variant A - 11-criterion catalog + Meropenem/1500ml recommendation
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: |
+    Sepsis pathway variant A: nested {"criterios": {...}} structure with 11 qualitative alert flags and a single global recommendation naming a specific empiric antibiotic and fixed fluid bolus. Structure differs from variants B/C (criterios nested under a key).
+  inputs:
+  - criterio_1..criterio_11 flags (bool)
+  outputs:
+  - alerta per criterion (string)
+  - recomendacao block (list[string])
+  logic: |
+    Alerts: 1 Febre; 2 Taquipneia; 3 Falencia respiratoria; 4 Perfusao tecidual prejudicada;
+    5 Hipotensao; 6 Oliguria; 7 Alteracao do nivel de consciencia; 8 Hipotermia;
+    9 Taquicardia; 10 Cateter antigo; 11 Cateter femoral.
+    RECOMMENDATION: abrir protocolo SEPSE; solicitar hemocultura aerobica x2 perifericas;
+    cultura secrecao traqueal (se traqueostomia); urocultura (se diurese);
+    hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA; RX torax;
+    lactato arterial apos 3h. Considerar Meropenem 1 g EV. Se hipotensao OU oliguria OU
+    alt. consciencia -> ressuscitacao volemica 1500 ml Ringer Lactato em bolus. Se hipotensao
+    refrataria -> noradrenalina (mesmo em acesso periferico). Trocar/retirar cateter se > 7 dias
+    ou hiperemia/secrecao. Cuidados de fim de vida -> descontinuar.
+  edge_cases: Recommendation strings are concatenated without separators (implicit joins).
+  confidence: medium
+  related:
+  - RULE-SEPSE-058
+  - RULE-SEPSE-059
+  - RULE-SEPSE-061
+  merged_from:
+  - RULE-sepse-BE-01-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/sepse.py
+    lines: 1-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    AMBIGUOUS: this variant's consumer is not evident within scope (facade/sepse.py aliases the 27-criterion trilha_sepse instead). Appears to be an older/alternate sepsis payload. Distinct dosing: Meropenem 1g + fixed 1500ml bolus (vs 30ml/kg in variant B). Cross-ref -001, -002.
+- id: RULE-SEPSE-061
+  name: SEPSE volume expansion (expansao volemica) decision and dosing
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: |
+    Clinical decision-support text presented for the hour-1 "realizacao_expansao_volemica" item. Trigger fluid resuscitation on persistent hypotension OR any hypoperfusion sign; dose by body weight with a reduced dose for cardiac dysfunction / oligo-anuric renal injury; start vasopressor early and secure central access within 6h.
+  inputs:
+  - hipotensao_persistente (boolean)
+  - lactato_arterial (number, mg/dl)
+  - tempo_enchimento_capilar (number, segundos)
+  - diurese (number, ml/kg/h)
+  - disfuncao_cardiaca_ou_lesao_renal_oligoanurica (boolean)
+  outputs:
+  - dose_ringer_lactato (number, ml/kg)
+  logic: |
+    IF hipotensao_persistente
+       OR lactato_arterial > 30 mg/dl
+       OR tempo_enchimento_capilar > 3 s
+       OR livedo_reticular presente
+       OR indice_de_escamoteamento(frialdade) positivo
+       OR (oliguria: diurese < 0.5 ml/kg/h nas ultimas 6h)
+       OR alteracao_do_nivel_basal_de_consciencia:
+           dose = 30 ml/kg de Ringer Lactato (preferencial), em bolus de 500 ml em 5 min (ideal)
+           IF disfuncao_cardiaca_conhecida OR lesao_renal_oligo_anurica:
+               dose = 20 ml/kg
+    Se necessario: iniciar norepinefrina em acesso venoso periferico calibroso;
+    garantir acesso venoso central em ate 6 h.
+  edge_cases: |
+    Verbatim guidance text (no executable branching). Thresholds: lactate 30 mg/dl (~3.3 mmol/L), TEC 3 s, diuresis 0.5 ml/kg/h over 6h. Reduced-dose branch for cardiac dysfunction/oligo-anuric AKI.
+  confidence: high
+  related:
+  - RULE-SEPSE-060
+  - RULE-SEPSE-063
+  - RULE-SEPSE-081
+  merged_from:
+  - RULE-sepse-BE-02-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 179-191
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Static descricao_item text surfaced to clinicians. Lactate threshold expressed in mg/dl (30) rather than the Surviving-Sepsis mmol/L convention (2 or 4 mmol/L = 18 or 36 mg/dl); recorded verbatim, not corrected.
+- id: RULE-SEPSE-062
+  name: SEPSE reassessment lab thresholds (bicarbonate, dobutamine, transfusion)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: |
+    Clinical decision-support text for the "exames" (labs reassessment) item: do not routinely replace bicarbonate in metabolic acidosis; consider dobutamine on rising lactate or poor perfusion signs; hemoglobin transfusion target > 7 mg/dl (do not transfuse above).
+  inputs:
+  - lactato_arterial_tendencia (enum, {ascensao, estavel})
+  - TEC (number, segundos)
+  - SVcO2 (number, %)
+  - delta_PCO2 (number, mmHg)
+  - hemoglobina (number, mg/dl)
+  outputs:
+  - acao (text)
+  logic: |
+    IF acidose_metabolica: NAO repor bicarbonato de rotina (consultar protocolo institucional)
+    IF lactato em ascensao OR TEC > 3 s OR SVcO2 < 60 OR delta_PCO2 > 6:
+        considerar iniciar dobutamina (otimizar inotropismo)
+    Alvo de hemoglobina > 7 mg/dl; NAO transfundir acima desse valor.
+  edge_cases: |
+    Verbatim text. Units as written: SVcO2 "<60" (percent, no unit shown), delta PCO2 ">6" (mmHg implied), hemoglobin target ">7 mg/dl" (note: Hb is conventionally g/dL, source says mg/dl).
+  confidence: high
+  related:
+  - RULE-SEPSE-063
+  - RULE-SEPSE-064
+  - RULE-SEPSE-065
+  - RULE-SEPSE-075
+  merged_from:
+  - RULE-sepse-BE-02-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 192-199
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Hemoglobin unit written "mg/dl" (physiologically g/dL); recorded verbatim.
+- id: RULE-SEPSE-063
+  name: SEPSE hemodynamic-status decision (intubation RASS-2, fluid challenge)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: |
+    Clinical decision-support text for the "status_hemodinamico" item: consider orotracheal intubation with sedoanalgesia targeting RASS -2 when poor perfusion + tachydyspnea + confusion/somnolence, to reduce VO2 and optimize DO2; if ultrasound available assess fluid-responsiveness and consider a 250 ml Ringer Lactate volume challenge.
+  inputs:
+  - sinais_mal_perfusao (boolean)
+  - taquidispneia (boolean)
+  - confusao_ou_sonolencia (boolean)
+  - usg_disponivel (boolean)
+  outputs:
+  - alvo_RASS (integer)
+  - desafio_volemico (number, ml)
+  logic: |
+    IF sinais_mal_perfusao AND taquidispneia AND (confusao OR sonolencia):
+        considerar intubacao orotraqueal + sedoanalgesia com alvo RASS -2 (reduzir VO2, otimizar DO2)
+    IF usg_disponivel:
+        checar fluido-responsividade; considerar desafio volemico com aliquotas de 250 ml de Ringer Lactato
+  edge_cases: |
+    Verbatim text; RASS target is the sedation scale value -2. Volume-challenge aliquot 250 ml (vs 500 ml initial bolus in RULE-sepse-BE-02-013).
+  confidence: high
+  related:
+  - RULE-SEPSE-061
+  - RULE-SEPSE-062
+  - RULE-SEPSE-064
+  - RULE-SEPSE-065
+  merged_from:
+  - RULE-sepse-BE-02-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 200-207
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: References RASS (Richmond Agitation-Sedation Scale) target -2.
+- id: RULE-SEPSE-064
+  name: SEPSE invasive-devices decision (early NE, central access, CVC replacement)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Clinical decision-support text for the "dispositivos_invasivos" item: prefer early noradrenaline via calibrous peripheral access, secure central venous access within 6h with invasive BP monitoring (PAI) and bladder-catheter diuresis (SVD); if a central venous catheter is older than 7 days consider replacement; check chest X-ray after central puncture or intubation.
+  inputs:
+  - idade_cateter_venoso_central (number, dias)
+  outputs:
+  - acao (text)
+  logic: |
+    Preferir inicio precoce de noradrenalina em acesso venoso periferico calibroso;
+    garantir acesso venoso central em ate 6 h; monitorar PA invasiva (PAI) e diurese (SVD).
+    IF cateter_venoso_central > 7 dias: considerar a troca.
+    Checar RX de torax apos puncao venosa central e/ou intubacao orotraqueal.
+  edge_cases: 'Verbatim text. Threshold: CVC age > 7 days -> consider replacement; central access within
+    6h.'
+  confidence: high
+  related:
+  - RULE-SEPSE-062
+  - RULE-SEPSE-063
+  - RULE-SEPSE-065
+  merged_from:
+  - RULE-sepse-BE-02-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 208-217
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-065
+  name: SEPSE vasoactive-drug escalation thresholds and shock index
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: |
+    Clinical decision-support text for the "drogas_vasoativas" item. Escalation by noradrenaline rate: at NE > 0.3 mcg/kg/min add vasopressin + hydrocortisone (refractory shock), set diet ZERO or trophic (20 ml/h) and reassess in 24h; suspend antihypertensives/beta-blockers/ diuretics; prefer epinephrine if NE > 1 mcg/kg/min or shock index positive (HR/SBP > 0.7); start IV vasopressin continuous + hydrocortisone 50 mg IV q6h when NE > 0.3 mcg/kg/min.
+  inputs:
+  - noradrenalina (number, mcg/kg/min)
+  - FC (number, bpm)
+  - PA_sistolica (number, mmHg)
+  outputs:
+  - indice_de_choque (number)
+  - conduta_vasopressor (text)
+  logic: |
+    indice_de_choque = FC / PA_sistolica            # "positivo" se > 0.7
+    IF noradrenalina > 0.3 mcg/kg/min:
+        associar vasopressina + hidrocortisona (choque refratario)
+        dieta ZERO ou trofica (20 ml/h); reavaliar em 24 h
+        iniciar vasopressina EV continua + hidrocortisona 50 mg EV de 6/6h
+        (~20 ml/h para paciente de 80 kg)
+    Suspender anti-hipertensivos, beta-bloqueadores e diureticos se presentes.
+    IF noradrenalina > 1 mcg/kg/min OR indice_de_choque > 0.7:
+        preferir epinefrina
+  edge_cases: |
+    Verbatim text. Two NE thresholds: 0.3 (add vasopressin/hydrocortisone) and 1.0 (switch to epinephrine). Shock index HR/SBP threshold 0.7. Hydrocortisone 50 mg q6h. "~20 ml/h for 80 kg" is an illustrative infusion rate.
+  confidence: high
+  related:
+  - RULE-SEPSE-061
+  - RULE-SEPSE-062
+  - RULE-SEPSE-063
+  - RULE-SEPSE-064
+  merged_from:
+  - RULE-sepse-BE-02-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 218-229
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Shock index "positive" threshold coded as > 0.7 (normal shock index 0.5-0.7); recorded verbatim.
+- id: RULE-SEPSE-066
+  name: Sepsis pathway - disabled/legacy criteria (v-old 27 vs current 20)
+  category: triage-eligibility
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: Documents criteria that exist in code but are disabled, and the prior 27-criterion version,
+    so a rebuild does not reintroduce them silently.
+  inputs:
+  - various (mixed)
+  outputs:
+  - n/a
+  logic: |
+    Disabled (commented) calcular_criterio_21..27 covered: SNE with conscious patient (glasgow>=11 & no VM);
+    invasive vascular devices >10d; femoral central >7d; antibiotic in 24h; recent abdominal surgery;
+    noradrenaline started <24h (balanço hídrico); urea>50 & creatinina>2. Also a commented leukocyte
+    criterio_17 (leukocytes <4000 or >15000, or |delta|>5000 across measurements).
+  edge_cases: None active; save() only computes criterio_1..20.
+  confidence: medium
+  related:
+  - RULE-SEPSE-004
+  - RULE-SEPSE-038
+  - RULE-SEPSE-039
+  - RULE-SEPSE-040
+  - RULE-SEPSE-041
+  - RULE-SEPSE-042
+  - RULE-SEPSE-043
+  - RULE-SEPSE-044
+  - RULE-SEPSE-045
+  - RULE-SEPSE-046
+  - RULE-SEPSE-047
+  - RULE-SEPSE-048
+  - RULE-SEPSE-049
+  - RULE-SEPSE-050
+  - RULE-SEPSE-051
+  - RULE-SEPSE-052
+  - RULE-SEPSE-053
+  - RULE-SEPSE-054
+  - RULE-SEPSE-055
+  - RULE-SEPSE-056
+  - RULE-SEPSE-057
+  merged_from:
+  - RULE-sepse-BE-10-047
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 13-42,204-210,427-456,491-524
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    _ANTIGAS_REGRAS (27 criteria) is the prior version; _REGRAS (20) is current. Cross-ref sepse C1..C20 rules above. Note descricao_criterio_8 default uses _REGRAS.get("criterio8") (missing underscore) -> stores None instead of the C8 text (data-cosmetic bug, line 114).
+- id: RULE-SEPSE-067
+  name: Sepsis / infection-source screening flags (movimentacao)
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: false
+  description: Boolean flags capturing time-windowed infection/device exposures and vasoactive/steroid
+    use, forming sepsis and device-associated-infection screening criteria.
+  inputs:
+  - antibiotico_em_24hrs (boolean)
+  - presenca_cvc_cdl_svd_10_dias (boolean)
+  - cvc_regiao_femoral_7_dias (boolean)
+  - hidrocortisona / vasopressina / anti_hipertensivo / delirium (boolean)
+  outputs:
+  - screening flags (boolean set)
+  logic: |
+    antibiotico_em_24hrs: "Antibiótico iniciado nas últimas 24h?"
+    presenca_cvc_cdl_svd_10_dias: "CVC, CDL ou SVD nos últimos 10 dias?"
+    cvc_regiao_femoral_7_dias: "CVC na região femoral nos últimos 7 dias?"
+    hidrocortisona, vasopressina (adjunct sepsis therapy), anti_hipertensivo, delirium: booleans.
+  edge_cases: The 10-day (any central line/urinary catheter) and 7-day (femoral CVC) windows are device-associated-infection
+    surveillance thresholds.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  - RULE-SEPSE-066
+  - RULE-SEPSE-068
+  merged_from:
+  - RULE-sepsis-FE-01-026
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 67-71,100-109,213-232
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: These booleans plus RULE-024 labs are classic inputs for a sepsis/CLABSI/CAUTI screening engine.
+- id: RULE-SEPSE-068
+  name: Urea field encodes an unbounded value under a threshold name
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: The urea input is stored as a plain number with no bounds although its field key implies
+    a ">50 in 24h" threshold.
+  inputs:
+  - ureia_maior_50_24hrs (number, mg/dL)
+  outputs:
+  - urea value (number, mg/dL)
+  logic: |
+    label "Uréia"; nome ["dados_prontuario","ureia_maior_50_24hrs"]; type number; NO min/max.
+  edge_cases: Field name suggests a boolean threshold (urea > 50 within 24h) but the input is a free numeric
+    value with no validation.
+  confidence: medium
+  related:
+  - RULE-SEPSE-067
+  merged_from:
+  - RULE-sepsis-FE-01-027
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 180-184
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: AMBIGUOUS = key vs type mismatch; a downstream consumer may (mis)interpret whether this holds
+    a raw value or a >50 flag.
+- id: RULE-SEPSE-069
+  name: Bundle item overdue (atraso_item_interativa) time windows
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: true
+  description: |
+    A bundle item is overdue when unchecked past its package deadline relative to protocol creation: 1h for primeira_hora, 3h for reavaliacao.
+  inputs:
+  - pacote, trilha_interativa.criado_em, checado (string / datetime / bool)
+  outputs:
+  - atraso_item_interativa (boolean)
+  logic: |
+    if pacote == "primeira_hora": return (now - 1h > criado_em) and not checado
+    elif pacote == "reavaliacao": return (now - 3h > criado_em) and not checado
+    # else: returns None (implicit)
+  edge_cases: Returns None for any other pacote value; time via django.utils.timezone.now().
+  confidence: high
+  related:
+  - RULE-SEPSE-070
+  - RULE-SEPSE-075
+  - RULE-SEPSE-095
+  merged_from:
+  - RULE-interativa-BE-03-131
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/item_trilha_interativa.py
+    lines: 34-44
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-070
+  name: Bundle item visibility (exibir) - reassessment appears after 2h
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: Reassessment (reavaliacao) items are hidden until 2h after protocol creation; all others
+    always shown.
+  inputs:
+  - pacote, trilha_interativa.criado_em (string / datetime)
+  outputs:
+  - exibir (boolean)
+  logic: |
+    if pacote == "reavaliacao": return (now - 2h > criado_em)
+    return True
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-091
+  merged_from:
+  - RULE-interativa-BE-03-132
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/item_trilha_interativa.py
+    lines: 46-52
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-071
+  name: SEPSE v3 interactive-protocol creation gate (can_criar_novo_protocolo)
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    A new interactive sepsis protocol may be created only when no open interactive trilha exists, the last concluded one is >3 days old (or none), the alert is not NEUTRO, and not already assisted.
+  inputs:
+  - trilha_interativa_pk (open protocol), ultima_concluida.concluido_em, self.alerta, self.assistido (object
+    / datetime / string / bool)
+  outputs:
+  - can_criar_novo_protocolo (boolean)
+  logic: |
+    ultima_concluida = trilhas_interativas_sepse.filter(concluida=True).last()
+    return True if (
+      not trilha_interativa_pk
+      and (ultima_concluida.concluido_em < now - 3 days if ultima_concluida else True)
+      and self.alerta != "NEUTRO"
+      and not self.assistido
+    ) else False
+  edge_cases: 3-day cooldown between concluded protocols; open protocol = trilhas_interativas_sepse.filter(finalizado=False).first().
+  confidence: high
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-097
+  - RULE-SEPSE-083
+  merged_from:
+  - RULE-sepse-BE-03-121
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 323-338
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Depends on serializer import (api.v1.serializers) - cross-module.
+- id: RULE-SEPSE-072
+  name: SEPSE protocol acceptance workflow and orange alert
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Creating an interactive SEPSE trilha with aceito=true stamps the acceptance time, sets the parent TrilhaSepseV3 alert to "LARANJA" (orange), generates the 7 bundle items, and posts an audit observation recording protocol opening by the acting user.
+  inputs:
+  - aceito (boolean)
+  - trilha (parent SepseV3 pk) (identifier)
+  outputs:
+  - alerta_trilha_interativa (enum, {LARANJA})
+  - horario_registro_aceitacao (datetime)
+  logic: |
+    if validated_data["aceito"]:
+        validated_data["horario_registro_aceitacao"] = now()
+        ti = create(validated_data)
+        TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa="LARANJA")
+        criar_itens_trilha_interativa_sepse(ti.get_pk)   # 7 items (RULE-sepse-BE-02-008)
+        post_observation("Realizada a abertura do Protocolo de SEPSE as <ts> por <user>")
+  edge_cases: |
+    Timestamp formatted as %d/%m/%Y as %H:%M:%S in local tz (astimezone()).
+  confidence: high
+  related:
+  - RULE-SEPSE-073
+  - RULE-SEPSE-074
+  - RULE-SEPSE-075
+  - RULE-SEPSE-076
+  - RULE-SEPSE-096
+  merged_from:
+  - RULE-sepse-BE-02-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 48-65
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Alert color state machine — accepted=LARANJA (see -010 rejected=NEUTRO, -012 completed=None).
+- id: RULE-SEPSE-073
+  name: SEPSE protocol rejection workflow and neutral alert
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: |
+    Creating an interactive SEPSE trilha with aceito falsy marks it finalized, sets the parent TrilhaSepseV3 alert to "NEUTRO" and assistido=true, and posts a "rejection" observation.
+  inputs:
+  - aceito (boolean)
+  outputs:
+  - alerta_trilha_interativa (enum, {NEUTRO})
+  - assistido (boolean)
+  - finalizado (boolean)
+  logic: |
+    else:  # not aceito
+        validated_data["finalizado"] = True
+        ti = create(validated_data)
+        TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa="NEUTRO", assistido=True)
+        post_observation("Abertura do Protocolo de SEPSE Recusada as "
+                         + ti.horario_registro_aceitacao.astimezone().strftime(...) + " por <user>")
+  edge_cases: |
+    In the rejection branch horario_registro_aceitacao is never assigned, so the message builds from ti.horario_registro_aceitacao which is None/unset -> None.astimezone() raises AttributeError. The DB writes (finalizado, NEUTRO, assistido) run before the message, but the observation post and serializer return would fail.
+  confidence: medium
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-074
+  divergence: |
+    DISCREPANCY: rejection message dereferences an unset horario_registro_aceitacao (likely NoneType.astimezone crash) unlike the acceptance/closure branches which set it to now(). Recorded verbatim; behavior depends on the model default for that field.
+  merged_from:
+  - RULE-sepse-BE-02-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 66-81
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY: rejection message dereferences an unset horario_registro_aceitacao (likely NoneType.astimezone crash) unlike the acceptance/closure branches which set it to now(). Recorded verbatim; behavior depends on the model default for that field.
+- id: RULE-SEPSE-074
+  name: SEPSE protocol closure (accepted -> encerrado) workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Updating an interactive SEPSE trilha that was previously accepted so that aceito becomes falsy closes the protocol: sets encerrado=true, finalizado=true, re-stamps horario_registro_aceitacao=now, sets the parent alert to "NEUTRO" and assistido=true, and posts a closure observation. Any other update passes through unchanged.
+  inputs:
+  - instance.aceito (boolean)
+  - validated_data.aceito (boolean)
+  outputs:
+  - encerrado (boolean)
+  - alerta_trilha_interativa (enum, {NEUTRO})
+  logic: |
+    if instance.aceito and not validated_data.get("aceito"):
+        validated_data["encerrado"] = True
+        validated_data["finalizado"] = True
+        validated_data["horario_registro_aceitacao"] = now()
+        ti = update(instance, validated_data)
+        TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa="NEUTRO", assistido=True)
+        post_observation("Protocolo de SEPSE foi encerrado as <ts> por <user>")
+    else:
+        return update(instance, validated_data)   # no side effects
+  edge_cases: |
+    Transition guard is specifically was-accepted -> now-not-accepted; toggling other fields while aceito stays true takes the passthrough branch.
+  confidence: high
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-073
+  - RULE-SEPSE-097
+  merged_from:
+  - RULE-sepse-BE-02-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 83-105
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Closure requires can_recusar_protocolo_sepse permission (RULE-sepse-BE-02-020).
+- id: RULE-SEPSE-075
+  name: SEPSE item check / uncheck and protocol completion state machine
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Checking a SEPSE item (transition not-checado -> checado) stamps horario_checagem=now and posts an item-specific documentation observation, appending a late-check flag when the item is overdue. Unchecking (checado -> not-checado) clears checado_por and horario_checagem. When an update checks an item and no unchecked items remain, the interactive trilha is concluded (finalizado=true, concluida=true, concluido_em=now, aceito=false) and the parent TrilhaSepseV3 is set assistido=true with alert cleared to null.
+  inputs:
+  - instance.checado (boolean)
+  - validated_data.checado (boolean)
+  - instance.nome_item (enum, {solicitacao_exames, inicio_escalonamento_antimicrobiano, realizacao_expansao_volemica,
+    exames, status_hemodinamico, dispositivos_invasivos, drogas_vasoativas})
+  - atraso_item_interativa (boolean)
+  outputs:
+  - horario_checagem (datetime)
+  - trilha_interativa.concluida (boolean)
+  - alerta_trilha_interativa
+  logic: |
+    agora = now()
+    if not instance.checado and validated_data.get("checado"):
+        instance.horario_checagem = agora
+        atraso_suffix = "- !! Item checado em atraso" if instance.atraso_item_interativa else ""
+        # message template selected by nome_item:
+        #   solicitacao_exames / inicio_escalonamento_antimicrobiano / realizacao_expansao_volemica
+        #        -> "Intervencao realizada por <user @ ts><atraso>"
+        #   exames               -> "Reavaliacao dos resultados de exames por <user @ ts>-<atraso>"
+        #   status_hemodinamico  -> "Reavaliacao do status hemodinamico por <user @ ts>-<atraso>"
+        #   dispositivos_invasivos -> "Reavaliacao dos dispositivos invasivos por<user @ ts>-<atraso>"
+        #   drogas_vasoativas    -> "Reavaliacao das drogas vasoativas por <user @ ts>-<atraso>"
+        post_observation(message, tipo_trilha="sepse", responsavel=checado_por_id)
+    elif instance.checado and not validated_data.get("checado"):
+        instance.checado_por = None
+        instance.horario_checagem = None
+    instance = super().update(instance, validated_data)
+    if validated_data.get("checado") and not instance.trilha_interativa.itens_trilha_interativa.filter(checado=False):
+        ti = instance.trilha_interativa
+        ti.finalizado = True; ti.concluida = True; ti.concluido_em = agora; ti.aceito = False; ti.save()
+        TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(assistido=True, alerta_trilha_interativa=None)
+        post_observation("Trilha interativa concluida e finalizada por <user @ ts>")
+  edge_cases: |
+    Completion is evaluated AFTER super().update() persists the current item, so the just-checked item counts toward "no remaining unchecked". On completion aceito is forced False. create() of an item calls checagem_envio_automatico(item) (out of partition). checado_por_id is auto-set to the acting user upstream (RULE-sepse-BE-02-022).
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-076
+  - RULE-SEPSE-077
+  - RULE-SEPSE-090
+  - RULE-SEPSE-093
+  merged_from:
+  - RULE-sepse-BE-02-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 40-167
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Note the message-string micro-differences between items (e.g. "por<user>" missing space for dispositivos_invasivos, "{msg}{atraso}" vs "{msg}-{atraso}" separators) are as-implemented.
+- id: RULE-SEPSE-076
+  name: SEPSE interactive protocol bundle (hour-1 vs reassessment items)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Accepting the SEPSE protocol instantiates exactly seven checklist items in two bundles. The "primeira_hora" (hour-1) bundle: request labs, start/escalate antimicrobials, perform volume expansion. The "reavaliacao" (reassessment) bundle: labs review, hemodynamic status, invasive devices, vasoactive drugs.
+  inputs:
+  - trilha_interativa (identifier)
+  outputs:
+  - items (list[{nome_item, pacote}])
+  logic: |
+    itens = [
+      {nome_item: "solicitacao_exames",                  pacote: "primeira_hora"},
+      {nome_item: "inicio_escalonamento_antimicrobiano", pacote: "primeira_hora"},
+      {nome_item: "realizacao_expansao_volemica",        pacote: "primeira_hora"},
+      {nome_item: "exames",                              pacote: "reavaliacao"},
+      {nome_item: "status_hemodinamico",                 pacote: "reavaliacao"},
+      {nome_item: "dispositivos_invasivos",              pacote: "reavaliacao"},
+      {nome_item: "drogas_vasoativas",                   pacote: "reavaliacao"},
+    ]
+    # each item gets trilha_interativa set, then bulk-validated and saved
+  edge_cases: |
+    Items are created via the item serializer (many=True) with is_valid(raise_exception=True); creation triggers checagem_envio_automatico per item (core.utils, out of partition).
+  confidence: high
+  related:
+  - RULE-SEPSE-096
+  - RULE-SEPSE-078
+  - RULE-SEPSE-072
+  merged_from:
+  - RULE-sepse-BE-02-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 107-143
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Mirrors the Surviving-Sepsis "hour-1 bundle" concept. Item ordering elsewhere is by (pacote,
+    nome_item).
+- id: RULE-SEPSE-077
+  name: SEPSE item checker auto-attribution
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    When a SEPSE checklist item is submitted as checado=true, the checker identity (checado_por_id) is automatically set to the authenticated request user, overriding any client-supplied value.
+  inputs:
+  - data.checado (boolean)
+  - request.user (user)
+  outputs:
+  - checado_por_id (uuid)
+  logic: |
+    data = super().manage_data(request, ...)
+    if data.get("checado"):
+        data["checado_por_id"] = request.user.get_pk
+  edge_cases: Only applied when checado is truthy; unchecking does not set the attribution here (the serializer
+    clears checado_por on uncheck).
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-098
+  merged_from:
+  - RULE-sepse-BE-02-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/item_trilha_interativa_sepse.py
+    lines: 31-37
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ItemViewSet requires ManageDataRequiredMixin; items listed filtered by trilha_interativa pk,
+    ordered by (pacote, nome_item).
+- id: RULE-SEPSE-078
+  name: Sepsis first-hour auto-check guard
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Automatic dispatch only fires for interactive-sepsis checklist items belonging to the 'first
+    hour' bundle that are not yet checked; runs repeatedly (per docstring, every 1 min until 1h after
+    protocol opening).
+  inputs:
+  - item.pacote (string, 'primeira_hora' | other)
+  - item.checado (boolean, true|false)
+  - item.nome_item (string, solicitacao_exame | inicio_escalonamento_antimicrobiano | realizacao_expansao_volemica)
+  outputs:
+  - side_effect (dispatch)
+  logic: |
+    if item.pacote == "primeira_hora" and not item.checado:
+        system_user = Usuario.objects.get(username="sistema").get_pk
+        dispatch on item.nome_item -> RULE-003 / RULE-004 / RULE-005
+    # else: no-op
+  edge_cases: |
+    Requires an existing Usuario with username=="sistema" (DoesNotExist would raise). Any nome_item outside the three handled values does nothing. Docstring states cadence of 1 min for up to 1 hour post-opening; the cadence itself is scheduled elsewhere (task checagem_trilha_interativa iterates items and calls this).
+  confidence: high
+  related:
+  - RULE-SEPSE-079
+  - RULE-SEPSE-080
+  - RULE-SEPSE-081
+  merged_from:
+  - RULE-CAREPATH-BE-12-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 214-220
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Callers - trilha_automatica/tasks/checagem_trilha_interativa.py and trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py. 'trilha' = sepsis care pathway; 'primeira_hora' = the 1-hour sepsis bundle.
+- id: RULE-SEPSE-079
+  name: Sepsis 1h bundle - exam solicitation auto-check
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: Auto-marks the 'solicitacao_exame' first-hour item as done when the bed's first CPOE record
+    carries a sepsis protocol, and posts a system observation.
+  inputs:
+  - cpoe.protocolo_sepse (any, truthy => sepsis protocol prescribed)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: |
+    if item.nome_item == "solicitacao_exame":
+        cpoe = item.trilha_interativa.trilha.cpoe_leito.first()
+        if cpoe.protocolo_sepse:
+            item.checado = True; item.save()
+            mensagem = f"solicitados Exames na 1a hora, prescrito por {cpoe_first.nm_protocolo_sepse} as {cpoe_first.dt_protocolo_sepse}"
+            enviar_observacao_trilha_interativa(mensagem, tipo_trilha="sepse", trilha_interativa=item.trilha_interativa, responsavel=system_user)
+  edge_cases: |
+    Uses cpoe_leito.first() (no ordering guarantee). If cpoe_leito.first() is None, cpoe.protocolo_sepse raises AttributeError. Message re-queries cpoe_leito.first() for name/date fields.
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-076
+  - RULE-SEPSE-096
+  divergence: Auto-check dispatch (core/utils.py) matches item.nome_item == 'solicitacao_exame' (SINGULAR),
+    but the bundle item is created and enumerated as 'solicitacao_exames' (PLURAL) in RULE-SEPSE-076 (creation
+    list) and RULE-SEPSE-096 (choices enum). The names never match, so this exam first-hour auto-check
+    branch is dead code and never fires; only antimicrobial (RULE-SEPSE-080) and volume (RULE-SEPSE-081)
+    auto-checks can trigger.
+  merged_from:
+  - RULE-CAREPATH-BE-12-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 221-235
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Truthiness (not equality) test on protocolo_sepse. Message text has 1a-hour attribution to prescriber.
+- id: RULE-SEPSE-080
+  name: Sepsis 1h bundle - antimicrobial escalation auto-check (24h window)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Auto-marks 'inicio_escalonamento_antimicrobiano' done when a CPOE updated within the 24h
+    preceding the interactive pathway's creation time has a non-null day-0 antibiotic; posts a system
+    observation naming the antibiotic.
+  inputs:
+  - cpoe.dt_atualizacao_cpoe (datetime, >= trilha_interativa.criado_em - 24h)
+  - cpoe.ds_antibiotico_d0 (string, not null)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: |
+    elif item.nome_item == "inicio_escalonamento_antimicrobiano":
+        cpoe_24 = trilha.cpoe_leito.filter(dt_atualizacao_cpoe__gte = trilha_interativa.criado_em - timedelta(hours=24))
+        if cpoe_24.filter(ds_antibiotico_d0__isnull=False).exists():
+            item.checado = True; item.save()
+            mensagem = f"Iniciado novo ciclo de {cpoe_leito.first().ds_antibiotico_d0}"
+            enviar_observacao_trilha_interativa(mensagem, "sepse", item.trilha_interativa, system_user)
+  edge_cases: |
+    Window boundary is inclusive (__gte). Filter reference time is trilha_interativa.criado_em (pathway open time), NOT now. Message uses cpoe_leito.first().ds_antibiotico_d0 which may differ from the record that satisfied the filter.
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-080
+  merged_from:
+  - RULE-CAREPATH-BE-12-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 237-251
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 24-hour lookback threshold. isnull=False => antibiotic present.
+- id: RULE-SEPSE-081
+  name: Sepsis 1h bundle - volume expansion auto-check (4h window)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Auto-marks 'realizacao_expansao_volemica' done when an ADEP administration record updated
+    within the 4h preceding pathway creation shows lactated-Ringer OR 0.9% saline volume > 0; posts observation
+    with the administering professional.
+  inputs:
+  - adep.dt_atualizacao_adep (datetime, >= trilha_interativa.criado_em - 4h)
+  - adep.soro_lactato (number, mL, > 0)
+  - adep.soro_09 (number, mL, > 0)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: |
+    elif item.nome_item == "realizacao_expansao_volemica":
+        adep_4h = trilha.adep_leito.filter(dt_atualizacao_adep__gte = trilha_interativa.criado_em - timedelta(hours=4))
+        if adep_4h.filter(Q(soro_lactato__gt=0) | Q(soro_09__gt=0)).exists():
+            item.checado = True; item.save()
+            profissional = adep_leito.first().ds_soro_lactato or adep_leito.first().ds_soro_09
+            mensagem = f"Realizada reposicao volemica na 1a hora. Administrado por {profissional}"
+            enviar_observacao_trilha_interativa(mensagem, "sepse", item.trilha_interativa, system_user)
+  edge_cases: |
+    4-hour inclusive lookback (__gte) from pathway creation time. Condition is soro_lactato>0 OR soro_09>0 (strict >0). Professional attribution = ds_soro_lactato else ds_soro_09 (from adep_leito.first(), not necessarily the matched row).
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-061
+  merged_from:
+  - RULE-CAREPATH-BE-12-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 252-270
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Distinct 4h window here vs 24h for antibiotics (RULE-004) and no window for exams (RULE-003).
+- id: RULE-SEPSE-082
+  name: Vital signs entry auto-creates sepsis-screening (Sepse) record linked to latest evolution
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Every time a SinaisVitais record is created, the system automatically creates a linked Sepse (sepsis-screening) record for the same encounter, associated with the most recently created Formulario (clinical evolution document) for that encounter, or with no evolution if none exists yet.
+  inputs:
+  - sinais_vitais (created instance) (object reference)
+  - nr_atendimento (string/integer (encounter number))
+  - most recent Formulario for nr_atendimento (object reference (nullable))
+  outputs:
+  - Sepse record (object)
+  logic: |
+    formulario = Formulario.objects
+        .filter(nr_atendimento=sinais_vitais.balanco.nr_atendimento)
+        .order_by("-criado_em")
+        .first()
+    Sepse.objects.create(
+        sinais_vitais=self.sinais_vitais,
+        nr_atendimento=self.sinais_vitais.balanco.nr_atendimento,
+        evolucao=formulario if formulario else None,
+    )
+  edge_cases: |
+    "Most recent" is determined purely by Formulario.criado_em descending, with no filter on tipo or status — a Formulario of ANY professional type/status (even a still-draft one) can be linked as the "evolucao" for the new Sepse record. The actual sepsis scoring/threshold logic (if any) lives on the Sepse model, out of this partition's scope; only the creation trigger and the evolution-linking rule are visible here. A bare leito.save() call immediately follows (lines 146-149) with no field changes, presumably to bump a cache/signal — not itself a business rule.
+  confidence: high
+  related:
+  - RULE-SEPSE-082
+  merged_from:
+  - RULE-sepse-BE-07-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/sinais_vitais.py
+    lines: 134-145
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    This is the key "trilha" (care-pathway) trigger for sepsis screening in the homecare module: it fires unconditionally on every vital-signs submission, not gated by any vital-sign threshold visible in this file.
+- id: RULE-SEPSE-083
+  name: Interactive sepsis trail filtered by bed
+  category: care-pathway
+  type: threshold
+  status: OK
+  verify: false
+  description: TrilhaInterativaViewSet.get_queryset returns TrilhaSepseV3Model rows whose leito matches
+    the 'ocupacoes__pk' URL kwarg directly (treated as a Leito pk).
+  inputs:
+  - kwargs.ocupacoes__pk (uuid)
+  outputs:
+  - queryset (queryset of TrilhaSepseV3Model)
+  logic: |
+    return TrilhaSepseV3Model.objects.filter(leito=kwargs.get("ocupacoes__pk"))
+  confidence: high
+  related:
+  - RULE-SEPSE-071
+  merged_from:
+  - RULE-trilhainterativa-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/trilha_interativa.py
+    lines: 19-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+- id: RULE-SEPSE-084
+  name: Active sepsis care-pathway selection
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Given the loaded occupancy (ocupacao) record, the sepsis page selects the applicable care-pathway (trilha) as the first element of ocupacao.trilhas whose tipo equals "sepse".
+  inputs:
+  - ocupacao.trilhas (array of Trilha objects)
+  outputs:
+  - trilhaSepse (Trilha | undefined)
+  logic: |
+    trilhaSepse = ocupacao.trilhas.find(trilha => trilha.tipo === "sepse")
+  edge_cases: If no trilha with tipo === "sepse" exists, trilhaSepse is undefined and the page falls to
+    the "no protocols" empty state (RULE-sepse-FE-08-005).
+  confidence: high
+  related:
+  - RULE-SEPSE-084
+  merged_from:
+  - RULE-sepse-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 50-68
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-SEPSE-085
+  name: Interactive sepsis pathway completion transition
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    A "trilha interativa" (interactive checklist instance) attached to the current sepsis pathway is considered finished, and is moved from "current" to "historical", only when BOTH its concluida (concluded) flag AND finalizado (finalized) flag are true, and only for the instance matching the id currently tracked as active.
+  inputs:
+  - data.id (string)
+  - data.concluida (boolean)
+  - data.finalizado (boolean)
+  - trilhaInterativaAtual.id (string | undefined)
+  outputs:
+  - trilhaInterativaAtual (object | undefined)
+  logic: |
+    if (data.id === trilhaInterativaAtual?.id && data.concluida && data.finalizado) {
+      trilhaInterativaAtual = undefined
+      refresh historical list (_getTrilhasInterativasHistoricos)
+      refresh ocupacao (_getOcupacao)
+    }
+  edge_cases: |
+    If only one of concluida/finalizado is true, the instance remains "current" (both flags are required, AND logic, not OR).
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-090
+  - RULE-SEPSE-093
+  merged_from:
+  - RULE-sepse-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 98-143
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-SEPSE-086
+  name: Historical sepsis pathway instances filtered by aceito=false
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    The list of "previous" (trilhasInterativasAnteriores) interactive sepsis pathway instances, shown as dated history tabs, is fetched with an explicit filter {aceito: false} (i.e. "not accepted").
+  inputs:
+  - aceito (query filter) (boolean, false (hardcoded))
+  outputs:
+  - trilhasInterativasAnteriores (array)
+  logic: |
+    data = getTrilhasInterativasSepse(..., { aceito: false })
+    trilhasInterativasAnteriores = data
+  confidence: medium
+  related:
+  - RULE-SEPSE-073
+  - RULE-SEPSE-094
+  merged_from:
+  - RULE-sepse-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 70-96
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Best interpretation: "aceito" likely denotes whether a clinician has formally accepted/signed-off a pathway instance into the permanent record, and the "historical" tab intentionally shows instances still pending acceptance/review rather than fully archived ones. This reading is inferred, not confirmed by any comment or type definition in this partition's scope; recorded verbatim per ground rules.
+- id: RULE-SEPSE-087
+  name: Sepsis page "back" navigation preserves drawer context
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    The back button on the sepsis interactive-pathway page navigates to the parent sector page with query parameters that identify the sepsis trilha, occupancy id, and bed name, so the parent page can reopen the recommendations drawer in the correct context.
+  inputs:
+  - id_empresa, id_estabelecimento, id_setor (string (route params))
+  - ocupacao.id (string)
+  - ocupacao.leito.nome (string)
+  outputs:
+  - destination URL (string)
+  logic: |
+    router.replace(
+      `/empresa/${id_empresa}/estabelecimento/${id_estabelecimento}/setor/${id_setor}` +
+      `?trilha=sepse&ocupacao=${ocupacao.id}&leito=${ocupacao.leito.nome}`
+    )
+  edge_cases: If ocupacao is not yet loaded, the button click is a no-op (guarded by `if (ocupacao)`).
+  confidence: high
+  merged_from:
+  - RULE-sepse-FE-08-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 205-211
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-SEPSE-088
+  name: Empty-state for absent sepsis protocols
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The sepsis page shows an "no protocols" empty state unless there is either a current active interactive pathway instance, or at least one historical instance.
+  inputs:
+  - trilhaInterativaAtual (object | undefined)
+  - trilhasInterativasAnteriores (array | undefined)
+  outputs:
+  - rendered content (enum)
+  logic: |
+    if (trilhaInterativaAtual || (trilhasInterativasAnteriores && trilhasInterativasAnteriores.length > 0)) {
+      render Tabs (current + historical)
+    } else {
+      render Empty("Não há protocolos de sepse para este paciente")
+    }
+  confidence: high
+  merged_from:
+  - RULE-sepse-FE-08-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 261-298
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-SEPSE-089
+  name: Current protocol tab requires non-empty checklist items
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The "Protocolo Atual" tab is only rendered if trilhaInterativaAtual exists AND its itens_trilha_interativa (checklist items) field is truthy/non-empty; otherwise only historical tabs (if any) are shown.
+  inputs:
+  - trilhaInterativaAtual.itens_trilha_interativa (array)
+  outputs:
+  - tab visibility (boolean)
+  logic: |
+    if (trilhaInterativaAtual && trilhaInterativaAtual.itens_trilha_interativa) {
+      render Tabs.TabPane "Protocolo Atual"
+    }
+  confidence: medium
+  merged_from:
+  - RULE-sepse-FE-08-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 269-278
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+- id: RULE-SEPSE-090
+  name: Sepsis protocol lifecycle state display
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Renders the state of an accepted sepsis interactive protocol (trilha interativa). It always shows who accepted it and the acceptance timestamp. If concluida it shows "Concluida"; otherwise if finalizado it shows "Finalizada" with an optional refusal-reason popover (motivo_descartado). If neither, only acceptance info is shown (in-progress).
+  inputs:
+  - trilhaInterativa.registrado_por.nome (string)
+  - trilhaInterativa.horario_registro_aceitacao (datetime)
+  - trilhaInterativa.concluida (boolean)
+  - trilhaInterativa.finalizado (boolean)
+  - trilhaInterativa.motivo_descartado (string)
+  outputs:
+  - status label (enum {Concluida, Finalizada, (in-progress)})
+  logic: |
+    header:
+      "Aceito por: <registrado_por.nome>"
+      clock icon + format(horario_registro_aceitacao, "DD/MM/YYYY HH:mm")
+    if (concluida):
+      show check icon + "Concluida"
+    else if (finalizado):
+      show close icon + "Finalizada"
+      popover.content = motivo_descartado ? ("Motivo Recusa: " + motivo_descartado) : null
+    // else: in progress, only acceptance info shown
+    // Data source: if trilhaInterativaId provided, fetch via getTrilhaIterativa;
+    //   else use trilhaInterativaAtual directly.
+  edge_cases: |
+    concluida takes precedence over finalizado (checked first). If both false the protocol is treated as in-progress. Refusal reason popover content is null when motivo_descartado is empty. Timestamp formatted with moment in DD/MM/YYYY HH:mm.
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-093
+  - RULE-SEPSE-085
+  merged_from:
+  - RULE-sepse-FE-03-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ProtocoloSepseContent.tsx
+    lines: 44-114
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    "Finalizada" here corresponds to a refused/closed-without-completion protocol (motivo_descartado = refusal reason), distinct from "Concluida" (completed). Acceptance/refusal are driven by TrilhaInterativa (RULE-trilha-FE-03-003/004).
+- id: RULE-SEPSE-091
+  name: Sepsis protocol item conditional visibility and expandability
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    A sepsis protocol step is rendered only when item.exibir is true. A shown step is expandable (collapsible) only when it has a description (descricao_item) or a checker (checado_por); otherwise the panel is non-expandable.
+  inputs:
+  - item.exibir (boolean)
+  - item.descricao_item (object {texto, link})
+  - item.checado_por (object {nome})
+  outputs:
+  - item rendered / expandable (boolean)
+  logic: |
+    if (!item.exibir) render nothing
+    else:
+      collapsible = (item.descricao_item || item.checado_por) ? "header" : "disabled"
+      showArrow   = (item.descricao_item || item.checado_por) ? true : false
+      // Expanded body shows:
+      //   if (checado_por && horario_checagem): "Checado por: <nome>" + date
+      //   if (descricao_item.texto): description text
+      //   if (descricao_item.link): image + open-in-new-tab button
+  edge_cases: |
+    Steps with exibir=false are entirely hidden (conditional pathway branching). A step with neither description nor checker is displayed but not expandable.
+  confidence: high
+  related:
+  - RULE-SEPSE-070
+  - RULE-SEPSE-092
+  merged_from:
+  - RULE-sepse-FE-03-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 17-118
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    item.exibir encodes conditional care-pathway branching (which steps apply); the branching rule that sets exibir is server-side (out of partition).
+- id: RULE-SEPSE-092
+  name: Sepsis protocol item check-off workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Each sepsis protocol step can be checked off. The checkbox is interactive only when an onCheck handler is supplied (otherwise read-only). Toggling calls onCheck(item.id, checked). Label reads "Checado" if already checked, else "Checar". A checked item records checado_por and horario_checagem.
+  inputs:
+  - item.checado (boolean)
+  - onCheck (function|undefined)
+  outputs:
+  - onCheck(item.id, checked) (side-effect)
+  logic: |
+    checkbox.disabled = onCheck ? false : true
+    checkbox.defaultChecked = item.checado || false
+    onClick(e):
+      stopPropagation()
+      setChecado(e.target.checked)
+      if (onCheck) onCheck(item.id, e.target.checked)
+    label = item.checado ? "Checado" : "Checar"
+  edge_cases: |
+    With no onCheck the checkbox is disabled (view-only mode, e.g. history). e.stopPropagation prevents the click from toggling the Collapse panel.
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-077
+  merged_from:
+  - RULE-sepse-FE-03-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 55-66
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    The onCheck callback wiring to the backend PATCH is provided by the parent page (out of partition); ProtocoloSepseContent passes it through unchanged (lines 101-106).
+- id: RULE-SEPSE-093
+  name: Sepsis-pathway dual completion flags
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: The sepsis interactive-pathway record (TrilhaInterativa.Sepse) carries two distinct boolean
+    completion-related flags — "finalizado" and "concluida" — with only "concluida" having an associated
+    "concluida_em" completion timestamp; the exact distinction between the two flags is not defined by
+    any logic present in this partition.
+  inputs:
+  - finalizado (boolean)
+  - concluida (boolean)
+  - concluida_em (string (datetime), optional)
+  outputs:
+  - pathway completion state (derived)
+  logic: |
+    // best interpretation, not confirmed by code in this partition:
+    finalizado = true  -> the interactive pathway session has ended/closed (regardless of outcome)
+    concluida  = true  -> the pathway was completed successfully (e.g. all required bundle items checked)
+    concluida_em = timestamp of the concluida transition
+  edge_cases: No boolean-combination validation is present (e.g. whether concluida=true implies finalizado=true).
+  confidence: low
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-073
+  - RULE-SEPSE-074
+  - RULE-SEPSE-085
+  - RULE-SEPSE-090
+  merged_from:
+  - RULE-sepse-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 3-14
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: A verifier should check the backend partition for the actual state-machine definition distinguishing
+    finalizado vs concluida.
+- id: RULE-SEPSE-094
+  name: Sepsis-pathway accept/discard workflow
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: A sepsis care-pathway (trilha) can be either accepted (aceito=true) or discarded with a
+    mandatory reason (motivo_descartado), with the deciding actor (registrado_por) and decision timestamp
+    (horario_registro_aceitacao) recorded at both the bed-occupancy Trilha level and the dedicated TrilhaInterativa.Sepse
+    record level. Discarding is gated elsewhere by the can_recusar_protocolo_sepse permission.
+  inputs:
+  - aceito (boolean)
+  - motivo_descartado (string, optional, required when aceito=false (implied by shape, not enforced in
+    this partition))
+  outputs:
+  - pathway acceptance state (derived)
+  logic: |
+    if aceito == true:
+      motivo_descartado not expected/used
+    else:  // discarded
+      motivo_descartado should be populated (reason for refusing the sepsis protocol)
+    // gated by Permission "can_recusar_protocolo_sepse" (enforcement not present in this partition)
+  edge_cases: motivo_descartado is optional at the type level even when aceito is false, so nothing prevents
+    an empty/undefined reason from being submitted per the frontend types alone.
+  confidence: medium
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-073
+  - RULE-SEPSE-097
+  merged_from:
+  - RULE-sepse-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 3-24
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Permission cross-reference at src/@types/models/Permissions.d.ts line 17 ("can_recusar_protocolo_sepse");
+    mirrored shape also at src/@types/models/Ocupacao.d.ts lines 94-103 (Trilha.trilha_interativa).
+- id: RULE-SEPSE-095
+  name: Sepsis protocol item first-hour delay alert
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: |
+    A sepsis protocol step that was completed/handled late relative to its first-hour target is visually flagged with a red clock-alert icon. The flag itself (atraso_primeira_hora) is computed server-side; the client renders the alert when it is true.
+  inputs:
+  - item.atraso_primeira_hora (boolean)
+  outputs:
+  - first-hour-delay icon shown? (boolean)
+  logic: |
+    if (item.atraso_primeira_hora):
+      render red clock-alert icon (mdiClockAlert, color "#e84748") next to
+      item.nome_item_humanizado
+  edge_cases: |
+    Purely presence-driven; no numeric threshold is evaluated client-side. Icon wrapped in an empty Popover (no explanatory content is passed).
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-070
+  divergence: 'Cross-implementation field-name mismatch: the backend item serializer exposes the first-hour
+    delay flag as ''atraso_item_interativa'' (computed by RULE-SEPSE-069), but the frontend type (TrilhaInterativa.d.ts)
+    and component (ItemProtocoloSepse.tsx) read ''item.atraso_primeira_hora''. There is no ''atraso_primeira_hora''
+    in the backend and no ''atraso_item_interativa'' in the frontend, so the red first-hour-delay icon
+    is bound to an always-undefined field and never renders.'
+  merged_from:
+  - RULE-sepse-FE-03-002
+  - RULE-sepse-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 42-50
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 26-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: |-
+    Encodes the sepsis "first-hour bundle" concept (atraso primeira hora = delay in the first hour). The threshold logic that sets atraso_primeira_hora is in the backend (out of partition) and should be captured there; here only the alert rendering exists.
+     || MERGED FE type-decl + render: RULE-sepse-FE-07-002: Aligns with the Surviving Sepsis Campaign "hour-1 bundle" concept; exact threshold-computation logic is out of scope (likely backend).
+- id: RULE-SEPSE-096
+  name: Sepsis interactive bundle step and package enums
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Enumerates the interactive sepsis protocol packages (primeira_hora = first hour; reavaliacao = reassessment) and the bundle item names, including the Surviving-Sepsis 1-hour actions.
+  inputs:
+  - pacote choice, nome_item choice (string enum)
+  outputs:
+  - allowed choices (enum)
+  logic: |
+    pacote() = [("primeira_hora","Primeira hora"), ("reavaliacao","Reavaliacao")]
+    nome_item() = [
+      ("solicitacao_exames", "Solicitacao de exames laboratoriais e culturas para bacterias e fungos em ate 1 hora"),
+      ("inicio_escalonamento_antimicrobiano", "Inicio ou escalonamento antimicrobiano e realizar controle de foco em ate 1 hora"),
+      ("realizacao_expansao_volemica", "Realizacao de expansao volemica com cristaloides em ate 1 hora"),
+      ("exames","Exames"), ("status_hemodinamico","Status hemodinamico"),
+      ("dispositivos_invasivos","Dispositivos invasivos"), ("drogas_vasoativas","Drogas vasoativas"),
+    ]
+  edge_cases: First three item labels encode the 1-hour SSC bundle deadlines textually.
+  confidence: high
+  related:
+  - RULE-SEPSE-076
+  - RULE-SEPSE-079
+  merged_from:
+  - RULE-interativa-BE-03-130
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/choices/trilha_interativa.py
+    lines: 4-35
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Choices applied to ItemTrilhaInterativaSpese.pacote and .nome_item fields.
+- id: RULE-SEPSE-097
+  name: Sepsis protocol refusal permission
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Custom Django permission gating who may refuse (recusar) the sepsis protocol.
+  inputs:
+  - user permission (permission)
+  outputs:
+  - can_recusar_protocolo_sepse (permission)
+  logic: |
+    Meta.permissions = (("can_recusar_protocolo_sepse", "Pode recusar protocolo de sepse"),)
+  confidence: high
+  related:
+  - RULE-SEPSE-074
+  - RULE-SEPSE-071
+  merged_from:
+  - RULE-interativa-BE-03-133
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/trilha_interativa_sepse.py
+    lines: 22-28
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Lifecycle flags on TrilhaInterativaSpese (encerrado, finalizado, concluida, aceito) drive can_criar_novo_protocolo
+    (RULE-sepse-BE-03-121).
+- id: RULE-SEPSE-098
+  name: Sepsis-checklist signer requires CPF, unlike other checklist types
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: The "checado_por" (checked-by) actor on a sepsis-pathway checklist item includes a "cpf"
+    (Brazilian tax ID) field, whereas the equivalent "checked-by"/"filled-by" actor shapes elsewhere in
+    the codebase (Prescricao.ChecadoPor, BalancoHidrico.PreenchidoPor/DeletadoPor, Chat.ChecadoPor) only
+    capture id and nome, without cpf.
+  inputs:
+  - checado_por.cpf (string)
+  outputs:
+  - checado_por (object)
+  logic: |
+    TrilhaInterativa.Sepse.ChecadoPor = { id: string, nome: string, cpf: string }
+    // vs. Prescricao.ChecadoPor = { id: string, nome: string }
+    // vs. BalancoHidrico.PreenchidoPor / DeletadoPor = { id: string, nome: string }
+    // vs. Chat.ChecadoPor = { nome: string, id: string }
+  edge_cases: None demonstrated in this partition beyond the shape difference itself.
+  confidence: low
+  related:
+  - RULE-SEPSE-077
+  merged_from:
+  - RULE-sepse-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 45-49
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Best interpretation is that sepsis-protocol checklist items carry a stronger medical-legal accountability
+    requirement (CPF-verified signature) than other checklist types, given the severity/liability profile
+    of sepsis-bundle compliance; not confirmed by any explicit validation code in this partition.
+dropped:
+- id: RULE-sepse-BE-02-021
+  reason: misrouted:tenancy-organizacao
+- id: RULE-sepse-BE-07-001
+  reason: misrouted:piora-clinica

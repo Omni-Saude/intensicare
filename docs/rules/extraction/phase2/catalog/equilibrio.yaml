@@ -1,0 +1,186 @@
+cluster: equilibrio
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+  - id: RULE-EQUILIBRIO-001
+    name: Fluid balance - positive fluid balance and maintenance-fluid limits (criteria 1-4)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: >
+      Fluid-balance ("equilibrio") trilha criteria 1-4 governing very-positive 24h fluid
+      balance, accumulated positive balance, unnecessary maintenance soroterapia, and
+      falling diuresis. Each criterion carries an alert label plus recommendation text.
+    inputs:
+      - {name: balanco hidrico 24h, type: float, unit: ml/24h}
+      - {name: balanco hidrico acumulado, type: float, unit: ml}
+      - {name: diurese trend (ultimas 6h), type: float, unit: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1  balanco hidrico muito positivo > 3000 ml/24h ->
+        checar reducao/suspensao de soroterapia de manutencao, reduzir infusao de fluidos,
+        concentrar solucao de drogas de infusao continua, considerar diureticos p/ zerar BH.
+      criterio_2  balanco hidrico acumulado muito positivo ->
+        suspender/reduzir soroterapia; se manter, reduzir p/ 5 ml/h; considerar diureticos;
+        evitar prova de expansao volemica ou bolus de cristaloides.
+      criterio_3  soroterapia desnecessaria, considerar suspensao ->
+        reduzir/suspender; se manter, reduzir p/ 5 ml/h; preferir hidratacao com agua filtrada
+        VO/SNE ate ~2400 ml/dia.
+      criterio_4  reducao da diurese nas ultimas 6h ->
+        avaliar funcao renal (substituir drogas nefrotoxicas se piora), avaliar desidratacao/
+        ingesta hidrica, avaliar risco de SEPSE (abertura de protocolo), avaliar retencao
+        urinaria (bexigoma) / obstrucao de SVD, acessar status volemico por USG.
+    edge_cases: >
+      Very-positive BH cutoff is strictly > 3000 ml/24h. Maintenance-fluid floor is 5 ml/h.
+      Water hydration ceiling ~2400 ml/dia. Criteria are boolean flags computed upstream (Tasy);
+      the facade holds only the alert/recommendation text, not the numeric predicate evaluation.
+      Note (surfacing): in the live TrilhaEquilibrioModel.get_detalhe() only criteria [1,3,6,8,9]
+      are surfaced, so criterio_2 and criterio_4 alert text exists in the payload but is NOT
+      shown in this model's detalhe and does not contribute to the alert color (see RULE-EQUILIBRIO-003).
+    confidence: high
+    related: [RULE-EQUILIBRIO-002, RULE-EQUILIBRIO-003, RULE-EQUILIBRIO-004]
+    merged_from: [RULE-equilibrio-BE-01-009]
+    sources:
+      - {repo: ahlabs-trilhas, path: core/facade/trilha_equilibrio.py, lines: "1-36", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_automatica/facade/equilibrio.py, lines: "1-4", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      = equilibrio_automatica. payload_equilibrio_automatica (trilha_automatica/facade/equilibrio.py)
+      is a straight alias of payload_trilha_equilibrio (`payload_equilibrio_automatica = payload_trilha_equilibrio`)
+      - same object, no divergence. No frontend copy of these criteria/thresholds exists
+      (frontend only displays trilha alert colors, not the criteria text). verify=false: institutional
+      fluid-management thresholds (3000 ml/24h, 5 ml/h, 2400 ml/dia) with no single named published anchor.
+  - id: RULE-EQUILIBRIO-002
+    name: Renal-function drug substitution, morphine avoidance, and hypernatremia (Na>160) correction (criteria 5-8, 10)
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    verify: true
+    description: >
+      Equilibrio trilha criteria 5-8 and 10: nephrotoxic drug substitution on worsening renal
+      function, morphine avoidance under impaired creatinine clearance, and hypernatremia
+      correction protocol.
+    inputs:
+      - {name: sodio serico, type: float, unit: mEq/L}
+      - {name: clearance de creatinina, type: float, unit: null}
+      - {name: funcao renal (piora), type: bool, unit: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_5  piora da funcao renal + uso de drogas nefrotoxicas ->
+        substituir Cefepime -> Tazocin; substituir Vancomicina -> Linezolida;
+        substituir losartan/captopril/enalapril -> bloqueador de canal de calcio (ou outra classe anti-HAS).
+      criterio_6  piora da funcao renal, reavaliar doses e substituicao de drogas nefrotoxicas
+        (alerta sem recomendacoes especificas na facade; recomendacoes = []).
+      criterio_7  clearance de morfina prejudicado ->
+        alto risco de acumulo de metabolitos (manter estado de coma); suspender morfina;
+        substituir por fentanil, cetamina ou outros analgesicos.
+      criterio_8  funcao renal reduzida, reavaliar uso de morfina ->
+        monitorar nivel de consciencia; preferencialmente substituir por fentanil, cetamina,
+        metadona ou outros analgesicos.
+      criterio_10 hipernatremia com Na > 160 ->
+        agua filtrada 400 ml 6/6h VO/SNE;
+        Cloreto de sodio 0,22% a 84 ml/h;
+        Hidroclorotiazida 25 mg comprimido, 2 comprimidos 1x/dia (para hipernatremia refrataria).
+    edge_cases: >
+      Hypernatremia cutoff strictly Na > 160. criterio_6 has an alert label but an empty
+      recomendacoes list (verbatim). Criteria are upstream boolean flags; facade holds only text.
+      Note (surfacing): in live TrilhaEquilibrioModel.get_detalhe() only [1,3,6,8,9] are surfaced,
+      so criterio_5, criterio_7 and criterio_10 text exists in the payload but is not surfaced by
+      this model and does not affect alert color (criterio_6 and criterio_8 ARE surfaced).
+    confidence: high
+    related: [RULE-EQUILIBRIO-001, RULE-EQUILIBRIO-003, RULE-EQUILIBRIO-004]
+    merged_from: [RULE-equilibrio-BE-01-011]
+    sources:
+      - {repo: ahlabs-trilhas, path: core/facade/trilha_equilibrio.py, lines: "37-63, 74-81", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_automatica/facade/equilibrio.py, lines: "1-4", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      verify=true: category drug-dosing (specific drug substitutions, hypernatremia correction
+      with NaCl 0.22% at 84 ml/h and hydrochlorothiazide 25 mg dosing). Preserve drug names/doses
+      verbatim; no clinical correction applied.
+  - id: RULE-EQUILIBRIO-003
+    name: Equilibrio trilha alert-color aggregation (v1, TrilhaEquilibrioModel.calcular_alerta)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    verify: false
+    description: >
+      Persisted alert-color for the Equilibrio trilha, computed from which specific criteria
+      flags are set. Value is stored to self.alerta in save() and surfaced via get_payload()/get_detalhe().
+    inputs:
+      - {name: "criterio_3, criterio_6, criterio_8 (amarelo set)", type: int flag (truthy), unit: null}
+      - {name: "criterio_1, criterio_9 (vermelho set)", type: int flag (truthy), unit: null}
+    outputs:
+      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}", unit: null}
+    logic: |
+      amarelo  = [criterio_3, criterio_6, criterio_8].count(True)
+      vermelho = [criterio_1, criterio_9].count(True)
+      if vermelho >= 1:   return "VERMELHO"
+      elif amarelo >= 1:  return "AMARELO"
+      else:               return "NEUTRO"
+      # criterios_mensagem (message-eligible criteria) = [criterio_1, criterio_9]
+      # get_detalhe() surfaces criteria in [1, 3, 6, 8, 9] only.
+    edge_cases: >
+      In save(), when alerta == "NEUTRO" the model also resets assistido=False.
+      Only criteria 1,3,6,8,9 influence the color; criteria 2,4,5,7,10 never change it.
+    confidence: high
+    related: [RULE-EQUILIBRIO-001, RULE-EQUILIBRIO-002, RULE-EQUILIBRIO-004]
+    merged_from: [RULE-equilibrio-BE-03-018]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha7.py, lines: "87-91, 124-143", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Live/authoritative path is calcular_alerta() (specific-criteria) - used in save() and
+      exposed through get_payload()/get_detalhe(). A second, COUNT-based path coexists in the
+      same class (generate_view_data() -> define_tipo_alerta(conta_criterios_automatica(),
+      _CRITERIOS_ALERTA={amarelo:2, vermelho:3}), i.e. NEUTRO<2, AMARELO=1-2, VERMELHO>=3 over
+      all 10 flags) but is DEAD: its only caller is a commented-out line at
+      trilha_automatica/api/v1/views/trilhas.py:59. Because it is not wired, this is NOT a live
+      divergence and status stays OK (no DISCREPANCY manufactured from dead code).
+      Separately, a version variant TrilhaSeteSintetico (db_table trilha_automatica7) computes
+      the color count-based with _CRITERIOS_ALERTA={amarelo:4, vermelho:5} and surfaces ALL 10
+      criteria in get_detalhe() - a SEPARATE variant of the same pathway (not merged; no Phase-1
+      provisional ID was captured for it). verify=false: internal UI severity mapping, no published
+      clinical anchor.
+  - id: RULE-EQUILIBRIO-004
+    name: Severe hyperkalemia (K>6) rescue protocol with 4h reassessment (criterio 9)
+    category: drug-dosing
+    type: workflow
+    status: OK
+    verify: true
+    description: >
+      Emergency treatment protocol for severe hyperkalemia (equilibrio criterio_9), with a timed
+      reassessment and escalation branch at +4h.
+    inputs:
+      - {name: potassio serico, type: float, unit: "mEq/L (labelled mg/dl in source)"}
+      - {name: peso, type: float, unit: kg}
+    outputs:
+      - {name: medication protocol, type: string, unit: null}
+    logic: |
+      IF K > 6 (hipercalemia grave):
+        Gluconato de Calcio 1 ampola EV;
+        Furosemida 20 mg, 3 ampolas EV em bolus;
+        solucao polarizante (insulina + soro glicofisiologico);
+        3 doses inalatorias de 10 gotas de fenoterol OU salbutamol, de 15 em 15 min.
+      Reavaliar potassio serico apos 4h:
+        IF K > 5.5 (source writes "5,5mg/dl") ->
+          repetir o esquema anterior
+          + Bicarbonato de sodio 8,4%, 1 ml/kg de peso
+          + Sorcal (via oral apenas), 1 envelope de 15 g, 8/8h.
+    edge_cases: >
+      Initial trigger K > 6; reassessment/escalation threshold K > 5.5 at +4h. Source writes the
+      potassium unit as "mg/dl" (should be mEq/L or mmol/L) - reproduced verbatim, NOT corrected.
+      Bicarbonate dose is 1 ml/kg of 8.4% solution. Sorcal restricted to oral route.
+    confidence: high
+    related: [RULE-EQUILIBRIO-001, RULE-EQUILIBRIO-002, RULE-EQUILIBRIO-003]
+    merged_from: [RULE-equilibrio-BE-01-010]
+    sources:
+      - {repo: ahlabs-trilhas, path: core/facade/trilha_equilibrio.py, lines: "64-73", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_automatica/facade/equilibrio.py, lines: "1-4", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      verify=true: category drug-dosing + hyperkalemia emergency management is a well-published
+      protocol (calcium gluconate, insulin+glucose, beta-agonist, furosemide, bicarbonate, cation
+      exchange resin). criterio_9 (which drives the "vermelho" color in RULE-EQUILIBRIO-003) bundles
+      both the initial K>6 measures and the +4h K>5.5 escalation into one recommendation string.
+      Doses/units preserved verbatim.
+dropped: []

@@ -1,0 +1,861 @@
+cluster: ventilacao
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+  # ------------------------------------------------------------------
+  # CORE FORMULAS / SCORES
+  # ------------------------------------------------------------------
+  - id: RULE-VENTILACAO-001
+    name: Predicted body weight and protective tidal volume (VC 4/5/6 ml/kg)
+    category: physiological-calculation
+    type: formula
+    status: OK
+    verify: true
+    description: >
+      When the physiotherapist enters height (cm), computes predicted/ideal body weight
+      (ARDSNet/Devine-style: sex-specific base + 0.91 kg per cm above 152.4 cm) and derives
+      three lung-protective tidal-volume targets at 4, 5 and 6 mL/kg of that predicted weight.
+    inputs:
+      - altura (cm)
+      - ocupacao.paciente.genero (string enum "F" | other)
+    outputs:
+      - calculo_peso (kg, base constant only)
+      - peso_ideal (string, 4 decimals, kg)
+      - vc_ideal_4 / vc_ideal_5 / vc_ideal_6 (string, 4 decimals, mL)
+    logic: |
+      on altura(e) change:
+        pesoGender = (ocupacao?.paciente?.genero === "F") ? 45.5 : 50   // any non-"F" (incl. undefined) => male base 50
+        if (e === null || e === 0):
+          pesoIdeal = 0
+        else:
+          pesoIdeal = pesoGender + 0.91 * (e - 152.4)
+        calculo_peso   = pesoGender                    // NOTE: stores the base constant itself, not a computed body weight
+        peso_ideal     = pesoIdeal.toFixed(4)
+        vc_ideal_4     = (pesoIdeal * 4).toFixed(4)
+        vc_ideal_5     = (pesoIdeal * 5).toFixed(4)
+        vc_ideal_6     = (pesoIdeal * 6).toFixed(4)
+    edge_cases: >
+      Height null or 0 forces pesoIdeal=0. No plausibility bound on altura otherwise. All outputs are
+      strings with exactly 4 decimals via toFixed(4). Input disabled when mode === "in_page" (read-only),
+      so calculation only runs in "modal" (edit) mode.
+    confidence: high
+    related: [RULE-VENTILACAO-020, RULE-VENTILACAO-017, RULE-VENTILACAO-003]
+    merged_from: [RULE-ventilacao-FE-05-001]
+    sources:
+      - {repo: trilhas-frontend, path: src/components/FieldSetDadosPacienteFisioterapeuta/FieldSetDadosPacienteFisioterapeuta.tsx, lines: "20-38", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Matches standard ARDSNet PBW (male 50 + 0.91*(h-152.4); female 45.5 + 0.91*(h-152.4)) and 4-6 mL/kg
+      lung-protective targets, hence OK. calculo_peso is labeled "Calculo Peso" in the UI but stores the raw
+      sex base constant (45.5/50), not a computed weight - naming/behavior mismatch worth confirming; downstream
+      peso_ideal/vc_ideal_* are computed correctly regardless.
+
+  - id: RULE-VENTILACAO-002
+    name: Days on mechanical ventilation (buscar_dias_com_ventilacao_mecanica)
+    category: physiological-calculation
+    type: formula
+    status: OK
+    verify: true
+    description: Number of days a patient has been on mechanical ventilation; consumed by ventilation criteria C4/C5/C6/C8.
+    inputs:
+      - ventilacao_mecanica.horario_inicio (datetime)
+    outputs:
+      - dias (int, days) | False
+    logic: |
+      if hasattr(dp,'ventilacao_mecanica'):
+          return abs((now - vm.horario_inicio).days)
+      return False
+    edge_cases: >
+      Uses timedelta.days (integer day component, truncates hours). abs() so future start times still
+      return positive. No VM object -> returns False.
+    confidence: high
+    related: [RULE-VENTILACAO-007, RULE-VENTILACAO-008, RULE-VENTILACAO-009, RULE-VENTILACAO-011, RULE-VENTILACAO-025]
+    merged_from: [RULE-vent-BE-10-059]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "199-203", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Trivial date-diff helper; flagged verify=true because type=formula, but has no published clinical anchor.
+      horario_inicio is set on the VentilacaoMecanica object (see RULE-VENTILACAO-025).
+
+  # ------------------------------------------------------------------
+  # THRESHOLDS / DECISION LOGIC  (trilha_manual ventilation criteria C1..C10 + alert)
+  # ------------------------------------------------------------------
+  - id: RULE-VENTILACAO-003
+    name: Ventilation C1 - high inspiratory pressure or tidal volume
+    category: care-pathway
+    type: threshold
+    status: DISCREPANCY
+    verify: true
+    description: Flags inspiratory pressure > 16 OR tidal volume > 500 ml. Also a hard alert-forcing criterion.
+    inputs:
+      - pressao_inspiratoria (cmH2O)
+      - volume_corrente (ml)
+    outputs:
+      - criterio_1 (bool)
+    logic: |
+      any([ (pressao_inspiratoria > 16) if pressao_inspiratoria else False,
+            (volume_corrente > 500) if volume_corrente else False ])
+    edge_cases: "Strict thresholds. pressao 16 -> False, 17 -> True; volume 500 -> False, 501 -> True."
+    confidence: high
+    related: [RULE-VENTILACAO-014, RULE-VENTILACAO-001, RULE-VENTILACAO-017]
+    divergence: >
+      Current code: PINS>16 OR VC>500 ml (absolute). _ANTIGAS_REGRAS used "Pressao Controlada >15 OU Volume
+      Corrente >6 ml/kg" (weight-based). Current version replaced weight-based VC with absolute 500 ml and
+      raised pressure cutoff 15->16.
+    merged_from: [RULE-vent-BE-10-048]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "124-134", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Alert-forcing criterion (RULE-VENTILACAO-014). Test test_trilha_ventilacao.py:49-60. Verified verbatim against source."
+
+  - id: RULE-VENTILACAO-004
+    name: Ventilation C2 - FiO2xPEEP mismatch with moderate hypoxemia
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    verify: true
+    description: Flags a PEEP value not matching the expected FiO2->PEEP table AND P/F ratio between 151 and 300.
+    inputs:
+      - fio2 (fraction/percent - see notes)
+      - peep (cmH2O)
+      - relacao_po2_fio2
+    outputs:
+      - criterio_2 (bool)
+    logic: |
+      # guard (as written, malformed): effectively "po2 and fio2 present"; peep>0 NOT enforced
+      key = str(fio2/100)[0:3]   # e.g. fio2=40 -> "0.4"; fio2=1 -> "0.0"
+      peep_new_table = {"0.0":[5],"0.1":[5],"0.2":[5],"0.3":[5],"0.4":[5,6,7,8],
+                        "0.5":[8,9,10],"0.6":[10],"0.7":[10,11,12],"0.8":[14],
+                        "0.9":[14,15,16,17,18],"1.0":[18,19,20,21,22,23,24]}
+      return (peep not in peep_new_table[key]) and (151 < relacao_po2_fio2 < 300)
+    edge_cases: >
+      Guard is a tangled expression: `X if (po2 and fio2) else False and peep>0 if peep else False` -> the
+      peep>0 requirement is dead (inside `False and ...`); guard true iff po2 and fio2 truthy. arredondar
+      divides fio2 by 100 (percentage assumption) yet tests pass fio2=1 giving key "0.0". Strict 151<ratio<300.
+    confidence: medium
+    related: [RULE-VENTILACAO-005, RULE-VENTILACAO-006, RULE-VENTILACAO-017]
+    divergence: >
+      (1) Malformed guard: peep>0 requirement is dead code (inside `False and ...`), so PEEP>0 is NOT enforced.
+      (2) FiO2 unit inconsistency: key = str(fio2/100)[0:3] assumes percentage (fio2=40 -> "0.4") but tests/ratio
+      pass fio2 as a fraction (fio2=1 -> key "0.0"). C2 table differs from C3 table (RULE-VENTILACAO-005).
+    merged_from: [RULE-vent-BE-10-049]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "136-180", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      ARDSnet-style FiO2xPEEP table (moderate hypoxemia). An unused peep_old_table (previous-version single
+      expected PEEP per FiO2) is also defined here - captured separately as RULE-VENTILACAO-006.
+      Test test_trilha_ventilacao.py:63-73 (fio2=1,po2=152,peep=4 -> key "0.0", 4 not in [5], ratio in (151,300) -> True).
+
+  - id: RULE-VENTILACAO-005
+    name: Ventilation C3 - FiO2xPEEP mismatch with severe hypoxemia
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    verify: true
+    description: Flags a PEEP not matching the (different, severe) FiO2->PEEP table AND P/F ratio < 150.
+    inputs:
+      - fio2
+      - peep (cmH2O)
+      - relacao_po2_fio2
+    outputs:
+      - criterio_3 (bool)
+    logic: |
+      if relacao_po2_fio2 (truthy) and peep > 0:
+        key = str(fio2/100)[0:3]
+        peep_new_table = {"0.0":[5],"0.1":[5],"0.2":[5],
+                          "0.3":[5,6,7,8,9,10,11,12,13,14],"0.4":[14,15,16],
+                          "0.5":[16,17,18],"0.6":[18,19,20,21,22],"0.7":[18,19,20,21,22],
+                          "0.8":[22],"0.9":[22],"1.0":[22]}
+        return (peep not in peep_new_table[key]) and (relacao_po2_fio2 < 150)
+      return False
+    edge_cases: "Guard here is clean (ratio truthy AND peep>0), unlike C2. Strict ratio<150. Same fio2/100 percentage assumption."
+    confidence: medium
+    related: [RULE-VENTILACAO-004, RULE-VENTILACAO-006, RULE-VENTILACAO-010, RULE-VENTILACAO-017]
+    divergence: >
+      FiO2 unit inconsistency (fio2/100 percentage assumption vs fraction tests) as in C2 (RULE-VENTILACAO-004),
+      but the guard is CORRECT here (ratio truthy AND peep>0). The C3 severe-hypoxemia table differs from the
+      C2 moderate table.
+    merged_from: [RULE-vent-BE-10-050]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "182-223", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Test test_trilha_ventilacao.py:95-105 (fio2=1,po2=149,peep=4 -> key '0.0'->[5], 4 not in [5], ratio 149<150 -> True)."
+
+  - id: RULE-VENTILACAO-006
+    name: Ventilation C2/C3 previous-version FiO2->PEEP table (peep_old_table)
+    category: care-pathway
+    type: decision-tree
+    status: AMBIGUOUS
+    verify: true
+    description: The prior (inactive) version compared PEEP against a single expected value per FiO2 bucket.
+    inputs:
+      - fio2 bucket (str)
+    outputs:
+      - expected_peep (int, cmH2O)
+    logic: |
+      peep_old_table = {"0.0":5,"0.1":5,"0.2":5,"0.3":5,"0.4":5,"0.5":8,"0.6":10,
+                        "0.7":10,"0.8":14,"0.9":14,"1.0":16}
+      # previous logic checked if the actual PEEP was LESS than the expected value.
+    edge_cases: "Defined in both criterio_2 and criterio_3 but never read (dead code)."
+    confidence: medium
+    related: [RULE-VENTILACAO-004, RULE-VENTILACAO-005]
+    merged_from: [RULE-vent-BE-10-049b]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "147-159,190-202", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: variant}
+    notes: >
+      Version variant of the ARDSnet-style FiO2xPEEP table; superseded by peep_new_table (list-of-allowed per
+      bucket). Kept as a SEPARATE variant per policy (do not merge variants). verify=true to check the historical
+      table values against ARDSnet.
+
+  - id: RULE-VENTILACAO-007
+    name: Ventilation C4 - weaning readiness / consciousness
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    verify: true
+    description: Flags (long VM with good oxygenation on controlled mode without sedation) OR RASS>=-2 OR Glasgow>8.
+    inputs:
+      - dias_vm (days)
+      - dispositivo (str)
+      - sedativos_present (bool)
+      - relacao_po2_fio2
+      - rass (str enum)
+      - glasgow (int)
+    outputs:
+      - criterio_4 (bool)
+    logic: |
+      any([
+        all([ dias_com_ventilacao_mecanica > 7,
+              buscar_dispositivo_ventilacao_mecanica() == "PCV" or == "VCV",
+              not sedatives_exist,
+              relacao_po2_fio2 > 250 ]),
+        (int(rass) >= -2) if rass else False,
+        (glasgow > 8) if glasgow else False ])
+    edge_cases: "RASS parsed via int() of the choice string ('-2'->-2). Any one disjunct suffices. glasgow strict >8."
+    confidence: high
+    related: [RULE-VENTILACAO-014, RULE-VENTILACAO-025, RULE-VENTILACAO-002, RULE-VENTILACAO-017]
+    divergence: >
+      Controlled-mode test compares buscar_dispositivo_ventilacao_mecanica() (VentilacaoMecanica.dispositivo,
+      valid choices tot/tqt/dni) against "PCV"/"VCV", which are MODALIDADE values (choices psv/vcv/pcv, lowercase).
+      In production the device-path is effectively unreachable; the test only passes it by manually setting
+      dispositivo="PCV" (uppercase). See enum rule RULE-VENTILACAO-025.
+    merged_from: [RULE-vent-BE-10-051]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "225-244", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Test test_trilha_ventilacao.py:107-131. RASS/Glasgow are published anchors."
+
+  - id: RULE-VENTILACAO-008
+    name: Ventilation C5 - prolonged intubation (>10 days TOT)
+    category: care-pathway
+    type: threshold
+    status: OK
+    verify: true
+    description: Flags more than 10 days of mechanical ventilation via orotracheal tube (dispositivo == "tot").
+    inputs:
+      - dias_vm (days)
+      - dispositivo (str)
+    outputs:
+      - criterio_5 (bool)
+    logic: |
+      if verificar_objeto_existe(dp,'ventilacao_mecanica'):
+        return all([ dias_com_ventilacao_mecanica > 10, dispositivo == "tot" ])
+      return False
+    edge_cases: "Strict >10 days. Requires VM object. Test 10d->False, 11d->True (with dispositivo tot)."
+    confidence: high
+    related: [RULE-VENTILACAO-009, RULE-VENTILACAO-017, RULE-VENTILACAO-002, RULE-VENTILACAO-025]
+    merged_from: [RULE-vent-BE-10-052]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "246-255", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      dispositivo "tot" is a valid device choice (lowercase). Tracheostomy-timing anchor (~10-14d).
+      Test test_trilha_ventilacao.py:133-146.
+
+  - id: RULE-VENTILACAO-009
+    name: Ventilation C6 - prolonged intubation with COVID-19
+    category: care-pathway
+    type: threshold
+    status: DISCREPANCY
+    verify: true
+    description: Flags TOT ventilation > 10 days AND COVID-19 diagnosis.
+    inputs:
+      - dispositivo (str)
+      - dias_vm (days)
+      - covid_19 (bool)
+    outputs:
+      - criterio_6 (bool)
+    logic: |
+      if verificar_objeto_existe(dp,'ventilacao_mecanica'):
+        return all([ dispositivo == "tot", dias_com_ventilacao_mecanica > 10, covid_19 ])
+      return False
+    edge_cases: "Strict >10. Requires VM + covid flag. Test 15d tot + covid -> True."
+    confidence: high
+    related: [RULE-VENTILACAO-008, RULE-VENTILACAO-017, RULE-VENTILACAO-002]
+    divergence: >
+      Current code uses dias_vm > 10. _REGRAS text says ">10 dias TOT E COVID" but _ANTIGAS_REGRAS C5 said
+      ">14 dias". The automatica facade (RULE-VENTILACAO-017 criterio_6) states ">14 dias" for COVID trach.
+      Variant divergence: trilha_manual code >10 vs facade text >14.
+    merged_from: [RULE-vent-BE-10-053]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "257-267", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Test test_trilha_ventilacao.py:148-160."
+
+  - id: RULE-VENTILACAO-010
+    name: Ventilation C7 - severe hypoxemia early in admission
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: true
+    description: Flags P/F<150 AND noradrenaline dose<25 AND admission length>7 days.
+    inputs:
+      - relacao_po2_fio2
+      - noradrenalina.quantidade (ml)
+      - dias_internacao (days)
+    outputs:
+      - criterio_7 (bool)
+    logic: |
+      all([
+        (relacao_po2_fio2 < 150) if (po2 and fio2) else False,
+        (noradrenalina.quantidade < 25) if verificar_objeto_existe(dp,'noradrenalina') else False,
+        (movimentacao.buscar_dias_internacao > 7) if movimentacao.buscar_dias_internacao else False ])
+    edge_cases: "All three required. Strict <150, <25, >7. Depends on external movimentacao.buscar_dias_internacao."
+    confidence: medium
+    related: [RULE-VENTILACAO-005, RULE-VENTILACAO-012]
+    merged_from: [RULE-vent-BE-10-054]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "269-283", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      _REGRAS text and code diverge in wording ("ausencia de noradrenalina com menos de 25 ml/h"); code requires
+      noradrenaline PRESENT with quantity<25. P/F<150 is a published ARDS anchor. Test test_trilha_ventilacao.py:162-176.
+
+  - id: RULE-VENTILACAO-011
+    name: Ventilation C8 - extubation-readiness bundle
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    verify: true
+    description: Flags a full readiness bundle - awake, >1d VM, low PEEP/FiO2, adequate FR and oxygenation, no noradrenaline. Hard alert-forcing criterion.
+    inputs:
+      - glasgow (int)
+      - rass (str enum)
+      - dias_vm (int)
+      - peep
+      - fio2 (fraction, uses <0.4)
+      - fr (int)
+      - relacao_po2_fio2
+      - noradrenalina_exists (bool)
+    outputs:
+      - criterio_8 (bool)
+    logic: |
+      all([
+        any([(glasgow>=10) if glasgow else False, (int(rass)>=-2) if rass else False]),
+        (dias_com_ventilacao_mecanica > 1) if VM exists else False,
+        (peep <= 8) if peep else False,
+        (fio2 < 0.4) if fio2 else False,
+        (fr <= 22) if fr else False,
+        (relacao_po2_fio2 >= 200) if (po2 and fio2) else False,
+        not verificar_objeto_existe(dp,'noradrenalina') ])
+    edge_cases: >
+      fio2 < 0.4 treats FiO2 as a fraction here (contrast C2/C3 which divide fio2 by 100 as a percentage).
+      Inclusive peep<=8, fr<=22, ratio>=200; strict glasgow>=10; dias_vm>1.
+    confidence: high
+    related: [RULE-VENTILACAO-014, RULE-VENTILACAO-002, RULE-VENTILACAO-017, RULE-VENTILACAO-004, RULE-VENTILACAO-005]
+    divergence: >
+      FiO2 treated as a FRACTION here (fio2 < 0.4), contrasting C2/C3 (RULE-VENTILACAO-004/005) which divide
+      fio2 by 100 as a PERCENTAGE - FiO2 unit inconsistency within the same model.
+    merged_from: [RULE-vent-BE-10-055]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "285-313", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Alert-forcing criterion (RULE-VENTILACAO-014). SBT/extubation-readiness anchors. Verified verbatim against
+      source. Test test_trilha_ventilacao.py:178-200 (removing noradrenaline flips to True).
+
+  - id: RULE-VENTILACAO-012
+    name: Ventilation C9 - shock without ventilation
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: true
+    description: Flags noradrenaline present AND lactate>2.5 AND no mechanical ventilation. Hard alert-forcing criterion.
+    inputs:
+      - noradrenalina_exists (bool)
+      - lactato_arterial (mmol/L)
+      - ventilacao_mecanica_exists (bool)
+    outputs:
+      - criterio_9 (bool)
+    logic: |
+      all([
+        verificar_objeto_existe(dp,'noradrenalina'),
+        (lactato_arterial > 2.5) if lactato_arterial else False,
+        not verificar_objeto_existe(dp,'ventilacao_mecanica') ])
+    edge_cases: "Strict lactato>2.5 (note estabilidade/sepse use >=2.5; ventilacao uses >2.5). Adding VM flips to False."
+    confidence: high
+    related: [RULE-VENTILACAO-011, RULE-VENTILACAO-014]
+    merged_from: [RULE-vent-BE-10-056]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "315-326", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Alert-forcing criterion (RULE-VENTILACAO-014). Boundary differs from lactate rules elsewhere (>2.5 vs >=2.5).
+      Lactate shock anchor. Verified verbatim against source. Test test_trilha_ventilacao.py:202-219.
+
+  - id: RULE-VENTILACAO-013
+    name: Ventilation C10 - adequate oxygenation (incl. COPD target)
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: true
+    description: Flags SatO2>96 OR PO2>100 OR (COPD AND SatO2>92).
+    inputs:
+      - sato2 (percent)
+      - po2 (mmHg)
+      - dpoc (bool)
+    outputs:
+      - criterio_10 (bool)
+    logic: |
+      any([
+        (sato2 > 96) if sato2 else False,
+        (po2 > 100) if po2 else False,
+        all([ dpoc, (sato2 > 92) if sato2 else False ]) ])
+    edge_cases: "Strict >96, >100, >92. COPD lowers the SpO2 target to >92."
+    confidence: high
+    related: [RULE-VENTILACAO-017]
+    merged_from: [RULE-vent-BE-10-057]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "328-344", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Oxygenation-target anchors (SpO2, COPD 88-92 band). Verified verbatim against source. Test test_trilha_ventilacao.py:221-228."
+
+  - id: RULE-VENTILACAO-014
+    name: Ventilation pathway alert (count + special-criterion override) - trilha_manual
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: Ventilation alert is VERMELHO if >=3 criteria OR any of C1/C8/C9 is set; AMARELO if >=1; else NEUTRO.
+    inputs:
+      - criterios_true_count (int 0-10)
+      - criterio_1 / criterio_8 / criterio_9 (bool)
+    outputs:
+      - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+    logic: |
+      n = count(True among criterio_1..10)
+      if n >= 3 or (criterio_1 or criterio_8 or criterio_9): 'VERMELHO'
+      elif n > 0: 'AMARELO'
+      else: 'NEUTRO'
+    edge_cases: "A single C1/C8/C9 -> immediate VERMELHO even though count is 1."
+    confidence: high
+    related: [RULE-VENTILACAO-003, RULE-VENTILACAO-011, RULE-VENTILACAO-012, RULE-VENTILACAO-016, RULE-VENTILACAO-015]
+    merged_from: [RULE-vent-BE-10-058]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_ventilacao.py, lines: "346-364", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Only pathway with a hard red-flag override on specific criteria (C1 high PINS/VC, C8 extubation-readiness,
+      C9 shock-without-VM). Verified verbatim against source. Logic is IDENTICAL to the unused legacy alert in
+      trilha_automatica trilha3.py (RULE-VENTILACAO-016), a separate pathway variant. Pure count/aggregation
+      convention with no published clinical anchor -> verify=false.
+
+  - id: RULE-VENTILACAO-015
+    name: Ventilacao v1 alert (used - calcular_alerta_v2, trilha_automatica)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    verify: false
+    description: Active ventilation alert used by trilha_automatica save(); NEUTRO also resets assistido=False.
+    inputs:
+      - criterio_2 / criterio_5 / criterio_7 / criterio_10 (int flag, truthy)
+    outputs:
+      - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+    logic: |
+      amarelo = [criterio_10, criterio_2, criterio_7].count(True)
+      vermelho = [criterio_5].count(True)
+      if vermelho >= 1: return "VERMELHO"
+      elif amarelo >= 1: return "AMARELO"
+      else: return "NEUTRO"
+      # save(): alerta = calcular_alerta_v2(); if alerta == "NEUTRO": assistido = False
+    edge_cases: "count(True) matches only boolean True, not integer 1; criterio_* are IntegerFields so count(True) may under-match integer flags."
+    confidence: high
+    related: [RULE-VENTILACAO-016, RULE-VENTILACAO-014]
+    merged_from: [RULE-ventilacao-BE-03-012]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha3.py, lines: "82-86, 124-142", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: variant}
+    notes: >
+      trilha_automatica (v1/trilha3) pathway variant - SEPARATE from the trilha_manual pathway. See
+      RULE-VENTILACAO-016 for the unused legacy calcular_alerta on the same class. Internal count convention,
+      no published clinical anchor -> verify=false.
+
+  - id: RULE-VENTILACAO-016
+    name: Ventilacao v1 alert (unused legacy - calcular_alerta, trilha_automatica)
+    category: alert-threshold
+    type: decision-tree
+    status: AMBIGUOUS
+    verify: false
+    description: Legacy ventilation alert defined but NOT called by save(); retained on class.
+    inputs:
+      - criterio_1..10 (int flag)
+    outputs:
+      - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+    logic: |
+      criterios = [criterio_1..criterio_10].count(1)
+      if criterios >= 3 or (criterio_1 or criterio_8 or criterio_9): return "VERMELHO"
+      elif criterios > 0: return "AMARELO"
+      else: return "NEUTRO"
+    edge_cases: "The OR clause (criterio_1 or criterio_8 or criterio_9) uses truthiness of raw values, so any single of those criteria forces VERMELHO regardless of total count."
+    confidence: high
+    related: [RULE-VENTILACAO-014, RULE-VENTILACAO-015]
+    merged_from: [RULE-ventilacao-BE-03-013]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha3.py, lines: "104-122", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: variant}
+    notes: >
+      Dead code in the save() path (calcular_alerta_v2 is used instead); AMBIGUOUS which was intended clinically.
+      Logic mirrors the trilha_manual alert (RULE-VENTILACAO-014) but lives in the separate trilha_automatica
+      variant. Uses .count(1) (integer) whereas trilha_manual uses .count(True).
+
+  - id: RULE-VENTILACAO-017
+    name: Ventilation/weaning facade protocol (ventilacao_automatica) - protective settings, PEEP/FiO2, tracheostomy timing, PRONA, O2 targets
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: true
+    description: >
+      Ventilation pathway facade (= ventilacao_automatica): lung-protective ventilation, PEEP/FiO2 table
+      titration, spontaneous-breathing readiness, tracheostomy timing, PRONA indication, oxygen-target
+      de-escalation.
+    inputs:
+      - peso ideal (kg)
+      - P/F ratio
+      - TOT dwell time (days)
+      - idade (years)
+      - SatO2 (%)
+    outputs:
+      - alerta + recomendacoes (string)
+    logic: |
+      criterio_1 VM nao protetora -> VC 4 ml/kg do peso ideal, acidose respiratoria permissiva.
+      criterio_2 titulacao PEEP inadequada p/ SDRA leve-moderada -> tabela PEEPxFiO2 (SDRA mod/grave;
+                 se COVID -> tabela SDRA leve, PEEP baixa).
+      criterio_3 titulacao PEEP p/ P/F < 150 -> tabela PEEPxFiO2 SDRA mod/grave (PEEP alta);
+                 COVID -> tabela SDRA leve (PEEP baixa).
+      criterio_4 bom nivel de consciencia + baixos parametros -> teste de prontidao -> TRE.
+      criterio_5 dependente de VM por TOT > 10 dias sem progressao -> solicitar Traqueostomia.
+      criterio_6 COVID-19 dependente de VM > 14 dias sem progressao -> Traqueostomia.
+      criterio_7 SDRA moderada-grave -> PRONA 16 a 20h (tecnica envelope), RASS -4 a -5, +/- BNM continuo.
+      criterio_8/9 oportunidade de TRE -> se DPOC/ICC/falha de extubacao previa/idade > 75 anos ->
+                 VNI facilitadora por ate 2h imediatamente apos extubacao.
+      criterio_10 reducao de O2: algoritmo 1 SatO2 > 96% -> reduzir O2 (evitar hiperoxia);
+                 algoritmo 2 DPOC com SatO2 > 92% -> reduzir para manter 88-92%.
+    edge_cases: >
+      Cutoffs: VC 4 ml/kg ideal weight; P/F<150; TOT>10d (14d if COVID); age>75; SatO2>96% general de-escalation;
+      DPOC target band 88-92%. PRONA duration 16-20h, RASS -4 to -5. VNI <=2h.
+    confidence: high
+    related: [RULE-VENTILACAO-003, RULE-VENTILACAO-004, RULE-VENTILACAO-005, RULE-VENTILACAO-007, RULE-VENTILACAO-008, RULE-VENTILACAO-009, RULE-VENTILACAO-010, RULE-VENTILACAO-011, RULE-VENTILACAO-013, RULE-VENTILACAO-001]
+    merged_from: [RULE-ventilacao-BE-01-018]
+    sources:
+      - {repo: ahlabs-trilhas, path: core/facade/trilha_ventilacao.py, lines: "1-104", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Human-readable protocol facade (ventilacao_automatica variant) that the trilha_manual criteria (C1..C10)
+      implement. PEEPxFiO2 tables referenced but not defined in this payload (external protocol). NOTE the
+      variant divergence: facade criterio_6 COVID trach at ">14 dias" vs trilha_manual C6 code (RULE-VENTILACAO-009)
+      at ">10 dias". Strong published ARDS/PRONA/O2-target anchors -> verify=true.
+
+  - id: RULE-VENTILACAO-018
+    name: Ventilator parameter validation ranges (movimentacao form)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: Validation bounds for mechanical-ventilation parameters recorded on the movimentacao form.
+    inputs:
+      - fio2 (%, 21-100)
+      - peep (cmH2O, 0-40)
+      - pressao_inspiratoria/PINS (cmH2O, 0-30)
+      - volume_corrente (ml, 0-1500)
+      - fr (rpm, 0-50)
+    outputs:
+      - valid vent params (boolean)
+    logic: |
+      fio2: interval 21-100; peep: 0-40; pressao_inspiratoria: 0-30; volume_corrente: 0-1500; fr: 0-50
+    edge_cases: "FiO2 floor 21 = room air."
+    confidence: high
+    related: [RULE-VENTILACAO-019, RULE-VENTILACAO-020, RULE-VENTILACAO-022, RULE-VENTILACAO-023]
+    merged_from: [RULE-resp-FE-01-023]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "110-144", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Same FiO2 21-100 / PEEP 0-40 / PINS 0-30 / VC 0-1500 set as the physician FormularioMedico form
+      (RULE-VENTILACAO-019) - those two AGREE. The physiotherapist form and backend homecare validators use
+      DIFFERENT PEEP/PINS bounds (5-18 / 5-40) - see RULE-VENTILACAO-020/022/023. Pure input-plausibility bounds,
+      no published clinical target -> verify=false.
+
+  - id: RULE-VENTILACAO-019
+    name: Physician respiratory-assessment ventilation decision tree (FormularioMedico)
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    verify: false
+    description: Ventilation type conditionally reveals invasive-VM parameters (with ranges) or a supplemental-O2 flow field.
+    inputs:
+      - tipo_ventilacao (enum ventilacao_ar_ambiente|ventilacao_suporte_o2|ventilacao_mecanica_invasiva|intermitente)
+    outputs:
+      - vent params (object)
+    logic: |
+      tipo_ventilacao options (value/label): ventilacao_ar_ambiente "Espontanea",
+        ventilacao_suporte_o2 "VNI", ventilacao_mecanica_invasiva "VM", intermitente "Intermitente".
+      conditions:
+        ventilacao_mecanica_invasiva -> fio2(21-100) + peep(0-40) + pins(0-30) + vc(0-1500)
+        ventilacao_suporte_o2        -> fluxo_o2 (1-15)
+      Also tipo_secrecao {ausente,hialina,espessa,grande_quantidade}; tipos_respiratoria multicheck.
+    edge_cases: >
+      Value/label mismatch (ventilacao_ar_ambiente labeled "Espontanea"; ventilacao_suporte_o2 labeled "VNI") -
+      semantic drift but functional.
+    confidence: high
+    related: [RULE-VENTILACAO-018, RULE-VENTILACAO-020, RULE-VENTILACAO-021, RULE-VENTILACAO-026]
+    merged_from: [RULE-resp-FE-01-036]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormFormularioMedico.ts, lines: "309-407", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      Same VM parameter ranges as the movimentacao form (RULE-VENTILACAO-018); O2 flow bounded 1-15 L/min here,
+      matching backend homecare RULE-VENTILACAO-021. Different form from RULE-VENTILACAO-018 (not a duplicate);
+      the VM param ranges agree between the two so no discrepancy.
+
+  - id: RULE-VENTILACAO-020
+    name: Physiotherapy ventilation decision tree with divergent pressure ranges
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    verify: false
+    description: >
+      Ventilation type reveals spontaneous vs invasive vs non-invasive parameter sets; nested intermittent mode
+      reveals hourly load and shift; PEEP/PINS ranges differ from other forms.
+    inputs:
+      - tipo_ventilacao (enum espontanea|mecanica_invasiva|mecanica_nao_invasiva)
+      - pressao_expiratoria_pulmonar/PEEP (cmH2O, 5-18)
+      - pressao_inspiratoria (cmH2O, 5-40)
+    outputs:
+      - ventilation params (object)
+    logic: |
+      tipo_respiracao {nasal,bucal,mista,tqt}
+      tipo_ventilacao conditions:
+        espontanea -> tipo_oxigenoterapia {ar_ambiente,cateter_nasal,mascara_venturi,macronebulizacao,continuo,intermitente}
+                      + o2_minuto(0-1000 lt/min) + carga_horaria(0-1000 h) + turno {diurno,noturno}
+        mecanica_invasiva / mecanica_nao_invasiva (identical field sets):
+          tipo_ventilacao_mecanica {intermitente,continua};
+            intermitente -> carga_horaria(0-1000) + turno {diurno,noturno}
+          parametros_ventilatorios {vcv,simv,psv,pcv,bilevel,ac}
+          pressao_expiratoria_pulmonar (PEEP): 5-18
+          pressao_inspiratoria: 5-40
+          + free-string params: fracao_inspiratoria_oxigenio, volume_corrente, frequencia_respiratoria,
+            ventilacao_minuto, tempo_inspiratorio, relacao_inspiratoria_expiratoria,
+            limite_maximo_pressao_inspiratoria, pressao_inspiratoria_plato, pressao_suporte, fluxo, tigger, pressao_balonete
+      Section-level: indice_tobim, pimax, pemax, cuff_leak, iwi (all free strings).
+    edge_cases: >
+      PEEP bounded 5-18 here vs 0-40 on movimentacao/physician forms; PINS 5-40 here vs 0-30 elsewhere -
+      divergent validation for the same clinical parameter.
+    confidence: high
+    related: [RULE-VENTILACAO-018, RULE-VENTILACAO-019, RULE-VENTILACAO-022, RULE-VENTILACAO-023, RULE-VENTILACAO-001, RULE-VENTILACAO-026]
+    divergence: >
+      PEEP bounded 5-18 and PINS 5-40 here, MATCHING the backend homecare validators (RULE-VENTILACAO-022/023);
+      but the movimentacao and physician forms (RULE-VENTILACAO-018/019) use PEEP 0-40 / PINS 0-30 - divergent
+      validation bounds for the same clinical parameters across forms.
+    merged_from: [RULE-resp-FE-01-053]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormFisioterapeuta.ts, lines: "331-677", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      "indice_tobim" = Tobin index (RSBI); IWI = Integrative Weaning Index - weaning predictors captured as free
+      text (no computation, so no verify). This physio form's PEEP/PINS bounds are the frontend counterpart of
+      the backend homecare validators (5-18 / 5-40).
+
+  - id: RULE-VENTILACAO-021
+    name: Supplemental O2 flow valid range 1-15 L/min (homecare)
+    category: alert-threshold
+    type: validation
+    status: OK
+    verify: false
+    description: Supplemental oxygen flow is constrained to 1..15 L/min.
+    inputs:
+      - fluxo_o2 (int, L/min, 1-15)
+    outputs:
+      - validated fluxo_o2 (int, L/min)
+    logic: |
+      PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(15)])
+    edge_cases: "Inclusive 1..15. Null allowed."
+    confidence: high
+    related: [RULE-VENTILACAO-019, RULE-VENTILACAO-018]
+    merged_from: [RULE-vent-BE-06-001]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/models/formularios/avaliacoes/respiratoria.py, lines: "135-140", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Same 1-15 L/min bound as the physician form's fluxo_o2 field (RULE-VENTILACAO-019) - agrees.
+      Input validator (plausibility bound), no published clinical target -> verify=false.
+
+  - id: RULE-VENTILACAO-022
+    name: PEEP (pressao expiratoria pulmonar) valid range 5-18 (homecare)
+    category: alert-threshold
+    type: validation
+    status: OK
+    verify: false
+    description: Positive end-expiratory pressure is constrained to 5..18 (cmH2O).
+    inputs:
+      - pressao_expiratoria_pulmonar (int, cmH2O, 5-18)
+    outputs:
+      - validated PEEP (int, cmH2O)
+    logic: |
+      PositiveIntegerField(validators=[MinValueValidator(5), MaxValueValidator(18)])
+    edge_cases: "Inclusive 5..18. Null allowed."
+    confidence: high
+    related: [RULE-VENTILACAO-020, RULE-VENTILACAO-018, RULE-VENTILACAO-019, RULE-VENTILACAO-023]
+    divergence: >
+      Backend homecare PEEP bound 5-18 MATCHES the physiotherapist frontend form (RULE-VENTILACAO-020) but
+      DIVERGES from the movimentacao/physician frontend forms (RULE-VENTILACAO-018/019) which allow PEEP 0-40.
+    merged_from: [RULE-vent-BE-06-002]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/models/formularios/avaliacoes/ventilacao.py, lines: "170-178", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Unit inferred (cmH2O) from ventilator context; not stated in code. Input validator -> verify=false."
+
+  - id: RULE-VENTILACAO-023
+    name: Inspiratory pressure valid range 5-40 (homecare)
+    category: alert-threshold
+    type: validation
+    status: OK
+    verify: false
+    description: Inspiratory pressure is constrained to 5..40 (cmH2O).
+    inputs:
+      - pressao_inspiratoria (int, cmH2O, 5-40)
+    outputs:
+      - validated inspiratory pressure (int, cmH2O)
+    logic: |
+      PositiveIntegerField(validators=[MinValueValidator(5), MaxValueValidator(40)])
+    edge_cases: "Inclusive 5..40. Null allowed."
+    confidence: high
+    related: [RULE-VENTILACAO-020, RULE-VENTILACAO-018, RULE-VENTILACAO-019, RULE-VENTILACAO-022]
+    divergence: >
+      Backend homecare PINS bound 5-40 MATCHES the physiotherapist frontend form (RULE-VENTILACAO-020) but
+      DIVERGES from the movimentacao/physician frontend forms (RULE-VENTILACAO-018/019) which allow PINS 0-30.
+    merged_from: [RULE-vent-BE-06-003]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/models/formularios/avaliacoes/ventilacao.py, lines: "180-188", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: "Unit inferred (cmH2O). Input validator -> verify=false."
+
+  # ------------------------------------------------------------------
+  # VALIDATIONS / ENUMS
+  # ------------------------------------------------------------------
+  - id: RULE-VENTILACAO-024
+    name: Ventilation-mode string classification lists (get_ventilacao)
+    category: care-pathway
+    type: validation
+    status: DISCREPANCY
+    verify: false
+    description: >
+      Returns, for a given ventilation category key, the list of free-text strings treated as belonging to that
+      category; used by trilha models to bucket a recorded ventilation description into
+      spontaneous / mechanical / mechanical-invasive / room-air.
+    inputs:
+      - tipo (string: ventilacao_espontanea | ventilacao_mecanica | ventilacao_mecanica_invasiva | ar_ambiente | other)
+    outputs:
+      - match_list (list<string> | null)
+    logic: |
+      return {
+        "ventilacao_espontanea": [
+            "espontanea", "espontaneo", "espontaneo", "espontnaea", "espontanea",
+            "espontanea"(=espontanea), "espontaneo em AA", "estpotanea", "esponatea",
+            "cateter nasal", "cateter", "ve pela tqt por mascara", "mascara facial de o2",
+            "O2", "vni/ mascara facial"],
+        "ventilacao_mecanica": ["vm", "mecanica", "mecanica"],
+        "ventilacao_mecanica_invasiva": ["invasiva vm", "invasiva", "vm invasiva"],
+        "ar_ambiente": ["aa", "ar ambiente", "ar amb", "em ambiente", "ar ambienten"],
+      }.get(tipo)   # returns None for unknown tipo
+    edge_cases: >
+      Matching is exact-string membership (callers use `value in get_ventilacao(...)` / splat into __in
+      querysets), so any spelling not in the list is NOT classified. Lists contain duplicates and misspellings
+      matched VERBATIM.
+    confidence: high
+    related: [RULE-VENTILACAO-025]
+    divergence: >
+      Exact-string membership preserves typos verbatim ('espontnaea','estpotanea','esponatea','espontaneo em AA',
+      'ar ambienten') and duplicates ('espontaneo' x2, 'espontanea' variants); it misclassifies 'vni/ mascara facial'
+      (non-invasive ventilation) and 've pela tqt por mascara' (via tracheostomy) as ventilacao_espontanea rather
+      than mechanical, and 'espontaneo em AA' as spontaneous rather than ar_ambiente. Record VERBATIM - do not correct.
+    merged_from: [RULE-CLASSIF-BE-12-010]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_automatica/utils.py, lines: "100-130", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Original accented strings preserved in source (espontanea/espontanea variants, mecanica, mascara). Callers:
+      trilha_eficiencia, trilha_profilaxia, trilha_estabilidade, trilha_sepse (v3 models). Because matching is exact,
+      a correctly-spelled input like 'espontaneo' without the extra token, or 'ventilacao espontanea', would miss.
+
+  - id: RULE-VENTILACAO-025
+    name: VentilacaoMecanica ventilation / device / modality enumerations (backend model + frontend movimentacao form)
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    verify: false
+    description: >
+      Enumerations for ventilation support type, airway device, and ventilation modality on VentilacaoMecanica -
+      backend model choices (trilha_manual) reconciled with the frontend movimentacao form copy.
+    inputs:
+      - ventilacao / dispositivo / modalidade (str enum)
+    outputs:
+      - stored value (str)
+    logic: |
+      # Backend model choices (VentilacaoChoices, trilha_manual) - PRIMARY / most complete:
+      ventilacao:  ('assistida','assistida' [Sera desativado]), ('controlada','controlada' [Sera desativado]),
+                   ('ar_ambiente','Ar Ambiente'), ('vm_invasiva','Cateter Nasal de O2'),
+                   ('vm_nao_invasiva','VM Nao Invasiva'), ('mascara_facial_o2','Mascara Facial de O2'),
+                   ('tenda_o2_tqt','Tenda de O2 para TQT'), ('','Nao informado')
+      dispositivo: ('tot','TOT'), ('tqt','TQT'), ('dni','DNI' [Sera desativado]), ('','Nao informado')
+      modalidade:  ('psv','PSV'), ('vcv','VCV'), ('pcv','PCV'), ('','Nao informado')
+
+      # Frontend movimentacao form (dataFormMovimentacao.ts) - OMITS deactivated options:
+      ventilacao:  ar_ambiente('Ar ambiente'), vm_invasiva('Cateter Nasal de 02'),
+                   vm_nao_invasiva('VM Nao Invasiva'), mascara_facial_o2('Mascara Facial de O2'),
+                   tenda_o2_tqt('Tenda de O2 para TQT'), ''('Nao informado')
+      dispositivo: tot('TOT'), tqt('TQT'), ''('Nao informado')
+      modalidade:  psv('PSV'), vcv('VCV'), pcv('PCV'), ''('Nao informado')
+      # Also ventilacao_mecanica.horario_inicio datetime; frontend group is anulavel.
+    edge_cases: >
+      Ventilacao C5/C6 (RULE-VENTILACAO-008/009) compare dispositivo == 'tot'. Ventilacao C4
+      (RULE-VENTILACAO-007) compares dispositivo == 'PCV'/'VCV' (uppercase) which are NOT valid dispositivo
+      values (they are modalidade psv/vcv/pcv) - so that device-path is effectively unreachable.
+    confidence: high
+    related: [RULE-VENTILACAO-024, RULE-VENTILACAO-019, RULE-VENTILACAO-007, RULE-VENTILACAO-002]
+    divergence: >
+      BE model choices (trilha_manual) include deactivated options assistida & controlada (ventilacao) and dni
+      (dispositivo) that the FE movimentacao form OMITS. Label text differs: BE 'Ar Ambiente' vs FE 'Ar ambiente';
+      BE vm_invasiva label 'Cateter Nasal de O2' (letter O) vs FE 'Cateter Nasal de 02' (digit zero). Shared defect
+      on BOTH sides: vm_invasiva value (semantically invasive VM) is paired with a nasal-cannula label.
+    merged_from: [RULE-choice-BE-10-070, RULE-resp-FE-01-030]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/choices/indicadores.py, lines: "47-86", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "289-352", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: frontend-copy}
+    notes: >
+      Verified both sides against source (backend indicadores.py 47-86 and frontend dataFormMovimentacao.ts 289-352).
+      Backend Phase-1 tagged category care-pathway; frontend tagged data-validation - kept the more precise
+      data-validation. "Sera desativado" markers indicate assistida/controlada/dni are slated for removal.
+
+  - id: RULE-VENTILACAO-026
+    name: Nursing ventilation / secretion assessment enums (avaliacao_ventilacao)
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Respiratory secretion, cough, chest-tube and dressing-aspect enums including flogistic-signs classification.
+    inputs:
+      - avaliacao_ventilacao.* (enum/boolean/date)
+    outputs:
+      - ventilation assessment (object)
+    logic: |
+      secrecao_traqueal {pouca, media, grande, aspiracao_ausente}
+      aspecto {mucoide, purulenta, mucopurulenta, sanguinolenta}
+      tosse {eficaz, nao_eficaz, ausente}
+      expansibilidade_pulmonar {simetrica, assimetrica}
+      dreno_de_torax {esquerdo, direito, bilateral, ausente}
+      oscilacao(boolean)
+      aspecto_da_secrecao {espessa, purulenta, serosa, fluida_hialina, hematica, sendimentos}
+      aspecto_do_curativo {limpa_seca, flogisticos_secrecao, flogisticos_sem_secrecao, sanguinolento_sem_flogisticos}
+      ausculta {murmurios_vesiculares, pulmoes_livres, roncos, sibilos, estertores}
+      data_troca_selo(date)
+    edge_cases: null
+    confidence: high
+    related: [RULE-VENTILACAO-019, RULE-VENTILACAO-020]
+    merged_from: [RULE-resp-FE-01-046]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormEnfermagem.ts, lines: "634-752", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+    notes: >
+      aspecto_do_curativo flogistic-signs enum is reused in every invasive-device group (the device-management
+      form was misrouted out of this cluster - see dropped RULE-devices-FE-01-047).
+
+dropped:
+  - {id: RULE-devices-FE-01-047, reason: "misrouted:formularios-clinicos"}

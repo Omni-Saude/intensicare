@@ -1,0 +1,784 @@
+cluster: cadastros-ui
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+- id: RULE-CADASTROS-UI-001
+  name: FilterLeitos tri-state occupancy filter sent as literal string
+  category: data-validation
+  type: threshold
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    The Leitos list filter offers a 3-way "Ocupação" select - "Sem preferencia" (value "unknown", default), "Sim" (value "true"), "Não" (value "false") - and passes whichever string value is chosen straight through to onFilter with no transformation.
+  inputs:
+  - name: ocupado
+    type: '''unknown'' | ''true'' | ''false'''
+    range: 'enum: unknown (default) | true | false'
+  outputs:
+  - name: onFilter({ ocupado, ... })
+    type: Partial<Models.Leito>
+  logic: |
+    Select(name="ocupado", defaultValue="unknown"):
+      Option("unknown") -> "Sem preferencia"
+      Option("true")    -> "Sim"
+      Option("false")   -> "Não"
+    onFinish = onFilter directly (values passed through unmodified)
+  edge_cases: |
+    Unlike FilterOcupacoes (RULE-filtro-FE-05-004), the "no preference" sentinel ("unknown") is NOT converted to undefined here - it is sent to onFilter/the backend as the literal string "unknown", so the caller/API must know to special-case that value as "no filter", or bed filtering silently breaks for the default option.
+  confidence: medium
+  merged_from:
+  - RULE-filtro-FE-05-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilterLeitos/FilterLeitos.tsx
+    lines: 13-45
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Flagged AMBIGUOUS because the analogous FilterOcupacoes component explicitly maps its "no filter" sentinel ("todos") to undefined before calling onFilter, while this component does not - a verifier should check whether the "ocupado" query param backing FilterLeitos actually treats the string "unknown" as "no filter" server-side, or whether this is a latent bug that leaves the default filter state broken.
+- id: RULE-CADASTROS-UI-002
+  name: Leito/Estabelecimento name and code locked for non-manual companies
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    On both the Estabelecimento and Leito edit forms, the "Nome" and "Código" fields are only editable when the parent company's type (empresaData.tipo) equals "manual"; for companies whose type is "automatica" (records synced from an external system) these fields are always disabled, regardless of the form's own disableAll/mode setting.
+  inputs:
+  - name: empresaData.tipo
+    type: '''manual'' | ''automatica'''
+  - name: disableAll
+    type: boolean
+  outputs:
+  - name: Input/InputNumber disabled prop for nome and codigo
+    type: boolean
+  logic: |
+    disabled = disableAll || (empresaData?.tipo !== "manual")
+  edge_cases: |
+    Even when the form is otherwise in an editable state (disableAll=false, e.g. an admin opened the edit modal), an "automatica" company still locks these two fields - there is no override/permission that re-enables them.
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-004
+  - RULE-CADASTROS-UI-008
+  merged_from:
+  - RULE-cadastro-FE-05-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormEstabelecimento/FormEstabelecimento.tsx
+    lines: 39-60
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/components/FormLeito/FormLeito.tsx
+    lines: 40-56
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: Identical predicate implemented independently in src/components/FormLeito/FormLeito.tsx lines
+    40-56 (same "manual" check, same disabled expression) - duplicated logic, not shared code.
+- id: RULE-CADASTROS-UI-003
+  name: Delete-professional action gated on edit mode + permission
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    The "Excluir usuario" delete action for a professional's own data page is only rendered when the page is in editing mode AND the current user holds the can_manage_usuario permission.
+  inputs:
+  - name: editing
+    type: boolean
+  - name: can_manage_usuario
+    type: boolean
+  outputs:
+  - name: AlertDelete visibility
+    type: boolean
+  logic: |
+    render AlertDelete(idSelecionado=id_profissional, onDelete=_deleteUsuario) if (editing && can_manage_usuario)
+  edge_cases: |
+    On confirmed delete, the flow calls deleteUsuario then redirects to /empresa/{id_empresa}/configuracoes/profissionais regardless of which professional's page it was invoked from.
+  confidence: high
+  merged_from:
+  - RULE-cadastro-FE-05-009
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/DadosProfissionalContent/DadosProfissionalContent.tsx
+    lines: 42,67-84,151-160
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-CADASTROS-UI-004
+  name: Camera credential fields gated on can_manage_camera permission
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    Camera-related fields - login/senha de câmera on the Estabelecimento form, IP da câmera on the Leito form - are only rendered for users holding the can_manage_camera permission.
+  inputs:
+  - name: can_manage_camera
+    type: boolean
+  outputs:
+  - name: visibility of camera credential Form.Items
+    type: boolean
+  logic: |
+    if can_manage_camera:
+      render "Login de acesso" (login_camera) and "Senha de acesso" (senha_camera)  // Estabelecimento
+      render "IP da câmera do leito" (ip_camera)                                     // Leito
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-002
+  merged_from:
+  - RULE-cadastro-FE-05-010
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormEstabelecimento/FormEstabelecimento.tsx
+    lines: 28,61-81
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/components/FormLeito/FormLeito.tsx
+    lines: 24,58-66
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: Mirrored in src/components/FormLeito/FormLeito.tsx lines 24,58-66 for the ip_camera field.
+- id: RULE-CADASTROS-UI-005
+  name: New-user password auto-filled from CPF
+  category: data-validation
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    In the user registration/edit form, while creating a brand-new user (no initialValues supplied at all), typing into the CPF field also writes the unformatted CPF digits into the password field as its value.
+  inputs:
+  - name: cpf (masked input onChange target value)
+    type: string
+  - name: rawValues (initialValues prop)
+    type: Models.Usuario
+  outputs:
+  - name: form field "password"
+    type: string
+  logic: |
+    MaskedInput("cpf").onChange(e):
+      if Object.entries(rawValues).length === 0:     // true only for a new/blank user
+        form.setFieldsValue({ password: unformat(e.target.value) })
+  edge_cases: |
+    The guard checks rawValues (the original initialValues prop), not the current live form state, so it only ever fires for genuinely new users; once any initialValues are supplied (editing an existing user) this auto-fill never triggers, even if the CPF field is changed.
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-006
+  - RULE-CADASTROS-UI-009
+  merged_from:
+  - RULE-cadastro-FE-05-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormUsuario/FormUsuario.tsx
+    lines: 126-139
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Security-relevant: for new users, the initial account password defaults to their own CPF number (a semi-public/guessable identifier) unless manually overridden before submit. Recorded as implemented; status AMBIGUOUS because intent (a convenience default vs. a security gap) cannot be determined from the code alone.
+- id: RULE-CADASTROS-UI-006
+  name: Hardcoded default signature PIN for all users
+  category: data-validation
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: |
+    Every user's "Pin assinatura" (signature PIN) form field is initialized to the same fixed literal string, rendered in a disabled (non-editable) input, regardless of which user is being created or edited.
+  inputs: []
+  outputs:
+  - name: form field "pin"
+    type: string (constant)
+  logic: |
+    initialValues.pin = "Homecare@Vidaconecta"     // same literal for every user, every time
+    <Form.Item name="pin"><Input disabled .../></Form.Item>
+  edge_cases: |
+    Because the Input is disabled, users cannot change this value from the UI at all in this component; whether the backend independently assigns/overwrites a real per-user PIN, or this literal is actually submitted as-is, cannot be determined from this file alone.
+  confidence: medium
+  related:
+  - RULE-CADASTROS-UI-005
+  merged_from:
+  - RULE-cadastro-FE-05-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormUsuario/FormUsuario.tsx
+    lines: 69-77,218-220
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Flagged AMBIGUOUS/security-relevant: a shared, hardcoded "signature PIN" default ("Homecare@Vidaconecta") looks unusual for a per-user electronic-signature credential; a verifier should confirm whether this field is actually submitted to the API or is purely cosmetic placeholder text overridden server-side.
+- id: RULE-CADASTROS-UI-007
+  name: Group-edit autosave guards partial "usuarios" updates
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    While editing an access group (Grupo), the form autosaves on every field change (onValuesChange), but the "usuarios" (member list) field is only forwarded to the parent submit handler when every entry in it is already a plain string ID; otherwise "usuarios" is omitted from that autosave call. On both the value-change autosave and the explicit name-tab submit, "cargo" is coerced to null whenever it is falsy.
+  inputs:
+  - name: usuarios (form array value)
+    type: string[] | object[]
+  - name: cargo
+    type: string | null | undefined
+  outputs:
+  - name: submitToFather payload
+    type: Partial<Models.Grupo>
+  logic: |
+    onEditValues(_, { usuarios, ...values }):
+      if usuarios && usuarios.every(item => typeof item === "string"):
+        submitToFather({ ...values, cargo: values.cargo ? values.cargo : null, usuarios })
+      else:
+        submitToFather(values)     // usuarios omitted entirely from this autosave call
+    onEditName(values):     // explicit "Dados do grupo" tab submit
+      submitToFather({ ...values, cargo: values.cargo ? values.cargo : null, usuarios: undefined })
+    onValuesChange is wired to onEditValues ONLY when editingName (the "disabled" prop) is true.
+  edge_cases: |
+    onValuesChange is bound to onEditValues only while the `disabled`/editingName prop is true; when false, no autosave-on-change handler is attached at all (onValuesChange is undefined). Because the guard checks the freshly changed "usuarios" value's item types, a group manager component briefly holding full user objects (mid-selection) will have "usuarios" silently dropped from that particular autosave call instead of being submitted with objects.
+  confidence: medium
+  merged_from:
+  - RULE-cadastro-FE-05-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormEditGrupo/FormEditGrupo.tsx
+    lines: 44-68,76-78
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-CADASTROS-UI-008
+  name: Company "tipo" only settable at creation; hex color round-trip
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    The company (Empresa) form only renders the "Tipo" (manual/automática) selector when opened in "modal" (creation) mode - it is not editable afterward through this form. The primary brand color (cor_primaria) is stored/transmitted without its leading "#", but is re-prefixed with "#" when loading initialValues so the native color <input type="color"> can display it.
+  inputs:
+  - name: mode
+    type: '''in_page'' | ''modal'''
+  - name: values.cor_primaria
+    type: string (hex, no '#')
+  - name: initialValues.cor_primaria
+    type: string (hex, no '#')
+  outputs:
+  - name: rendered "Tipo" field
+    type: boolean (present only if mode === "modal")
+  - name: submitted cor_primaria
+    type: string (hex without '#')
+  logic: |
+    render Form.Item("tipo") only if mode === "modal"     // Options: manual | automatica
+    onFinish: cor_primaria = values.cor_primaria ? values.cor_primaria.replace("#","") : values.cor_primaria
+    Form initialValues.cor_primaria = initialValues.cor_primaria ? "#" + initialValues.cor_primaria : undefined
+    logo submitted as values.logo.b64 if present, else omitted
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-002
+  merged_from:
+  - RULE-cadastro-FE-05-008
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormEmpresa/FormEmpresa.tsx
+    lines: 16-42,71-78
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    The component's internal variable/function is named "FormGrupo" and its own comment-free code otherwise gives no hint that it is the Empresa form - confirmed only via the Props type (Models.Usuario.Empresa) and field content (logo, whitelabel, tempo_atualizacao). Folder/file names are unreliable per audit ground rules; this is called out explicitly.
+- id: RULE-CADASTROS-UI-009
+  name: CPF input mask and unformatting
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Wherever a CPF (Brazilian taxpayer ID) is captured - the user filter and the user registration form - input is masked as 000.000.000-00 for display/entry, then the mask punctuation is stripped (unformat) before the value is sent to the filter/submit handler.
+  inputs:
+  - name: cpf (masked)
+    type: string
+    range: mask 000.000.000-00
+  outputs:
+  - name: cpf (unformatted digits)
+    type: string
+  logic: |
+    MaskedInput(mask="000.000.000-00")
+    on submit/filter: cpf = values.cpf ? unformat(values.cpf) : values.cpf
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-005
+  - RULE-CADASTROS-UI-010
+  merged_from:
+  - RULE-cadastro-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilterUsuarios/FilterUsuarios.tsx
+    lines: 20-27,41-47
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/components/FormUsuario/FormUsuario.tsx
+    lines: 124-140
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: Same mask + unformat pattern also appears in FormUsuario.tsx (lines 124-140) for the professional's
+    own CPF field.
+- id: RULE-CADASTROS-UI-010
+  name: FormUsuario submit-value normalization
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Before calling the parent onFinish handler, the user form trims the name, trims+lowercases the username, reduces the profile photo to its base64 payload only if present, strips the CPF mask, and only forwards the "setores" (sector access) field when the current user has the can_manage_usuario permission.
+  inputs:
+  - name: values.nome, values.username, values.foto_perfil, values.cpf, values.setores
+  outputs:
+  - name: normalized submit payload
+    type: Models.Usuario
+  logic: |
+    submitToFather({
+      ...values,
+      nome: values.nome ? values.nome.trim() : undefined,
+      setores: (can_manage_usuario && values.setores) ? values.setores : undefined,
+      username: values.username ? values.username.trim().toLocaleLowerCase() : undefined,
+      foto_perfil: (values.foto_perfil && values.foto_perfil.b64) ? values.foto_perfil.b64 : undefined,
+      cpf: values.cpf ? unformat(values.cpf) : values.cpf,
+    })
+  edge_cases: |
+    If can_manage_usuario is false, "setores" is dropped from the submit payload entirely (set to undefined) even if the field held a value in the form - effectively read-only enforcement of sector assignment client-side for users without the manage permission.
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-009
+  merged_from:
+  - RULE-cadastro-FE-05-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormUsuario/FormUsuario.tsx
+    lines: 49-67
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-CADASTROS-UI-011
+  name: FormUsuario required fields only enforced in modal (creation) mode
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Nome, CPF, username, password and e-mail are only marked as required (defaultFormRules / emailFormRules applied) when the form is rendered in "modal" mode (i.e. creating a new professional); in "in_page" (edit-in-place) mode these same fields render without the required rule.
+  inputs:
+  - name: mode
+    type: '''in_page'' | ''modal'''
+  outputs:
+  - name: Form.Item rules for nome/cpf/username/email/password
+    type: array | undefined
+  logic: |
+    for each of [nome, cpf, username, password]:
+      rules = (mode === "modal") ? defaultFormRules : undefined
+    email:
+      rules = [...emailFormRules, ...(mode === "modal" ? defaultFormRules : [])]
+  edge_cases: null
+  confidence: high
+  merged_from:
+  - RULE-cadastro-FE-05-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormUsuario/FormUsuario.tsx
+    lines: 111-216
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |-
+    The same mode-gated required-field pattern (required only in "modal"/create mode) also appears in FormEstabelecimento.tsx, FormSetor.tsx and FormLeito.tsx.
+
+    VERIFICATION CORRECTION (this pass): the Phase-1 note claims "the same mode-gated required-field pattern ...also appears in FormEstabelecimento.tsx, FormSetor.tsx and FormLeito.tsx". Re-reading those three files at commit f9656be2660ec2048ce6240b4ac418b7fe7d5a5b shows this is NOT accurate: FormEstabelecimento.tsx (nome/codigo, lines 39-60), FormLeito.tsx (nome/codigo, lines 40-56) and FormSetor.tsx (estabelecimento_id/nome/codigo, lines 44-72) all declare `rules={defaultFormRules}` UNCONDITIONALLY (always required), with no `mode === "modal"` gate at all - they only gate field VISIBILITY or DISABLED state by mode/tipo, never the required-ness of the rule itself. FormUsuario.tsx (this rule) is the only one of the four forms that actually gates required-ness by mode. The original Phase-1 note is preserved above for traceability but should be treated as incorrect regarding the other three forms.
+- id: RULE-CADASTROS-UI-012
+  name: Default required-field rule
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Shared antd-style rule object marking a field mandatory with Portuguese error message "Este
+    campo e obrigatorio!".
+  inputs:
+  - name: field value
+    type: any
+    unit: null
+    range: null
+  outputs:
+  - name: valid
+    type: boolean
+    unit: null
+  logic: |
+    defaultFormRules = [ { required: true, message: "Este campo é obrigatório!" } ]
+    // a value that is empty/undefined fails validation.
+  edge_cases: Empty string / undefined fails; whitespace handling delegated to antd form engine (not in
+    this file).
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-011
+  merged_from:
+  - RULE-validation-FE-01-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/defaultFormRules.ts
+    lines: 1-5
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Applied wherever `required:true` appears on a field across all forms.
+- id: RULE-CADASTROS-UI-013
+  name: Email format validation
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: E-mail fields must match emailPattern regex; error message "E-mail invalido!".
+  inputs:
+  - name: email
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: valid
+    type: boolean
+    unit: null
+  logic: |
+    emailFormRules = [ { pattern: emailPattern, message: "E-mail inválido!" } ]
+    emailPattern = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+  edge_cases: Local part allows many special chars; each domain label limited to 1-63 chars; TLD not required
+    to be alphabetic; anchored full-string match.
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-011
+  merged_from:
+  - RULE-validation-FE-01-002
+  - RULE-validation-FE-02-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/emailFormRules.ts
+    lines: 1-5
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/constants.ts
+    lines: 7-8
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: |-
+    The regex literal itself lives in src/utils/constants.ts:7-9 (outside partition FE-01); reproduced here from that source for completeness.
+
+    Merged with RULE-validation-FE-02-001 (constants.ts definition of emailPattern, lines 7-8): confirms the regex is identical to the one wrapped by emailFormRules.ts. That entry's edge_cases additionally note the final dotted domain group is optional in the regex, so a bare "user@host" (no TLD) also passes validation. The same constants.ts file also defines UI breakpoints collapseRule=1260 / collapseRuleMobile=800 (cosmetic, not captured here) and urlEnv detection (tracked separately as RULE-ops-FE-02-001 in the source misroute set, not part of this batch).
+- id: RULE-CADASTROS-UI-014
+  name: Patient sex/gender code labels
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Maps patient sex codes to display labels.
+  inputs:
+  - name: sexo
+    type: string
+    unit: null
+    range: M | F | O | N
+  outputs:
+  - name: label
+    type: string
+    unit: null
+  logic: |
+    M -> "Masculino"; F -> "Feminino"; O -> "Outro"; N -> "Não informado"
+  edge_cases: |
+    Typed `as any`; unknown codes return undefined.
+  confidence: high
+  merged_from:
+  - RULE-validation-FE-02-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/labelSexo.ts
+    lines: 1-8
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-CADASTROS-UI-015
+  name: Brazilian federative-unit (UF) enumeration
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The 27 Brazilian states/federal district (UF code -> name) used for address/council registration state selection.
+  inputs:
+  - name: uf
+    type: string
+    unit: null
+    range: AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RJ,RN,RS,RO,RR,SC,SP,SE,TO
+  outputs:
+  - name: label
+    type: string
+    unit: null
+  logic: |
+    Standard IBGE two-letter UF codes mapped to full state names (27 entries).
+  edge_cases: null
+  confidence: high
+  merged_from:
+  - RULE-validation-FE-02-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/choicesEstados.ts
+    lines: 1-110
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Complete set of 26 states + DF. Low domain weight but constrains council/address forms.
+- id: RULE-CADASTROS-UI-016
+  name: Brazilian document and number formatting masks
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    Applies display masks to Brazilian identifiers and numbers: CPF, CNPJ, CEP (postal), phone (length-dependent), BRL currency, and human byte sizes. Also an inverse "unformat" that strips mask punctuation.
+  inputs:
+  - name: value
+    type: string
+    unit: null
+    range: null
+  - name: type
+    type: enum
+    unit: null
+    range: cpf | cnpj | cep | tel | real | bytes
+  outputs:
+  - name: formatted
+    type: string
+    unit: null
+  logic: |
+    cpf:  /(\d{3})(\d{3})(\d{3})(\d{2})/ -> "$1.$2.$3-$4"        (11 digits)
+    cnpj: /(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/ -> "$1.$2.$3/$4-$5"  (14 digits)
+    cep:  /(\d{2})(\d{3})(\d{3})/ -> "$1.$2-$3"                  (8 digits)
+    tel by value.length:
+      11 -> /(\d{2})(\d{1})(\d{4})(\d{4})/ -> "($1) $2 $3-$4"    (mobile w/ 9th digit)
+      10 -> /(\d{2})(\d{4})(\d{4})/       -> "($1) $2-$3"        (landline w/ DDD)
+      9  -> /(\d{1})(\d{4})(\d{4})/       -> "$1 $2-$3"
+      8  -> /(\d{4})(\d{4})/             -> "$1-$2"
+      default -> value (unchanged)
+    real: Intl.NumberFormat("pt-BR",{style:currency,currency:BRL}).format(+value)
+    bytes:
+      if bytes==0 -> "0 Bytes"
+      kilo=1024; sizes=[Bytes,KB,MB,GB,TB,PB,EB,ZB,YB]
+      exponent = floor( log(bytes)/log(1024) )
+      result = parseFloat( (bytes/1024^exponent).toFixed(2) ) + " " + sizes[exponent]
+    unformat: strips characters . - _ / ( ) and spaces
+  edge_cases: |
+    Mask regexes are unanchored and assume the raw digit count already matches; malformed input passes through partially/unchanged. tel branches only on exact lengths 8/9/10/11. bytes: exponent can exceed the sizes array for absurd values (undefined unit) and negative/NaN bytes are unguarded (only 0 is special-cased).
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-009
+  - RULE-CADASTROS-UI-010
+  merged_from:
+  - RULE-validation-FE-02-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/formatter.ts
+    lines: 3-61
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    CPF=individual taxpayer id (11), CNPJ=company id (14), CEP=postal (8). Phone length 11 = mobile with leading 9; 10 = landline+DDD.
+- id: RULE-CADASTROS-UI-017
+  name: Length-heuristic date/datetime formatting
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Formats a raw value as datetime, date, or plain text based purely on the input string length (proxy for ISO datetime vs ISO date vs other).
+  inputs:
+  - name: value
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: formatted
+    type: string
+    unit: null
+  logic: |
+    if value.length >= 25:  return moment(value).format("DD/MM/YYYY HH:mm")   # ISO datetime w/ tz offset
+    elif value.length >= 10: return moment(value).format("DD/MM/YYYY")        # ISO date
+    else:                    return value.toString()                          # leave as-is
+  edge_cases: |
+    Threshold 25 targets ISO strings with timezone offset (e.g. 2020-01-01T00:00:00+00:00); threshold 10 targets YYYY-MM-DD. A 10-24 char value is rendered date-only (time dropped). No validity check; a non-date >=10 chars still runs through moment.
+  confidence: medium
+  merged_from:
+  - RULE-validation-FE-02-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/formatDataItem.ts
+    lines: 3-11
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-CADASTROS-UI-018
+  name: Date-field detection convention (data_ / dt_ key prefixes)
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Convention used to auto-detect which object fields are dates for serialization/parsing: any key whose name CONTAINS "data_" or "dt_" is treated as a date. Two variants convert such fields either to moment objects (inbound) or to formatted date strings (outbound).
+  inputs:
+  - name: obj
+    type: object
+    unit: null
+    range: null
+  - name: keys
+    type: string[]
+    unit: null
+    range: default ["data_","dt_"]
+  - name: format
+    type: string
+    unit: null
+    range: string variant only, default "YYYY-MM-DD"
+  outputs:
+  - name: transformedObj
+    type: object | null
+    unit: null
+  logic: |
+    isDateKey(key) = keys.some(k => key.includes(k))
+    # moment variant (dateTreatmentMoment):
+    if obj is not Array:
+      for [key,value] in entries(obj) WHERE value is truthy:   # falsy values dropped
+        if isDateKey(key): out[key] = moment(value)
+        elif typeof value == "object": out[key] = recurse(value)
+        else: out[key] = value
+      return out
+    else return obj
+    # string variant (dateTreatmentString):
+    if obj is not Array:
+      for [key,value] in entries(obj):                          # no pre-filter
+        if isDateKey(key): out[key] = value && moment(value).format(format)
+        elif value && typeof value=="object": out[key]=recurse(value)
+        else: out[key]=value
+      return keys(out).length>0 ? out : null                    # empty -> null
+    else return obj
+  edge_cases: |
+    Arrays are returned unchanged (not traversed element-wise). Moment variant drops all falsy-valued keys via .filter; string variant keeps them but guards format with `value &&`. String variant returns null when the resulting object is empty; moment variant returns {}. Recursion call omits the custom keys/format args, so nested objects always use the defaults.
+  confidence: medium
+  merged_from:
+  - RULE-validation-FE-02-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dateTreatmentString.ts
+    lines: 3-29
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Two implementations of the same convention: dateTreatmentMoment.ts:3-26 (inbound, ->moment) and dateTreatmentString.ts:3-29 (outbound, ->string). Behavioral differences noted in edge_cases; treat as a paired rule.
+- id: RULE-CADASTROS-UI-019
+  name: Image-file extension whitelist
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Determines whether a filename is an image (drives inline preview vs generic file icon) by lowercase-insensitive... (actually case-sensitive) extension membership.
+  inputs:
+  - name: nameFile
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: isImage
+    type: boolean
+    unit: null
+  logic: |
+    extension = nameFile.substring(nameFile.lastIndexOf(".") + 1)
+    return [tif, tiff, bmp, jpg, jpeg, gif, png, eps, raw, cr2, nef, orf, sr2, ico, svg].includes(extension)
+  edge_cases: |
+    Case-SENSITIVE: "PNG"/"JPG" (uppercase) are NOT matched. A filename with no dot yields the whole string as "extension" (lastIndexOf -1 -> substring(0)). Includes RAW camera formats (cr2/nef/orf/sr2) and vector svg/eps but not webp/heic.
+  confidence: medium
+  merged_from:
+  - RULE-validation-FE-02-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/isImage.ts
+    lines: 1-23
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    Case sensitivity is a likely latent bug (uppercase extensions excluded) but recorded verbatim.
+- id: RULE-CADASTROS-UI-020
+  name: Single image-or-PDF file constraint on avatar/logo uploader
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    The generic base64 file-upload control (used for user photos and company logos) only accepts a single file at a time and restricts the file picker to images or PDF documents.
+  inputs:
+  - name: uploaded file
+    type: File
+    unit: null
+    range: MIME type image/* or application/pdf
+  outputs:
+  - name: onChange({ b64, nome })
+    type: '{ b64: string; nome: string }'
+  logic: |
+    Upload.Dragger:
+      multiple = false
+      maxCount = 1
+      accept = "image/*,application/pdf"
+    on upload -> getBase64(file) -> onChange({ b64, nome: file.name })
+  edge_cases: |
+    No explicit file-size limit is enforced client-side (only mime-type/count constraints); a progress percentage is faked via setInterval incrementing 5% every 300ms and force-cleared after 8000ms regardless of actual completion, so the progress bar does not reflect real upload/conversion progress.
+  confidence: high
+  related:
+  - RULE-CADASTROS-UI-019
+  merged_from:
+  - RULE-upload-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FileB64Convert/FileB64Convert.tsx
+    lines: 78-93
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Also renders a disabled prop pass-through used by FormEmpresa/FormUsuario for edit-mode locking.
+dropped:
+- id: RULE-filtro-BE-08-002
+  reason: misrouted:balanco-hidrico — BalancoHidricoFilter (FilterSet on BalancoHidrico model, dead/unwired
+    filter_class) is fluid-balance domain logic, not a cadastros-ui registration/CRUD concern.
+- id: RULE-filtro-BE-08-003
+  reason: misrouted:prescricao — PrescricaoContinuaFilter (FilterSet on PrescricaoContinua model, wired
+    into PrescricaoViewSet) is continuous-prescription domain logic, not a cadastros-ui registration/CRUD
+    concern.
+- id: RULE-filtro-FE-05-001
+  reason: misrouted:documentacao-faturamento — FilterArquivos/categoriaArquivo filters a patient document
+    repository (Nota Fiscal, Guias TISS/SADT, autorizacoes, laudos, evolucoes externas, etc.) surfaced
+    inside the bed-audit ("Auditoria de leitos") page; this is document/billing-record management, not
+    master-data registration.
+- id: RULE-filtro-FE-05-002
+  reason: misrouted:evolucoes — FilterFormRelatorioEvolucao drives getRelatorioEvolucao, a clinical evolution-note
+    report search form; it is a clinical-reporting feature, not a cadastros-ui registration/CRUD concern.
+- id: RULE-filtro-FE-05-004
+  reason: misrouted:movimentacao-adt — FilterOcupacoes is mounted on OcupacoesPage (the clinical setor/bed-occupancy
+    dashboard, src/pages/.../setor/[id_setor].tsx), filtering patient bed-occupancy/movement records,
+    not the Leito master-data registry (contrast RULE-CADASTROS-UI-001/FilterLeitos, which is mounted
+    on the configuracoes/leitos registry page).
+integrated_misroutes:
+- id: RULE-validation-FE-01-001
+  disposition: appended:RULE-CADASTROS-UI-012
+- id: RULE-validation-FE-01-002
+  disposition: appended:RULE-CADASTROS-UI-013
+- id: RULE-validation-FE-02-001
+  disposition: merged:RULE-CADASTROS-UI-013
+- id: RULE-validation-FE-02-002
+  disposition: appended:RULE-CADASTROS-UI-014
+- id: RULE-validation-FE-02-003
+  disposition: appended:RULE-CADASTROS-UI-015
+- id: RULE-validation-FE-02-004
+  disposition: appended:RULE-CADASTROS-UI-016
+- id: RULE-validation-FE-02-005
+  disposition: appended:RULE-CADASTROS-UI-017
+- id: RULE-validation-FE-02-006
+  disposition: appended:RULE-CADASTROS-UI-018
+- id: RULE-validation-FE-02-007
+  disposition: appended:RULE-CADASTROS-UI-019
+- id: RULE-upload-FE-05-001
+  disposition: appended:RULE-CADASTROS-UI-020

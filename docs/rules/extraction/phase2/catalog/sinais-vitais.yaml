@@ -1,0 +1,942 @@
+cluster: sinais-vitais
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+  # =====================================================================
+  # THRESHOLDS / DECISION LOGIC  (frontend form plausible-range bundles)
+  # =====================================================================
+  - id: RULE-SINAIS-VITAIS-001
+    name: Blood-pressure and heart-rate plausible ranges (movimentacao form)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: >
+      Frontend antd number-input min/max bounds for systolic/diastolic BP and heart
+      rate on the movimentacao (nurse handoff) form. Re-expresses the backend
+      field validators; numeric bounds match the backend exactly.
+    inputs:
+      - {name: pas, type: number, unit: mmHg, range: "50-250"}
+      - {name: pad, type: number, unit: mmHg, range: "0-150"}
+      - {name: frequencia_cardiaca, type: number, unit: bpm, range: "0-200"}
+    outputs:
+      - {name: valid vitals, type: boolean}
+    logic: |
+      pas: min 50, max 250
+      pad: min 0,  max 150
+      frequencia_cardiaca: min 0, max 200
+    edge_cases: >
+      Inclusive bounds; no cross-field check (PAS>PAD not enforced). Unlike the backend
+      PASValidator, the FE min of 50 has NO zero-exemption sentinel, so a literal 0
+      ("not measured" on the backend) would be blocked by this input; on the FE the
+      "not measured" case is expressed by leaving the field blank instead.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-018, RULE-SINAIS-VITAIS-019, RULE-SINAIS-VITAIS-027, RULE-SINAIS-VITAIS-005]
+    merged_from: [RULE-vitals-FE-01-021]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "72-92", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: frontend-copy}
+    notes: >
+      PAS 50-250 / PAD 0-150 identical in dataFormFormularioMedico.ts:283-296 (see
+      RULE-SINAIS-VITAIS-005). Bounds reconciled against backend validators
+      RULE-SINAIS-VITAIS-018/019/027 — numeric ranges agree exactly.
+
+  - id: RULE-SINAIS-VITAIS-002
+    name: Blood-gas and laboratory plausible ranges (movimentacao form)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: >
+      Frontend min/max bounds for arterial blood-gas and lab values on the movimentacao
+      form. These labs (PaO2->P/F, lactate, bilirubin, creatinine, platelets, leukocytes)
+      feed downstream SOFA/sepsis-severity assessment, but these bounds are input-plausibility
+      validation only, not scoring. Numeric bounds match the backend validators exactly.
+    inputs:
+      - {name: po2, type: number, unit: mmHg, range: "0-500"}
+      - {name: paco2, type: number, unit: mmHg, range: "0-150"}
+      - {name: lactato_arterial, type: number, unit: mmol/L, range: "0-20"}
+      - {name: leucocitos, type: number, unit: /mm3, range: "0-40000"}
+      - {name: bilirrubinas, type: number, unit: mg/dL, range: "0-30"}
+      - {name: creatinina, type: number, unit: mg/dL, range: "0-20"}
+      - {name: plaquetas, type: number, unit: /mm3, range: "0-700000"}
+    outputs:
+      - {name: valid labs, type: boolean}
+    logic: |
+      po2 0-500; paco2 0-150; lactato_arterial 0-20; leucocitos 0-40000;
+      bilirrubinas 0-30; creatinina 0-20; plaquetas 0-700000
+    edge_cases: >
+      Bilirubin/creatinine/platelets/PaO2(->P/F)/lactate are SOFA and sepsis-severity
+      inputs; ranges are validation only, not scoring. The SOFA/sepsis score formula is
+      not present in this cluster (collection surface only).
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-014, RULE-SINAIS-VITAIS-016, RULE-SINAIS-VITAIS-022, RULE-SINAIS-VITAIS-024, RULE-SINAIS-VITAIS-025, RULE-SINAIS-VITAIS-026, RULE-SINAIS-VITAIS-028]
+    merged_from: [RULE-labs-FE-01-024]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "145-198", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: frontend-copy}
+    notes: >
+      This form is the collection surface for a downstream SOFA/sepsis score (score
+      formula not captured in this cluster). All seven bounds reconcile exactly with
+      backend validators (RULE-SINAIS-VITAIS-014/016/022/024/025/026/028).
+
+  - id: RULE-SINAIS-VITAIS-003
+    name: Urine-output and temperature plausible ranges (movimentacao form)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    verify: false
+    description: >
+      Frontend min/max bounds for 24h urine output and body temperature on the movimentacao
+      form. Numeric bounds match the backend validators exactly.
+    inputs:
+      - {name: debito_urinario_24h, type: number, unit: mL, range: "0-10000"}
+      - {name: temperatura, type: number, unit: Celsius, range: "20-43"}
+    outputs:
+      - {name: valid values, type: boolean}
+    logic: |
+      debito_urinario_24h: 0-10000
+      temperatura: min 20, max 43
+    edge_cases: >
+      Temperature floor 20C admits severe hypothermia; ceiling 43C. FE temperature min of
+      20 has no zero-exemption, whereas backend TemperaturaValidator exempts 0 as a
+      "not measured" sentinel (FE expresses "not measured" via blank).
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-021, RULE-SINAIS-VITAIS-023]
+    merged_from: [RULE-vitals-FE-01-025]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "199-212", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: frontend-copy}
+    notes: >
+      Bounds reconcile exactly with backend RULE-SINAIS-VITAIS-021 (urine) and
+      RULE-SINAIS-VITAIS-023 (temperature).
+
+  - id: RULE-SINAIS-VITAIS-004
+    name: Capillary refill time (TEC) range and >5s threshold — inconsistent encodings
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    verify: true
+    description: >
+      Capillary refill time (TEC) is captured three different ways across the frontend:
+      as a number bounded 3-20 s (movimentacao), as a boolean ">5s?" (enfermagem), and as
+      an exam checkbox "TEC > 5s" (physician). The numeric field's lower bound of 3s also
+      conflicts with physiologically-normal refill (<2-3s).
+    inputs:
+      - {name: tec, type: number, unit: seconds, range: "3-20"}
+    outputs:
+      - {name: tec value / alert, type: number|boolean, unit: seconds}
+    logic: |
+      movimentacao:      tec number, min 3, max 20
+      enfermagem:        tec_maior_5s boolean ("Tempo de Enchimento Capilar maior que 5 segundos?")
+      formulario_medico: exame_fisico option tec_5s "TEC > 5s"
+    edge_cases: >
+      Lower bound of 3s excludes physiologically-normal refill (<2s), so normal-perfusion
+      patients cannot record a true TEC on the numeric field. Same concept encoded three
+      different ways (number 3-20, boolean >5s, checkbox >5s) across forms.
+    confidence: high
+    divergence: >
+      Three divergent encodings of the same clinical concept coexist: numeric 3-20s
+      (movimentacao) vs boolean ">5s" (enfermagem dataFormEnfermagem.ts:462-465) vs checkbox
+      "TEC > 5s" (formulario_medico dataFormFormularioMedico.ts:149). The numeric 3-20 bound
+      also matches backend TecValidator (RULE-SINAIS-VITAIS-013, 0 or 3-20) but the >5s
+      boolean/checkbox is a separate derived alert threshold not present in the backend range.
+      The 3s floor conflicts with the published normal capillary-refill cutoff (~<2-3s).
+    related: [RULE-SINAIS-VITAIS-013]
+    merged_from: [RULE-vitals-FE-01-022]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormMovimentacao.ts, lines: "93-99", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: primary}
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormEnfermagem.ts, lines: "462-465", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: variant}
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormFormularioMedico.ts, lines: "149", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: variant}
+    notes: >
+      verify=true: capillary refill time has a published clinical anchor (normal <2-3s;
+      abnormal >3s used in perfusion/shock assessment) against which the 3s floor and >5s
+      alert should be checked.
+
+  - id: RULE-SINAIS-VITAIS-005
+    name: Physician-form vital-sign ranges (partial) — HR/FR/temp/SpO2 unbounded
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    verify: false
+    description: >
+      On the physician form (dataFormFormularioMedico.ts "Sinais vitais" group) only blood
+      pressure is range-bounded; heart rate, respiratory rate, temperature and SpO2 are
+      unbounded number inputs — unlike the movimentacao form and the backend validators,
+      which do bound HR/FR/temp.
+    inputs:
+      - {name: pas, type: number, unit: mmHg, range: "50-250"}
+      - {name: pad, type: number, unit: mmHg, range: "0-150"}
+      - {name: frequencia_cardiaca, type: number, unit: bpm, range: "unbounded"}
+      - {name: frequencia_respiratoria, type: number, unit: ipm, range: "unbounded"}
+      - {name: temperatura, type: number, unit: Celsius, range: "unbounded"}
+      - {name: saturacao_o2, type: number, unit: percent, range: "unbounded"}
+    outputs:
+      - {name: valid vitals, type: boolean}
+    logic: |
+      pas 50-250; pad 0-150
+      frequencia_cardiaca / frequencia_respiratoria / temperatura / saturacao_o2: number, no min/max
+      (fields nested under "sinais_vitais" key, vs "dados_prontuario" on movimentacao)
+    edge_cases: >
+      Inconsistent with movimentacao where HR/FR/temp ARE bounded, and with backend
+      validators which enforce HR 0-200, FR 0-50, temp 20-43.
+    confidence: high
+    divergence: >
+      Cross-implementation (frontend vs backend) divergence found in reconciliation: the
+      physician form leaves frequencia_cardiaca, frequencia_respiratoria and temperatura
+      UNBOUNDED, whereas the backend enforces FrequenciaCardiacaValidator 0-200
+      (RULE-SINAIS-VITAIS-027), FRValidator 0-50 (RULE-SINAIS-VITAIS-015) and
+      TemperaturaValidator 20-43 (RULE-SINAIS-VITAIS-023) on save — so out-of-range values
+      accepted by this form are rejected by the backend. SpO2 (saturacao_o2) is unbounded on
+      BOTH sides (SatO2Validator is disabled, RULE-SINAIS-VITAIS-033), so SpO2 is consistent.
+      PAS 50-250 / PAD 0-150 match backend and the movimentacao form.
+    related: [RULE-SINAIS-VITAIS-015, RULE-SINAIS-VITAIS-018, RULE-SINAIS-VITAIS-019, RULE-SINAIS-VITAIS-023, RULE-SINAIS-VITAIS-027, RULE-SINAIS-VITAIS-033, RULE-SINAIS-VITAIS-001]
+    merged_from: [RULE-vitals-FE-01-035]
+    sources:
+      - {repo: trilhas-frontend, path: src/utils/dataForms/dataFormFormularioMedico.ts, lines: "270-308", commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b, role: frontend-copy}
+    notes: >
+      Phase-1 recorded this OK with only an internal FE inconsistency note; reconciliation
+      against the backend validators upgrades it to DISCREPANCY (frontend under-validates
+      HR/FR/temp relative to backend). Recorded as a new divergence.
+
+  # =====================================================================
+  # WORKFLOWS  (SinaisVitais viewset behaviours)
+  # =====================================================================
+  - id: RULE-SINAIS-VITAIS-006
+    name: SinaisVitais listing includes soft-deleted records
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    verify: false
+    description: >
+      SinaisVitaisViewSet.get_queryset() uses the default SinaisVitais.objects manager
+      (not objects_without_deleted), so soft-deleted vital-sign records are included in the
+      listing. Identical pattern to the entrada/saida viewsets in the balanco cluster.
+    inputs:
+      - {name: balancos__pk (URL kwarg), type: uuid}
+    outputs:
+      - {name: queryset, type: queryset}
+    logic: |
+      SinaisVitais.objects.select_related("balanco")
+        .filter(balanco_id=kwargs["balancos__pk"])
+        .order_by("-deletado_em", "criado_em")
+    edge_cases: >
+      Uses default manager instead of objects_without_deleted -> soft-deleted rows leak into
+      the list. Same NULL-ordering caveat as the entrada viewset (deletado_em NULL ordering).
+    confidence: medium
+    related: [RULE-SINAIS-VITAIS-007, RULE-SINAIS-VITAIS-008]
+    merged_from: [RULE-sinal-BE-08-048]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/api/v1/views/sinais_vitais.py, lines: "29-35", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Cross-cluster analogues (balanco-hidrico): RULE-entrada-BE-08-010 and
+      RULE-saida-BE-08-045 share the identical default-manager pattern.
+
+  - id: RULE-SINAIS-VITAIS-007
+    name: SinaisVitais soft-delete logs audit action (no balance adjustment)
+    category: care-pathway
+    type: workflow
+    status: OK
+    verify: false
+    description: >
+      Deleting a SinaisVitais record marks it deleted by the current user and logs an
+      AcaoHomecare audit entry ("inativar" on "sinal_vital"). Unlike Entrada/Saida destroy,
+      no BalancoHidrico field is adjusted (vital signs do not contribute to the fluid balance).
+    inputs:
+      - {name: instance, type: model instance (SinaisVitais)}
+    outputs:
+      - {name: AcaoHomecare audit record, type: model instance}
+    logic: |
+      @transaction.atomic
+      def destroy(request):
+          instance.deletado_por = user
+          instance.save()
+          criar_acao_homecare(tipo="sinal_vital", acoes=["inativar"], leito=request.leito,
+                               setor=request.setor, sinal_vital=instance, realizado_por=user)
+          return super().destroy(request)
+    edge_cases: null
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-006, RULE-SINAIS-VITAIS-008]
+    merged_from: [RULE-sinal-BE-08-049]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/api/v1/views/sinais_vitais.py, lines: "37-52", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Contrast with the entrada/saida destroy handlers (balanco-hidrico cluster:
+      RULE-entrada-BE-08-011 / RULE-saida-BE-08-046) which DO adjust balanco_24h.
+
+  - id: RULE-SINAIS-VITAIS-008
+    name: SinaisVitais manage_data payload injection
+    category: data-validation
+    type: workflow
+    status: OK
+    verify: false
+    description: >
+      Parent balanco id injected from the route kwarg; the 'assinar' (sign) flag is passed
+      through only if present in the payload.
+    inputs:
+      - {name: balancos__pk (URL kwarg), type: string (uuid)}
+      - {name: assinar (payload field), type: boolean/any truthy}
+    outputs:
+      - {name: 'data["balanco"]', type: string (uuid)}
+      - {name: 'data["assinar"]', type: same as input}
+    logic: |
+      if isinstance(balanco, str): data["balanco"] = balanco
+      assinar = data.pop("assinar", None)
+      if assinar: data["assinar"] = assinar
+    edge_cases: null
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-006, RULE-SINAIS-VITAIS-007]
+    merged_from: [RULE-sinal-BE-08-050]
+    sources:
+      - {repo: ahlabs-trilhas, path: trilha_homecare/api/v1/views/sinais_vitais.py, lines: "54-65", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Identical pattern to entrada/saida manage_data (balanco-hidrico cluster:
+      RULE-entrada-BE-08-012 / RULE-saida-BE-08-047).
+
+  # =====================================================================
+  # VALIDATIONS / ENUMS  (backend field validators)
+  # Each merges the validators.py definition (BE-11) with its model-field
+  # application (BE-10). Bounds are identical between the two captures.
+  # =====================================================================
+  - id: RULE-SINAIS-VITAIS-009
+    name: PorcentagemValidator — generic percentage range
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Generic percentage field validator; value must be between 0 and 100 inclusive.
+    inputs:
+      - {name: valor, type: number, unit: percent, range: "0-100"}
+    outputs:
+      - {name: validity, type: raises ValidationError otherwise}
+    logic: |
+      IF NOT (0 <= valor <= 100): RAISE ValidationError(f"{valor} deve estar entre 0 e 100")
+      (TypeError on non-numeric input -> ValidationError "deve ser um numero")
+    edge_cases: No zero-value exemption; 0 and 100 are both valid boundary values.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-006]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "32-43", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+    notes: >
+      Generic percentage validator; used wherever a percentage-typed field needs bounding
+      (not tied to one specific vital sign). No dedicated model-field capture in this cluster.
+
+  - id: RULE-SINAIS-VITAIS-010
+    name: FiO2Validator — inspired oxygen fraction range, zero exempted
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      FiO2 (%) must be between 21 and 100 inclusive, UNLESS exactly 0 (treated as
+      not-applicable/not-measured and exempted). Applied on the dados_prontuario.fio2 field.
+    inputs:
+      - {name: fio2, type: float, unit: percent, range: "0 (exempt) or 21-100"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF fio2 != 0 AND NOT (21 <= fio2 <= 100): RAISE ValidationError(f"{fio2} deve estar entre 21 e 100")
+    edge_cases: >
+      0 explicitly allowed (means "not informed"); 5 -> error; non-numeric -> "deve ser um numero".
+      Confirmed by test_limites_parametros.py:30-36 (fio2=5 raises, fio2=0 ok).
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-033, RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-007, RULE-val-BE-10-073]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "46-55", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "44-46", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      21% approximates room-air FiO2 (physiological floor). The percentage range here (21-100)
+      contrasts with fraction usage in P/F-ratio math (cross-cluster RULE-pfratio-BE-10-001).
+      Structurally identical to SatO2Validator (RULE-SINAIS-VITAIS-033) but SatO2 has NO zero
+      exemption AND is disabled. Frontend movimentacao FiO2 input is 21-100 (matches).
+
+  - id: RULE-SINAIS-VITAIS-011
+    name: GlasgowValidator — Glasgow Coma Scale range, zero exempted
+    category: clinical-scoring
+    type: validation
+    status: OK
+    verify: true
+    description: >
+      Glasgow Coma Scale total must be between 3 and 15 inclusive (standard GCS range),
+      UNLESS exactly 0 (exempted, treated as not measured). Applied on dados_prontuario.glasgow.
+    inputs:
+      - {name: glasgow, type: int, unit: GCS points, range: "0 (exempt) or 3-15"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF glasgow != 0 AND NOT (3 <= glasgow <= 15): RAISE ValidationError(f"{glasgow} deve estar entre 3 e 15")
+    edge_cases: >
+      0 allowed (sentinel/"not measured"); 1, 2, 16 -> error. Test test_limites_parametros.py:98-104.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-008, RULE-val-BE-10-088]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "58-69", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "109-111", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      3-15 is the standard published GCS range (verify against Glasgow Coma Scale). Category
+      taken from the validators.py capture (clinical-scoring); the model-field capture labelled
+      it data-validation.
+
+  - id: RULE-SINAIS-VITAIS-012
+    name: PeepValidator — PEEP range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: PEEP (positive end-expiratory pressure) must be between 0 and 40 inclusive. Applied on dados_prontuario.peep.
+    inputs:
+      - {name: peep, type: float, unit: cmH2O, range: "0-40"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= peep <= 40): RAISE ValidationError(f"{peep} deve estar entre 0 e 40")
+    edge_cases: 0 is a valid PEEP (no positive pressure); 45 -> error. Test test_limites_parametros.py:38-40.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-009, RULE-val-BE-10-074]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "72-81", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "47-49", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Cross-file discrepancy noted at seed time: utils/popular_banco.py valores_maximos_atributos
+      uses an upper bound of 41 for peep (not 40) — tracked separately as RULE-seed-BE-11-031
+      (out of this cluster). Frontend movimentacao PEEP input is 0-40 (matches).
+
+  - id: RULE-SINAIS-VITAIS-013
+    name: TecValidator — capillary refill time range, zero exempted
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      TEC (tempo de enchimento capilar / capillary refill time) must be between 3 and 20
+      inclusive, UNLESS exactly 0 (exempted). Applied on dados_prontuario.tec.
+    inputs:
+      - {name: tec, type: int, unit: seconds, range: "0 (exempt) or 3-20"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF tec != 0 AND NOT (3 <= tec <= 20): RAISE ValidationError(f"{tec} deve estar entre 3 e 20")
+    edge_cases: >
+      0 allowed (sentinel/"not measured"); 25 -> error. Test test_limites_parametros.py:42-44.
+      Criteria treat tec>5 as abnormal (within the valid 3-20 range).
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-004]
+    merged_from: [RULE-vitais-BE-11-010, RULE-val-BE-10-076]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "84-93", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "62-64", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      The 3-20 permissible-entry range is wider than the classic clinical normal cutoff
+      (<2-3s); recorded verbatim, no correction. The frontend encodes the same field three
+      ways (RULE-SINAIS-VITAIS-004), which carries the capillary-refill discrepancy/verify.
+
+  - id: RULE-SINAIS-VITAIS-014
+    name: Po2Validator — PaO2/PO2 range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: PO2 must be between 0 and 500 inclusive. Applied on dados_prontuario.po2.
+    inputs:
+      - {name: po2, type: float, unit: mmHg, range: "0-500"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= po2 <= 500): RAISE ValidationError(f"{po2} deve estar entre 0 e 500")
+    edge_cases: No zero exemption; 505 -> error. Test test_limites_parametros.py:46-48.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-011, RULE-val-BE-10-075]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "96-105", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "50-52", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: PaO2 feeds P/F ratio (cross-cluster RULE-pfratio-BE-10-001). Frontend movimentacao PO2 input 0-500 (matches).
+
+  - id: RULE-SINAIS-VITAIS-015
+    name: FRValidator — respiratory rate range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: FR (respiratory rate) must be between 0 and 50 inclusive. Applied on dados_prontuario.fr.
+    inputs:
+      - {name: fr, type: int, unit: breaths/min (ipm), range: "0-50"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= fr <= 50): RAISE ValidationError(f"{fr} deve estar entre 0 e 50")
+    edge_cases: No zero exemption (0 breaths/min = apnea is representable); 55 -> error. Test test_limites_parametros.py:50-52.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-005]
+    merged_from: [RULE-vitais-BE-11-012, RULE-val-BE-10-077]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "108-117", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "66", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Physician form leaves FR unbounded (RULE-SINAIS-VITAIS-005 divergence); movimentacao form bounds it 0-50 (matches).
+
+  - id: RULE-SINAIS-VITAIS-016
+    name: LactatoArterialValidator — arterial lactate range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Arterial lactate must be between 0 and 20 inclusive. Applied on dados_prontuario.lactato_arterial.
+    inputs:
+      - {name: lactato_arterial, type: float, unit: mmol/L (mg/dl per some texts), range: "0-20"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= lactato_arterial <= 20): RAISE ValidationError(f"{lactato_arterial} deve estar entre 0 e 20")
+    edge_cases: No zero exemption; 25 -> error. Test test_limites_parametros.py:54-56.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-013, RULE-val-BE-10-078]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "120-133", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "69-71", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Lactate is a sepsis-severity input; range is plausibility-only. Frontend movimentacao lactate input 0-20 (matches).
+
+  - id: RULE-SINAIS-VITAIS-017
+    name: VolumeCorrenteValidator — tidal volume range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Tidal volume must be between 0 and 1500 inclusive. Applied on dados_prontuario.volume_corrente.
+    inputs:
+      - {name: volume_corrente, type: float, unit: mL, range: "0-1500"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= volume_corrente <= 1500): RAISE ValidationError(f"{volume_corrente} deve estar entre 0 e 1500")
+    edge_cases: No zero exemption; 1550 -> error. Test test_limites_parametros.py:58-60.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-014, RULE-val-BE-10-079]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "136-149", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "75-77", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Ventilacao criterion C1 flags volume_corrente >500 (within valid 0-1500). Frontend movimentacao input 0-1500 (matches).
+
+  - id: RULE-SINAIS-VITAIS-018
+    name: PASValidator — systolic blood pressure range, zero exempted
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      PAS (systolic blood pressure) must be between 50 and 250 inclusive, UNLESS exactly 0
+      (exempted, "not measured"). Applied on dados_prontuario.pas.
+    inputs:
+      - {name: pas, type: float, unit: mmHg, range: "0 (exempt) or 50-250"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF pas != 0 AND NOT (50 <= pas <= 250): RAISE ValidationError(f"{pas} deve estar entre 50 e 250")
+    edge_cases: 0 allowed (sentinel); 255 -> error. Test test_limites_parametros.py:62-64.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-001, RULE-SINAIS-VITAIS-005, RULE-SINAIS-VITAIS-019]
+    merged_from: [RULE-vitais-BE-11-015, RULE-val-BE-10-080]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "152-161", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "78-80", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Frontend forms (movimentacao, physician) use min 50 with no zero-exemption, so the
+      backend "0 = not measured" sentinel is not reachable via those number inputs (blank used
+      instead). Numeric 50-250 bound matches the frontend.
+
+  - id: RULE-SINAIS-VITAIS-019
+    name: PADValidator — diastolic blood pressure range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: PAD (diastolic blood pressure) must be between 0 and 150 inclusive. Applied on dados_prontuario.pad.
+    inputs:
+      - {name: pad, type: float, unit: mmHg, range: "0-150"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= pad <= 150): RAISE ValidationError(f"{pad} deve estar entre 0 e 150")
+    edge_cases: No zero exemption, unlike PASValidator for the paired systolic reading; 155 -> error. Test test_limites_parametros.py:66-68.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-001, RULE-SINAIS-VITAIS-005, RULE-SINAIS-VITAIS-018]
+    merged_from: [RULE-vitais-BE-11-016, RULE-val-BE-10-081]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "164-173", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "81-83", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Internally inconsistent with PASValidator (systolic exempts 0, diastolic does not);
+      recorded verbatim, not corrected. Frontend PAD input 0-150 (matches).
+
+  - id: RULE-SINAIS-VITAIS-020
+    name: PAMValidator — mean arterial pressure range, no zero exemption (validator defined but disabled on field)
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      PAM (mean arterial pressure) validator requires 0-200 inclusive. The validator class is
+      defined but its application on the model field is COMMENTED OUT (pam field and import both
+      disabled in dados_prontuario.py), so no PAM is stored/validated at present.
+    inputs:
+      - {name: pam, type: number, unit: mmHg, range: "0-200"}
+    outputs:
+      - {name: validity, type: raises ValidationError otherwise}
+    logic: |
+      IF NOT (0 <= pam <= 200): RAISE ValidationError(f"{pam} deve estar entre 0 e 200")
+    edge_cases: >
+      No zero exemption. Application disabled: dados_prontuario.py:84-85 field commented out and
+      import at line 16 commented out. Dead test: test_pad_entre_0_e_200 sets a non-field
+      attribute pam=205 which is NOT validated.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-017]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "176-185", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "84-85 (commented)", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Standalone (no separate BE-10 rule captured; the disabled-application detail was recorded
+      in the PADValidator capture's note). Left OK (validator definition is well-formed); the
+      disabled state is documented rather than flagged.
+
+  - id: RULE-SINAIS-VITAIS-021
+    name: DebitoUrinario24hValidator — 24h urine output range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: 24-hour urine output must be between 0 and 10000 inclusive. Applied on dados_prontuario.debito_urinario_24h.
+    inputs:
+      - {name: debito_urinario, type: float, unit: mL/24h, range: "0-10000"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= debito_urinario <= 10000): RAISE ValidationError(f"{debito_urinario} deve estar entre 0 e 10000")
+    edge_cases: No zero exemption (0 mL/24h = anuria is representable); 100005 -> error. Test test_limites_parametros.py:74-76.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-003]
+    merged_from: [RULE-vitais-BE-11-018, RULE-val-BE-10-082]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "188-201", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "90-92", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Frontend movimentacao urine input 0-10000 (matches).
+
+  - id: RULE-SINAIS-VITAIS-022
+    name: BilirrubinasValidator — bilirubin range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Bilirubin must be between 0 and 30 inclusive. Applied on dados_prontuario.bilirrubinas.
+    inputs:
+      - {name: bilirrubinas, type: float, unit: mg/dL, range: "0-30"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= bilirrubinas <= 30): RAISE ValidationError(f"{bilirrubinas} deve estar entre 0 e 30")
+    edge_cases: No zero exemption; 35 -> error. Test test_limites_parametros.py:78-80.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-019, RULE-val-BE-10-083]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "204-217", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "94-96", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Bilirubin is a SOFA input; range is plausibility-only. Frontend movimentacao input 0-30 (matches).
+
+  - id: RULE-SINAIS-VITAIS-023
+    name: TemperaturaValidator — body temperature range, zero exempted
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: >
+      Temperature must be between 20 and 43 (Celsius) inclusive, UNLESS exactly 0 (exempted).
+      Applied on dados_prontuario.temperatura.
+    inputs:
+      - {name: temperatura, type: float, unit: Celsius, range: "0 (exempt) or 20-43"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF temperatura != 0 AND NOT (20 <= temperatura <= 43): RAISE ValidationError(f"{temperatura} deve estar entre 20 e 43")
+    edge_cases: >
+      0 allowed (sentinel/"not measured"), even though 0C is not physiologically plausible;
+      45 -> error. Test test_limites_parametros.py:82-84.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-003, RULE-SINAIS-VITAIS-005]
+    merged_from: [RULE-vitais-BE-11-020, RULE-val-BE-10-084]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "220-232", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "97-99", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Movimentacao form temperature input is 20-43 (matches, no zero-exemption on FE); physician
+      form leaves temperature unbounded (RULE-SINAIS-VITAIS-005 divergence).
+
+  - id: RULE-SINAIS-VITAIS-024
+    name: PaCO2Validator — PaCO2 range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: PaCO2 must be between 0 and 150 inclusive. Applied on dados_prontuario.paco2.
+    inputs:
+      - {name: paco2, type: float, unit: mmHg, range: "0-150"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= paco2 <= 150): RAISE ValidationError(f"{paco2} deve estar entre 0 e 150")
+    edge_cases: No zero exemption; 155 -> error. Test test_limites_parametros.py:86-88.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-021, RULE-val-BE-10-085]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "235-246", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "100-102", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Frontend movimentacao PaCO2 input 0-150 (matches).
+
+  - id: RULE-SINAIS-VITAIS-025
+    name: CreatininaValidator — creatinine range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Creatinine must be between 0 and 20 inclusive. Applied on dados_prontuario.creatinina.
+    inputs:
+      - {name: creatinina, type: float, unit: mg/dL, range: "0-20"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= creatinina <= 20): RAISE ValidationError(f"{creatinina} deve estar entre 0 e 20")
+    edge_cases: No zero exemption; 25 -> error. Test test_limites_parametros.py:90-92.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-022, RULE-val-BE-10-086]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "249-261", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "103-105", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Creatinine is a SOFA input; range is plausibility-only. Frontend movimentacao input 0-20 (matches).
+
+  - id: RULE-SINAIS-VITAIS-026
+    name: LeucocitosValidator — leukocyte count range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Leukocyte count must be between 0 and 40000 inclusive. Applied on dados_prontuario.leucocitos.
+    inputs:
+      - {name: leucocitos, type: float, unit: /mm3, range: "0-40000"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= leucocitos <= 40000): RAISE ValidationError(f"{leucocitos} deve estar entre 0 e 40000")
+    edge_cases: No zero exemption; 41000 -> error. Test test_limites_parametros.py:94-96.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-023, RULE-val-BE-10-087]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "264-276", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "106-108", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Leukocytes is a SIRS input; range is plausibility-only. Frontend movimentacao input 0-40000 (matches).
+
+  - id: RULE-SINAIS-VITAIS-027
+    name: FrequenciaCardiacaValidator — heart rate range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Heart rate must be between 0 and 200 inclusive. Applied on dados_prontuario.frequencia_cardiaca.
+    inputs:
+      - {name: frequencia_cardiaca, type: int, unit: bpm, range: "0-200"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= frequencia_cardiaca <= 200): RAISE ValidationError(f"{frequencia_cardiaca} deve estar entre 0 e 200")
+    edge_cases: No zero exemption (0 bpm = asystole/arrest is representable); 201 -> error. Test test_limites_parametros.py:106-108.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-001, RULE-SINAIS-VITAIS-005]
+    merged_from: [RULE-vitais-BE-11-024, RULE-val-BE-10-089]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "279-292", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "112-114", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Movimentacao form bounds HR 0-200 (matches); physician form leaves HR unbounded (RULE-SINAIS-VITAIS-005 divergence).
+
+  - id: RULE-SINAIS-VITAIS-028
+    name: PlaquetasValidator — platelet count range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Platelet count must be between 0 and 700000 inclusive. Applied on dados_prontuario.plaquetas.
+    inputs:
+      - {name: plaquetas, type: int, unit: /mm3, range: "0-700000"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= plaquetas <= 700000): RAISE ValidationError(f"{plaquetas} deve estar entre 0 e 700000")
+    edge_cases: No zero exemption; 701000 -> error. Test test_limites_parametros.py:110-112.
+    confidence: high
+    related: [RULE-SINAIS-VITAIS-002]
+    merged_from: [RULE-vitais-BE-11-025, RULE-val-BE-10-090]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "295-307", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "115-117", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Platelets is a SOFA input; range is plausibility-only. Frontend movimentacao input 0-700000 (matches).
+
+  - id: RULE-SINAIS-VITAIS-029
+    name: DobutaminaValidator — dobutamine dose range, no zero exemption
+    category: drug-dosing
+    type: validation
+    status: OK
+    verify: true
+    description: Dobutamine dosing value must be between 0 and 30 inclusive. Applied on dados_prontuario.dobutamina.
+    inputs:
+      - {name: dobutamina, type: float, unit: "ml/h (mcg/kg/min per some captures; unit not stated in code)", range: "0-30"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= dobutamina <= 30): RAISE ValidationError(f"{dobutamina} deve estar entre 0 e 30")
+    edge_cases: No zero exemption (0 = drug not running is valid); 35 -> error. Test test_limites_parametros.py:114-116.
+    confidence: medium
+    related: []
+    merged_from: [RULE-vitais-BE-11-026, RULE-val-BE-10-091]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "310-322", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "132-138", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Unit is not documented in code (model-field capture said ml/h, validators.py capture
+      inferred mcg/kg/min). SOFA/estabilidade criteria compare dobutamina>0 or >10 (both within 0-30).
+
+  - id: RULE-SINAIS-VITAIS-030
+    name: NoradrenalinaValidator — norepinephrine dose range, no zero exemption
+    category: drug-dosing
+    type: validation
+    status: OK
+    verify: true
+    description: Noradrenaline dosing value/quantity must be between 0 and 200 inclusive. Defined in validators.py and applied on the Noradrenalina model.
+    inputs:
+      - {name: noradrenalina/quantidade, type: float, unit: "ml (unit not stated in validator)", range: "0-200"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= noradrenalina <= 200): RAISE ValidationError(f"{noradrenalina} deve estar entre 0 e 200")
+    edge_cases: No zero exemption; 201 -> error. Test test_limites_parametros.py:118-125.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-027, RULE-val-BE-10-094]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "325-338", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/noradrenalina.py, lines: "16", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      SOFA cardiovascular tiers noradrenaline dose at >10 (within 0-200). get_microindicadores
+      (utils/micro_indicadores.py) maps a generic vasoactive-drug flag (DVA) to a key literally
+      named 'noradrenalina' — separate semantic ambiguity tracked as RULE-indic-BE-11-050 (out of cluster).
+
+  - id: RULE-SINAIS-VITAIS-031
+    name: SedativoValidator — sedative dose range, no zero exemption
+    category: drug-dosing
+    type: validation
+    status: DISCREPANCY
+    verify: true
+    description: >
+      Sedative dosing value/quantity must be between 0 and 30 inclusive. Defined in validators.py
+      and applied on the Sedativo model.
+    inputs:
+      - {name: sedativo/quantidade, type: int, unit: "ml (unit not stated in validator)", range: "0-30"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= sedativo <= 30): RAISE ValidationError(f"{sedativo} deve estar entre 0 e 30")
+    edge_cases: No zero exemption; 31 -> error. Test test_limites_parametros.py:127-134 asserts quantidade=31 raises.
+    confidence: high
+    divergence: >
+      Test-vs-name discrepancy (backend-internal): the test method is named
+      test_sedativo_entre_0_e_200 but the SedativoValidator max is 30 (and the test asserts 31
+      raises). The "0 e 200" in the test name is wrong; the actual enforced bound is 0-30. The
+      two captures (validators.py definition and sedativo.py application) agree on 0-30.
+    related: []
+    merged_from: [RULE-vitais-BE-11-028, RULE-val-BE-10-095]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "341-352", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/sedativo.py, lines: "18-20", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      DISCREPANCY preserved from the model-field capture (misnamed test). Sedation overdose
+      criterion flags a single dose >15 (cross-cluster RULE-sedacao-BE-10-011), within 0-30.
+
+  - id: RULE-SINAIS-VITAIS-032
+    name: PressaoInspiratoriaValidator — inspiratory pressure (PINS) range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    verify: false
+    description: Inspiratory pressure (PINS) must be between 0 and 30 inclusive. Applied on dados_prontuario.pressao_inspiratoria.
+    inputs:
+      - {name: pressao_inspiratoria, type: int, unit: cmH2O, range: "0-30"}
+    outputs:
+      - {name: valid/ValidationError, type: bool}
+    logic: |
+      IF NOT (0 <= pressao_inspiratoria <= 30): RAISE ValidationError(f"{pressao_inspiratoria} deve estar entre 0 e 30")
+    edge_cases: No zero exemption. Ventilacao criterion C1 flags >16 (within valid 0-30); not directly boundary-tested.
+    confidence: high
+    related: []
+    merged_from: [RULE-vitais-BE-11-029, RULE-val-BE-10-092]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "355-368", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "139-145", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: Frontend movimentacao PINS input 0-30 (matches).
+
+  - id: RULE-SINAIS-VITAIS-033
+    name: SatO2Validator — oxygen saturation range, no zero exemption AND disabled on the model field
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    verify: false
+    description: >
+      SpO2/SatO2 validator requires min_value=21 to max_value=100 inclusive with NO zero
+      exemption (unlike the structurally identical FiO2Validator). Moreover the validator is
+      DISABLED on the model field: sato2 = PositiveIntegerField(...) with validators=[SatO2Validator()]
+      commented out (and the import commented out), so SatO2 is effectively unvalidated.
+    inputs:
+      - {name: sato2, type: int, unit: percent, range: "21-100 (per definition) / unvalidated (as applied)"}
+    outputs:
+      - {name: validity, type: "raises ValidationError if enabled; no validation as applied"}
+    logic: |
+      # validator definition (utils/validators.py):
+      min_value = 21; max_value = 100
+      IF NOT (min_value <= sato2 <= max_value): RAISE ValidationError(f"{sato2} deve estar entre {min_value} e {max_value}")
+      # model field application (dados_prontuario.py): validators=[SatO2Validator()] is COMMENTED OUT
+      sato2 = PositiveIntegerField(null=True, blank=True)  # any positive integer accepted
+    edge_cases: >
+      As defined, sato2==0 is REJECTED (no sentinel exemption), whereas the structurally
+      identical FiO2Validator (also 21-100) exempts 0 — an internal inconsistency. As applied,
+      the validator is disabled so any positive integer is accepted. Sepse C2 uses <96;
+      ventilacao C10 uses >96 and >92.
+    confidence: high
+    divergence: >
+      Two-facet ambiguity: (1) definition inconsistency — SatO2Validator (21-100) has no
+      zero-exemption while FiO2Validator (RULE-SINAIS-VITAIS-010, same 21-100 bound) exempts 0;
+      (2) the validator is defined but its field application is commented out, so no bound is
+      enforced at runtime. Whether the missing zero-exemption and the disabled state are
+      intentional is unresolved.
+    related: [RULE-SINAIS-VITAIS-010, RULE-SINAIS-VITAIS-005]
+    merged_from: [RULE-vitais-BE-11-030, RULE-val-BE-10-093]
+    sources:
+      - {repo: ahlabs-trilhas, path: utils/validators.py, lines: "371-386", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
+      - {repo: ahlabs-trilhas, path: trilha_manual/models/dados_prontuario.py, lines: "147-151", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
+    notes: >
+      Merges the validator-definition capture (BE-11-030, range 21-100, no zero-exempt) with the
+      model-field capture (BE-10-093, validator commented out / disabled). Physician form SpO2 is
+      also unbounded (RULE-SINAIS-VITAIS-005), consistent with the disabled backend validator.
+
+dropped:
+  - {id: RULE-validation-FE-01-001, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-01-002, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-001, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-002, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-003, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-004, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-005, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-006, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-validation-FE-02-007, reason: "misrouted:cadastros-ui"}
+  - {id: RULE-time-FE-01-003, reason: "misrouted:formularios-clinicos"}
+  - {id: RULE-time-FE-01-004, reason: "misrouted:balanco-hidrico"}

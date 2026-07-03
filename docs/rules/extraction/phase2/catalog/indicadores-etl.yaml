@@ -1,0 +1,1326 @@
+cluster: indicadores-etl
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+- id: RULE-INDICADORES-ETL-001
+  name: Sector alert-share percentage formula
+  category: alert-threshold
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    Computes what percentage of a sector's total alert count (across NEUTRO+AMARELO+VERMELHO) a given alert-color bucket represents, used to size each segment of the sector's alert progress bars.
+  inputs:
+  - name: alert
+    type: number
+    unit: count
+    range: '>=0'
+  - name: item.total_alertas.NEUTRO
+    type: number
+    unit: count
+  - name: item.total_alertas.AMARELO
+    type: number
+    unit: count
+  - name: item.total_alertas.VERMELHO
+    type: number
+    unit: count
+  outputs:
+  - name: alertPercent
+    type: number
+    unit: '%'
+  logic: |
+    total = NEUTRO + AMARELO + VERMELHO
+    alertPercent(alert) = total !== 0 ? (alert * 100) / total : 0
+  edge_cases: Division-by-zero guarded explicitly; returns 0 when total is 0.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-005
+  - RULE-INDICADORES-ETL-009
+  - RULE-INDICADORES-ETL-008
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-06-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 54-67
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Feeds the per-color Progress bars rendered at lines 356-390 of the same file.
+- id: RULE-INDICADORES-ETL-002
+  name: Sector assisted-share percentage formula
+  category: alert-threshold
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    Computes what percentage of a sector's yellow+red alerted patients are currently marked as "assistido" (being actively assisted), used both to size the ASSISTIDO progress bar and, at 100%, to flip the whole card's status to ASSISTIDO (see RULE-dashboard-FE-06-005).
+  inputs:
+  - name: assist
+    type: number
+    unit: count
+  - name: item.total_alertas.AMARELO
+    type: number
+    unit: count
+  - name: item.total_alertas.VERMELHO
+    type: number
+    unit: count
+  outputs:
+  - name: assistPercent
+    type: number
+    unit: '%'
+  logic: |
+    total = AMARELO + VERMELHO
+    assistPercent(assist) = total !== 0 ? (assist * 100) / total : 0
+  edge_cases: |
+    Division-by-zero guarded, returns 0. Consequence: if a sector has total_assistidos > 0 but zero AMARELO/VERMELHO alerts, assistPercent returns 0 (not 100), so the ASSISTIDO override in RULE-dashboard-FE-06-005 will NOT trigger in that scenario.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-005
+  - RULE-INDICADORES-ETL-009
+  - RULE-INDICADORES-ETL-008
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-06-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 69-79
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Used again at lines 375-388 for the ASSISTIDO progress bar (percent floor via Math.floor for
+    display only).
+- id: RULE-INDICADORES-ETL-003
+  name: TLP (standardized letality) percentage conversion
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: |
+    In the assistance and infection-control indicator charts, the TLP series ("taxa de letalidade padronizada") is computed by multiplying the stored letalidade_tlp field by 100 to express it as a percentage.
+  inputs:
+  - name: letalidade_tlp
+    type: number
+    unit: ratio
+    range: null
+  outputs:
+  - name: TLP
+    type: number
+    unit: '%'
+  logic: |
+    TLP = letalidade_tlp * 100
+    # ArrayAgg(F("letalidade_tlp") * 100) aggregated per dt_mes_ano
+  edge_cases: Aggregated over each month (dt_mes_ano); null letalidade_tlp yields null in the array.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-004
+  merged_from:
+  - RULE-indicador-BE-02-018
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/indicadores_assistenciais.py
+    lines: 82-84
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Same *100 conversion in indicadores_controle_Infeccao.py lines 82-84.
+- id: RULE-INDICADORES-ETL-004
+  name: Sedation-use indicator representation (assistenciais vs controle-infeccao)
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: |
+    The two indicator viewsets present sedation differently. The assistance view plots taxa_uso_sedacao * 100 (a rate as percentage, labeled "Tx. sedacao"). The infection-control view plots the raw dias_sedacao field (days) under the same label "Tx. sedacao".
+  inputs:
+  - name: taxa_uso_sedacao
+    type: number
+    unit: ratio
+    range: null
+  - name: dias_sedacao
+    type: number
+    unit: dias
+    range: null
+  outputs:
+  - name: serie_sedacao
+    type: number
+    unit: '% or dias'
+  logic: |
+    # indicadores_assistenciais.py chart3:
+    uso_sedacao = ArrayAgg(F("taxa_uso_sedacao") * 100)   # percentage, eixo y1
+    # indicadores_controle_Infeccao.py chart3:
+    uso_sedacao = ArrayAgg("dias_sedacao")                # raw days, eixo y
+  edge_cases: Different source field, unit, and axis assignment despite identical series label.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-003
+  merged_from:
+  - RULE-indicador-BE-02-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/indicadores_assistenciais.py
+    lines: 105-111
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    DISCREPANCY/duplication: indicadores_controle_Infeccao.py (lines 112-118) is a near-copy of indicadores_assistenciais.py but with drifted field names elsewhere too: chart2 uses tx_mortalidade / mortalidade_esperada vs assistenciais' tx_mortalidade_observada / tx_mortalidade_esperada. Same TLP*100. Verify which field set is canonical.
+- id: RULE-INDICADORES-ETL-005
+  name: Bed-occupancy percentage color thresholds
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    The circular occupancy-percentage indicator on a sector's dashboard card is colored red above 70%, amber between 50% and 70%, and green at or below 50%.
+  inputs:
+  - name: item.ocupacao
+    type: number (percent)
+    unit: '%'
+    range: 0-100 (presumed)
+  outputs:
+  - name: strokeColor
+    type: css color hex string
+    unit: null
+  logic: |
+    strokeColor = item.ocupacao > 70   ? "#FF1633"   // red
+                : item.ocupacao > 50   ? "#FFAB00"   // amber
+                :                        "#00DC50"   // green
+  edge_cases: 'Boundaries are strict ''>'' (not >=): exactly 70 and exactly 50 fall into the lower/green-ward
+    tier, i.e. 70.0 is amber (not red) and 50.0 is green (not amber).'
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-008
+  - RULE-INDICADORES-ETL-009
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-06-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 291-300
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Percent value itself (item.ocupacao) is computed server-side; this is purely the client display
+    threshold.
+- id: RULE-INDICADORES-ETL-006
+  name: Sector-level aggregate alert-color decision tree
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: |
+    Determines the single overall alert color badge for a sector's dashboard card, given its counts of red/amber/neutral alerts and its assisted-percentage. ASSISTIDO takes top priority; otherwise the highest-count color wins, with VERMELHO (red) preferred on ties over AMARELO, and AMARELO preferred on ties over NEUTRO.
+  inputs:
+  - name: item.total_alertas.VERMELHO
+    type: number
+    unit: count
+  - name: item.total_alertas.AMARELO
+    type: number
+    unit: count
+  - name: item.total_alertas.NEUTRO
+    type: number
+    unit: count
+  - name: item.total_assistidos
+    type: number
+    unit: count
+  outputs:
+  - name: alerta
+    type: string enum (ASSISTIDO|VERMELHO|AMARELO|NEUTRO|"")
+    unit: null
+  logic: |
+    if (!item.total_alertas) return "NEUTRO"
+    if (assistPercent(item.total_assistidos) === 100) return "ASSISTIDO"
+    else if (VERMELHO >= AMARELO && VERMELHO >= NEUTRO && VERMELHO > 0) return "VERMELHO"
+    else if (AMARELO > VERMELHO && AMARELO >= NEUTRO && AMARELO > 0) return "AMARELO"
+    else if (NEUTRO > AMARELO && NEUTRO > VERMELHO && NEUTRO > 0) return "NEUTRO"
+    else return ""
+  edge_cases: |
+    When all three counts are 0 (and total_alertas object is present but empty/zeroed), none of the branches match and the result is "" (falls through to no color, card gets the "empty" CSS class instead). If total_alertas is falsy/absent entirely, defaults straight to "NEUTRO" without evaluating assistPercent.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-007
+  - RULE-INDICADORES-ETL-005
+  merged_from:
+  - RULE-dashboard-FE-06-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 81-109
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Depends on RULE-dashboard-FE-06-004 (assistPercent) for the ASSISTIDO branch.
+- id: RULE-INDICADORES-ETL-007
+  name: Dashboard alert-count 4th severity level inconsistent with 3-level Alerta elsewhere
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: Models.DashboardItem.TotalAlerta defines four alert-count buckets — VERMELHO, AMARELO,
+    NEUTRO, and LARANJA (orange) — whereas every other alert type/count in the codebase (Ocupacao.Alerta,
+    Estatisticas.Alertas) defines only three levels (VERMELHO, AMARELO, NEUTRO) and never includes LARANJA.
+  inputs:
+  - name: alert severity
+    type: string enum / count-bucket key
+    unit: null
+    range: 3 levels (Ocupacao.Alerta, Estatisticas.Alertas) vs 4 levels (DashboardItem.TotalAlerta)
+  outputs:
+  - name: total_alertas
+    type: '{ VERMELHO: number, AMARELO: number, NEUTRO: number, LARANJA: number }'
+    unit: null
+  logic: |
+    DashboardItem.TotalAlerta = { VERMELHO: number, AMARELO: number, NEUTRO: number, LARANJA: number }
+    Estatisticas.Alertas       = { VERMELHO: number, AMARELO: number, NEUTRO: number }              // no LARANJA
+    Ocupacao.Alerta (type)     = "AMARELO" | "NEUTRO" | "VERMELHO"                                    // no LARANJA
+  edge_cases: Recorded verbatim; not reconciled. If a bed/trilha's alerta value can in fact be "LARANJA"
+    server-side (contradicting the 3-value Ocupacao.Alerta union), the frontend type for that field would
+    be unsound.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-023
+  - RULE-INDICADORES-ETL-018
+  merged_from:
+  - RULE-dashboard-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/DashboardItem.d.ts
+    lines: 26-31
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Cross-reference src/@types/models/Ocupacao.d.ts line 106 and src/@types/models/Estatisticas.d.ts
+    lines 18-22.
+- id: RULE-INDICADORES-ETL-008
+  name: Per-sector dashboard shortcut visibility by empresa type
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: |
+    An info button that deep-links to a sector-specific dashboard page is shown on a sector's dashboard card only when the parent company (empresa) is configured with tipo "automatica" and the card is being rendered in sector (isSetor) context.
+  inputs:
+  - name: empresaData.tipo
+    type: string
+    unit: null
+    range: 'observed value: ''automatica'' (others unspecified)'
+  - name: isSetor
+    type: boolean
+    unit: null
+  outputs:
+  - name: showInfoButton
+    type: boolean
+  logic: |
+    showInfoButton = (empresaData.tipo === "automatica") && isSetor
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-INDICADORES-ETL-005
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-009
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-06-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 224-249
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: |
+    The full enum of empresa.tipo values is not visible in this partition; only the "automatica" branch condition is confirmed from this file.
+- id: RULE-INDICADORES-ETL-009
+  name: Unread-message badge display and cap
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: |
+    A sector's dashboard card shows an unread-message count badge only when the count is greater than zero, and displays "+99" instead of the exact number once it exceeds 99.
+  inputs:
+  - name: item.qtd_mensagens
+    type: integer
+    unit: count
+    range: '>=0'
+  outputs:
+  - name: badgeVisible
+    type: boolean
+  - name: badgeText
+    type: string
+  logic: |
+    badgeVisible = item.qtd_mensagens > 0
+    badgeText = item.qtd_mensagens > 99 ? "+99" : String(item.qtd_mensagens)
+  edge_cases: Boundary exactly 99 shows literal '99', not '+99'; 100+ shows '+99'.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-005
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-008
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-06-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 250-259
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-010
+  name: Sector dashboard dual y-axis toggle
+  category: physiological-calculation
+  type: threshold
+  status: OK
+  verify: true
+  description: |
+    Each clinical indicator chart on the sector dashboard renders a single left y-axis by default; a second (right-side) y-axis is only added to the chart configuration when the indicator data includes a y1 field (i.e., a secondary series/unit is present).
+  inputs:
+  - name: grafico.y
+    type: string (axis label)
+    unit: null
+  - name: grafico.y1
+    type: string (axis label) | undefined
+    unit: null
+  outputs:
+  - name: chart scales config
+    type: object
+    unit: null
+  logic: |
+    scales.y  = { title: { text: grafico.y }, position: "left", ... }        // always present
+    scales.y1 = grafico.y1
+      ? { title: { text: grafico.y1 }, position: "right", grid: { drawOnChartArea: false }, ... }
+      : undefined
+  edge_cases: When grafico.y1 is undefined, scales.y1 is explicitly undefined (no secondary axis rendered).
+  confidence: medium
+  related:
+  - RULE-INDICADORES-ETL-023
+  merged_from:
+  - RULE-dashboard-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/dashboard/index.tsx
+    lines: 89-113
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Chart series data itself (values, per-dataset chart type "line"/"bar") is supplied entirely by
+    the backend API; this page only conditionally wires the secondary axis.
+- id: RULE-INDICADORES-ETL-011
+  name: get_procedimentos_invasivos — invasive-procedure code lookup
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: If a micro_indicador record exists and its PROC_INVASIVO flag == 'S' (yes), splits the
+    comma-separated CD_PROC_INVASIVO code string and maps each recognized code to a (tipo, nome) pair
+    via a fixed lookup table of 10 known procedure codes (central venous access variants, orotracheal
+    intubation, tracheostomy, indwelling urinary catheter variants); unrecognized codes are silently skipped.
+  inputs:
+  - name: micro_indicador
+    type: MicroIndicadores instance or None
+    unit: null
+  outputs:
+  - name: payload
+    type: 'list of {tipo: str, nome: str}'
+    unit: null
+  logic: |
+    procedimentos = {
+      "148": ("puncao_de_acesso_venoso_central_mono_lumen", "Punção de Acesso Venoso Central Mono Lúmen"),
+      "706": ("puncao_de_acesso_venoso_central_duplo_lumen", "Punção de Acesso Venoso Central Duplo Lúmen"),
+      "707": ("puncao_de_acesso_venoso_central_triplo_lumen", "Punção de Acesso Venoso Central Triplo Lúmen"),
+      "145": ("implante_de_cateter_venoso_central_por_puncao_cvc", "Implante de Cateter Venoso Central Por Punção - Cvc"),
+      "734": ("implante_de_cateter_venoso_central_para_hemodialise", "Implante de Cateter Venoso Central Para Hemodialise"),
+      "705": ("colocação_de_cateter_venoso_central_ou_portocath", "Colocação De Cateter Venoso Central Ou Portocath"),
+      "140": ("intubacao_orotraqueal", "Intubação orotraqueal"),
+      "20": ("traqueostomia", "Traqueostomia"),
+      "13": ("passagem_de_sonda_vesical_de_demora_2_vias", "Passagem de Sonda Vesical de Demora - 2 Vias"),
+      "236": ("passagem_de_sonda_vesical_de_demora_3_vias", "Passagem de Sonda Vesical de Demora - 3 Vias"),
+    }
+    IF micro_indicador AND micro_indicador.PROC_INVASIVO == "S":
+      FOR codigo IN micro_indicador.CD_PROC_INVASIVO.split(","):
+        IF codigo IN procedimentos:
+          tipo, nome = procedimentos[codigo]
+          payload.append({"tipo": tipo, "nome": nome})
+    RETURN payload  # [] if micro_indicador is falsy or PROC_INVASIVO != "S"
+  edge_cases: Codes not in the 10-entry table are silently dropped (no error, no logging). PROC_INVASIVO
+    must be the exact string 'S'; any other value (including lowercase 's') yields an empty list.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-012
+  merged_from:
+  - RULE-indic-BE-11-049
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/micro_indicadores.py
+    lines: 1-44
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: The numeric codes resemble Brazilian healthcare procedure/billing codes (TUSS-like); classified
+    here as care-pathway since they feed clinical indicator displays, but could equally be viewed as billing-administrative
+    — flagged as a categorization judgment call.
+- id: RULE-INDICADORES-ETL-012
+  name: get_microindicadores — ICU micro-indicator boolean mapping, DVA mapped to a drug-specific 'noradrenalina'
+    key
+  category: clinical-scoring
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: 'If a micro_indicador record exists, builds a dict of ICU quality indicators: tempo_internacao
+    (length of stay, passthrough), ventilacao_mecanica (VM==''S''), noradrenalina (DVA==''S''), sedacao
+    (SEDACAO==''S''), hemodialise (HEMODIALISE==''S''), mortalidade_esperada (passthrough, expected mortality).
+    The output key ''noradrenalina'' is derived from a field named DVA, which in Brazilian ICU terminology
+    commonly stands for ''droga vasoativa'' (any vasoactive drug), not specifically norepinephrine.'
+  inputs:
+  - name: micro_indicador
+    type: MicroIndicadores instance or None
+    unit: null
+  outputs:
+  - name: indicador
+    type: dict of booleans/values, or {} if micro_indicador is falsy
+    unit: null
+  logic: |
+    IF micro_indicador:
+      indicador = {
+        "tempo_internacao": micro_indicador.TEMPO_PERMANENCIA,
+        "ventilacao_mecanica": micro_indicador.VM == "S",
+        "noradrenalina": micro_indicador.DVA == "S",
+        "sedacao": micro_indicador.SEDACAO == "S",
+        "hemodialise": micro_indicador.HEMODIALISE == "S",
+        "mortalidade_esperada": micro_indicador.MORTALIDADE_ESPERADA,
+      }
+    ELSE:
+      indicador = {}
+    RETURN indicador
+  edge_cases: Each boolean is strictly equality against the literal string 'S'; any other value (including
+    None) evaluates False.
+  confidence: medium
+  related:
+  - RULE-INDICADORES-ETL-011
+  - RULE-INDICADORES-ETL-026
+  - RULE-INDICADORES-ETL-027
+  merged_from:
+  - RULE-indic-BE-11-050
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/micro_indicadores.py
+    lines: 47-58
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: labeling a generic ''any vasoactive drug'' flag (DVA) as specifically ''noradrenalina''
+    (norepinephrine) in the output may overstate specificity — a patient on any vasoactive agent (not
+    necessarily norepinephrine) would show as noradrenalina=true in this indicator. Recorded verbatim
+    per audit instructions; flagged for clinical SME review. Also compare NoradrenalinaValidator (RULE-vitais-BE-11-027),
+    which validates an actual dosing field distinct from this DVA flag.'
+- id: RULE-INDICADORES-ETL-013
+  name: Incremental (watermark) load of occupancy indicators
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    Occupancy indicators (per-establishment and per-sector) are loaded incrementally: find the most recent dt_referencia already stored locally, then pull from Oracle every row with dt_referencia >= that watermark; if no local rows exist, load all. Each row is updated in place when its pk already exists, else created.
+  inputs:
+  - name: dt_referencia
+    type: datetime
+    unit: null
+    range: null
+  - name: last_local.dt_referencia
+    type: datetime
+    unit: null
+    range: null
+  outputs:
+  - name: rows_upserted
+    type: integer
+    unit: null
+  logic: |
+    last = Local.objects.order_by("-dt_referencia").first()
+    if last:
+        src = Oracle.filter(dt_referencia >= last.dt_referencia).order_by("dt_referencia")
+    else:
+        src = Oracle.order_by("dt_referencia").all()
+    for obj in src:
+        if Local.filter(pk=obj.pk):
+            obj.__dict__.pop("cd_estabelecimento")   # or cd_setor_atendimento for sectors
+            Local.filter(pk=obj.pk).update(**obj.__dict__)
+        else:
+            Local.objects.create(**obj.__dict__)
+  edge_cases: |
+    Watermark comparison is >= (gte), so the boundary record at exactly last.dt_referencia is re-fetched and re-updated every run (idempotent update, but reprocessed). pk collision key is the row pk; cd_estabelecimento / cd_setor_atendimento is popped before update to avoid overwriting the tenant key.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-014
+  merged_from:
+  - RULE-etl-BE-02-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/indicadores.py
+    lines: 7-70
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: |
+    Duplicated verbatim in trilha_automatica/etl/trilha1.py lines 19-82 as novo_etl_indicadores_estabelecimento / novo_etl_novo_etl_indicadores_setores. Two identical implementations of the same watermark rule.
+- id: RULE-INDICADORES-ETL-014
+  name: Macro indicators loaded for current month only
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    The macro-indicator ETL processes only rows whose DT_MES_ANO falls in the current server year and current server month, ordered by DT_MES_ANO, upserting one record per sector.
+  inputs:
+  - name: DT_MES_ANO
+    type: date
+    unit: null
+    range: null
+  - name: CD_SETOR_ATENDIMENTO
+    type: identifier
+    unit: null
+    range: null
+  outputs:
+  - name: MacroIndicadores rows
+    type: upsert
+    unit: null
+  logic: |
+    year, mes = timezone.now().year, timezone.now().month
+    src = MacroIndicadoresTasy.filter(DT_MES_ANO__year == year, DT_MES_ANO__month == mes).order_by("DT_MES_ANO")
+    for obj in src:
+        MacroIndicadores.update_or_create(CD_SETOR_ATENDIMENTO=obj.CD_SETOR_ATENDIMENTO, defaults=obj.__dict__)
+  edge_cases: |
+    "Current" is timezone.now() (Django active timezone). Any historical month is never backfilled by this job. update_or_create key is CD_SETOR_ATENDIMENTO only, so at most one macro row per sector survives.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-013
+  merged_from:
+  - RULE-etl-BE-02-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/macroindicadores.py
+    lines: 5-25
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: microindicadores.py is an unconditional upsert keyed on NR_SEQ_SETOR_LEITO (no month filter).
+- id: RULE-INDICADORES-ETL-015
+  name: etl_schema (v1) — Tasy-to-Trilha sync with assistido reset
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Synchronizes Trilha rows from the Oracle Tasy hospital system (TrilhaTasy), restricted
+    to source rows referenced in the last 30 days. For an existing local Trilha (matched by nr_atendimento),
+    diffs up to quantidade_criterios criterio_N fields against the incoming Tasy values; if ANY differ,
+    marks the pathway as not-yet-reviewed (assistido=False). Also re-resolves the linked Leito by estabelecimento/setor/leito
+    codes, scoped to the 'americashealth' whitelabel tenant, and re-saves it.
+  inputs:
+  - name: TrilhaTasy
+    type: Django model class (oracle db)
+    unit: null
+    range: null
+  - name: Trilha
+    type: Django model class (default db)
+    unit: null
+    range: null
+  - name: quantidade_criterios
+    type: integer
+    unit: null
+    range: '>= 0, default 0'
+  outputs:
+  - name: Trilha rows
+    type: created or updated
+    unit: null
+  - name: Leito rows
+    type: re-saved
+    unit: null
+  logic: |
+    dia_referencia = now() - 30 days
+    query = TrilhaTasy.objects.filter(dt_referencia__gte=dia_referencia).using("oracle").all()
+    FOR obj IN query.iterator():
+      TRY:
+        trilha = Trilha.objects.get(nr_atendimento=obj.nr_atendimento)
+        criterio_modificado = False
+        FOR i IN 1..quantidade_criterios:
+          criterio = f"criterio_{i}"
+          IF hasattr(trilha, criterio):
+            IF getattr(trilha, criterio) != obj.__dict__.get(criterio):
+              criterio_modificado = True      # OR-accumulated across all i
+            setattr(trilha, criterio, obj.__dict__.get(criterio))
+        IF criterio_modificado: trilha.assistido = False
+        trilha.save()
+        leito = Leito.objects.get(
+          setor__estabelecimento__empresa__whitelabel="americashealth",
+          setor__estabelecimento__codigo=trilha.cd_estabelecimento,
+          setor__codigo=trilha.cd_setor_atendimento,
+          codigo=trilha.cd_unidade_compl)
+        leito.save()
+      EXCEPT Trilha.DoesNotExist:
+        TRY:
+          trilha = Trilha.objects.create(**obj.__dict__)
+          (same Leito lookup/save as above; failures pprint(e) and are swallowed)
+        EXCEPT Exception AS e: pprint(e)
+      EXCEPT Exception AS e: pprint(e)
+  edge_cases: All lookup/creation failures are caught and merely printed (pprint), never raised — the
+    batch continues to the next record with no rollback or alerting. Tasy rows older than 30 days relative
+    to dt_referencia are never scanned by this version.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-016
+  merged_from:
+  - RULE-etl-BE-11-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/etl.py
+    lines: 7-62
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Hardcoded to whitelabel 'americashealth' only. Compare with novo_etl_schema (RULE-etl-BE-11-004),
+    the v3/v2 variant, which changes the criterio-modified accumulation logic (a discrepancy) and adds
+    a homecare tenant fallback.
+- id: RULE-INDICADORES-ETL-016
+  name: novo_etl_schema (v2) — Tasy-to-Trilha sync, criterio-modified flag overwritten instead of OR-accumulated
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: Newer version of the Tasy sync. Drops the 30-day date filter (scans ALL TrilhaTasy rows
+    every run). Uses update_or_create keyed on nr_atendimento. Recomputes the criterio-changed flag per
+    criterio_N, but the flag is REASSIGNED (not OR-accumulated) on each loop iteration, so only the comparison
+    result of the LAST evaluated criterio_N determines whether assistido is reset to False — an earlier
+    criterio's change is overwritten and lost if a later-checked criterio is unchanged. Leito resolution
+    first tries whitelabel 'americashealth' and, on Leito.DoesNotExist, falls back to whitelabel 'homecare',
+    additionally matching on nome=trilha.cd_unidade (not present in v1).
+  inputs:
+  - name: TrilhaTasy
+    type: Django model class (oracle db)
+    unit: null
+    range: null
+  - name: Trilha
+    type: Django model class (default db)
+    unit: null
+    range: null
+  - name: quantidade_criterios
+    type: integer
+    unit: null
+    range: '>= 0, default 0'
+  outputs:
+  - name: Trilha rows
+    type: created or updated via update_or_create
+    unit: null
+  - name: Leito rows
+    type: re-saved, americashealth then homecare fallback
+    unit: null
+  logic: |
+    FOR obj IN TrilhaTasy.objects.using("oracle"):
+      payload = vars(obj); payload.pop("_state", None); payload.pop("_original_state", None)
+      nr_atendimento = payload.pop("nr_atendimento")
+      TRY:
+        trilha, created = Trilha.objects.update_or_create(
+          nr_atendimento=nr_atendimento, defaults=payload)
+        criterio_modificado = False
+        FOR i IN 1..quantidade_criterios:
+          criterio = f"criterio_{i}"
+          IF hasattr(trilha, criterio):
+            criterio_modificado = (getattr(trilha, criterio) != payload.get(criterio))  # OVERWRITE, not OR
+            setattr(trilha, criterio, payload.get(criterio))
+        IF criterio_modificado: trilha.assistido = False
+        trilha.save()
+        TRY:
+          leito = Leito.objects.get(whitelabel="americashealth", ... nome=trilha.cd_unidade, codigo=trilha.cd_unidade_compl, ...)
+          leito.save()
+        EXCEPT Leito.DoesNotExist:
+          leito = Leito.objects.get(whitelabel="homecare", ... same codes ...)
+          leito.save()
+      EXCEPT Trilha.DoesNotExist:
+        (fallback create path identical in spirit to v1)
+      EXCEPT Exception AS e: pprint(e)
+      EXCEPT Exception AS e: pprint(e)   # unreachable duplicate except clause
+  edge_cases: 'Same broad exception swallowing as v1 (pprint, no raise). Contains an unreachable duplicate
+    `except Exception as e: pprint(e)` clause after an identical one at the same try level — dead code,
+    never executes.'
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-015
+  merged_from:
+  - RULE-etl-BE-11-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/etl.py
+    lines: 65-133
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY vs RULE-etl-BE-11-003: the criterio-changed flag is overwritten each loop iteration
+    instead of OR-accumulated, so assistido may fail to reset to False even when an earlier criterio genuinely
+    changed, as long as the last-checked criterio_N happens to be unchanged. Recorded verbatim per audit
+    instructions; this appears to be an unintentional regression introduced when moving from etl_schema
+    to novo_etl_schema, not a deliberate design change.'
+- id: RULE-INDICADORES-ETL-017
+  name: Sector occupancy dashboard auto-reload interval
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: |
+    When a numeric `reloadTime` (seconds) prop is supplied and the global auto-reload toggle (AutoReloadContext.update) is on, the bed list re-applies its current filters on a fixed interval to refresh occupancy data; the interval is cleared on unmount or when the global toggle is switched off.
+  inputs:
+  - name: reloadTime
+    type: number
+    unit: seconds
+  - name: AutoReloadContext.update
+    type: boolean
+    unit: null
+  outputs:
+  - name: pollingIntervalMs
+    type: number
+    unit: milliseconds
+  logic: |
+    if (reloadTime && update) {
+      intervalId = setInterval(() => applyFilters({...filters}), reloadTime * 1000)
+    }
+    // cleared on unmount, and whenever `update` becomes false while an interval is running
+  edge_cases: If reloadTime is 0/undefined, no polling is scheduled regardless of the `update` toggle.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-013
+  - RULE-INDICADORES-ETL-014
+  merged_from:
+  - RULE-dashboard-FE-06-015
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/ListOcupacoes.tsx
+    lines: 116-141
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: The user-facing on/off switch for `update` lives in PageContainer.tsx (SwitchAutoReload), also
+    in this partition.
+- id: RULE-INDICADORES-ETL-018
+  name: Hierarchical recursive KPI rollup
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: A DashboardItem (representing a company, establishment, or sector) can recursively contain
+    child DashboardItem entries under "setores" and/or a flat list of Leito entries under "leitos", allowing
+    the same KPI shape (total_leitos, total_assistidos, total_leitos_ocupados, macro_indicadores, qtd_mensagens,
+    total_alertas, ocupacao) to be reported at every level of the empresa > estabelecimento > setor hierarchy.
+  inputs:
+  - name: setores
+    type: Models.DashboardItem[], optional
+    unit: null
+    range: null
+  - name: leitos
+    type: Models.Leito[], optional
+    unit: null
+    range: null
+  outputs:
+  - name: DashboardItem (nested)
+    type: object (recursive)
+    unit: null
+  logic: |
+    DashboardItem = {
+      id, nome, total_leitos: number, total_assistidos: number, total_leitos_ocupados: number,
+      macro_indicadores: MacroIndicadores, qtd_mensagens: number, total_alertas: TotalAlerta,
+      ocupacao: number, setores?: DashboardItem[], leitos?: Leito[]
+    }
+  edge_cases: setores and leitos are both optional and can, in principle, coexist on the same node (no
+    mutual-exclusivity constraint enforced in this partition).
+  confidence: medium
+  related:
+  - RULE-INDICADORES-ETL-023
+  - RULE-INDICADORES-ETL-007
+  merged_from:
+  - RULE-dashboard-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/DashboardItem.d.ts
+    lines: 3-15
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-019
+  name: Assistencial-indicators endpoint URL template bug
+  category: data-validation
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: The endpoint that fetches per-sector assistencial indicators builds its URL with a stray
+    extra closing brace immediately after the empresaId interpolation, producing a malformed request path.
+  inputs:
+  - name: empresaId
+    type: string
+    unit: null
+    range: null
+  - name: estabelecimentoId
+    type: string
+    unit: null
+    range: null
+  - name: setorId
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: request URL
+    type: string
+    unit: null
+  logic: |
+    // as written (verbatim, includes bug):
+    GET `/empresas/${empresaId}}/estabelecimentos/${estabelecimentoId}/setores/${setorId}/indicadores-assistenciais/`
+    // note the literal extra "}" immediately after ${empresaId} — this is NOT a template
+    // expression, it is a stray character that gets concatenated into the resulting string,
+    // e.g. empresaId="123" produces path segment "123}"
+  edge_cases: This would cause every call to useGetIndicadoresAssistenciais to hit a URL containing a
+    literal "}" character in the empresa-id path segment, likely producing a 404 from the backend router
+    unless the backend happens to tolerate/strip it.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-dashboard-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/networking/dashboard.ts
+    lines: 4-21
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Recorded verbatim per ground rules (never corrected). Line 12 specifically contains the malformed
+    template literal.
+- id: RULE-INDICADORES-ETL-020
+  name: Generic indicator create always stamps server-side usuario_id and timestamp
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: IndicadorViewSet.create builds an Indicador record whose 'dados' JSON always includes usuario_id
+    (current user) and data_entrada (current timestamp, stringified) merged on top of (i.e., overriding)
+    whatever the client sent in 'dados'; 'tipo' is taken directly from the client without validation against
+    any enum.
+  inputs:
+  - name: request.data.tipo
+    type: string
+    unit: null
+  - name: request.data.dados
+    type: object
+    unit: null
+  outputs:
+  - name: indicador
+    type: object
+    unit: null
+  logic: |
+    indicador_data = {
+      "tipo": data.get("tipo"),
+      "dados": {**data.get("dados", {}), "usuario_id": request.user.get_pk, "data_entrada": str(timezone.now())},
+    }
+    Indicador(**indicador_data).save()
+    return Response({"ok": True})
+  edge_cases: '''tipo'' is unrestricted free-form input from the client - no choices/enum validation visible
+    in this partition. Because usuario_id/data_entrada are spread after the client''s dados dict then
+    set as explicit keys, any client-supplied usuario_id/data_entrada in the body is overwritten by the
+    server values.'
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-021
+  - RULE-INDICADORES-ETL-027
+  merged_from:
+  - RULE-indicador-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/indicador.py
+    lines: 16-31
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-021
+  name: Video-call entry indicator has a fixed tipo and unvalidated setor_id
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: entrada_videochamada always creates an Indicador with tipo hardcoded to 'entrada_videochamada';
+    usuario_id and data_entrada are server-stamped as in the generic create; setor_id is taken directly
+    from the client body with no check that the user actually belongs to that sector.
+  inputs:
+  - name: request.data.setor_id
+    type: uuid
+    unit: null
+  outputs:
+  - name: indicador
+    type: object
+    unit: null
+  logic: |
+    indicador_data = {
+      "tipo": "entrada_videochamada",
+      "dados": {"usuario_id": request.user.get_pk, "setor_id": data.get("setor_id"), "data_entrada": str(timezone.now())},
+    }
+    Indicador(**indicador_data).save()
+    return Response({"ok": True})
+  edge_cases: No verification that setor_id corresponds to a real Setor the user has access to - any UUID-shaped
+    value is accepted and stored as-is.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-020
+  - RULE-INDICADORES-ETL-027
+  merged_from:
+  - RULE-indicador-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/indicador.py
+    lines: 33-46
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-022
+  name: Macro-indicator tile display filter
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Of the five macro indicators (vidas salvas, óbitos, taxa de mortalidade, admissões, tempo de permanência), a tile is rendered only if its resolved value is a string or a number; taxa de mortalidade is additionally pre-filtered to `undefined` unless its raw value is truthy and not null.
+  inputs:
+  - name: item.macro_indicadores.vidas_salvas
+    type: number
+    unit: count
+  - name: item.macro_indicadores.obitos
+    type: number
+    unit: count
+  - name: item.macro_indicadores.tx_mortalidade
+    type: number
+    unit: '%'
+  - name: item.macro_indicadores.admissao
+    type: number
+    unit: count
+  - name: item.macro_indicadores.tempo_permanencia
+    type: number
+    unit: days
+  outputs:
+  - name: IndicadoresArray[i].value
+    type: string | number | undefined
+  logic: |
+    tx_mortalidade_display = (tx_mortalidade && tx_mortalidade !== null) ? `${tx_mortalidade}%` : undefined
+    // render filter applied to every entry in IndicadoresArray:
+    show(indicador) = typeof indicador.value === "string" || typeof indicador.value === "number"
+    // if item.macro_indicadores is absent, IndicadoresArray = []
+    // if macro_indicadores is present but has zero own keys, shows Empty("Sem indicadores") instead
+  edge_cases: |
+    tx_mortalidade of exactly 0 is falsy in JS, so a 0% mortality rate is treated the same as absent and hidden (not displayed as "0%") — this differs from the numeric fields elsewhere in the partition that use an explicit not-null/not-undefined check (compare RULE-indicadores-FE-06-018/019/020).
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-005
+  - RULE-INDICADORES-ETL-001
+  - RULE-INDICADORES-ETL-002
+  - RULE-INDICADORES-ETL-006
+  - RULE-INDICADORES-ETL-008
+  - RULE-INDICADORES-ETL-009
+  - RULE-INDICADORES-ETL-024
+  - RULE-INDICADORES-ETL-025
+  - RULE-INDICADORES-ETL-026
+  merged_from:
+  - RULE-dashboard-FE-06-008
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/DashboardCard/DashboardCard.tsx
+    lines: 111-152
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Rendering site at lines 316-350 of the same file.
+- id: RULE-INDICADORES-ETL-023
+  name: Macro-indicator KPI shape
+  category: billing-administrative
+  type: validation
+  status: OK
+  verify: false
+  description: Each dashboard item (company/establishment/sector) reports six macro-level KPIs — lives
+    saved (vidas_salvas), deaths (obitos), length of stay (tempo_permanencia), mortality rate (tx_mortalidade),
+    occupancy rate (tx_ocupacao), and admissions (admissao).
+  inputs:
+  - name: vidas_salvas, obitos, tempo_permanencia, tx_mortalidade, tx_ocupacao, admissao
+    type: number
+    unit: not stated (rates presumed 0-1 or 0-100; tempo_permanencia presumed days)
+    range: null
+  outputs:
+  - name: MacroIndicadores
+    type: object
+    unit: null
+  logic: |
+    MacroIndicadores = { vidas_salvas: number, obitos: number, tempo_permanencia: number,
+                          tx_mortalidade: number, tx_ocupacao: number, admissao: number }
+  edge_cases: No units or valid ranges given in this partition for any of the six fields.
+  confidence: medium
+  related:
+  - RULE-INDICADORES-ETL-018
+  - RULE-INDICADORES-ETL-007
+  - RULE-INDICADORES-ETL-010
+  merged_from:
+  - RULE-dashboard-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/DashboardItem.d.ts
+    lines: 17-24
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-024
+  name: Clinical indicator null-vs-truthy display rule (Informações Assistenciais)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    In the "Informações Assistenciais" card, numeric/scalar clinical fields (RASS, Glasgow, diurese 24h, balanço hídrico 24h, temperatura, leucócitos, plaquetas, PCR, lactato, pH, bicarbonato, pO2, pCO2, P/F, creatinina, ureia, bilirrubinas) are shown whenever the value is not null and not undefined (so a value of 0 is still shown), while pressão arterial, delirium, noradrenalina, and cateter de hemodiálise are shown only when the field is plain-truthy (an empty string, 0, or null all hide the field).
+  inputs:
+  - name: informacoesAssistenciais.<numeric field>
+    type: number | null | undefined
+  - name: informacoesAssistenciais.pressao_arterial
+    type: object | null
+  - name: informacoesAssistenciais.delirium
+    type: string | null
+  - name: informacoesAssistenciais.noradrenalina
+    type: string | null
+  - name: informacoesAssistenciais.cateter_de_hemodialise
+    type: string | null
+  outputs:
+  - name: fieldVisible
+    type: boolean
+  logic: |
+    dataExists(v) = v !== null && v !== undefined
+    // used for: rass, glasgow, diurese_24h, balanco_hidrico_24h, temperatura,
+    //           leucocitos, plaquetas, pcr, lactato, ph, bicarbonato, po2, pco2, pf, creatinina, ureia, bilirrubinas
+    show(numericField) = dataExists(numericField)
+    // used for: pressao_arterial, delirium, noradrenalina, cateter_de_hemodialise
+    show(otherField) = !!otherField
+  edge_cases: A temperatura of 0 or an RASS of 0 (a valid clinical value, e.g. RASS 0 = alert & calm)
+    IS displayed; an empty-string delirium or a noradrenalina dose string of '0' would be hidden under
+    the truthy check.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-025
+  - RULE-INDICADORES-ETL-026
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-indicadores-FE-06-018
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/InformacaoesAssistenciais/InformacoesAssistenciais.tsx
+    lines: 16-164
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Contrast with RULE-dashboard-FE-06-008, which uses plain-truthy checks for tx_mortalidade (hiding
+    a true 0% value).
+- id: RULE-INDICADORES-ETL-025
+  name: 24h indicator numeric-type display filter
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    Each of the six 24h-window indicator tiles (Balanço, Diurese, HGT, Evacuações, Temperatura Máxima, Ganhos) is rendered only when its underlying value's JavaScript type is "number"; any other type (undefined, null, string) hides that tile entirely.
+  inputs:
+  - name: item.balanco_24h
+    type: number | undefined
+  - name: item.diurese_24h
+    type: number | undefined
+  - name: item.hgt_24h
+    type: number | undefined
+  - name: item.evacuacoes_24h
+    type: number | undefined
+  - name: item.temperatura_max_24h
+    type: number | undefined
+  - name: item.ganhos_24h
+    type: number | undefined
+  outputs:
+  - name: tileVisible
+    type: boolean
+  logic: |
+    for each field f: show(f) = typeof f === "number"
+  edge_cases: A value of 0 for any of these six fields still satisfies typeof === 'number' and IS shown
+    (contrast with plain-truthy checks used elsewhere in the partition).
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-024
+  - RULE-INDICADORES-ETL-026
+  - RULE-INDICADORES-ETL-022
+  merged_from:
+  - RULE-indicadores-FE-06-019
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ItemIndicadores24h/ItemIndicadores24h.tsx
+    lines: 18-58
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-026
+  name: Micro-indicadores icon/value display rule
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: |
+    On a bed card's micro-indicators strip, the noradrenalina, ventilação mecânica, sedação, and hemodiálise icons are shown when their respective boolean-like field is truthy; tempo de internação (shown as "Xd") and mortalidade esperada (shown as "X%") are shown only when their value's type is "number".
+  inputs:
+  - name: indicadores.noradrenalina
+    type: boolean | undefined
+  - name: indicadores.ventilacao_mecanica
+    type: boolean | undefined
+  - name: indicadores.sedacao
+    type: boolean | undefined
+  - name: indicadores.hemodialise
+    type: boolean | undefined
+  - name: indicadores.tempo_internacao
+    type: number | undefined
+    unit: days
+  - name: indicadores.mortalidade_esperada
+    type: number | undefined
+    unit: '%'
+  outputs:
+  - name: iconVisible
+    type: boolean
+  logic: |
+    show(noradrenalina|ventilacao_mecanica|sedacao|hemodialise) = !!field
+    show(tempo_internacao) = typeof tempo_internacao === "number"   // rendered as `${value}d`
+    show(mortalidade_esperada) = typeof mortalidade_esperada === "number"  // rendered as `${value}%`
+  edge_cases: tempo_internacao/mortalidade_esperada of exactly 0 are shown (typeof check), unlike the
+    four boolean-style indicators which would hide on a falsy 0/empty value.
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-024
+  - RULE-INDICADORES-ETL-025
+  - RULE-INDICADORES-ETL-022
+  - RULE-INDICADORES-ETL-012
+  merged_from:
+  - RULE-indicadores-FE-06-020
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/MicroIndicadores/MicroIndicadores.tsx
+    lines: 18-88
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+- id: RULE-INDICADORES-ETL-027
+  name: Indicador tipo enumeration and type-specific payload validation (backend enum/dispatch vs frontend
+    type)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Backend defines two valid Indicador 'tipo' values (interacao_notificacao, entrada_videochamada)
+    in IndicadorChoices.tipos(), enforced as the model field's choices; on save(), the model dispatches
+    to a type-specific DRF serializer (InteracaoNotificacaoSerializer / EntradaVideochamadaSerializer)
+    keyed on tipo to validate the JSON 'dados' payload before persisting. The frontend TypeScript model
+    (Models.Indicador) only declares a single literal for Tipo ('entrada_videochamada') and a matching
+    single-key Dados payload shape (setor_id) -- it has no type/shape at all for 'interacao_notificacao',
+    even though the backend actively accepts, validates, and persists that tipo.
+  inputs:
+  - name: tipo
+    type: string
+    unit: null
+    range: interacao_notificacao|entrada_videochamada
+  - name: dados
+    type: json
+    unit: null
+    range: null
+  - name: Models.Indicador.Tipo (frontend)
+    type: string literal union
+    unit: null
+    range: '"entrada_videochamada" only -- interacao_notificacao is not represented'
+  outputs:
+  - name: persisted_indicador
+    type: Indicador
+    unit: null
+  - name: Models.Indicador (frontend)
+    type: object
+    unit: null
+  logic: |
+    # core/models/choices/indicador.py -- backend enum (RULE-indicador-BE-04-009)
+    IndicadorChoices.tipos() -> (
+      ("interacao_notificacao", "Interação com notificaçãos"),
+      ("entrada_videochamada", "Entrar em video chamada"),
+    )
+
+    # core/models/indicador.py -- backend save-time dispatch (RULE-indicador-BE-04-018)
+    class Indicador(SetUpModel):
+        tipo = models.CharField(max_length=64, choices=IndicadorChoices.tipos())
+        dados = models.JSONField(blank=True, default=dict)
+
+        def save(self, *args, **kwargs):
+            switch_validators = {
+                "interacao_notificacao": serializers.InteracaoNotificacaoSerializer,
+                "entrada_videochamada": serializers.EntradaVideochamadaSerializer,
+            }
+            dados = self.dados.copy()
+            serializer = switch_validators.get(self.tipo)
+            serializer = serializer(data=dados)
+            serializer.is_valid(raise_exception=True)
+            super(Indicador, self).save(*args, **kwargs)
+
+    # src/@types/models/Indicadores.d.ts -- frontend type (RULE-indicador-FE-07-001)
+    namespace Models {
+      interface Indicador {
+        tipo: Models.Indicador.Tipo
+        dados: Models.Indicador.Dados[Models.Indicador.Tipo]
+      }
+      namespace Indicador {
+        type Tipo = "entrada_videochamada"                 // only ONE of the two backend tipos
+        interface Dados { entrada_videochamada: { setor_id: string } }
+      }
+    }
+  edge_cases: 'Backend: if tipo is not one of the two choices, switch_validators.get(self.tipo) returns
+    None and None(data=dados) raises an unhandled TypeError at save() time (dados defaults to {}). Frontend:
+    because Models.Indicador.Dados is keyed only by the single Tipo literal, the TypeScript type system
+    cannot express or type-check an ''interacao_notificacao'' indicator payload at all -- any frontend
+    code path that tried to POST that tipo would have to bypass/assert past the type system. Verified
+    directly against both legacy repos at the cited commits: choices/indicador.py lines 1-7, models/indicador.py
+    lines 1-27, and Indicadores.d.ts lines 1-17.'
+  confidence: high
+  related:
+  - RULE-INDICADORES-ETL-020
+  - RULE-INDICADORES-ETL-021
+  divergence: Backend enumerates and actively validates TWO Indicador tipos (interacao_notificacao, entrada_videochamada),
+    each with its own DRF serializer. The frontend TypeScript model only declares ONE literal ('entrada_videochamada')
+    for Tipo and only one corresponding Dados payload shape -- 'interacao_notificacao' is entirely absent
+    from the frontend type surface, even though nothing on the backend prevents that tipo from being created
+    and validated. This was not flagged as a discrepancy by either originating Phase-1 capture (both individually
+    recorded status OK); found only by directly comparing the backend choices/dispatch against the frontend
+    type union.
+  merged_from:
+  - RULE-indicador-BE-04-009
+  - RULE-indicador-BE-04-018
+  - RULE-indicador-FE-07-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/indicador.py
+    lines: 15-24
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/models/choices/indicador.py
+    lines: 1-7
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: trilhas-frontend
+    path: src/@types/models/Indicadores.d.ts
+    lines: 1-17
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: 'Merge of three Phase-1 captures of the same underlying rule: RULE-indicador-BE-04-009 captured
+    the choices/enum declaration (category billing-administrative), RULE-indicador-BE-04-018 captured
+    the model''s save()-time validator dispatch that consumes the same enum (category data-validation,
+    kept as primary logic since it is the most precise/reimplementable capture -- it names the exact serializer
+    classes), and RULE-indicador-FE-07-001 captured the frontend TypeScript mirror of the same tipo/dados
+    contract (category scheduling-operational). All three describe the same logical rule (valid Indicador
+    tipos and their payload shapes) from three different code artifacts. See also RULE-INDICADORES-ETL-020/021
+    (the ViewSet actions that construct Indicador instances consumed by this save() dispatch).'
+dropped:
+- id: RULE-integracao-BE-05-001
+  reason: misrouted:documentacao-faturamento
+- id: RULE-integracao-BE-05-002
+  reason: misrouted:documentacao-faturamento
+- id: RULE-integracao-BE-05-003
+  reason: misrouted:documentacao-faturamento
+- id: RULE-integracao-BE-05-004
+  reason: misrouted:documentacao-faturamento
