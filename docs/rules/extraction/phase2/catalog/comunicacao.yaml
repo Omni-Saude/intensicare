@@ -8,7 +8,13 @@ rules:
   type: formula
   status: DISCREPANCY
   verify: true
-  description: 'Two backend code paths independently compute ''reaction counts grouped by emoji'' for an observation''s reactions, and they diverge. (1) ObservacaoSerializer.get_reacoes returns instance.reacoes.values(''emoji'').annotate(total=Count(''emoji'')) — a SQL-level GROUP BY, correct regardless of row ordering. (2) ReacaoViewSet.list instead aggregates the same kind of data via Python''s itertools.groupby over filter_queryset(get_queryset()) with NO explicit .order_by(''emoji''), and the Reacao model itself declares no Meta.ordering (confirmed against core/models/reacao.py: Meta only sets db_table and unique_together=(''observacao'',''usuario'')) — so groupby only merges emoji runs that are already consecutive in whatever order the DB happens to return rows in.'
+  description: 'Two backend code paths independently compute ''reaction counts grouped by emoji'' for an observation''s
+    reactions, and they diverge. (1) ObservacaoSerializer.get_reacoes returns instance.reacoes.values(''emoji'').annotate(total=Count(''emoji''))
+    — a SQL-level GROUP BY, correct regardless of row ordering. (2) ReacaoViewSet.list instead aggregates the same
+    kind of data via Python''s itertools.groupby over filter_queryset(get_queryset()) with NO explicit .order_by(''emoji''),
+    and the Reacao model itself declares no Meta.ordering (confirmed against core/models/reacao.py: Meta only sets
+    db_table and unique_together=(''observacao'',''usuario'')) — so groupby only merges emoji runs that are already
+    consecutive in whatever order the DB happens to return rows in.'
   inputs:
   - name: instance.reacoes / queryset of Reacao
     type: queryset
@@ -17,14 +23,31 @@ rules:
   - name: reacoes / payload
     type: array of {emoji, total[, usuarios]}
     unit: null
-  logic: "# (A) ObservacaoSerializer.get_reacoes — core/api/v1/serializers/observacao.py:155-156 (CORRECT, order-independent)\ndef get_reacoes(instance):\n    return list(instance.reacoes.values(\"emoji\").annotate(total=Count(\"emoji\")))\n\n# (B) ReacaoViewSet.list — core/api/v1/views/reacao.py:24-27,38-51 (BUGGY, order-dependent)\ndef get_queryset(self):\n    return Reacao.objects.select_related(\"observacao\",\"usuario\").filter(observacao=kwargs.get(\"observacoes__pk\"))\n    # NOTE: no .order_by('emoji'); Reacao.Meta has no ordering either\ndef list(self, request, *args, **kwargs):\n    qs = self.filter_queryset(self.get_queryset())\n    payload = []\n    for emoji, reacoes in groupby(qs, key=lambda r: r.emoji):   # itertools.groupby\n        reacoes = list(reacoes)\n        usuarios = [r.usuario for r in reacoes]\n        payload.append({\"emoji\": emoji, \"total\": len(reacoes), \"usuarios\": UsuarioResponsavelSerializer(usuarios, many=True).data})\n    return Response(payload)\n"
-  edge_cases: '(A) No reactions -> empty list; correct total regardless of insertion order. (B) itertools.groupby only merges CONSECUTIVE same-key items: two reactions with the same emoji separated (in whatever default/PK order Postgres returns them) by a reaction with a different emoji will appear as TWO separate {emoji,total} entries in the ReacaoViewSet.list response, each under-counting the true total for that emoji. Verified: Reacao model (core/models/reacao.py) declares only db_table and unique_together=(''observacao'',''usuario'') in Meta — no ordering — so this failure mode is live, not merely theoretical.'
+  logic: "# (A) ObservacaoSerializer.get_reacoes — core/api/v1/serializers/observacao.py:155-156 (CORRECT, order-independent)\n\
+    def get_reacoes(instance):\n    return list(instance.reacoes.values(\"emoji\").annotate(total=Count(\"emoji\"\
+    )))\n\n# (B) ReacaoViewSet.list — core/api/v1/views/reacao.py:24-27,38-51 (BUGGY, order-dependent)\ndef get_queryset(self):\n\
+    \    return Reacao.objects.select_related(\"observacao\",\"usuario\").filter(observacao=kwargs.get(\"observacoes__pk\"\
+    ))\n    # NOTE: no .order_by('emoji'); Reacao.Meta has no ordering either\ndef list(self, request, *args, **kwargs):\n\
+    \    qs = self.filter_queryset(self.get_queryset())\n    payload = []\n    for emoji, reacoes in groupby(qs,\
+    \ key=lambda r: r.emoji):   # itertools.groupby\n        reacoes = list(reacoes)\n        usuarios = [r.usuario\
+    \ for r in reacoes]\n        payload.append({\"emoji\": emoji, \"total\": len(reacoes), \"usuarios\": UsuarioResponsavelSerializer(usuarios,\
+    \ many=True).data})\n    return Response(payload)\n"
+  edge_cases: '(A) No reactions -> empty list; correct total regardless of insertion order. (B) itertools.groupby
+    only merges CONSECUTIVE same-key items: two reactions with the same emoji separated (in whatever default/PK
+    order Postgres returns them) by a reaction with a different emoji will appear as TWO separate {emoji,total}
+    entries in the ReacaoViewSet.list response, each under-counting the true total for that emoji. Verified: Reacao
+    model (core/models/reacao.py) declares only db_table and unique_together=(''observacao'',''usuario'') in Meta
+    — no ordering — so this failure mode is live, not merely theoretical.'
   confidence: high
   related:
   - RULE-COMUNICACAO-002
   - RULE-COMUNICACAO-037
   - RULE-COMUNICACAO-038
-  divergence: ObservacaoSerializer.get_reacoes (observacao.py:155-156) uses a SQL-level annotate(Count) — correct under any row ordering. ReacaoViewSet.list (reacao.py:24-27,38-51) uses itertools.groupby with no order_by and no model-level default ordering — can silently split/undercount a single emoji's total into multiple response entries when reactions of that emoji are not contiguous in DB return order. Same conceptual computation ('reactions grouped by emoji for an observation'), two backend call sites, materially different correctness guarantees.
+  divergence: ObservacaoSerializer.get_reacoes (observacao.py:155-156) uses a SQL-level annotate(Count) — correct
+    under any row ordering. ReacaoViewSet.list (reacao.py:24-27,38-51) uses itertools.groupby with no order_by and
+    no model-level default ordering — can silently split/undercount a single emoji's total into multiple response
+    entries when reactions of that emoji are not contiguous in DB return order. Same conceptual computation ('reactions
+    grouped by emoji for an observation'), two backend call sites, materially different correctness guarantees.
   merged_from:
   - RULE-observacao-BE-05-002
   - RULE-reacao-BE-05-003
@@ -39,11 +62,18 @@ rules:
     lines: 24-27, 38-51
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: variant
-  notes: ' | Cannot confirm from this partition alone whether Reacao''s model Meta.ordering happens to be by emoji (which would make this safe in practice) - the Reacao model is out of scope (core/models). Flagged for a verifier with access to core/models/reacao.py. | Reconciled during Phase-2: confirmed via direct inspection of core/models/reacao.py (Meta has no ordering) that the groupby-based endpoint''s correctness claim in its original note (''cannot confirm ... out of scope'') resolves to CONFIRMED DISCREPANCY, not merely a theoretical risk.'
+  notes: ' | Cannot confirm from this partition alone whether Reacao''s model Meta.ordering happens to be by emoji
+    (which would make this safe in practice) - the Reacao model is out of scope (core/models). Flagged for a verifier
+    with access to core/models/reacao.py. | Reconciled during Phase-2: confirmed via direct inspection of core/models/reacao.py
+    (Meta has no ordering) that the groupby-based endpoint''s correctness claim in its original note (''cannot confirm
+    ... out of scope'') resolves to CONFIRMED DISCREPANCY, not merely a theoretical risk.'
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference: No authoritative published clinical reference. This is an internal data-aggregation (reaction-count-by-emoji) business rule; correctness is defined only by the codebase's own intended semantics (a SQL GROUP BY over reactions). Python stdlib docs for itertools.groupby are the only external authority relevant, and only for the mechanism, not the clinical meaning.
+    reference: No authoritative published clinical reference. This is an internal data-aggregation (reaction-count-by-emoji)
+      business rule; correctness is defined only by the codebase's own intended semantics (a SQL GROUP BY over reactions).
+      Python stdlib docs for itertools.groupby are the only external authority relevant, and only for the mechanism,
+      not the clinical meaning.
     detail_file: comunicacao-batch1.yaml
 - id: RULE-COMUNICACAO-002
   name: Current user's own reaction id on an observation
@@ -51,7 +81,8 @@ rules:
   type: formula
   status: OK
   verify: true
-  description: get_minha_reacao_id returns the pk of the requesting user's own Reacao on this observation, or None if none exists or there is no authenticated user in context.
+  description: get_minha_reacao_id returns the pk of the requesting user's own Reacao on this observation, or None
+    if none exists or there is no authenticated user in context.
   inputs:
   - name: request.user
     type: object|null
@@ -60,8 +91,13 @@ rules:
   - name: minha_reacao_id
     type: uuid | null
     unit: null
-  logic: "request = context.get(\"request\")\nif request and request.user:\n    try:\n        reacao = instance.reacoes.get(usuario=request.user.get_pk)\n        return reacao.get_pk\n    except Reacao.DoesNotExist:\n        return None\nelse:\n    return None\n"
-  edge_cases: 'Uses .get() (not .first()) - would raise MultipleObjectsReturned if a user somehow has more than one reaction on the same observation (not caught); this is only safe if a unique constraint exists on (observacao, usuario), which is out of this partition''s scope to confirm. RECONCILED: Reacao model (core/models/reacao.py) declares unique_together=(''observacao'',''usuario'') in Meta — confirmed present — so .get() cannot raise MultipleObjectsReturned in practice; the ambiguity flagged by Phase-1 is resolved (safe as written).'
+  logic: "request = context.get(\"request\")\nif request and request.user:\n    try:\n        reacao = instance.reacoes.get(usuario=request.user.get_pk)\n\
+    \        return reacao.get_pk\n    except Reacao.DoesNotExist:\n        return None\nelse:\n    return None\n"
+  edge_cases: 'Uses .get() (not .first()) - would raise MultipleObjectsReturned if a user somehow has more than
+    one reaction on the same observation (not caught); this is only safe if a unique constraint exists on (observacao,
+    usuario), which is out of this partition''s scope to confirm. RECONCILED: Reacao model (core/models/reacao.py)
+    declares unique_together=(''observacao'',''usuario'') in Meta — confirmed present — so .get() cannot raise MultipleObjectsReturned
+    in practice; the ambiguity flagged by Phase-1 is resolved (safe as written).'
   confidence: high
   related:
   - RULE-COMUNICACAO-001
@@ -80,7 +116,9 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference: No authoritative published clinical reference. Internal accessor returning the requesting user's own reaction pk on an observation. Relevant external authority is only the Django ORM QuerySet.get() contract (raises DoesNotExist / MultipleObjectsReturned).
+    reference: No authoritative published clinical reference. Internal accessor returning the requesting user's
+      own reaction pk on an observation. Relevant external authority is only the Django ORM QuerySet.get() contract
+      (raises DoesNotExist / MultipleObjectsReturned).
     detail_file: comunicacao-batch1.yaml
 - id: RULE-COMUNICACAO-003
   name: AcaoHomecare balanco_hidrico method-reference bug
@@ -88,7 +126,9 @@ rules:
   type: formula
   status: DISCREPANCY
   verify: true
-  description: 'AcaoHomecareSerializer exposes a computed "balanco_hidrico" field that is meant to return the primary key of the fluid-balance record tied to whichever of entrada/saida/sinal_vital triggered the action, but the code references the bound method `get_pk` without calling it.
+  description: 'AcaoHomecareSerializer exposes a computed "balanco_hidrico" field that is meant to return the primary
+    key of the fluid-balance record tied to whichever of entrada/saida/sinal_vital triggered the action, but the
+    code references the bound method `get_pk` without calling it.
 
     '
   inputs:
@@ -108,8 +148,13 @@ rules:
   - name: balanco_hidrico
     type: expected int (pk); actual bound-method object
     unit: null
-  logic: "obj = instance.entrada or instance.saida or instance.sinal_vital\nif obj:\n    return obj.balanco_hidrico.get_pk   # NOTE: missing \"()\" call\nreturn None\n"
-  edge_cases: 'As written, `get_pk` is not invoked — it evaluates to a Python bound-method object, not an integer/pk value. Serializing this through a CharField (as declared: `alerta`... actually this field itself is a bare SerializerMethodField with no explicit output field type) will coerce the bound method to its repr string (e.g. "<bound method ... at 0x...>") rather than the intended id. This almost certainly renders incorrect/useless data to any API consumer of this field.
+  logic: "obj = instance.entrada or instance.saida or instance.sinal_vital\nif obj:\n    return obj.balanco_hidrico.get_pk\
+    \   # NOTE: missing \"()\" call\nreturn None\n"
+  edge_cases: 'As written, `get_pk` is not invoked — it evaluates to a Python bound-method object, not an integer/pk
+    value. Serializing this through a CharField (as declared: `alerta`... actually this field itself is a bare SerializerMethodField
+    with no explicit output field type) will coerce the bound method to its repr string (e.g. "<bound method ...
+    at 0x...>") rather than the intended id. This almost certainly renders incorrect/useless data to any API consumer
+    of this field.
 
     '
   confidence: high
@@ -123,11 +168,17 @@ rules:
     lines: 54-58
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: "Recorded verbatim per instructions; the likely intended call was `obj.balanco_hidrico.get_pk()` or simply `obj.balanco_hidrico_id`/`obj.balanco_hidrico.pk`.\n | Reconciled: AcaoHomecare (trilha_homecare/models/acao_homecare.py) is explicitly documented in its own docstring as \"Modelo do feed do homecare\" — i.e. this serializer bug and RULE-COMUNICACAO-034's leito-validation bug are two different defects on the SAME homecare-feed model/serializer family, confirmed in-cluster (not misrouted)."
+  notes: "Recorded verbatim per instructions; the likely intended call was `obj.balanco_hidrico.get_pk()` or simply\
+    \ `obj.balanco_hidrico_id`/`obj.balanco_hidrico.pk`.\n | Reconciled: AcaoHomecare (trilha_homecare/models/acao_homecare.py)\
+    \ is explicitly documented in its own docstring as \"Modelo do feed do homecare\" — i.e. this serializer bug\
+    \ and RULE-COMUNICACAO-034's leito-validation bug are two different defects on the SAME homecare-feed model/serializer\
+    \ family, confirmed in-cluster (not misrouted)."
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference: No authoritative published clinical reference. Internal serializer field meant to expose the fluid-balance (balanco hidrico) record pk for a homecare-feed action. Relevant external authority is only Python/Django attribute-access + property semantics.
+    reference: No authoritative published clinical reference. Internal serializer field meant to expose the fluid-balance
+      (balanco hidrico) record pk for a homecare-feed action. Relevant external authority is only Python/Django
+      attribute-access + property semantics.
     detail_file: comunicacao-batch1.yaml
 - id: RULE-COMUNICACAO-004
   name: send_qtd_mensagens_to_firebase — per-user unread-message counter fanout
@@ -135,7 +186,11 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'For every user belonging to a setor, updates that user''s Firestore unread-message-count document. If the event is a ''reacao'' (reaction), only the updated-at timestamp is bumped for every user (count unchanged). If reduzir_qtd=True, every user''s count is decremented by 1, floored at 0, with timestamp bumped. Otherwise (a normal new-message event): the user matching usuario_pk (i.e. the sender) keeps their count unchanged (with no timestamp bump); every OTHER user in the setor has their count incremented by 1 with the timestamp bumped.'
+  description: 'For every user belonging to a setor, updates that user''s Firestore unread-message-count document.
+    If the event is a ''reacao'' (reaction), only the updated-at timestamp is bumped for every user (count unchanged).
+    If reduzir_qtd=True, every user''s count is decremented by 1, floored at 0, with timestamp bumped. Otherwise
+    (a normal new-message event): the user matching usuario_pk (i.e. the sender) keeps their count unchanged (with
+    no timestamp bump); every OTHER user in the setor has their count incremented by 1 with the timestamp bumped.'
   inputs:
   - name: setor
     type: Setor pk
@@ -155,8 +210,17 @@ rules:
   - name: firestore doc per user
     type: '{qtd_mensagens: int, atualizado_em?: timestamp, usuario: {...}}'
     unit: null
-  logic: "FOR usuario IN Setor.objects.get(pk=setor).usuarios.all():\n  payload = doc_ref.get().to_dict() OR {}\n  IF is_reacao:\n    message_payload = {\"atualizado_em\": SERVER_TIMESTAMP}\n  ELIF reduzir_qtd:\n    current = payload.get(\"qtd_mensagens\", 0)\n    message_payload = {\n      \"atualizado_em\": SERVER_TIMESTAMP,\n      \"qtd_mensagens\": (current - 1) IF current > 0 ELSE 0,\n    }\n  ELSE:\n    IF usuario_pk == str(usuario.pk):\n      message_payload = {\"qtd_mensagens\": payload.get(\"qtd_mensagens\", 0)}   # unchanged, no timestamp bump\n    ELSE:\n      message_payload = {\n        \"qtd_mensagens\": payload.get(\"qtd_mensagens\", 0) + 1,\n        \"atualizado_em\": SERVER_TIMESTAMP,\n      }\n  data_payload = {**message_payload, \"usuario\": {id, nome, foto_perfil url or \"\", email}}\n  doc_ref.set(data_payload) IF NOT payload ELSE doc_ref.update(data_payload)\n"
-  edge_cases: Decrement is floored at 0 (never negative). The is_reacao and reduzir_qtd branches apply identically to ALL users in the setor regardless of usuario_pk (the sender-exclusion logic only exists in the 'else'/new-message branch).
+  logic: "FOR usuario IN Setor.objects.get(pk=setor).usuarios.all():\n  payload = doc_ref.get().to_dict() OR {}\n\
+    \  IF is_reacao:\n    message_payload = {\"atualizado_em\": SERVER_TIMESTAMP}\n  ELIF reduzir_qtd:\n    current\
+    \ = payload.get(\"qtd_mensagens\", 0)\n    message_payload = {\n      \"atualizado_em\": SERVER_TIMESTAMP,\n\
+    \      \"qtd_mensagens\": (current - 1) IF current > 0 ELSE 0,\n    }\n  ELSE:\n    IF usuario_pk == str(usuario.pk):\n\
+    \      message_payload = {\"qtd_mensagens\": payload.get(\"qtd_mensagens\", 0)}   # unchanged, no timestamp\
+    \ bump\n    ELSE:\n      message_payload = {\n        \"qtd_mensagens\": payload.get(\"qtd_mensagens\", 0) +\
+    \ 1,\n        \"atualizado_em\": SERVER_TIMESTAMP,\n      }\n  data_payload = {**message_payload, \"usuario\"\
+    : {id, nome, foto_perfil url or \"\", email}}\n  doc_ref.set(data_payload) IF NOT payload ELSE doc_ref.update(data_payload)\n"
+  edge_cases: Decrement is floored at 0 (never negative). The is_reacao and reduzir_qtd branches apply identically
+    to ALL users in the setor regardless of usuario_pk (the sender-exclusion logic only exists in the 'else'/new-message
+    branch).
   confidence: high
   related:
   - RULE-COMUNICACAO-005
@@ -172,7 +236,8 @@ rules:
     lines: 19-75
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Called from Mensageiro.enviar_observacao/enviar_observacao_automatica_e_homecare (RULE-alert-BE-11-047/048) and referenced by reduzir_qtd (RULE-msg-BE-11-046) which computes the reduzir_qtd flag's eligibility.
+  notes: Called from Mensageiro.enviar_observacao/enviar_observacao_automatica_e_homecare (RULE-alert-BE-11-047/048)
+    and referenced by reduzir_qtd (RULE-msg-BE-11-046) which computes the reduzir_qtd flag's eligibility.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -184,7 +249,9 @@ rules:
   type: eligibility
   status: OK
   verify: false
-  description: An observation's unread-count contribution is only eligible to be decremented if it has NO reactions, NO checked confirmations (checagens with checado=True), and NO other replies to it (excluding a given reply pk).
+  description: An observation's unread-count contribution is only eligible to be decremented if it has NO reactions,
+    NO checked confirmations (checagens with checado=True), and NO other replies to it (excluding a given reply
+    pk).
   inputs:
   - name: observacao
     type: Observacao instance
@@ -197,7 +264,8 @@ rules:
   - name: pode_reduzir
     type: boolean
     unit: null
-  logic: "RETURN ALL([\n  observacao.reacoes.count() == 0,\n  NOT observacao.checagens.filter(checado=True).exists(),\n  observacao.observacoes_respondidas.exclude(pk=resposta).count() == 0,\n])\n"
+  logic: "RETURN ALL([\n  observacao.reacoes.count() == 0,\n  NOT observacao.checagens.filter(checado=True).exists(),\n\
+    \  observacao.observacoes_respondidas.exclude(pk=resposta).count() == 0,\n])\n"
   edge_cases: null
   confidence: high
   related:
@@ -213,7 +281,9 @@ rules:
     lines: 77-84
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Function name is identical to the `reduzir_qtd` PARAMETER of send_qtd_mensagens_to_firebase (RULE-msg-BE-11-045) but they are different things: this one COMPUTES eligibility, that one CONSUMES a boolean flag with that name. Not shown in this partition is the call site that feeds this function''s result into that parameter.'
+  notes: 'Function name is identical to the `reduzir_qtd` PARAMETER of send_qtd_mensagens_to_firebase (RULE-msg-BE-11-045)
+    but they are different things: this one COMPUTES eligibility, that one CONSUMES a boolean flag with that name.
+    Not shown in this partition is the call site that feeds this function''s result into that parameter.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -225,7 +295,9 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: When a ChecagemObservacao is updated and its 'checado' field becomes truthy, and reduzir_qtd(observacao) confirms the shared unread-count was decremented, a Firebase update is pushed asynchronously to zero out the pending/unread flags for the observation's setor+responsavel.
+  description: When a ChecagemObservacao is updated and its 'checado' field becomes truthy, and reduzir_qtd(observacao)
+    confirms the shared unread-count was decremented, a Firebase update is pushed asynchronously to zero out the
+    pending/unread flags for the observation's setor+responsavel.
   inputs:
   - name: validated_data.checado
     type: boolean
@@ -234,7 +306,9 @@ rules:
   - name: firebase_update
     type: async task call
     unit: null
-  logic: "instance = super().update(instance, validated_data)\nobservacao = instance.observacao\nif validated_data.get(\"checado\") and reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase.apply_async(\n        args=[observacao.setor.get_pk, observacao.responsavel.get_pk, False, True]\n    )\nreturn instance\n"
+  logic: "instance = super().update(instance, validated_data)\nobservacao = instance.observacao\nif validated_data.get(\"\
+    checado\") and reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase.apply_async(\n        args=[observacao.setor.get_pk,\
+    \ observacao.responsavel.get_pk, False, True]\n    )\nreturn instance\n"
   edge_cases: If checado is falsy in this update call, or reduzir_qtd returns falsy, no Firebase call is made.
   confidence: high
   related:
@@ -250,7 +324,15 @@ rules:
     lines: 28-43
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'reduzir_qtd/send_qtd_mensagens_to_firebase implementations are in utils.firebase, out of scope; the extra two positional args (False, True) vs. the 2-arg call in RULE-observacao-BE-05-004 suggest a different call signature/overload - flagged for a verifier to confirm against utils.firebase source. | RECONCILED: verified against utils/firebase.py — send_qtd_mensagens_to_firebase''s real signature is (setor, usuario_pk, is_reacao=False, reduzir_qtd=False). The apply_async(args=[setor_pk, responsavel_pk, False, True]) call here maps positionally to is_reacao=False, reduzir_qtd=True — the SAME function/signature as RULE-COMUNICACAO-004 and RULE-COMUNICACAO-007''s 2-arg calls, just invoked with different trailing arguments for a different scenario. The ''different call signature/overload'' concern flagged by Phase-1 is resolved: there is only one function, called with 2, 3, or 4 positional args depending on branch — no discrepancy.'
+  notes: 'reduzir_qtd/send_qtd_mensagens_to_firebase implementations are in utils.firebase, out of scope; the extra
+    two positional args (False, True) vs. the 2-arg call in RULE-observacao-BE-05-004 suggest a different call signature/overload
+    - flagged for a verifier to confirm against utils.firebase source. | RECONCILED: verified against utils/firebase.py
+    — send_qtd_mensagens_to_firebase''s real signature is (setor, usuario_pk, is_reacao=False, reduzir_qtd=False).
+    The apply_async(args=[setor_pk, responsavel_pk, False, True]) call here maps positionally to is_reacao=False,
+    reduzir_qtd=True — the SAME function/signature as RULE-COMUNICACAO-004 and RULE-COMUNICACAO-007''s 2-arg calls,
+    just invoked with different trailing arguments for a different scenario. The ''different call signature/overload''
+    concern flagged by Phase-1 is resolved: there is only one function, called with 2, 3, or 4 positional args depending
+    on branch — no discrepancy.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -262,7 +344,11 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: When a new Observacao is created, a Firebase push/counter update is normally sent (incrementing the setor's unread count for the responsavel). However, if this new observation IS a reply to another (has 'resposta' set) AND reduzir_qtd() on the parent succeeds (meaning the reply already caused a counter decrement), the increment notification is SKIPPED - to avoid simultaneously incrementing and decrementing the same message-count total in Firebase.
+  description: When a new Observacao is created, a Firebase push/counter update is normally sent (incrementing the
+    setor's unread count for the responsavel). However, if this new observation IS a reply to another (has 'resposta'
+    set) AND reduzir_qtd() on the parent succeeds (meaning the reply already caused a counter decrement), the increment
+    notification is SKIPPED - to avoid simultaneously incrementing and decrementing the same message-count total
+    in Firebase.
   inputs:
   - name: observacao.resposta
     type: object | null
@@ -271,8 +357,14 @@ rules:
   - name: firebase_notification_sent
     type: boolean
     unit: null
-  logic: "observacao = super().create(validated_data)   # validated_data[\"alerta\"] <- popped \"alerta_observacao\"\nfor arquivo in arquivos_b64: ObservacaoArquivo.objects.create(...)\nfor checagem in checagens: ChecagemObservacao.objects.create(observacao=observacao, **checagem)\nif not (observacao.resposta and reduzir_qtd(observacao.resposta, resposta=observacao.get_pk)):\n    send_qtd_mensagens_to_firebase.apply_async(\n        args=[observacao.setor.get_pk, observacao.responsavel.get_pk]\n    )\nreturn observacao\n"
-  edge_cases: 'No @transaction.atomic decorator is used deliberately (explicit code comment: ''Não colocar transaction atomic!''), so partial failures (e.g. after arquivo/checagem creation but before the firebase call) are possible without rollback.'
+  logic: "observacao = super().create(validated_data)   # validated_data[\"alerta\"] <- popped \"alerta_observacao\"\
+    \nfor arquivo in arquivos_b64: ObservacaoArquivo.objects.create(...)\nfor checagem in checagens: ChecagemObservacao.objects.create(observacao=observacao,\
+    \ **checagem)\nif not (observacao.resposta and reduzir_qtd(observacao.resposta, resposta=observacao.get_pk)):\n\
+    \    send_qtd_mensagens_to_firebase.apply_async(\n        args=[observacao.setor.get_pk, observacao.responsavel.get_pk]\n\
+    \    )\nreturn observacao\n"
+  edge_cases: 'No @transaction.atomic decorator is used deliberately (explicit code comment: ''Não colocar transaction
+    atomic!''), so partial failures (e.g. after arquivo/checagem creation but before the firebase call) are possible
+    without rollback.'
   confidence: high
   related:
   - RULE-COMUNICACAO-004
@@ -286,7 +378,8 @@ rules:
     lines: 183-220
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: reduzir_qtd and send_qtd_mensagens_to_firebase implementations live in utils.firebase, out of this partition's scope; behavior recorded from call-site semantics and the explanatory code comment.
+  notes: reduzir_qtd and send_qtd_mensagens_to_firebase implementations live in utils.firebase, out of this partition's
+    scope; behavior recorded from call-site semantics and the explanatory code comment.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -298,7 +391,9 @@ rules:
   type: threshold
   status: OK
   verify: false
-  description: 'ChatViewSet''s queryset excludes observations older than a cutoff that depends on whether a ''leito'' query parameter is present: with a leito filter, messages up to 96 hours (4 days) old are retained; without it (setor-wide chat), only messages up to 48 hours (2 days) old are retained.'
+  description: 'ChatViewSet''s queryset excludes observations older than a cutoff that depends on whether a ''leito''
+    query parameter is present: with a leito filter, messages up to 96 hours (4 days) old are retained; without
+    it (setor-wide chat), only messages up to 48 hours (2 days) old are retained.'
   inputs:
   - name: request.query_params.leito
     type: string | null
@@ -310,8 +405,11 @@ rules:
   - name: queryset
     type: queryset of Observacao
     unit: null
-  logic: "is_leito_filter = request.query_params.get(\"leito\")\ncutoff_hours = 96 if is_leito_filter else 48\nqueryset = Observacao.objects.filter(setor=request.setor).exclude(\n    criado_em__lte=timezone.now() - timedelta(hours=cutoff_hours)\n)\n"
-  edge_cases: Boundary uses __lte (less-than-or-equal) in exclude(), i.e. messages with criado_em exactly equal to the cutoff instant are excluded (kept only if strictly newer than cutoff).
+  logic: "is_leito_filter = request.query_params.get(\"leito\")\ncutoff_hours = 96 if is_leito_filter else 48\n\
+    queryset = Observacao.objects.filter(setor=request.setor).exclude(\n    criado_em__lte=timezone.now() - timedelta(hours=cutoff_hours)\n\
+    )\n"
+  edge_cases: Boundary uses __lte (less-than-or-equal) in exclude(), i.e. messages with criado_em exactly equal
+    to the cutoff instant are excluded (kept only if strictly newer than cutoff).
   confidence: high
   related:
   - RULE-COMUNICACAO-021
@@ -335,7 +433,9 @@ rules:
   type: threshold
   status: OK
   verify: false
-  description: 'Incoming popup notifications (from the popover websocket) are passed through a lodash debounce wrapping showNotification with a 2000ms wait, so rapid bursts of incoming messages collapse into at most one popup toast per 2-second window.
+  description: 'Incoming popup notifications (from the popover websocket) are passed through a lodash debounce wrapping
+    showNotification with a 2000ms wait, so rapid bursts of incoming messages collapse into at most one popup toast
+    per 2-second window.
 
     '
   inputs:
@@ -347,7 +447,9 @@ rules:
   logic: 'trotthleNotification = debounce(showNotification, 2000)
 
     '
-  edge_cases: 'Because this is a plain debounce (not throttle, despite the variable name "trotthleNotification"), only the LAST notification in a rapid burst within the 2000ms window is ever shown - earlier ones in that window are silently discarded, not queued.
+  edge_cases: 'Because this is a plain debounce (not throttle, despite the variable name "trotthleNotification"),
+    only the LAST notification in a rapid burst within the 2000ms window is ever shown - earlier ones in that window
+    are silently discarded, not queued.
 
     '
   confidence: high
@@ -363,7 +465,8 @@ rules:
     lines: 98,105
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Misnamed variable ("trotthleNotification") suggests throttle was intended but debounce was used - recorded as implemented, not corrected.
+  notes: Misnamed variable ("trotthleNotification") suggests throttle was intended but debounce was used - recorded
+    as implemented, not corrected.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -375,7 +478,9 @@ rules:
   type: threshold
   status: OK
   verify: false
-  description: 'The colored status ball/icon on a notification row is only derived from the shared statusTrilha[alerta] lookup when the notification''s message type is "leito"; every other message type renders with a fixed neutral gray (#959595) regardless of any alerta value present.
+  description: 'The colored status ball/icon on a notification row is only derived from the shared statusTrilha[alerta]
+    lookup when the notification''s message type is "leito"; every other message type renders with a fixed neutral
+    gray (#959595) regardless of any alerta value present.
 
     '
   inputs:
@@ -391,7 +496,9 @@ rules:
     iconNotificacao = (tipoMessage === "leito") ? mdiBellOutline : mdiMessage
 
     '
-  edge_cases: 'If tipoMessage === "leito" but statusTrilha has no entry for the given alerta key, ballColor resolves to undefined (optional chaining), which renders as no explicit background color rather than falling back to the neutral gray used for non-leito messages.
+  edge_cases: 'If tipoMessage === "leito" but statusTrilha has no entry for the given alerta key, ballColor resolves
+    to undefined (optional chaining), which renders as no explicit background color rather than falling back to
+    the neutral gray used for non-leito messages.
 
     '
   confidence: medium
@@ -406,7 +513,8 @@ rules:
     lines: 26-39
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: statusTrilha itself is defined in src/utils/statusTrilha.ts, out of this partition's scope; only the conditional use of it is verified here.
+  notes: statusTrilha itself is defined in src/utils/statusTrilha.ts, out of this partition's scope; only the conditional
+    use of it is verified here.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -418,7 +526,10 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Clicking a popup notification, or an ItemNotificacao row, routes the user differently based on the notification''s message type: "setor" (chat message) opens the sector''s chat/message list, while any other type (e.g. "leito") navigates to the associated trilha (care-pathway) page for that leito/occupation, marking the notification read first.
+  description: 'Clicking a popup notification, or an ItemNotificacao row, routes the user differently based on the
+    notification''s message type: "setor" (chat message) opens the sector''s chat/message list, while any other
+    type (e.g. "leito") navigates to the associated trilha (care-pathway) page for that leito/occupation, marking
+    the notification read first.
 
     '
   inputs:
@@ -429,8 +540,16 @@ rules:
   outputs:
   - name: navigation target (window.location.replace URL)
     type: string (URL)
-  logic: "onNotificationClick(notificacao):\n  if notificacao.mensagem.tipo_mensagem === \"setor\":\n    openMessageList(notificacao)\n      -> replace `/empresa/{empresa.id}/estabelecimento/{estabelecimento.id}/setor/{setor.id}?openChat=true`\n  else:\n    openTrilhaPage(notificacao, notificacao.mensagem.tipo_trilha):\n      -> clearMessages(notificacao.id)      // marks as visto/read first\n      -> replace `/empresa/{empresa.id}/estabelecimento/{estabelecimento.id}/setor/{setor.id}?trilha={tipo_trilha}&ocupacao={leito.id}&leito={leito.nome}`\nItemNotificacao row click: only wired when tipoMessage === \"setor\" (calls onClickMessage);\nfor \"leito\" rows the row itself is not clickable (cursor:\"default\"), but the trilha Tag\nchip inside it is separately clickable and calls onClickTrilha(tipo_trilha).\n"
-  edge_cases: 'For "leito" notifications with no mensagem.texto, ItemNotificacao instead renders one Tag per entry in mensagem.conteudo, each independently clickable to open that entry''s own tipo_trilha - i.e. a single notification can fan out to multiple trilha destinations.
+  logic: "onNotificationClick(notificacao):\n  if notificacao.mensagem.tipo_mensagem === \"setor\":\n    openMessageList(notificacao)\n\
+    \      -> replace `/empresa/{empresa.id}/estabelecimento/{estabelecimento.id}/setor/{setor.id}?openChat=true`\n\
+    \  else:\n    openTrilhaPage(notificacao, notificacao.mensagem.tipo_trilha):\n      -> clearMessages(notificacao.id)\
+    \      // marks as visto/read first\n      -> replace `/empresa/{empresa.id}/estabelecimento/{estabelecimento.id}/setor/{setor.id}?trilha={tipo_trilha}&ocupacao={leito.id}&leito={leito.nome}`\n\
+    ItemNotificacao row click: only wired when tipoMessage === \"setor\" (calls onClickMessage);\nfor \"leito\"\
+    \ rows the row itself is not clickable (cursor:\"default\"), but the trilha Tag\nchip inside it is separately\
+    \ clickable and calls onClickTrilha(tipo_trilha).\n"
+  edge_cases: 'For "leito" notifications with no mensagem.texto, ItemNotificacao instead renders one Tag per entry
+    in mensagem.conteudo, each independently clickable to open that entry''s own tipo_trilha - i.e. a single notification
+    can fan out to multiple trilha destinations.
 
     '
   confidence: high
@@ -446,7 +565,11 @@ rules:
     lines: 56-70,82-88
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Row-click wiring cross-referenced at src/components/DisplayNotificaoes/ItemNotificacao/ItemNotificacao.tsx lines 42-54,88-129. | RECONCILED: cross-checked against src/@types/models/Mensagem.d.ts (TipoMensagem = "setor"|"leito", RULE-COMUNICACAO-039) and core/models/observacao.py (tipo_mensagem = "leito" if self.leito else "setor", RULE-COMUNICACAO-019): the backend only ever emits "setor" or "leito", so this component''s else-branch (anything not "setor") always resolves to the leito/trilha routing path in practice — no divergence found.'
+  notes: 'Row-click wiring cross-referenced at src/components/DisplayNotificaoes/ItemNotificacao/ItemNotificacao.tsx
+    lines 42-54,88-129. | RECONCILED: cross-checked against src/@types/models/Mensagem.d.ts (TipoMensagem = "setor"|"leito",
+    RULE-COMUNICACAO-039) and core/models/observacao.py (tipo_mensagem = "leito" if self.leito else "setor", RULE-COMUNICACAO-019):
+    the backend only ever emits "setor" or "leito", so this component''s else-branch (anything not "setor") always
+    resolves to the leito/trilha routing path in practice — no divergence found.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -458,7 +581,10 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'get_paciente (identical in ObservacaoSerializer and ObservacaoRespostaSerializer) resolves which patient payload to return for an observation based on the linked leito''s tipo: ''manual'' uses the real Paciente record (nested serializer); ''automatica'' uses a stored JSON snapshot (paciente_automatica); anything else (i.e. ''homecare'') uses paciente_homecare JSON snapshot.'
+  description: 'get_paciente (identical in ObservacaoSerializer and ObservacaoRespostaSerializer) resolves which
+    patient payload to return for an observation based on the linked leito''s tipo: ''manual'' uses the real Paciente
+    record (nested serializer); ''automatica'' uses a stored JSON snapshot (paciente_automatica); anything else
+    (i.e. ''homecare'') uses paciente_homecare JSON snapshot.'
   inputs:
   - name: instance.leito.tipo
     type: string enum (manual|automatica|homecare)
@@ -467,8 +593,12 @@ rules:
   - name: paciente
     type: object | null
     unit: null
-  logic: "def get_paciente(instance):\n    if instance.leito:\n        if instance.leito.tipo == \"manual\":\n            return PacienteSimplesSerializer(instance.paciente).data\n        elif instance.leito.tipo == \"automatica\":\n            return instance.paciente_automatica\n        else:\n            return instance.paciente_homecare\n    # implicit: returns None if instance.leito is falsy\n"
-  edge_cases: If instance.leito is None (e.g. a setor-level general observation not tied to a bed), the method returns None implicitly (no explicit else/return at the outer level).
+  logic: "def get_paciente(instance):\n    if instance.leito:\n        if instance.leito.tipo == \"manual\":\n \
+    \           return PacienteSimplesSerializer(instance.paciente).data\n        elif instance.leito.tipo == \"\
+    automatica\":\n            return instance.paciente_automatica\n        else:\n            return instance.paciente_homecare\n\
+    \    # implicit: returns None if instance.leito is falsy\n"
+  edge_cases: If instance.leito is None (e.g. a setor-level general observation not tied to a bed), the method returns
+    None implicitly (no explicit else/return at the outer level).
   confidence: high
   related:
   - RULE-COMUNICACAO-013
@@ -493,7 +623,10 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: try_set_movimentacao resolves the URL kwarg 'ocupacoes__pk' as EITHER a Movimentacao pk (manual bed occupation) or, if no such Movimentacao exists, as a Leito pk directly (automatica/homecare beds don't use per-admission Movimentacao records for this purpose). If the kwarg is entirely absent, nothing is set (general setor-level observation, no leito attached).
+  description: try_set_movimentacao resolves the URL kwarg 'ocupacoes__pk' as EITHER a Movimentacao pk (manual bed
+    occupation) or, if no such Movimentacao exists, as a Leito pk directly (automatica/homecare beds don't use per-admission
+    Movimentacao records for this purpose). If the kwarg is entirely absent, nothing is set (general setor-level
+    observation, no leito attached).
   inputs:
   - name: kwargs.ocupacoes__pk
     type: uuid | null
@@ -511,7 +644,13 @@ rules:
   - name: request.data.alerta_observacao
     type: string enum (VERMELHO|AMARELO|NEUTRO)
     unit: null
-  logic: "ocupacao = kwargs.get(\"ocupacoes__pk\")\nif ocupacao:\n    try:\n        movimentacao = Movimentacao.objects.get(pk=ocupacao)\n        request.data[\"movimentacao_id\"] = movimentacao.id\n        request.data[\"leito_id\"] = movimentacao.leito.id\n        request.data[\"paciente_id\"] = movimentacao.paciente.id\n        request.data[\"alerta_observacao\"] = movimentacao.alerta_movimentacao\n    except Movimentacao.DoesNotExist:\n        leito = get_object_or_404(Leito, pk=ocupacao)\n        request.data[\"leito_id\"] = leito.pk\n        request.data[\"paciente_automatica\"] = (\n            leito.paciente.get_payload() if leito.paciente else leito.get_paciente_automatica\n        )\n        request.data[\"alerta_observacao\"] = leito.get_alerta_leito\n"
+  logic: "ocupacao = kwargs.get(\"ocupacoes__pk\")\nif ocupacao:\n    try:\n        movimentacao = Movimentacao.objects.get(pk=ocupacao)\n\
+    \        request.data[\"movimentacao_id\"] = movimentacao.id\n        request.data[\"leito_id\"] = movimentacao.leito.id\n\
+    \        request.data[\"paciente_id\"] = movimentacao.paciente.id\n        request.data[\"alerta_observacao\"\
+    ] = movimentacao.alerta_movimentacao\n    except Movimentacao.DoesNotExist:\n        leito = get_object_or_404(Leito,\
+    \ pk=ocupacao)\n        request.data[\"leito_id\"] = leito.pk\n        request.data[\"paciente_automatica\"\
+    ] = (\n            leito.paciente.get_payload() if leito.paciente else leito.get_paciente_automatica\n     \
+    \   )\n        request.data[\"alerta_observacao\"] = leito.get_alerta_leito\n"
   edge_cases: If ocupacao is falsy (None), the method is a no-op (no leito/movimentacao association at all).
   confidence: high
   related:
@@ -536,7 +675,9 @@ rules:
   type: eligibility
   status: OK
   verify: false
-  description: 'A "checagem" (protocol/alert checklist checkbox) inside a chat message can be toggled by the current user unless it has already been checked by someone else, and can never be toggled from within a reply-preview context.
+  description: 'A "checagem" (protocol/alert checklist checkbox) inside a chat message can be toggled by the current
+    user unless it has already been checked by someone else, and can never be toggled from within a reply-preview
+    context.
 
     '
   inputs:
@@ -555,7 +696,8 @@ rules:
   logic: 'disabled = (checagem.checado && !isMyMessage) || isReply
 
     '
-  edge_cases: An unchecked item is always togglable (checado is false, so first clause is false) regardless of authorship, as long as it's not in a reply preview.
+  edge_cases: An unchecked item is always togglable (checado is false, so first clause is false) regardless of authorship,
+    as long as it's not in a reply preview.
   confidence: high
   related:
   - RULE-COMUNICACAO-033
@@ -580,7 +722,9 @@ rules:
   type: eligibility
   status: OK
   verify: false
-  description: 'In the reactions drawer, tapping a user entry under a given emoji only triggers a delete call when that entry belongs to the currently logged-in user AND the current user has an existing reaction (myReaction) to delete; tapping another user''s entry does nothing.
+  description: 'In the reactions drawer, tapping a user entry under a given emoji only triggers a delete call when
+    that entry belongs to the currently logged-in user AND the current user has an existing reaction (myReaction)
+    to delete; tapping another user''s entry does nothing.
 
     '
   inputs:
@@ -593,8 +737,11 @@ rules:
   outputs:
   - name: onDelete(myReaction) invocation
     type: side effect
-  logic: "handleDelete(usuarioId):\n  if (myReaction && userId === usuarioId):\n    onDelete(myReaction)\n  // else: no-op\n"
-  edge_cases: 'Even if userId === usuarioId, if myReaction is falsy (the user has no reaction recorded), the tap is a no-op - clicking one''s own row does not implicitly add/toggle a reaction here, only remove an existing one.
+  logic: "handleDelete(usuarioId):\n  if (myReaction && userId === usuarioId):\n    onDelete(myReaction)\n  // else:\
+    \ no-op\n"
+  edge_cases: 'Even if userId === usuarioId, if myReaction is falsy (the user has no reaction recorded), the tap
+    is a no-op - clicking one''s own row does not implicitly add/toggle a reaction here, only remove an existing
+    one.
 
     '
   confidence: high
@@ -621,7 +768,9 @@ rules:
   type: eligibility
   status: OK
   verify: false
-  description: 'The telemedicine room only offers an "Entrar na sala" (join call) button if at least one video input device is detected via the browser''s media-devices enumeration at mount; otherwise a "Video Offline" warning result is shown instead, preventing the join action.
+  description: 'The telemedicine room only offers an "Entrar na sala" (join call) button if at least one video input
+    device is detected via the browser''s media-devices enumeration at mount; otherwise a "Video Offline" warning
+    result is shown instead, preventing the join action.
 
     '
   inputs:
@@ -632,8 +781,13 @@ rules:
     type: boolean
   - name: rendered control ("Entrar na sala" button vs. Result warning)
     type: UI branch
-  logic: "on mount: devices = await navigator.mediaDevices.enumerateDevices()\n          videoDevices = devices.filter(d => d.kind === \"videoinput\")\n          hasVideoDevice = videoDevices.length > 0\nrender:\n  if hasVideoDevice: show \"Entrar na sala\" Button (calls join())\n  else: show Result(status=\"warning\", title=\"Video Offline\", subTitle=\"... conecte um dispositivo de vídeo e recarregue a página.\")\n"
-  edge_cases: 'The check only runs if navigator.mediaDevices exists at all (guards environments without the API); it does not verify that the device is functional/permitted, only that it is enumerable, and it does not re-check on device hot-plug (only at mount).
+  logic: "on mount: devices = await navigator.mediaDevices.enumerateDevices()\n          videoDevices = devices.filter(d\
+    \ => d.kind === \"videoinput\")\n          hasVideoDevice = videoDevices.length > 0\nrender:\n  if hasVideoDevice:\
+    \ show \"Entrar na sala\" Button (calls join())\n  else: show Result(status=\"warning\", title=\"Video Offline\"\
+    , subTitle=\"... conecte um dispositivo de vídeo e recarregue a página.\")\n"
+  edge_cases: 'The check only runs if navigator.mediaDevices exists at all (guards environments without the API);
+    it does not verify that the device is functional/permitted, only that it is enumerable, and it does not re-check
+    on device hot-plug (only at mount).
 
     '
   confidence: high
@@ -662,7 +816,8 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: Creating a Notificacao generates one UsuarioNotificacao (unread) per user in the observation's sector and dispatches a websocket task.
+  description: Creating a Notificacao generates one UsuarioNotificacao (unread) per user in the observation's sector
+    and dispatches a websocket task.
   inputs:
   - name: observacao.setor.usuarios
     type: queryset[Usuario]
@@ -672,8 +827,10 @@ rules:
   - name: UsuarioNotificacao rows + ws task
     type: side-effect
     unit: null
-  logic: "@transaction.atomic save():\n  if not exists (new):\n    bulk_create UsuarioNotificacao(notificacao=self, usuario=u) for u in observacao.setor.usuarios.all()\n  super().save()\n  if new: tasks.notificacao_ws_trilha.delay(self.pk)\n"
-  edge_cases: Fan-out and ws dispatch only on first save (not updates). UsuarioNotificacao.visto defaults False; unique_together(notificacao,usuario).
+  logic: "@transaction.atomic save():\n  if not exists (new):\n    bulk_create UsuarioNotificacao(notificacao=self,\
+    \ usuario=u) for u in observacao.setor.usuarios.all()\n  super().save()\n  if new: tasks.notificacao_ws_trilha.delay(self.pk)\n"
+  edge_cases: Fan-out and ws dispatch only on first save (not updates). UsuarioNotificacao.visto defaults False;
+    unique_together(notificacao,usuario).
   confidence: high
   related:
   - RULE-COMUNICACAO-018
@@ -698,7 +855,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: When a user marks a specific notification as seen and it was previously unseen, an Indicador of type 'interacao_notificacao' is recorded (analytics of notification engagement); then the user's matching notifications are set to seen.
+  description: When a user marks a specific notification as seen and it was previously unseen, an Indicador of type
+    'interacao_notificacao' is recorded (analytics of notification engagement); then the user's matching notifications
+    are set to seen.
   inputs:
   - name: id (notificacao id)
     type: id|null
@@ -715,8 +874,13 @@ rules:
   - name: visto
     type: boolean
     unit: '-'
-  logic: "qs = UsuarioNotificacao.objects.filter(usuario=self.usuario)\nif id is not None:\n    qs = qs.filter(notificacao__id=id)\n    if qs.filter(visto=False).exists():\n        Indicador(tipo=\"interacao_notificacao\", dados={\"notificacao_id\": id, \"usuario_id\": usuario.get_pk}).save()\nqs.update(visto=True)\n"
-  edge_cases: 'Indicator only logged when id is provided AND at least one matching row is still unseen (fires once, on transition False->True). When id is None, all the user''s notifications are marked seen with NO indicator. Triggered from receive_json only when incoming message has visto truthy. Consumer connect defaults page_size=30 and (unless popover=true) streams the most recent page_size notifications.
+  logic: "qs = UsuarioNotificacao.objects.filter(usuario=self.usuario)\nif id is not None:\n    qs = qs.filter(notificacao__id=id)\n\
+    \    if qs.filter(visto=False).exists():\n        Indicador(tipo=\"interacao_notificacao\", dados={\"notificacao_id\"\
+    : id, \"usuario_id\": usuario.get_pk}).save()\nqs.update(visto=True)\n"
+  edge_cases: 'Indicator only logged when id is provided AND at least one matching row is still unseen (fires once,
+    on transition False->True). When id is None, all the user''s notifications are marked seen with NO indicator.
+    Triggered from receive_json only when incoming message has visto truthy. Consumer connect defaults page_size=30
+    and (unless popover=true) streams the most recent page_size notifications.
 
     '
   confidence: high
@@ -742,7 +906,8 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'A newly created Observacao with a sector spawns a Notificacao; its websocket message type is "leito" if bound to a bed, else "setor".
+  description: 'A newly created Observacao with a sector spawns a Notificacao; its websocket message type is "leito"
+    if bound to a bed, else "setor".
 
     '
   inputs:
@@ -758,8 +923,11 @@ rules:
   - name: Notificacao + tipo_mensagem
     type: side-effect/string
     unit: null
-  logic: "@transaction.atomic save():\n  if (not exists) and setor is not None:\n      Notificacao(observacao=self).save()   # triggers RULE-027\n  super().save()\ntipo_mensagem = \"leito\" if self.leito else \"setor\"\nMeta.ordering = [\"-criado_em\"] (newest first)\n"
-  edge_cases: No notification if setor is None or on update. Observacao also stores paciente_automatica/paciente_homecare JSON snapshots and a conteudo JSON array.
+  logic: "@transaction.atomic save():\n  if (not exists) and setor is not None:\n      Notificacao(observacao=self).save()\
+    \   # triggers RULE-027\n  super().save()\ntipo_mensagem = \"leito\" if self.leito else \"setor\"\nMeta.ordering\
+    \ = [\"-criado_em\"] (newest first)\n"
+  edge_cases: No notification if setor is None or on update. Observacao also stores paciente_automatica/paciente_homecare
+    JSON snapshots and a conteudo JSON array.
   confidence: high
   related:
   - RULE-COMUNICACAO-017
@@ -785,7 +953,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'Both the notification-badge websocket stream and the popup-toast websocket stream ignore any incoming message whose responsavel (author) id matches the currently logged-in user''s id, so users never receive a notification/popup for their own messages.
+  description: 'Both the notification-badge websocket stream and the popup-toast websocket stream ignore any incoming
+    message whose responsavel (author) id matches the currently logged-in user''s id, so users never receive a notification/popup
+    for their own messages.
 
     '
   inputs:
@@ -798,8 +968,12 @@ rules:
     type: Models.Notificacao[]
   - name: popup notification (antd notification.open)
     type: side effect
-  logic: "ws.onmessage: if dataParse.mensagem.responsavel?.id !== user.usuario.id:\n                 setNotificacoes(prev => [dataParse, ...prev])\nwsPopover.onmessage: if dataParsePopover.mensagem.responsavel.id !== user.usuario.id:\n                 trotthleNotification(dataParsePopover)     // see RULE-notificacao-FE-05-002\n"
-  edge_cases: 'Both sockets are opened per-render via useMemo keyed only on `token`, and both are closed together in a single cleanup effect; a mismatch/race between which socket delivered which event is not otherwise guarded beyond this author-id check.
+  logic: "ws.onmessage: if dataParse.mensagem.responsavel?.id !== user.usuario.id:\n                 setNotificacoes(prev\
+    \ => [dataParse, ...prev])\nwsPopover.onmessage: if dataParsePopover.mensagem.responsavel.id !== user.usuario.id:\n\
+    \                 trotthleNotification(dataParsePopover)     // see RULE-notificacao-FE-05-002\n"
+  edge_cases: 'Both sockets are opened per-render via useMemo keyed only on `token`, and both are closed together
+    in a single cleanup effect; a mismatch/race between which socket delivered which event is not otherwise guarded
+    beyond this author-id check.
 
     '
   confidence: high
@@ -825,7 +999,10 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The sector chat loads messages in fixed pages of 20, newest-first from the API but reversed for display (oldest-at-top of each page); a "load more" control is shown only while at least 20 messages are currently loaded and the next offset has not yet reached the total count, and each additional load advances the offset by 20.
+  description: 'The sector chat loads messages in fixed pages of 20, newest-first from the API but reversed for
+    display (oldest-at-top of each page); a "load more" control is shown only while at least 20 messages are currently
+    loaded and the next offset has not yet reached the total count, and each additional load advances the offset
+    by 20.
 
     '
   inputs:
@@ -845,8 +1022,11 @@ rules:
     type: boolean
   - name: nextOffset
     type: integer
-  logic: "// initial/refresh fetch: offset=0, limit=20\nif (offset === 0 && limit === 20) {\n  mensagens = data.results.reverse()\n  count = data.count\n  nextOffset = 20\n} else {\n  mensagens = [...data.results.reverse(), ...mensagens]   // prepend older page\n  nextOffset += 20\n}\nshowLoadMore = mensagens.length >= 20 && nextOffset <= count\n"
-  edge_cases: Page size (20) is hardcoded, not configurable from the UI; reaction/checagem actions re-fetch using the *current* nextOffset as the limit (so the whole loaded window is refreshed, not just the new page).
+  logic: "// initial/refresh fetch: offset=0, limit=20\nif (offset === 0 && limit === 20) {\n  mensagens = data.results.reverse()\n\
+    \  count = data.count\n  nextOffset = 20\n} else {\n  mensagens = [...data.results.reverse(), ...mensagens]\
+    \   // prepend older page\n  nextOffset += 20\n}\nshowLoadMore = mensagens.length >= 20 && nextOffset <= count\n"
+  edge_cases: Page size (20) is hardcoded, not configurable from the UI; reaction/checagem actions re-fetch using
+    the *current* nextOffset as the limit (so the whole loaded window is refreshed, not just the new page).
   confidence: high
   related:
   - RULE-COMUNICACAO-025
@@ -871,7 +1051,8 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'When the establishment-wide chats page loads its list of sector conversations, if no conversation is currently selected, the first item in the fetched list is automatically selected.
+  description: 'When the establishment-wide chats page loads its list of sector conversations, if no conversation
+    is currently selected, the first item in the fetched list is automatically selected.
 
     '
   inputs:
@@ -912,7 +1093,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The sector occupancy page shows an unread-message badge count from a per-user, per-sector Firestore document field qtd_mensagens. Clicking the messages button opens the chat drawer and resets qtd_mensagens to 0 for that user/sector; the badge is not reset merely by rendering.
+  description: 'The sector occupancy page shows an unread-message badge count from a per-user, per-sector Firestore
+    document field qtd_mensagens. Clicking the messages button opens the chat drawer and resets qtd_mensagens to
+    0 for that user/sector; the badge is not reset merely by rendering.
 
     '
   inputs:
@@ -938,7 +1121,11 @@ rules:
     lines: 50-52, 140-164
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: ' | Cross-checked: this Firestore path (chats/{id_setor}/usuarios/{userId}.qtd_mensagens) is the SAME field maintained server-side by send_qtd_mensagens_to_firebase (RULE-COMUNICACAO-004). This FE action performs an unconditional reset to 0 on chat-drawer open, distinct from the backend''s incremental +1/-1-with-eligibility updates (RULE-COMUNICACAO-004/005) — an intentional ''mark all read'' UX shortcut, not a bug, but noted as a point where client and server can independently mutate the same counter.'
+  notes: ' | Cross-checked: this Firestore path (chats/{id_setor}/usuarios/{userId}.qtd_mensagens) is the SAME field
+    maintained server-side by send_qtd_mensagens_to_firebase (RULE-COMUNICACAO-004). This FE action performs an
+    unconditional reset to 0 on chat-drawer open, distinct from the backend''s incremental +1/-1-with-eligibility
+    updates (RULE-COMUNICACAO-004/005) — an intentional ''mark all read'' UX shortcut, not a bug, but noted as a
+    point where client and server can independently mutate the same counter.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -950,7 +1137,10 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The homecare activity feed listens on a WebSocket for update notifications. When a message with update === true arrives, the feed is only auto-refreshed and scrolled to top if the user has NOT scrolled away from the top of the feed (scrollTop === 0); if the user has scrolled down, no auto-refresh happens (a manual "Novas Atualizações" button is shown instead, per the surrounding UI).
+  description: 'The homecare activity feed listens on a WebSocket for update notifications. When a message with
+    update === true arrives, the feed is only auto-refreshed and scrolled to top if the user has NOT scrolled away
+    from the top of the feed (scrollTop === 0); if the user has scrolled down, no auto-refresh happens (a manual
+    "Novas Atualizações" button is shown instead, per the surrounding UI).
 
     '
   inputs:
@@ -964,8 +1154,11 @@ rules:
   - name: feed refreshed / scrolled
     type: boolean
     unit: null
-  logic: "ws.onmessage = ({ data }) => {\n  parsed = JSON.parse(data)\n  checkScroll()                 // updates feedRolled state\n  if (parsed.update === true) {\n    rolled = checkScroll()      // rolled = (scrollTop !== 0)\n    if (!rolled) {\n      _getFeed()\n      scrollToTop()\n    }\n  }\n}\n"
-  edge_cases: 'checkScroll returns undefined if the #feed DOM element is not present (e.g. before first render); the `!rolled` check would then be `!undefined` = true, causing a refresh attempt.
+  logic: "ws.onmessage = ({ data }) => {\n  parsed = JSON.parse(data)\n  checkScroll()                 // updates\
+    \ feedRolled state\n  if (parsed.update === true) {\n    rolled = checkScroll()      // rolled = (scrollTop\
+    \ !== 0)\n    if (!rolled) {\n      _getFeed()\n      scrollToTop()\n    }\n  }\n}\n"
+  edge_cases: 'checkScroll returns undefined if the #feed DOM element is not present (e.g. before first render);
+    the `!rolled` check would then be `!undefined` = true, causing a refresh attempt.
 
     '
   confidence: high
@@ -992,7 +1185,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The activity feed initially loads 20 items (offset 0, limit 20). Additional pages are loaded 20 at a time via a "Mais" (load more) button, which is only shown once at least 20 items are loaded and there are more items available (nextOffset <= total count).
+  description: 'The activity feed initially loads 20 items (offset 0, limit 20). Additional pages are loaded 20
+    at a time via a "Mais" (load more) button, which is only shown once at least 20 items are loaded and there are
+    more items available (nextOffset <= total count).
 
     '
   inputs:
@@ -1011,8 +1206,12 @@ rules:
   - name: load-more button visibility
     type: boolean
     unit: null
-  logic: "initial fetch: _getFeed(offset=0, limit=20)\non success with offset===0 && limit===20:\n  feed = data.results; count = data.count; nextOffset = 20\non success otherwise (subsequent pages):\n  feed = [...feed, ...data.results]; nextOffset += 20\n\nshow \"Mais\" button IF (feed.length >= 20 AND nextOffset <= count)\nonClick \"Mais\": _getFeed(nextOffset)   // limit defaults to 20\n"
-  edge_cases: 'If the backend returns fewer than 20 results on the very first page, feed.length < 20 so the load-more button is never shown even if count implies more exist elsewhere (feed.length gate, not count-based alone).
+  logic: "initial fetch: _getFeed(offset=0, limit=20)\non success with offset===0 && limit===20:\n  feed = data.results;\
+    \ count = data.count; nextOffset = 20\non success otherwise (subsequent pages):\n  feed = [...feed, ...data.results];\
+    \ nextOffset += 20\n\nshow \"Mais\" button IF (feed.length >= 20 AND nextOffset <= count)\nonClick \"Mais\"\
+    : _getFeed(nextOffset)   // limit defaults to 20\n"
+  edge_cases: 'If the backend returns fewer than 20 results on the very first page, feed.length < 20 so the load-more
+    button is never shown even if count implies more exist elsewhere (feed.length gate, not count-based alone).
 
     '
   confidence: high
@@ -1039,7 +1238,10 @@ rules:
   type: workflow
   status: DISCREPANCY
   verify: false
-  description: 'When opening the recommendations drawer from a feed item, the feed page passes a hardcoded array of four "mock" care pathways (trilhasMock) — Reinternação, Alta Melhorada, Segurança do paciente, Restrições alimentares — each with a fixed alerta value of "NEUTRO", instead of deriving pathway/alert state from the actual occupancy data returned for that patient.
+  description: 'When opening the recommendations drawer from a feed item, the feed page passes a hardcoded array
+    of four "mock" care pathways (trilhasMock) — Reinternação, Alta Melhorada, Segurança do paciente, Restrições
+    alimentares — each with a fixed alerta value of "NEUTRO", instead of deriving pathway/alert state from the actual
+    occupancy data returned for that patient.
 
     '
   inputs: []
@@ -1047,8 +1249,15 @@ rules:
   - name: trilhasMock
     type: array of 4 Trilha objects
     unit: null
-  logic: "trilhasMock = [\n  { nome: \"Reinternação\",             tipo: \"reinternacao\",          alerta: \"NEUTRO\", id: \"0\" },\n  { nome: \"Alta Melhorada\",            tipo: \"alta_melhorada\",        alerta: \"NEUTRO\", id: \"1\" },\n  { nome: \"Segurança do paciente\",      tipo: \"seguranca_paciente\",    alerta: \"NEUTRO\", id: \"2\" },\n  { nome: \"Restrições alimentares\",     tipo: \"restricoes_alimentares\",alerta: \"NEUTRO\", id: \"3\" },\n]\n<TabRecomendacoes trilhasMock={trilhasMock} ... ocupacao={drawerContent.data} .../>\n"
-  edge_cases: 'Because alerta is fixed to "NEUTRO" for all four pathways regardless of the patient''s actual clinical state, any alert-coloring/urgency logic inside TabRecomendacoes (out of FE-08 scope) driven by these four mock entries will always render as neutral for feed-opened drawers, even if the patient truly has an active/urgent alert on one of these pathways.
+  logic: "trilhasMock = [\n  { nome: \"Reinternação\",             tipo: \"reinternacao\",          alerta: \"NEUTRO\"\
+    , id: \"0\" },\n  { nome: \"Alta Melhorada\",            tipo: \"alta_melhorada\",        alerta: \"NEUTRO\"\
+    , id: \"1\" },\n  { nome: \"Segurança do paciente\",      tipo: \"seguranca_paciente\",    alerta: \"NEUTRO\"\
+    , id: \"2\" },\n  { nome: \"Restrições alimentares\",     tipo: \"restricoes_alimentares\",alerta: \"NEUTRO\"\
+    , id: \"3\" },\n]\n<TabRecomendacoes trilhasMock={trilhasMock} ... ocupacao={drawerContent.data} .../>\n"
+  edge_cases: 'Because alerta is fixed to "NEUTRO" for all four pathways regardless of the patient''s actual clinical
+    state, any alert-coloring/urgency logic inside TabRecomendacoes (out of FE-08 scope) driven by these four mock
+    entries will always render as neutral for feed-opened drawers, even if the patient truly has an active/urgent
+    alert on one of these pathways.
 
     '
   confidence: medium
@@ -1063,7 +1272,9 @@ rules:
     lines: 155-181, 263-274
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Recorded verbatim; flagged as a likely-unfinished/stub implementation rather than corrected, per ground rules. Only this feed page passes trilhasMock; other pages that render TabRecomendacoes (chats/index.tsx, setor/[id_setor].tsx) do not pass this prop.
+  notes: 'Recorded verbatim; flagged as a likely-unfinished/stub implementation rather than corrected, per ground
+    rules. Only this feed page passes trilhasMock; other pages that render TabRecomendacoes (chats/index.tsx, setor/[id_setor].tsx)
+    do not pass this prop.
 
     '
   verification:
@@ -1077,11 +1288,13 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: Deleting a reaction bypasses normal (soft-delete) semantics by calling delete(force_delete=True), permanently removing the row.
+  description: Deleting a reaction bypasses normal (soft-delete) semantics by calling delete(force_delete=True),
+    permanently removing the row.
   inputs: []
   outputs: []
   logic: "def perform_destroy(instance):\n    instance.delete(force_delete=True)\n"
-  edge_cases: Contrasts with the soft-delete convention seen elsewhere (e.g. objects_without_deleted managers, is_active flags on Usuario) - reactions are truly hard-deleted.
+  edge_cases: Contrasts with the soft-delete convention seen elsewhere (e.g. objects_without_deleted managers, is_active
+    flags on Usuario) - reactions are truly hard-deleted.
   confidence: medium
   related:
   - RULE-COMUNICACAO-038
@@ -1094,7 +1307,8 @@ rules:
     lines: 35-36
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: force_delete kwarg implies the underlying model's default .delete() is a soft-delete; the model itself is out of this partition's scope.
+  notes: force_delete kwarg implies the underlying model's default .delete() is a soft-delete; the model itself
+    is out of this partition's scope.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1106,7 +1320,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The "Usuários na sala" list for a sector''s video room is populated from Firestore users under that sector filtered to online_call === true, i.e. only users who are presently marked as being in the call are listed; if none are online, an empty-state is shown instead.
+  description: 'The "Usuários na sala" list for a sector''s video room is populated from Firestore users under that
+    sector filtered to online_call === true, i.e. only users who are presently marked as being in the call are listed;
+    if none are online, an empty-state is shown instead.
 
     '
   inputs:
@@ -1114,7 +1330,9 @@ rules:
   outputs:
   - name: usersOnline
     type: Models.Usuario.UserFirebase[]
-  logic: "useCollection({ path: `/chats/${setor.id}/usuarios/`, initialFilter: ref => ref.where(\"online_call\",\"==\",true) })\nrender: if usersOnline.length > 0: list each user (with a green \"online\" Ball + avatar + name)\n        else: show Divider + Empty(\"Nenhum usuário na sala\")\n"
+  logic: "useCollection({ path: `/chats/${setor.id}/usuarios/`, initialFilter: ref => ref.where(\"online_call\"\
+    ,\"==\",true) })\nrender: if usersOnline.length > 0: list each user (with a green \"online\" Ball + avatar +\
+    \ name)\n        else: show Divider + Empty(\"Nenhum usuário na sala\")\n"
   edge_cases: null
   confidence: high
   related:
@@ -1142,7 +1360,8 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'While in an active video call, if the user starts navigating to a different Next.js route, the call-leave handler is invoked automatically so the user does not remain connected to the call after leaving the page.
+  description: 'While in an active video call, if the user starts navigating to a different Next.js route, the call-leave
+    handler is invoked automatically so the user does not remain connected to the call after leaving the page.
 
     '
   inputs:
@@ -1153,7 +1372,9 @@ rules:
   logic: 'Router.events.on("routeChangeStart", () => { onLeave(); })   // registered on every render of Controls
 
     '
-  edge_cases: 'The listener is registered unconditionally on every render (not inside a useEffect and not cleaned up/removed), so repeated renders of Controls attach additional "routeChangeStart" listeners, each of which will independently call onLeave() on the next route change.
+  edge_cases: 'The listener is registered unconditionally on every render (not inside a useEffect and not cleaned
+    up/removed), so repeated renders of Controls attach additional "routeChangeStart" listeners, each of which will
+    independently call onLeave() on the next route change.
 
     '
   confidence: high
@@ -1169,7 +1390,8 @@ rules:
     lines: 59-61
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Flagged for a verifier as a likely resource/listener leak (missing useEffect + cleanup / Router.events.off), recorded as implemented rather than corrected.
+  notes: 'Flagged for a verifier as a likely resource/listener leak (missing useEffect + cleanup / Router.events.off),
+    recorded as implemented rather than corrected.
 
     '
   verification:
@@ -1183,7 +1405,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'The Agora video-call session only calls client.join(...) once per "canJoin" cycle (guarded by a canJoin flag flipped to false immediately after joining), and forces a full browser page reload immediately after a user leaves the call/closes tracks.
+  description: 'The Agora video-call session only calls client.join(...) once per "canJoin" cycle (guarded by a
+    canJoin flag flipped to false immediately after joining), and forces a full browser page reload immediately
+    after a user leaves the call/closes tracks.
 
     '
   inputs:
@@ -1194,8 +1418,15 @@ rules:
     type: side effect
   - name: window.location.reload()
     type: side effect
-  logic: "effect on [channelName, client, ready, tracks]:\n  if ready && tracks: init(channelName)\ninit(name):\n  register user-published/unpublished/left handlers\n  if canJoin:\n    await client.join(appId, name, token, null)\n    if tracks: await client.publish([tracks[0], tracks[1]])\n    canJoin = false\n    start = true\nleaveChannel():\n  await client.leave(); await offlineUser(); client.removeAllListeners()\n  if tracks: tracks[0].close(); tracks[1].close()\n  setInCall(false); canJoin = true\n  window.location.reload()      // unconditional full page reload after leaving\n"
-  edge_cases: 'Because window.location.reload() runs unconditionally at the end of leaveChannel, any further in-memory app state is discarded and the whole SPA reloads from scratch every time a user leaves a video call, not just on error paths.
+  logic: "effect on [channelName, client, ready, tracks]:\n  if ready && tracks: init(channelName)\ninit(name):\n\
+    \  register user-published/unpublished/left handlers\n  if canJoin:\n    await client.join(appId, name, token,\
+    \ null)\n    if tracks: await client.publish([tracks[0], tracks[1]])\n    canJoin = false\n    start = true\n\
+    leaveChannel():\n  await client.leave(); await offlineUser(); client.removeAllListeners()\n  if tracks: tracks[0].close();\
+    \ tracks[1].close()\n  setInCall(false); canJoin = true\n  window.location.reload()      // unconditional full\
+    \ page reload after leaving\n"
+  edge_cases: 'Because window.location.reload() runs unconditionally at the end of leaveChannel, any further in-memory
+    app state is discarded and the whole SPA reloads from scratch every time a user leaves a video call, not just
+    on error paths.
 
     '
   confidence: high
@@ -1222,7 +1453,10 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: While a video-call room has unsaved-changes state active (defaulting to true), both browser tab-close/refresh and in-app route navigation are intercepted with a confirmation prompt asking "Deseja sair da sala de video chamada?" (Do you want to leave the video call room?); confirming an in-app navigation additionally invokes an onLeaveConfirm callback.
+  description: While a video-call room has unsaved-changes state active (defaulting to true), both browser tab-close/refresh
+    and in-app route navigation are intercepted with a confirmation prompt asking "Deseja sair da sala de video
+    chamada?" (Do you want to leave the video call room?); confirming an in-app navigation additionally invokes
+    an onLeaveConfirm callback.
   inputs:
   - name: unsavedChanges
     type: boolean
@@ -1232,8 +1466,14 @@ rules:
   - name: navigation/unload block or allow
     type: boolean (route change aborted or allowed)
     unit: null
-  logic: "message = \"Deseja sair da sala de video chamada?\"\non beforeunload: if unsavedChanges: preventDefault(); returnValue = message\non routeChangeStart(url):\n  if Router.asPath != url AND unsavedChanges AND NOT confirm(message):\n    emit \"routeChangeError\"; Router.replace(Router, Router.asPath); throw (abort navigation)\n  if confirm(message):\n    onLeaveConfirm()\n"
-  edge_cases: confirm(message) is called up to twice in the same routeChangeStart handler (once inside the abort-condition check, once again unconditionally afterward) — meaning the user could see the native confirm dialog twice for a single navigation attempt if the first confirm() returns true (the abort branch's `!confirm(...)` short-circuits to false, so the code falls through to the second unconditional `if (confirm(message))`, prompting again).
+  logic: "message = \"Deseja sair da sala de video chamada?\"\non beforeunload: if unsavedChanges: preventDefault();\
+    \ returnValue = message\non routeChangeStart(url):\n  if Router.asPath != url AND unsavedChanges AND NOT confirm(message):\n\
+    \    emit \"routeChangeError\"; Router.replace(Router, Router.asPath); throw (abort navigation)\n  if confirm(message):\n\
+    \    onLeaveConfirm()\n"
+  edge_cases: confirm(message) is called up to twice in the same routeChangeStart handler (once inside the abort-condition
+    check, once again unconditionally afterward) — meaning the user could see the native confirm dialog twice for
+    a single navigation attempt if the first confirm() returns true (the abort branch's `!confirm(...)` short-circuits
+    to false, so the code falls through to the second unconditional `if (confirm(message))`, prompting again).
   confidence: high
   related:
   - RULE-COMUNICACAO-029
@@ -1246,7 +1486,8 @@ rules:
     lines: 4-38
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Recorded verbatim; the double-confirm() behavior looks unintentional but is reproduced exactly as implemented, per ground rules.
+  notes: Recorded verbatim; the double-confirm() behavior looks unintentional but is reproduced exactly as implemented,
+    per ground rules.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1258,13 +1499,24 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'package.json pins agora-rtc-react ^1.1.1 (Agora.io real-time video/audio conferencing SDK for React), firebase ^8.7.1 (used for storage — see RULE-DATA-FE-09-004''s firebasestorage.googleapis.com whitelist — and likely realtime DB/auth), and the raw websocket ^1.0.34 package, alongside chart.js/react-chartjs-2 (vitals/dashboard charting), downloadjs (report/ file downloads), antd-mask-input (masked form inputs, e.g. Brazilian document/phone formats), and nprogress (route-transition loading bar). Together these indicate the product ("teleUTI") supports live video/audio tele-consultation and real-time data synchronization as a core care-delivery workflow.
+  description: 'package.json pins agora-rtc-react ^1.1.1 (Agora.io real-time video/audio conferencing SDK for React),
+    firebase ^8.7.1 (used for storage — see RULE-DATA-FE-09-004''s firebasestorage.googleapis.com whitelist — and
+    likely realtime DB/auth), and the raw websocket ^1.0.34 package, alongside chart.js/react-chartjs-2 (vitals/dashboard
+    charting), downloadjs (report/ file downloads), antd-mask-input (masked form inputs, e.g. Brazilian document/phone
+    formats), and nprogress (route-transition loading bar). Together these indicate the product ("teleUTI") supports
+    live video/audio tele-consultation and real-time data synchronization as a core care-delivery workflow.
 
     '
   inputs: []
   outputs: []
-  logic: "dependencies include: {\n  \"agora-rtc-react\": \"^1.1.1\",   # live video/audio calls\n  \"firebase\": \"^8.7.1\",          # storage/realtime/auth backend\n  \"websocket\": \"^1.0.34\",        # additional realtime channel\n  \"chart.js\"/\"react-chartjs-2\": \"^3.9.1\"/\"^4.3.1\",  # vitals/analytics charts\n  \"downloadjs\": \"^1.4.7\",        # client-side file download (e.g. PDF reports)\n  \"antd-mask-input\": \"^2.0.7\"    # masked inputs (e.g. CPF/phone)\n}\n"
-  edge_cases: 'This is inferred purely from the dependency manifest; the actual call sites, video-call business rules (e.g. who can initiate a call, session limits), and mask patterns are implemented in files outside this partition''s scope and were not examined here.
+  logic: "dependencies include: {\n  \"agora-rtc-react\": \"^1.1.1\",   # live video/audio calls\n  \"firebase\"\
+    : \"^8.7.1\",          # storage/realtime/auth backend\n  \"websocket\": \"^1.0.34\",        # additional realtime\
+    \ channel\n  \"chart.js\"/\"react-chartjs-2\": \"^3.9.1\"/\"^4.3.1\",  # vitals/analytics charts\n  \"downloadjs\"\
+    : \"^1.4.7\",        # client-side file download (e.g. PDF reports)\n  \"antd-mask-input\": \"^2.0.7\"    #\
+    \ masked inputs (e.g. CPF/phone)\n}\n"
+  edge_cases: 'This is inferred purely from the dependency manifest; the actual call sites, video-call business
+    rules (e.g. who can initiate a call, session limits), and mask patterns are implemented in files outside this
+    partition''s scope and were not examined here.
 
     '
   confidence: medium
@@ -1293,7 +1545,8 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: ChecagemObservacaoViewSet.manage_data overwrites checado_por_id with the current authenticated user's pk, preventing a client from checking off an observation on someone else's behalf.
+  description: ChecagemObservacaoViewSet.manage_data overwrites checado_por_id with the current authenticated user's
+    pk, preventing a client from checking off an observation on someone else's behalf.
   inputs:
   - name: request.user.pk
     type: uuid
@@ -1334,7 +1587,8 @@ rules:
   type: validation
   status: DISCREPANCY
   verify: false
-  description: Validates that a feed action is only registered for a homecare-type bed; a second guard intended to block actions on unoccupied beds is present but unreachable.
+  description: Validates that a feed action is only registered for a homecare-type bed; a second guard intended
+    to block actions on unoccupied beds is present but unreachable.
   inputs:
   - name: self.leito.tipo
     type: enum
@@ -1348,8 +1602,12 @@ rules:
   - name: raises ValidationError or passes
     type: control-flow
     unit: null
-  logic: "if self.leito.tipo != \"homecare\":\n    raise ValidationError(\"Apenas leitos de homecare podem ter acoes do feed registradas\")\nif not self.leito.ocupado:\n    if self.leito.tipo != \"homecare\":          # always False here (tipo already == \"homecare\")\n        raise ValidationError(\"Leitos ocupados nao podem ter acoes registradas\")\n"
-  edge_cases: 'The inner condition can never be True because the first check already guaranteed tipo == "homecare"; therefore the "unoccupied bed" validation NEVER fires (dead code).
+  logic: "if self.leito.tipo != \"homecare\":\n    raise ValidationError(\"Apenas leitos de homecare podem ter acoes\
+    \ do feed registradas\")\nif not self.leito.ocupado:\n    if self.leito.tipo != \"homecare\":          # always\
+    \ False here (tipo already == \"homecare\")\n        raise ValidationError(\"Leitos ocupados nao podem ter acoes\
+    \ registradas\")\n"
+  edge_cases: 'The inner condition can never be True because the first check already guaranteed tipo == "homecare";
+    therefore the "unoccupied bed" validation NEVER fires (dead code).
 
     '
   confidence: high
@@ -1365,7 +1623,14 @@ rules:
     lines: 117-128
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: "DISCREPANCY: the nested `if self.leito.tipo != \"homecare\"` inside the `if not self.leito.ocupado` block is dead code; the intended rule (block feed actions on unoccupied beds) is not enforced. Also validar_leito() is defined but not called from save() in this file (save only sets paciente and builds mensagem, lines 107-115).\n | RECONCILED: confirmed directly against trilha_homecare/models/acao_homecare.py (docstring: \"Modelo do feed do homecare\") that (a) validar_leito()'s inner 'unoccupied bed' check is dead code as originally flagged, AND (b) validar_leito() itself is never invoked anywhere in save() (save() only sets self.paciente and builds self.mensagem) — so BOTH the outer 'must be homecare bed' and inner 'must be occupied' guards are entirely unenforced at the model layer, not merely the inner one. Same model/serializer family as RULE-COMUNICACAO-003."
+  notes: "DISCREPANCY: the nested `if self.leito.tipo != \"homecare\"` inside the `if not self.leito.ocupado` block\
+    \ is dead code; the intended rule (block feed actions on unoccupied beds) is not enforced. Also validar_leito()\
+    \ is defined but not called from save() in this file (save only sets paciente and builds mensagem, lines 107-115).\n\
+    \ | RECONCILED: confirmed directly against trilha_homecare/models/acao_homecare.py (docstring: \"Modelo do feed\
+    \ do homecare\") that (a) validar_leito()'s inner 'unoccupied bed' check is dead code as originally flagged,\
+    \ AND (b) validar_leito() itself is never invoked anywhere in save() (save() only sets self.paciente and builds\
+    \ self.mensagem) — so BOTH the outer 'must be homecare bed' and inner 'must be occupied' guards are entirely\
+    \ unenforced at the model layer, not merely the inner one. Same model/serializer family as RULE-COMUNICACAO-003."
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1377,7 +1642,10 @@ rules:
   type: validation
   status: DISCREPANCY
   verify: false
-  description: The setor activity feed renders each recorded 'ação' using a fixed dictionary mapping raw action keys to pt-BR display labels (acaoDict, 8 keys). Separately, the shared TypeScript model declares the closed Feed.Acao union type consumed by Feed.acoes — but that union only enumerates 7 values, omitting 'editar' even though acaoDict maps 'editar' -> 'Editar' and force-casts itself `as Record<Models.Feed.Acao, string>`.
+  description: The setor activity feed renders each recorded 'ação' using a fixed dictionary mapping raw action
+    keys to pt-BR display labels (acaoDict, 8 keys). Separately, the shared TypeScript model declares the closed
+    Feed.Acao union type consumed by Feed.acoes — but that union only enumerates 7 values, omitting 'editar' even
+    though acaoDict maps 'editar' -> 'Editar' and force-casts itself `as Record<Models.Feed.Acao, string>`.
   inputs:
   - name: acao
     type: 'Models.Feed.Acao (declared: 7 values) at runtime rendered against an 8-key dict'
@@ -1387,13 +1655,26 @@ rules:
     type: string
   - name: acao
     type: string enum
-  logic: "// FeedBallon.tsx:28-39 (render map — 8 keys)\nacaoDict = {\n  criar: \"Criar\", alterar: \"Alterar\", editar: \"Editar\", inativar: \"Inativar\",\n  assinar: \"Assinar\", liberar: \"Liberar\", administrar: \"Administrar\",\n  nao_administrar: \"Não Administrar\"\n} as Record<Models.Feed.Acao, string>\nrender: itemFeed.acoes.map(acao => Tag(color=\"cyan\", acaoDict[acao]))\n\n// src/@types/models/Feed.d.ts:25-32 (declared union — 7 values, no 'editar')\ntype Feed.Acao =\n  | \"criar\" | \"alterar\" | \"inativar\" | \"assinar\"\n  | \"liberar\" | \"administrar\" | \"nao_administrar\"\n"
-  edge_cases: 'No fallback/default label is used for an unrecognized acao value — acaoDict[acao] would be undefined and the Tag would render with empty text rather than the raw key or a placeholder. Separately: the ''as Record<Models.Feed.Acao, string>'' cast on an object literal with an EXTRA key (''editar'') beyond the declared union bypasses TypeScript''s excess-property check (assertions, unlike direct annotations, don''t flag this), so this divergence would not surface as a compile error.'
+  logic: "// FeedBallon.tsx:28-39 (render map — 8 keys)\nacaoDict = {\n  criar: \"Criar\", alterar: \"Alterar\"\
+    , editar: \"Editar\", inativar: \"Inativar\",\n  assinar: \"Assinar\", liberar: \"Liberar\", administrar: \"\
+    Administrar\",\n  nao_administrar: \"Não Administrar\"\n} as Record<Models.Feed.Acao, string>\nrender: itemFeed.acoes.map(acao\
+    \ => Tag(color=\"cyan\", acaoDict[acao]))\n\n// src/@types/models/Feed.d.ts:25-32 (declared union — 7 values,\
+    \ no 'editar')\ntype Feed.Acao =\n  | \"criar\" | \"alterar\" | \"inativar\" | \"assinar\"\n  | \"liberar\"\
+    \ | \"administrar\" | \"nao_administrar\"\n"
+  edge_cases: 'No fallback/default label is used for an unrecognized acao value — acaoDict[acao] would be undefined
+    and the Tag would render with empty text rather than the raw key or a placeholder. Separately: the ''as Record<Models.Feed.Acao,
+    string>'' cast on an object literal with an EXTRA key (''editar'') beyond the declared union bypasses TypeScript''s
+    excess-property check (assertions, unlike direct annotations, don''t flag this), so this divergence would not
+    surface as a compile error.'
   confidence: high
   related:
   - RULE-COMUNICACAO-034
   - RULE-COMUNICACAO-003
-  divergence: acaoDict (FeedBallon.tsx) implements 8 action keys including 'editar' -> 'Editar'; the Feed.Acao TS union (Feed.d.ts) declares only 7 values and omits 'editar' entirely. Either the type declaration is stale (the backend/model can emit an 'editar' action that renders correctly here but is not type-recognized anywhere else consuming Feed.Acao) or 'editar' is unreachable dead code in the dictionary — confirmed by direct inspection of both files at the pinned frontend commit.
+  divergence: acaoDict (FeedBallon.tsx) implements 8 action keys including 'editar' -> 'Editar'; the Feed.Acao TS
+    union (Feed.d.ts) declares only 7 values and omits 'editar' entirely. Either the type declaration is stale (the
+    backend/model can emit an 'editar' action that renders correctly here but is not type-recognized anywhere else
+    consuming Feed.Acao) or 'editar' is unreachable dead code in the dictionary — confirmed by direct inspection
+    of both files at the pinned frontend commit.
   merged_from:
   - RULE-feed-FE-05-001
   - RULE-feed-FE-07-001
@@ -1408,7 +1689,12 @@ rules:
     lines: 25-32
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: duplicate
-  notes: 'The Models.Feed.Acao type definition itself is out of this partition''s scope; the enumerated keys are inferred solely from this dictionary''s literal keys. | administrar/nao_administrar align with Prescricao''s administrado boolean lifecycle (RULE-prescricao-FE-07-001); assinar/liberar align with the signing/release themes seen in BalancoHidrico and Evolucao.Status. | Reconciled during Phase-2: the Models.Feed.Acao type definition (out of the original FE-05 partition''s scope) was located and compared directly against acaoDict''s literal keys — divergence confirmed, not merely inferred.'
+  notes: 'The Models.Feed.Acao type definition itself is out of this partition''s scope; the enumerated keys are
+    inferred solely from this dictionary''s literal keys. | administrar/nao_administrar align with Prescricao''s
+    administrado boolean lifecycle (RULE-prescricao-FE-07-001); assinar/liberar align with the signing/release themes
+    seen in BalancoHidrico and Evolucao.Status. | Reconciled during Phase-2: the Models.Feed.Acao type definition
+    (out of the original FE-05 partition''s scope) was located and compared directly against acaoDict''s literal
+    keys — divergence confirmed, not merely inferred.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1420,7 +1706,8 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: Reactions to a chat/feed message are restricted to one of seven named emoji types — smile, cry, approval, disapproval, strength, gratitude, heart.
+  description: Reactions to a chat/feed message are restricted to one of seven named emoji types — smile, cry, approval,
+    disapproval, strength, gratitude, heart.
   inputs:
   - name: emoji
     type: string enum
@@ -1448,7 +1735,9 @@ rules:
     lines: 55-62
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: ' | RECONCILED: cross-checked against backend core/models/choices/reacao.py (ReacaoChoices.emoji()) — both enumerate the identical 7 values in the identical order (sorriso, choro, aprovacao, reprovacao, forca, gratidao, coracao). No divergence.'
+  notes: ' | RECONCILED: cross-checked against backend core/models/choices/reacao.py (ReacaoChoices.emoji()) — both
+    enumerate the identical 7 values in the identical order (sorriso, choro, aprovacao, reprovacao, forca, gratidao,
+    coracao). No divergence.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1460,7 +1749,8 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: A user may have at most one reaction on a given observation; saving/deleting a reaction adjusts Firebase unread-message counters.
+  description: A user may have at most one reaction on a given observation; saving/deleting a reaction adjusts Firebase
+    unread-message counters.
   inputs:
   - name: observacao
     type: Observacao FK
@@ -1478,7 +1768,9 @@ rules:
   - name: Reacao (unique) + firebase counter
     type: side-effect
     unit: null
-  logic: "unique_together(observacao, usuario).\n_trigger_firebase(): if reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, False, True)\n  else:\n    send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, True)\nCalled on both save() and delete().\n"
+  logic: "unique_together(observacao, usuario).\n_trigger_firebase(): if reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase(setor.pk,\
+    \ responsavel.pk, False, True)\n  else:\n    send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, True)\n\
+    Called on both save() and delete().\n"
   edge_cases: Counter side-effect fires on every save and delete (idempotency depends on reduzir_qtd).
   confidence: high
   related:
@@ -1508,7 +1800,9 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: manage_data forces usuario_id to the current authenticated user and 'observacao' to the observacoes__pk URL kwarg on every reaction create, so a client cannot react as another user nor attach a reaction to an arbitrary observation via the body.
+  description: manage_data forces usuario_id to the current authenticated user and 'observacao' to the observacoes__pk
+    URL kwarg on every reaction create, so a client cannot react as another user nor attach a reaction to an arbitrary
+    observation via the body.
   inputs:
   - name: request.user.get_pk
     type: uuid
@@ -1569,7 +1863,8 @@ rules:
   logic: 'Chat.TipoMensagem = "setor" | "leito"
 
     '
-  edge_cases: tipo_mensagem is optional on Chat.Mensagem (may be undefined for message types that predate this scoping distinction, or for other message categories not scoped this way).
+  edge_cases: tipo_mensagem is optional on Chat.Mensagem (may be undefined for message types that predate this scoping
+    distinction, or for other message categories not scoped this way).
   confidence: high
   related:
   - RULE-COMUNICACAO-011
@@ -1582,7 +1877,8 @@ rules:
     lines: 41-41
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: ' | RECONCILED: cross-checked against backend core/models/observacao.py (tipo_mensagem = "leito" if self.leito else "setor") — matches this 2-value union exactly, no divergence.'
+  notes: ' | RECONCILED: cross-checked against backend core/models/observacao.py (tipo_mensagem = "leito" if self.leito
+    else "setor") — matches this 2-value union exactly, no divergence.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1594,7 +1890,9 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: When sending an observation message from a bed's trilha (care pathway), the "Pontos de atenção" (points of attention) checkbox checklist section is rendered only if the trilha has at least one criterio; otherwise only the free-text observation field is shown.
+  description: When sending an observation message from a bed's trilha (care pathway), the "Pontos de atenção" (points
+    of attention) checkbox checklist section is rendered only if the trilha has at least one criterio; otherwise
+    only the free-text observation field is shown.
   inputs:
   - name: trilha.criterios
     type: Models.Criterio[], optional
@@ -1606,7 +1904,8 @@ rules:
     unit: null
   logic: 'show_criterios_section = trilha.criterios != null AND trilha.criterios.length > 0
 
-    // each checkbox option carries { nome, alerta, recomendacoes } from the criterio, displayed by its "alerta" label
+    // each checkbox option carries { nome, alerta, recomendacoes } from the criterio, displayed by its "alerta"
+    label
 
     '
   edge_cases: If trilha.criterios is an empty array or undefined, the section is omitted entirely (not shown disabled/empty).
@@ -1633,7 +1932,9 @@ rules:
   type: validation
   status: AMBIGUOUS
   verify: false
-  description: try_set_setor overwrites request.data['setor_id'] with the setor__pk URL kwarg on every create; if that kwarg is missing/invalid, a ValidationError is raised requiring the setor be supplied via the URL - a client cannot set the setor via the request body.
+  description: try_set_setor overwrites request.data['setor_id'] with the setor__pk URL kwarg on every create; if
+    that kwarg is missing/invalid, a ValidationError is raised requiring the setor be supplied via the URL - a client
+    cannot set the setor via the request body.
   inputs:
   - name: kwargs.setor__pk
     type: uuid
@@ -1642,8 +1943,12 @@ rules:
   - name: request.data.setor_id
     type: uuid
     unit: null
-  logic: "try:\n    request.data[\"setor_id\"] = str(kwargs.get(\"setor__pk\"))\nexcept:\n    raise ValidationError({\"setor_obrigatorio\": \"é obrigatório o envio do setor na url\"})\n"
-  edge_cases: kwargs.get returns None if absent, but str(None) = 'None' would not normally raise - the except is really only for pathological cases (e.g., immutable request.data); in practice a missing setor__pk still sets 'setor_id':'None' string rather than raising, unless the exception is triggered elsewhere (e.g., a QueryDict being immutable).
+  logic: "try:\n    request.data[\"setor_id\"] = str(kwargs.get(\"setor__pk\"))\nexcept:\n    raise ValidationError({\"\
+    setor_obrigatorio\": \"é obrigatório o envio do setor na url\"})\n"
+  edge_cases: kwargs.get returns None if absent, but str(None) = 'None' would not normally raise - the except is
+    really only for pathological cases (e.g., immutable request.data); in practice a missing setor__pk still sets
+    'setor_id':'None' string rather than raising, unless the exception is triggered elsewhere (e.g., a QueryDict
+    being immutable).
   confidence: medium
   related:
   - RULE-COMUNICACAO-042
@@ -1655,7 +1960,13 @@ rules:
     lines: 40-46
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS edge case: str(None) does not raise, so the stated validation message may not actually trigger when setor__pk is absent from the URL (which would be unusual for a nested route, but noted for completeness). | RECONCILED: verified directly against core/api/v1/views/observacao.py try_set_setor — `request.data["setor_id"] = str(self.kwargs.get("setor__pk"))` — kwargs.get returns None when absent and str(None) does not raise, so the bare except/ValidationError path is not reachable via a missing URL kwarg alone; it would only fire for pathological cases (e.g. an immutable request.data). Status set to AMBIGUOUS per Phase-1''s own flagged concern (preserved verbatim, not corrected).'
+  notes: 'AMBIGUOUS edge case: str(None) does not raise, so the stated validation message may not actually trigger
+    when setor__pk is absent from the URL (which would be unusual for a nested route, but noted for completeness).
+    | RECONCILED: verified directly against core/api/v1/views/observacao.py try_set_setor — `request.data["setor_id"]
+    = str(self.kwargs.get("setor__pk"))` — kwargs.get returns None when absent and str(None) does not raise, so
+    the bare except/ValidationError path is not reachable via a missing URL kwarg alone; it would only fire for
+    pathological cases (e.g. an immutable request.data). Status set to AMBIGUOUS per Phase-1''s own flagged concern
+    (preserved verbatim, not corrected).'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1667,7 +1978,8 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: try_set_responsavel overwrites request.data['responsavel_id'] with request.user.pk on every create; failure raises ValidationError requiring login.
+  description: try_set_responsavel overwrites request.data['responsavel_id'] with request.user.pk on every create;
+    failure raises ValidationError requiring login.
   inputs:
   - name: request.user.pk
     type: uuid
@@ -1676,8 +1988,10 @@ rules:
   - name: request.data.responsavel_id
     type: uuid
     unit: null
-  logic: "try:\n    request.data[\"responsavel_id\"] = request.user.pk\nexcept:\n    raise ValidationError({\"responsavel_obrigatorio\": \"é necessario estar logado para fazer essa observacao\"})\n"
-  edge_cases: A client cannot spoof responsavel_id via the request body; it is always overwritten to the authenticated user.
+  logic: "try:\n    request.data[\"responsavel_id\"] = request.user.pk\nexcept:\n    raise ValidationError({\"responsavel_obrigatorio\"\
+    : \"é necessario estar logado para fazer essa observacao\"})\n"
+  edge_cases: A client cannot spoof responsavel_id via the request body; it is always overwritten to the authenticated
+    user.
   confidence: high
   related:
   - RULE-COMUNICACAO-041
@@ -1735,7 +2049,8 @@ rules:
   type: validation
   status: OK
   verify: false
-  description: A user's real-time video-call presence status for a given sector/chat is written to Firestore as online_call=true when the triggering action is "in", and false for any other action (in practice "out").
+  description: A user's real-time video-call presence status for a given sector/chat is written to Firestore as
+    online_call=true when the triggering action is "in", and false for any other action (in practice "out").
   inputs:
   - name: action
     type: string enum
@@ -1750,7 +2065,8 @@ rules:
     // written via Firestore document update at path /chats/{setor}/usuarios/{usuario}/
 
     '
-  edge_cases: Any action value other than the literal "in" (the type only allows "in"|"out", but the ternary itself would treat any non-"in" value as false) results in online_call=false.
+  edge_cases: Any action value other than the literal "in" (the type only allows "in"|"out", but the ternary itself
+    would treat any non-"in" value as false) results in online_call=false.
   confidence: high
   related:
   - RULE-COMUNICACAO-028
@@ -1775,7 +2091,9 @@ rules:
   type: workflow
   status: AMBIGUOUS
   verify: false
-  description: 'The multi-file chat picker''s onChange handler updates the locally tracked file list only when the new fileList is shorter than the current one (i.e. a file was removed); additions are otherwise assumed to already be reflected via the separate customRequest upload handler.
+  description: 'The multi-file chat picker''s onChange handler updates the locally tracked file list only when the
+    new fileList is shorter than the current one (i.e. a file was removed); additions are otherwise assumed to already
+    be reflected via the separate customRequest upload handler.
 
     '
   inputs:
@@ -1784,8 +2102,11 @@ rules:
   outputs:
   - name: customFileList (state)
     type: Models.LocalFile[]
-  logic: "handleChange(files):\n  if files.length < customFileList.length:\n    setCustomFileList(files)\n  // else: no-op, even if files.length > customFileList.length\n"
-  edge_cases: 'If antd''s onChange ever fires with a same-length but reordered/replaced list (e.g. a replace-in-place edit), this guard silently drops that update since length is unchanged; only pure removals are reconciled through this path.
+  logic: "handleChange(files):\n  if files.length < customFileList.length:\n    setCustomFileList(files)\n  // else:\
+    \ no-op, even if files.length > customFileList.length\n"
+  edge_cases: 'If antd''s onChange ever fires with a same-length but reordered/replaced list (e.g. a replace-in-place
+    edit), this guard silently drops that update since length is unchanged; only pure removals are reconciled through
+    this path.
 
     '
   confidence: medium
@@ -1798,9 +2119,53 @@ rules:
     lines: 48-52,79-82
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Ambiguous whether this is an intentional dedup guard (additions always go through handleB64Upload/customRequest so re-adding them here would double them) or an incomplete handler; recorded as observed without correcting it.
+  notes: 'Ambiguous whether this is an intentional dedup guard (additions always go through handleB64Upload/customRequest
+    so re-adding them here would double them) or an incomplete handler; recorded as observed without correcting
+    it.
 
     '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-COMUNICACAO-046
+  name: Unread-counter decrement eligibility predicate (reduzir_qtd)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Predicate that decides whether the per-user unread-alert/notification badge counter should be decremented.
+    It returns True only when the observation, after the triggering change, has zero reactions, zero checked confirmations
+    (checagens with checado=True), and zero other replies (excluding the given resposta pk). Gates send_qtd_mensagens_to_firebase(reduzir_qtd=True)
+    from Reacao.save, the ChecagemObservacao serializer and the Observacao serializer.
+  inputs:
+  - observacao (Observacao; with .reacoes, .checagens, .observacoes_respondidas relations)
+  - resposta (pk of the reply being excluded; default None)
+  outputs:
+  - bool (True => decrement the unread counter)
+  logic: "def reduzir_qtd(observacao, resposta=None):\n    return all([\n        not observacao.reacoes.count(),\n\
+    \        not observacao.checagens.filter(checado=True).exists(),\n        not observacao.observacoes_respondidas.exclude(pk=resposta).count(),\n\
+    \    ])\n"
+  edge_cases: All three conditions must hold (all([...])) for a True result. With resposta=None, exclude(pk=None)
+    excludes nothing, so ANY existing reply blocks the decrement. checagens are only counted when checado=True (unchecked
+    confirmations do not block). A True result means the observation has become fully un-engaged (no reactions,
+    no checks, no other replies).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-004
+  - RULE-COMUNICACAO-037
+  merged_from:
+  - RULE-gap6-05
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/firebase.py
+    lines: 77-84
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Only lines 19-75 of utils/firebase.py (RULE-COMUNICACAO-004, the counter fanout) were previously cited;
+    this decrement-eligibility predicate itself was uncovered. It is the gate that decides when RULE-COMUNICACAO-004
+    is invoked with reduzir_qtd=True.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -1810,3 +2175,6 @@ dropped: []
 integrated_misroutes:
 - id: RULE-upload-FE-05-003
   disposition: appended:RULE-COMUNICACAO-045
+gap_remediation:
+- gap: utils/firebase.py:77-84
+  rule: RULE-COMUNICACAO-046

@@ -8,14 +8,16 @@ rules:
   type: formula
   status: OK
   verify: true
-  description: 'Counts how many criteria in a trilha have esta_alerta == 1; this count is the input to define_tipo_alerta (RULE-ALERTAS-003).
+  description: 'Counts how many criteria in a trilha have esta_alerta == 1; this count is the input to define_tipo_alerta
+    (RULE-ALERTAS-003).
 
     '
   inputs:
   - trilha.criterios (list; each element has esta_alerta in {0,1})
   outputs:
   - acc (integer count)
-  logic: "acc = 0\nfor criterio in trilha[\"criterios\"]:\n    if criterio[\"esta_alerta\"] == 1:\n        acc += 1\nreturn acc\n"
+  logic: "acc = 0\nfor criterio in trilha[\"criterios\"]:\n    if criterio[\"esta_alerta\"] == 1:\n        acc +=\
+    \ 1\nreturn acc\n"
   edge_cases: Only exact ==1 increments; empty criterios -> 0.
   confidence: high
   related:
@@ -34,13 +36,17 @@ rules:
     lines: 18-23
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: duplicate
-  notes: 'Byte-identical implementation exists in both trilha_automatica/utils.py and core/utils.py (verified @8166c07). No behavioral divergence between the two copies.
+  notes: 'Byte-identical implementation exists in both trilha_automatica/utils.py and core/utils.py (verified @8166c07).
+    No behavioral divergence between the two copies.
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference: 'No authoritative published clinical reference. This is an internal business rule: a generic counter (contar_qtd_criterios_alerta) that tallies how many criteria in a trilha have esta_alerta == 1. It is not a validated clinical score, equation, or guideline-defined cutoff (Sepsis-3, KDIGO, ASPEN, ARDSNet, MDCalc, etc. do not define this counting primitive).'
+    reference: 'No authoritative published clinical reference. This is an internal business rule: a generic counter
+      (contar_qtd_criterios_alerta) that tallies how many criteria in a trilha have esta_alerta == 1. It is not
+      a validated clinical score, equation, or guideline-defined cutoff (Sepsis-3, KDIGO, ASPEN, ARDSNet, MDCalc,
+      etc. do not define this counting primitive).'
     detail_file: alertas-batch1.yaml
 - id: RULE-ALERTAS-002
   name: Aggregate alert counts across movimentacoes
@@ -48,15 +54,19 @@ rules:
   type: scoring
   status: OK
   verify: true
-  description: 'Counts beds/movimentacoes by worst manual-pathway alert among (trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade), with VERMELHO precedence.
+  description: 'Counts beds/movimentacoes by worst manual-pathway alert among (trilha_sepse, trilha_ventilacao,
+    trilha_sedacao, trilha_estabilidade), with VERMELHO precedence.
 
     '
   inputs:
   - ids_movimentacoes (list[uuid])
   outputs:
   - counts {NEUTRO, AMARELO, VERMELHO} (dict[str,int])
-  logic: "for each movimentacao's tuple of\n    (trilha_sepse.alerta, trilha_ventilacao.alerta,\n     trilha_sedacao.alerta, trilha_estabilidade.alerta):\n  if \"VERMELHO\" in tuple: VERMELHO += 1\n  elif \"AMARELO\" in tuple: AMARELO += 1\n  else: NEUTRO += 1\n"
-  edge_cases: 'A movimentacao with all-null pathway alerts counts as NEUTRO. Only these four manual pathways considered (not antimicrobiano/nutricao/etc).
+  logic: "for each movimentacao's tuple of\n    (trilha_sepse.alerta, trilha_ventilacao.alerta,\n     trilha_sedacao.alerta,\
+    \ trilha_estabilidade.alerta):\n  if \"VERMELHO\" in tuple: VERMELHO += 1\n  elif \"AMARELO\" in tuple: AMARELO\
+    \ += 1\n  else: NEUTRO += 1\n"
+  edge_cases: 'A movimentacao with all-null pathway alerts counts as NEUTRO. Only these four manual pathways considered
+    (not antimicrobiano/nutricao/etc).
 
     '
   confidence: high
@@ -70,13 +80,18 @@ rules:
     lines: 709-736
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Sibling counters in the same model: get_total_alertas_automaticos (738-762) counts by leito.alerta_nao_assistido; get_total_generos_e_alertas_automaticos (764-816) additionally tallies genero {M,F,N,O}.
+  notes: 'Sibling counters in the same model: get_total_alertas_automaticos (738-762) counts by leito.alerta_nao_assistido;
+    get_total_generos_e_alertas_automaticos (764-816) additionally tallies genero {M,F,N,O}.
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference: 'No authoritative published clinical reference. Internal business rule (Leito.calcular_total_alertas, core/models/leito.py:709-736): aggregates a per-bed count bucketed by the worst manual-pathway alert color among four internal care pathways (trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade) using a fixed VERMELHO > AMARELO > NEUTRO precedence. The alert colors themselves derive from RULE-ALERTAS-003; this rule only tallies them. No guideline/paper defines this red>yellow>neutral bed-census aggregation.'
+    reference: 'No authoritative published clinical reference. Internal business rule (Leito.calcular_total_alertas,
+      core/models/leito.py:709-736): aggregates a per-bed count bucketed by the worst manual-pathway alert color
+      among four internal care pathways (trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade) using
+      a fixed VERMELHO > AMARELO > NEUTRO precedence. The alert colors themselves derive from RULE-ALERTAS-003;
+      this rule only tallies them. No guideline/paper defines this red>yellow>neutral bed-census aggregation.'
     detail_file: alertas-batch1.yaml
 - id: RULE-ALERTAS-003
   name: Criteria-count -> alert color mapping (define_tipo_alerta) + per-model _CRITERIOS_ALERTA thresholds
@@ -84,7 +99,10 @@ rules:
   type: threshold
   status: DISCREPANCY
   verify: false
-  description: 'Maps a count of triggered criteria to a care-pathway alert color VERMELHO / AMARELO / NEUTRO using per-trilha {amarelo, vermelho} count thresholds. define_tipo_alerta is the single shared function; each *Sintetico / *_sintetico (v1 and v3) model invokes it from generate_view_data() passing conta_criterios_automatica() and its own _CRITERIOS_ALERTA dict.
+  description: 'Maps a count of triggered criteria to a care-pathway alert color VERMELHO / AMARELO / NEUTRO using
+    per-trilha {amarelo, vermelho} count thresholds. define_tipo_alerta is the single shared function; each *Sintetico
+    / *_sintetico (v1 and v3) model invokes it from generate_view_data() passing conta_criterios_automatica() and
+    its own _CRITERIOS_ALERTA dict.
 
     '
   inputs:
@@ -93,15 +111,31 @@ rules:
   - criterios['amarelo'] (integer count-threshold, >= 1)
   outputs:
   - tipo_alerta (string enum {VERMELHO, AMARELO, NEUTRO})
-  logic: "# define_tipo_alerta (trilha_automatica/utils.py:75-81) - shared color mapping:\nif total_alertas >= criterios[\"vermelho\"]:\n    return \"VERMELHO\"\nelif 0 < total_alertas <= criterios[\"amarelo\"]:\n    return \"AMARELO\"\nelse:\n    return \"NEUTRO\"\n\n# Each *Sintetico / *_sintetico model calls it from generate_view_data() as:\n#   define_tipo_alerta(self.conta_criterios_automatica(), self._CRITERIOS_ALERTA)\n# Per-model _CRITERIOS_ALERTA {amarelo, vermelho} thresholds (verified @8166c07):\n#   trilha1,2,3,4,8,9 & all v3 & *_Tasy: {\"amarelo\":2,\"vermelho\":3}\n#   trilha5 sintetico (v3), trilha6 sintetico (v3): {\"amarelo\":3,\"vermelho\":4}\n#   trilha7 sintetico (v3): {\"amarelo\":4,\"vermelho\":5}\n# conta_criterios_automatica counts truthy criterio_1..N attributes; N varies:\n#   1..6 (trilha1,2,8); 1..10 (trilha3,5,7); 1..20 (trilha4); etc.\n#   (ranges frequently under-count relative to defined criteria, e.g. trilha1\n#    counts only 1..6 of 12).\n"
-  edge_cases: 'total_alertas == 0 -> NEUTRO (AMARELO branch requires total > 0). VERMELHO uses >= (inclusive). AMARELO upper bound <= criterios["amarelo"] (inclusive). If criterios["amarelo"] < total_alertas < criterios["vermelho"], NEITHER branch matches -> NEUTRO (a value above the yellow threshold but below red is downgraded to neutral). In practice every _CRITERIOS_ALERTA in the codebase sets vermelho == amarelo+1, so this dead-zone is not exercised by shipped models.
+  logic: "# define_tipo_alerta (trilha_automatica/utils.py:75-81) - shared color mapping:\nif total_alertas >= criterios[\"\
+    vermelho\"]:\n    return \"VERMELHO\"\nelif 0 < total_alertas <= criterios[\"amarelo\"]:\n    return \"AMARELO\"\
+    \nelse:\n    return \"NEUTRO\"\n\n# Each *Sintetico / *_sintetico model calls it from generate_view_data() as:\n\
+    #   define_tipo_alerta(self.conta_criterios_automatica(), self._CRITERIOS_ALERTA)\n# Per-model _CRITERIOS_ALERTA\
+    \ {amarelo, vermelho} thresholds (verified @8166c07):\n#   trilha1,2,3,4,8,9 & all v3 & *_Tasy: {\"amarelo\"\
+    :2,\"vermelho\":3}\n#   trilha5 sintetico (v3), trilha6 sintetico (v3): {\"amarelo\":3,\"vermelho\":4}\n#  \
+    \ trilha7 sintetico (v3): {\"amarelo\":4,\"vermelho\":5}\n# conta_criterios_automatica counts truthy criterio_1..N\
+    \ attributes; N varies:\n#   1..6 (trilha1,2,8); 1..10 (trilha3,5,7); 1..20 (trilha4); etc.\n#   (ranges frequently\
+    \ under-count relative to defined criteria, e.g. trilha1\n#    counts only 1..6 of 12).\n"
+  edge_cases: 'total_alertas == 0 -> NEUTRO (AMARELO branch requires total > 0). VERMELHO uses >= (inclusive). AMARELO
+    upper bound <= criterios["amarelo"] (inclusive). If criterios["amarelo"] < total_alertas < criterios["vermelho"],
+    NEITHER branch matches -> NEUTRO (a value above the yellow threshold but below red is downgraded to neutral).
+    In practice every _CRITERIOS_ALERTA in the codebase sets vermelho == amarelo+1, so this dead-zone is not exercised
+    by shipped models.
 
     '
   confidence: high
   related:
   - RULE-ALERTAS-001
   - RULE-ALERTAS-005
-  divergence: 'Latent logic dead-zone: when amarelo < vermelho-1, a criteria count strictly between the two thresholds falls through both branches to NEUTRO instead of AMARELO (mid-range counts silently downgraded). Safe only while callers keep amarelo == vermelho-1 (all shipped models do). Also: this function never emits ''LARANJA'' although an orange alert state exists elsewhere (core/models/leito.py:273; trilha_interativa_sepse sets alerta_trilha_interativa=''LARANJA'') - LARANJA is assigned by separate interactive-sepsis logic (see RULE-ALERTAS-006), not here.
+  divergence: 'Latent logic dead-zone: when amarelo < vermelho-1, a criteria count strictly between the two thresholds
+    falls through both branches to NEUTRO instead of AMARELO (mid-range counts silently downgraded). Safe only while
+    callers keep amarelo == vermelho-1 (all shipped models do). Also: this function never emits ''LARANJA'' although
+    an orange alert state exists elsewhere (core/models/leito.py:273; trilha_interativa_sepse sets alerta_trilha_interativa=''LARANJA'')
+    - LARANJA is assigned by separate interactive-sepsis logic (see RULE-ALERTAS-006), not here.
 
     '
   merged_from:
@@ -133,7 +167,12 @@ rules:
     lines: 173, 194
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: duplicate
-  notes: 'Merge of the predicate-code capture of define_tipo_alerta (BE-12-006) with the catalog/model-layer capture of the same threshold applied to the Sintetico models with per-model constants (BE-03-002). define_tipo_alerta lives in trilha_automatica/utils.py; the _CRITERIOS_ALERTA constants and conta_criterios_automatica counting live on each model. conta_criterios_automatica is a distinct counter from contar_qtd_criterios_alerta (RULE-ALERTAS-001): the former counts criterio_1..N attributes, the latter iterates a trilha["criterios"] list. Threshold table re-verified against source @8166c07 (trilha5/6 v3 = 3/4, trilha7 v3 = 4/5, all others = 2/3).
+  notes: 'Merge of the predicate-code capture of define_tipo_alerta (BE-12-006) with the catalog/model-layer capture
+    of the same threshold applied to the Sintetico models with per-model constants (BE-03-002). define_tipo_alerta
+    lives in trilha_automatica/utils.py; the _CRITERIOS_ALERTA constants and conta_criterios_automatica counting
+    live on each model. conta_criterios_automatica is a distinct counter from contar_qtd_criterios_alerta (RULE-ALERTAS-001):
+    the former counts criterio_1..N attributes, the latter iterates a trilha["criterios"] list. Threshold table
+    re-verified against source @8166c07 (trilha5/6 v3 = 3/4, trilha7 v3 = 4/5, all others = 2/3).
 
     '
   verification:
@@ -176,7 +215,8 @@ rules:
     lines: 14-15
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: duplicate
-  notes: 'Two backend copies: trilha_automatica/utils.py uses an if/else returning True/False; core/utils.py uses `return valor == 1`. Functionally identical (both return the boolean valor == 1); no behavioral divergence.
+  notes: 'Two backend copies: trilha_automatica/utils.py uses an if/else returning True/False; core/utils.py uses
+    `return valor == 1`. Functionally identical (both return the boolean valor == 1); no behavioral divergence.
 
     '
   verification:
@@ -190,15 +230,22 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Rolls up the tipo_alerta colors of all trilhas on a bed to a single bed color, with VERMELHO dominating AMARELO dominating NEUTRO. A pure color-priority rollup over a dict of trilha -> {tipo_alerta}; does NOT consider assistido attendance or LARANJA.
+  description: 'Rolls up the tipo_alerta colors of all trilhas on a bed to a single bed color, with VERMELHO dominating
+    AMARELO dominating NEUTRO. A pure color-priority rollup over a dict of trilha -> {tipo_alerta}; does NOT consider
+    assistido attendance or LARANJA.
 
     '
   inputs:
   - leito (mapping trilha -> {tipo_alerta})
   outputs:
   - tipo (string)
-  logic: "tipo = \"NEUTRO\"\nfor _, trilha in leito.items():\n    if trilha.get(\"tipo_alerta\") == \"VERMELHO\":\n        tipo = \"VERMELHO\"\n    elif tipo != \"VERMELHO\" and trilha.get(\"tipo_alerta\") == \"AMARELO\":\n        tipo = \"AMARELO\"\n    elif tipo != \"VERMELHO\" and tipo != \"AMARELO\" and trilha.get(\"tipo_alerta\") == \"NEUTRO\":\n        tipo = \"NEUTRO\"\nreturn tipo\n"
-  edge_cases: 'Priority VERMELHO > AMARELO > NEUTRO regardless of iteration order (once VERMELHO set it is never downgraded). Unknown/missing tipo_alerta values are ignored. Empty leito -> "NEUTRO". LARANJA is not considered in this rollup.
+  logic: "tipo = \"NEUTRO\"\nfor _, trilha in leito.items():\n    if trilha.get(\"tipo_alerta\") == \"VERMELHO\"\
+    :\n        tipo = \"VERMELHO\"\n    elif tipo != \"VERMELHO\" and trilha.get(\"tipo_alerta\") == \"AMARELO\"\
+    :\n        tipo = \"AMARELO\"\n    elif tipo != \"VERMELHO\" and tipo != \"AMARELO\" and trilha.get(\"tipo_alerta\"\
+    ) == \"NEUTRO\":\n        tipo = \"NEUTRO\"\nreturn tipo\n"
+  edge_cases: 'Priority VERMELHO > AMARELO > NEUTRO regardless of iteration order (once VERMELHO set it is never
+    downgraded). Unknown/missing tipo_alerta values are ignored. Empty leito -> "NEUTRO". LARANJA is not considered
+    in this rollup.
 
     '
   confidence: high
@@ -212,7 +259,10 @@ rules:
     lines: 84-97
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DEAD CODE: only referenced in commented-out view code (trilha_automatica/api/v1/views/trilhas.py:6, 62; import also commented). NOT the same rule as the active bed rollup RULE-ALERTAS-006 (get_alerta_leito), which adds assistido-filtering and a LARANJA interactive-sepse override. Kept separate as an older/simpler variant (not merged, not flagged DISCREPANCY since this util is inactive).
+  notes: 'DEAD CODE: only referenced in commented-out view code (trilha_automatica/api/v1/views/trilhas.py:6, 62;
+    import also commented). NOT the same rule as the active bed rollup RULE-ALERTAS-006 (get_alerta_leito), which
+    adds assistido-filtering and a LARANJA interactive-sepse override. Kept separate as an older/simpler variant
+    (not merged, not flagged DISCREPANCY since this util is inactive).
 
     '
   verification:
@@ -226,7 +276,8 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Computes a bed''s overall alert color from its pathway alerts; an interactive sepse alert of LARANJA (automatic beds) takes top priority, else VERMELHO > AMARELO > NEUTRO among un-attended pathways.
+  description: 'Computes a bed''s overall alert color from its pathway alerts; an interactive sepse alert of LARANJA
+    (automatic beds) takes top priority, else VERMELHO > AMARELO > NEUTRO among un-attended pathways.
 
     '
   inputs:
@@ -234,8 +285,15 @@ rules:
   - 'tipo (bed: homecare|automatica)'
   outputs:
   - alerta (string)
-  logic: "Trilhas = homecare set if tipo==homecare, automatic set if tipo==automatica,\n          else raise ValidationError.\nalerta = \"\"; trilhas = []\nfor each pathway Trilha (latest via get_trilha(Trilha, self, self.tipo)):\n  if trilha:\n    if trilha.alerta in (\"VERMELHO\",\"AMARELO\") and trilha.assistido is False:\n        trilhas.append(trilha.alerta)\n    if trilha.tipo == \"sepse\" and self.tipo == \"automatica\":\n        alerta = trilha.alerta_trilha_interativa\nif alerta != \"LARANJA\":\n    if \"VERMELHO\" in trilhas: alerta = \"VERMELHO\"\n    elif \"AMARELO\" in trilhas: alerta = \"AMARELO\"\n    else: alerta = \"NEUTRO\"\nreturn alerta\n"
-  edge_cases: 'Only un-attended (assistido is False) VERMELHO/AMARELO pathways count toward escalation. LARANJA (interactive sepse) is preserved and overrides everything. Called from Leito.save (only when ocupado) storing into Leito.alerta.
+  logic: "Trilhas = homecare set if tipo==homecare, automatic set if tipo==automatica,\n          else raise ValidationError.\n\
+    alerta = \"\"; trilhas = []\nfor each pathway Trilha (latest via get_trilha(Trilha, self, self.tipo)):\n  if\
+    \ trilha:\n    if trilha.alerta in (\"VERMELHO\",\"AMARELO\") and trilha.assistido is False:\n        trilhas.append(trilha.alerta)\n\
+    \    if trilha.tipo == \"sepse\" and self.tipo == \"automatica\":\n        alerta = trilha.alerta_trilha_interativa\n\
+    if alerta != \"LARANJA\":\n    if \"VERMELHO\" in trilhas: alerta = \"VERMELHO\"\n    elif \"AMARELO\" in trilhas:\
+    \ alerta = \"AMARELO\"\n    else: alerta = \"NEUTRO\"\nreturn alerta\n"
+  edge_cases: 'Only un-attended (assistido is False) VERMELHO/AMARELO pathways count toward escalation. LARANJA
+    (interactive sepse) is preserved and overrides everything. Called from Leito.save (only when ocupado) storing
+    into Leito.alerta.
 
     '
   confidence: high
@@ -251,7 +309,9 @@ rules:
     lines: 246-280
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'get_trilha (utils/trilha.py) fetches the latest pathway record by nr_atendimento. LARANJA is a fourth color beyond the {VERMELHO,AMARELO,NEUTRO} triad used elsewhere. Contains a commented-out call to enviar_observacao_leito (RULE-ALERTAS-016) with a "!TODO verificar POR QUE ENVIA TODA VEZ" note.
+  notes: 'get_trilha (utils/trilha.py) fetches the latest pathway record by nr_atendimento. LARANJA is a fourth
+    color beyond the {VERMELHO,AMARELO,NEUTRO} triad used elsewhere. Contains a commented-out call to enviar_observacao_leito
+    (RULE-ALERTAS-016) with a "!TODO verificar POR QUE ENVIA TODA VEZ" note.
 
     '
   verification:
@@ -272,8 +332,11 @@ rules:
   - pathway alerts (list[str] VERMELHO|AMARELO|NEUTRO)
   outputs:
   - alerta_nao_assistido (string)
-  logic: "alertas = [t.alerta for each pathway t where t and t.alerta != \"NEUTRO\"]  (only if bed.ocupado)\nif alertas:\n  if \"VERMELHO\" in alertas: \"VERMELHO\"\n  elif \"AMARELO\" in alertas: \"AMARELO\"\n  else: \"NEUTRO\"\nelse: \"\" (empty string)\n"
-  edge_cases: 'Returns "" when no non-neutral pathways (or bed empty). Stored to Leito.alerta_nao_assistido in save() when tipo=="automatica" and ocupado.
+  logic: "alertas = [t.alerta for each pathway t where t and t.alerta != \"NEUTRO\"]  (only if bed.ocupado)\nif\
+    \ alertas:\n  if \"VERMELHO\" in alertas: \"VERMELHO\"\n  elif \"AMARELO\" in alertas: \"AMARELO\"\n  else:\
+    \ \"NEUTRO\"\nelse: \"\" (empty string)\n"
+  edge_cases: 'Returns "" when no non-neutral pathways (or bed empty). Stored to Leito.alerta_nao_assistido in save()
+    when tipo=="automatica" and ocupado.
 
     '
   confidence: high
@@ -319,7 +382,8 @@ rules:
     else: "" (empty)
 
     '
-  edge_cases: 'Missing records default to a NEUTRO stub dict. Stored to Leito.alerta_nao_assistido when tipo=="homecare" and ocupado.
+  edge_cases: 'Missing records default to a NEUTRO stub dict. Stored to Leito.alerta_nao_assistido when tipo=="homecare"
+    and ocupado.
 
     '
   confidence: high
@@ -345,7 +409,8 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Determines whether an occupied bed is fully attended: every non-NEUTRO pathway must be attended; a bed with only NEUTRO pathways is treated as not attended.
+  description: 'Determines whether an occupied bed is fully attended: every non-NEUTRO pathway must be attended;
+    a bed with only NEUTRO pathways is treated as not attended.
 
     '
   inputs:
@@ -353,8 +418,12 @@ rules:
   - tipo (automatica|homecare)
   outputs:
   - assistido (bool)
-  logic: "if tipo==\"automatica\":\n  assistido=True; neutro=True\n  if ocupado:\n    for each pathway t:\n      if t.alerta != \"NEUTRO\":\n        neutro=False\n        if not t.assistido: return False\n        assistido = assistido and t.assistido\n  return assistido if not neutro else False\nelif tipo==\"homecare\":\n  assistidos = [t.assistido for pathway t if t and t.alerta != \"NEUTRO\"]\n  return bool(assistidos and not assistidos.count(False))\n"
-  edge_cases: 'All-NEUTRO bed => not attended (returns False). Homecare: returns False if list empty OR any False. Empty/unoccupied bed => False for automatica (neutro stays True).
+  logic: "if tipo==\"automatica\":\n  assistido=True; neutro=True\n  if ocupado:\n    for each pathway t:\n    \
+    \  if t.alerta != \"NEUTRO\":\n        neutro=False\n        if not t.assistido: return False\n        assistido\
+    \ = assistido and t.assistido\n  return assistido if not neutro else False\nelif tipo==\"homecare\":\n  assistidos\
+    \ = [t.assistido for pathway t if t and t.alerta != \"NEUTRO\"]\n  return bool(assistidos and not assistidos.count(False))\n"
+  edge_cases: 'All-NEUTRO bed => not attended (returns False). Homecare: returns False if list empty OR any False.
+    Empty/unoccupied bed => False for automatica (neutro stays True).
 
     '
   confidence: high
@@ -368,7 +437,8 @@ rules:
     lines: 818-848
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Same "NEUTRO present and >1 distinct color" nuance is recomputed differently in RULE-ALERTAS-010 (payload builder).
+  notes: 'Same "NEUTRO present and >1 distinct color" nuance is recomputed differently in RULE-ALERTAS-010 (payload
+    builder).
 
     '
   verification:
@@ -382,7 +452,8 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Builds an automatic bed''s payload: overall alert = most severe un-attended pathway color; attended flag requires NEUTRO present alongside at least one other distinct color.
+  description: 'Builds an automatic bed''s payload: overall alert = most severe un-attended pathway color; attended
+    flag requires NEUTRO present alongside at least one other distinct color.
 
     '
   inputs:
@@ -390,8 +461,14 @@ rules:
   outputs:
   - payload.alerta (string)
   - payload.assistido (bool)
-  logic: "for each pathway t (if ocupado):\n  cor_alertas.add(t.alerta)\n  if t.alerta != \"NEUTRO\": assistido = assistido and t.assistido\nalertas = [t.alerta for t in trilhas if t.alerta in (\"VERMELHO\",\"AMARELO\") and t.assistido is not True]\nif alertas:\n  alertas.sort(); payload.alerta = alertas[-1]   # alphabetical: VERMELHO > AMARELO\nelse:\n  payload.alerta = self.alerta\npayload.assistido = assistido if (\"NEUTRO\" in cor_alertas and len(cor_alertas) != 1) else False\n"
-  edge_cases: 'alertas.sort() then [-1] yields VERMELHO before AMARELO (alphabetical V>A). attendance False if the only color present is NEUTRO OR if no NEUTRO at all (len==1 guard). Also attaches micro_indicadores + procedimentos_invasivos from MicroIndicadores by (NR_ATENDIMENTO, CD_UNIDADE==bed name).
+  logic: "for each pathway t (if ocupado):\n  cor_alertas.add(t.alerta)\n  if t.alerta != \"NEUTRO\": assistido\
+    \ = assistido and t.assistido\nalertas = [t.alerta for t in trilhas if t.alerta in (\"VERMELHO\",\"AMARELO\"\
+    ) and t.assistido is not True]\nif alertas:\n  alertas.sort(); payload.alerta = alertas[-1]   # alphabetical:\
+    \ VERMELHO > AMARELO\nelse:\n  payload.alerta = self.alerta\npayload.assistido = assistido if (\"NEUTRO\" in\
+    \ cor_alertas and len(cor_alertas) != 1) else False\n"
+  edge_cases: 'alertas.sort() then [-1] yields VERMELHO before AMARELO (alphabetical V>A). attendance False if the
+    only color present is NEUTRO OR if no NEUTRO at all (len==1 guard). Also attaches micro_indicadores + procedimentos_invasivos
+    from MicroIndicadores by (NR_ATENDIMENTO, CD_UNIDADE==bed name).
 
     '
   confidence: high
@@ -420,7 +497,10 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'When rendering the visual alert status (border color, background, ball color, gender-icon color) for a patient/bed card or a trilha chip, the system always prefers the ''being assisted'' state over the raw alert-level field. If assistido === true, statusKey "ASSISTIDO" is used regardless of the alerta value (VERMELHO/AMARELO/NEUTRO/LARANJA); only when not assistido does the raw alerta value select the color.
+  description: 'When rendering the visual alert status (border color, background, ball color, gender-icon color)
+    for a patient/bed card or a trilha chip, the system always prefers the ''being assisted'' state over the raw
+    alert-level field. If assistido === true, statusKey "ASSISTIDO" is used regardless of the alerta value (VERMELHO/AMARELO/NEUTRO/LARANJA);
+    only when not assistido does the raw alerta value select the color.
 
     '
   inputs:
@@ -442,7 +522,9 @@ rules:
     trilhaStatusKey = trilha.assistido ? "ASSISTIDO" : trilha.alerta
 
     '
-  edge_cases: 'If statusKey resolves to "" (alerta empty/undefined and not assistido), statusTrilha[""] is undefined, so color/background expressions evaluate to `undefined`, which React/CSS silently drops (no border/background applied) rather than throwing.
+  edge_cases: 'If statusKey resolves to "" (alerta empty/undefined and not assistido), statusTrilha[""] is undefined,
+    so color/background expressions evaluate to `undefined`, which React/CSS silently drops (no border/background
+    applied) rather than throwing.
 
     '
   confidence: high
@@ -466,7 +548,9 @@ rules:
     lines: n/a (simpler alerta-only variant)
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: frontend-copy
-  notes: 'Identical logic duplicated verbatim in CollapseCard.tsx (leito-level 272-355, trilha-level 540-556); MessageBallon.tsx uses a simpler alerta-only variant with no assistido override. statusTrilha (RULE-ALERTAS-024) is the shared color table: NEUTRO=green, AMARELO=yellow, VERMELHO=red, LARANJA=orange, ASSISTIDO=blue.
+  notes: 'Identical logic duplicated verbatim in CollapseCard.tsx (leito-level 272-355, trilha-level 540-556); MessageBallon.tsx
+    uses a simpler alerta-only variant with no assistido override. statusTrilha (RULE-ALERTAS-024) is the shared
+    color table: NEUTRO=green, AMARELO=yellow, VERMELHO=red, LARANJA=orange, ASSISTIDO=blue.
 
     '
   verification:
@@ -480,15 +564,20 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'For a movimentacao''s linked prontuario, inspects the 4 manual pathway objects (trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade). For each whose alerta == ''VERMELHO'' (RED), collects all criterio alert messages from its get_payload()[''criterios''] and appends {criterios, trilha: nome} to the output list.
+  description: 'For a movimentacao''s linked prontuario, inspects the 4 manual pathway objects (trilha_sepse, trilha_ventilacao,
+    trilha_sedacao, trilha_estabilidade). For each whose alerta == ''VERMELHO'' (RED), collects all criterio alert
+    messages from its get_payload()[''criterios''] and appends {criterios, trilha: nome} to the output list.
 
     '
   inputs:
   - movimentacao (object exposing .dados_prontuario.{trilha_sepse,trilha_ventilacao,trilha_sedacao,trilha_estabilidade})
   outputs:
   - 'lista_conteudo (list of {criterios: [str], trilha: str})'
-  logic: "objs = [trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade]\nlista_conteudo = []\nFOR obj IN objs:\n  IF obj.alerta == \"VERMELHO\":\n    list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_payload()[\"criterios\"]]\n    lista_conteudo.append({\"criterios\": list_criterio, \"trilha\": obj.nome})\nRETURN lista_conteudo\n"
-  edge_cases: 'Only ''VERMELHO'' triggers inclusion; any other alerta value (e.g. AMARELO/VERDE, if they exist elsewhere) is silently excluded from this content builder.
+  logic: "objs = [trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade]\nlista_conteudo = []\nFOR\
+    \ obj IN objs:\n  IF obj.alerta == \"VERMELHO\":\n    list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_payload()[\"\
+    criterios\"]]\n    lista_conteudo.append({\"criterios\": list_criterio, \"trilha\": obj.nome})\nRETURN lista_conteudo\n"
+  edge_cases: 'Only ''VERMELHO'' triggers inclusion; any other alerta value (e.g. AMARELO/VERDE, if they exist elsewhere)
+    is silently excluded from this content builder.
 
     '
   confidence: high
@@ -519,15 +608,22 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'For a leito''s automatic pathways (leito.get_trilhas_automaticas()), resolves each via get_trilha(trilha, leito, leito.tipo); for any resolved object with alerta == ''VERMELHO'', collects ALL criterio alert messages (unconditionally, no whitelist filter) from get_detalhe()[''criterios''] and appends {criterios, trilha: nome, tipo_trilha: tipo}.
+  description: 'For a leito''s automatic pathways (leito.get_trilhas_automaticas()), resolves each via get_trilha(trilha,
+    leito, leito.tipo); for any resolved object with alerta == ''VERMELHO'', collects ALL criterio alert messages
+    (unconditionally, no whitelist filter) from get_detalhe()[''criterios''] and appends {criterios, trilha: nome,
+    tipo_trilha: tipo}.
 
     '
   inputs:
   - leito (Leito instance)
   outputs:
   - 'lista_conteudo (list of {criterios: [str], trilha: str, tipo_trilha: str})'
-  logic: "trilhas = leito.get_trilhas_automaticas()\nobjs = [get_trilha(trilha, leito, leito.tipo) FOR trilha IN trilhas IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF obj.alerta == \"VERMELHO\":\n    list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_detalhe()[\"criterios\"]]\n    lista_conteudo.append({\"criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n"
-  edge_cases: 'Unlike conteudo_observacao_criterios (RULE-ALERTAS-014), there is no per-message whitelist filtering here - every criterio message of a RED pathway is included.
+  logic: "trilhas = leito.get_trilhas_automaticas()\nobjs = [get_trilha(trilha, leito, leito.tipo) FOR trilha IN\
+    \ trilhas IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF obj.alerta == \"VERMELHO\"\
+    :\n    list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_detalhe()[\"criterios\"]]\n    lista_conteudo.append({\"\
+    criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n"
+  edge_cases: 'Unlike conteudo_observacao_criterios (RULE-ALERTAS-014), there is no per-message whitelist filtering
+    here - every criterio message of a RED pathway is included.
 
     '
   confidence: high
@@ -549,21 +645,37 @@ rules:
     reference: null
     detail_file: null
 - id: RULE-ALERTAS-014
-  name: conteudo_observacao_criterios - tipo-dependent whitelist filter on RED-alert criteria, with a disabled sepse special case
+  name: conteudo_observacao_criterios - tipo-dependent whitelist filter on RED-alert criteria, with a disabled sepse
+    special case
   category: alert-threshold
   type: decision-tree
   status: AMBIGUOUS
   verify: false
-  description: 'Builds alert content for a leito''s pathways, branching by leito.tipo. For ''automatica'', evaluates the 5 hardcoded v3 pathway models and only includes a criterio message if its ''nome'' appears in the pathway object''s own criterios_mensagem whitelist attribute; for any other tipo (''homecare''), ALL criterio messages of a RED pathway are included unconditionally, with no whitelist filter. A block of dead (commented-out) code shows a previously-active special case that would have added a fixed message ''Risco para SEPSE: realizar abertura do Protocolo Institucional'' whenever a pathway''s tipo == ''sepse'' - currently disabled.
+  description: 'Builds alert content for a leito''s pathways, branching by leito.tipo. For ''automatica'', evaluates
+    the 5 hardcoded v3 pathway models and only includes a criterio message if its ''nome'' appears in the pathway
+    object''s own criterios_mensagem whitelist attribute; for any other tipo (''homecare''), ALL criterio messages
+    of a RED pathway are included unconditionally, with no whitelist filter. A block of dead (commented-out) code
+    shows a previously-active special case that would have added a fixed message ''Risco para SEPSE: realizar abertura
+    do Protocolo Institucional'' whenever a pathway''s tipo == ''sepse'' - currently disabled.
 
     '
   inputs:
   - leito (Leito instance)
   outputs:
   - 'lista_conteudo (list of {criterios: [str], trilha: str, tipo_trilha: str}, only appended if non-empty)'
-  logic: "tipo = leito.tipo\nIF tipo == \"automatica\":\n  trilhas = [TrilhaSedacaoV3Model, TrilhaEstabilidadeV3Model, TrilhaEficienciaV3Model,\n             TrilhaProfilaxiaV3Model, TrilhaSepseV3Model]\n  attr = \"alerta\"\nELSE:\n  trilhas = leito.get_trilhas_homecare()\n  attr = \"alerta\"\nobjs = [get_trilha(trilha, leito, leito.tipo) FOR trilha IN trilhas IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF getattr(obj, attr) == \"VERMELHO\":\n    list_criterio = []\n    FOR msg IN obj.get_detalhe()[\"criterios\"]:\n      IF (tipo == \"automatica\" AND msg.get(\"nome\") IN getattr(obj, \"criterios_mensagem\")) OR tipo == \"homecare\":\n        list_criterio.append(msg.get(\"alerta\", \"\"))\n    IF list_criterio:\n      lista_conteudo.append({\"criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n# DISABLED (commented out): IF obj.tipo == \"sepse\": list_criterio.append(\n#   \"Risco para SEPSE: realizar abertura\
+  logic: "tipo = leito.tipo\nIF tipo == \"automatica\":\n  trilhas = [TrilhaSedacaoV3Model, TrilhaEstabilidadeV3Model,\
+    \ TrilhaEficienciaV3Model,\n             TrilhaProfilaxiaV3Model, TrilhaSepseV3Model]\n  attr = \"alerta\"\n\
+    ELSE:\n  trilhas = leito.get_trilhas_homecare()\n  attr = \"alerta\"\nobjs = [get_trilha(trilha, leito, leito.tipo)\
+    \ FOR trilha IN trilhas IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF getattr(obj,\
+    \ attr) == \"VERMELHO\":\n    list_criterio = []\n    FOR msg IN obj.get_detalhe()[\"criterios\"]:\n      IF\
+    \ (tipo == \"automatica\" AND msg.get(\"nome\") IN getattr(obj, \"criterios_mensagem\")) OR tipo == \"homecare\"\
+    :\n        list_criterio.append(msg.get(\"alerta\", \"\"))\n    IF list_criterio:\n      lista_conteudo.append({\"\
+    criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n# DISABLED\
+    \ (commented out): IF obj.tipo == \"sepse\": list_criterio.append(\n#   \"Risco para SEPSE: realizar abertura\
     \ do Protocolo Institucional\")\n"
-  edge_cases: 'For tipo==''automatica'', a RED pathway contributes NOTHING to the output if none of its criterio ''nome'' values are present in criterios_mensagem (list_criterio stays empty and the whole entry is skipped by the `if list_criterio` guard), even though the underlying pathway is alerting RED.
+  edge_cases: 'For tipo==''automatica'', a RED pathway contributes NOTHING to the output if none of its criterio
+    ''nome'' values are present in criterios_mensagem (list_criterio stays empty and the whole entry is skipped
+    by the `if list_criterio` guard), even though the underlying pathway is alerting RED.
 
     '
   confidence: high
@@ -579,7 +691,10 @@ rules:
     lines: 151-196
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS/flag for verifier: the commented-out sepse-specific fixed alert message (''Risco para SEPSE: realizar abertura do Protocolo Institucional'') indicates a previously intended (or previously live) sepsis protocol-opening prompt now inactive in this code path. Determine with product owner whether this was intentionally retired or accidentally disabled.
+  notes: 'AMBIGUOUS/flag for verifier: the commented-out sepse-specific fixed alert message (''Risco para SEPSE:
+    realizar abertura do Protocolo Institucional'') indicates a previously intended (or previously live) sepsis
+    protocol-opening prompt now inactive in this code path. Determine with product owner whether this was intentionally
+    retired or accidentally disabled.
 
     '
   verification:
@@ -593,15 +708,21 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'For a leito''s homecare pathways (leito.get_trilhas_homecare()), resolves each via get_trilha(trilha, leito, leito.tipo); for any resolved object with alerta == ''VERMELHO'', collects ALL criterio alert messages (unconditionally) from get_detalhe()[''criterios''] and appends {criterios, trilha: nome, tipo_trilha: tipo}.
+  description: 'For a leito''s homecare pathways (leito.get_trilhas_homecare()), resolves each via get_trilha(trilha,
+    leito, leito.tipo); for any resolved object with alerta == ''VERMELHO'', collects ALL criterio alert messages
+    (unconditionally) from get_detalhe()[''criterios''] and appends {criterios, trilha: nome, tipo_trilha: tipo}.
 
     '
   inputs:
   - leito (Leito instance)
   outputs:
   - 'lista_conteudo (list of {criterios: [str], trilha: str, tipo_trilha: str})'
-  logic: "trilhas = leito.get_trilhas_homecare()\nobjs = [get_trilha(trilha, leito, leito.tipo) FOR trilha IN trilhas IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF obj.alerta == \"VERMELHO\":\n    list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_detalhe()[\"criterios\"]]\n    lista_conteudo.append({\"criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n"
-  edge_cases: 'Structurally identical to conteudo_trilha_automatica_criterios (RULE-ALERTAS-013) but iterating homecare pathways instead of automatic ones.
+  logic: "trilhas = leito.get_trilhas_homecare()\nobjs = [get_trilha(trilha, leito, leito.tipo) FOR trilha IN trilhas\
+    \ IF get_trilha(...) is truthy]\nlista_conteudo = []\nFOR obj IN objs:\n  IF obj.alerta == \"VERMELHO\":\n \
+    \   list_criterio = [msg.get(\"alerta\",\"\") FOR msg IN obj.get_detalhe()[\"criterios\"]]\n    lista_conteudo.append({\"\
+    criterios\": list_criterio, \"trilha\": obj.nome, \"tipo_trilha\": obj.tipo})\nRETURN lista_conteudo\n"
+  edge_cases: 'Structurally identical to conteudo_trilha_automatica_criterios (RULE-ALERTAS-013) but iterating homecare
+    pathways instead of automatic ones.
 
     '
   confidence: high
@@ -627,7 +748,9 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Decides whether to push an automated criteria observation for a bed. If the previous alert was not VERMELHO, send whenever there is content; if the previous alert was VERMELHO, send only when the current criteria content differs from the last stored one (suppress duplicates while already red).
+  description: 'Decides whether to push an automated criteria observation for a bed. If the previous alert was not
+    VERMELHO, send whenever there is content; if the previous alert was VERMELHO, send only when the current criteria
+    content differs from the last stored one (suppress duplicates while already red).
 
     '
   inputs:
@@ -635,8 +758,17 @@ rules:
   - alerta_antigo (VERMELHO | other)
   outputs:
   - side_effect (dispatch)
-  logic: "exclude = {\"conteudo\": []}\nif leito.tipo == \"automatica\": exclude[\"paciente_automatica\"] = {}\nelif leito.tipo == \"homecare\": exclude[\"paciente_homecare\"] = {}\nif alerta_antigo != \"VERMELHO\":\n    conteudo = conteudo_observacao_criterios(leito)\n    if conteudo: Mensageiro().enviar_observacao_automatica_e_homecare(leito, conteudo)\nelse:  # was VERMELHO\n    conteudo_atual = conteudo_observacao_criterios(leito)\n    conteudo_anterior = Observacao.objects.filter(leito=leito, texto__isnull=True).exclude(**exclude).order_by(\"-criado_em\").first()\n    if conteudo_anterior and conteudo_atual and conteudo_anterior.conteudo != conteudo_atual:\n        Mensageiro().enviar_observacao_automatica_e_homecare(leito, conteudo_atual)\n"
-  edge_cases: 'Non-VERMELHO path sends on any truthy content. VERMELHO path requires BOTH a prior observation AND current content AND that they differ (change detection) - suppresses repeat identical red alerts. ''anterior'' query excludes rows with texto NOT null (only auto/criteria observations) and excludes the current-type paciente/conteudo fields.
+  logic: "exclude = {\"conteudo\": []}\nif leito.tipo == \"automatica\": exclude[\"paciente_automatica\"] = {}\n\
+    elif leito.tipo == \"homecare\": exclude[\"paciente_homecare\"] = {}\nif alerta_antigo != \"VERMELHO\":\n  \
+    \  conteudo = conteudo_observacao_criterios(leito)\n    if conteudo: Mensageiro().enviar_observacao_automatica_e_homecare(leito,\
+    \ conteudo)\nelse:  # was VERMELHO\n    conteudo_atual = conteudo_observacao_criterios(leito)\n    conteudo_anterior\
+    \ = Observacao.objects.filter(leito=leito, texto__isnull=True).exclude(**exclude).order_by(\"-criado_em\").first()\n\
+    \    if conteudo_anterior and conteudo_atual and conteudo_anterior.conteudo != conteudo_atual:\n        Mensageiro().enviar_observacao_automatica_e_homecare(leito,\
+    \ conteudo_atual)\n"
+  edge_cases: 'Non-VERMELHO path sends on any truthy content. VERMELHO path requires BOTH a prior observation AND
+    current content AND that they differ (change detection) - suppresses repeat identical red alerts. ''anterior''
+    query excludes rows with texto NOT null (only auto/criteria observations) and excludes the current-type paciente/conteudo
+    fields.
 
     '
   confidence: high
@@ -651,7 +783,8 @@ rules:
     lines: 163-190
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'De-dup logic prevents alert spam while a bed remains red; content change re-notifies. Currently invoked only from commented-out code in get_alerta_leito (RULE-ALERTAS-006).
+  notes: 'De-dup logic prevents alert spam while a bed remains red; content change re-notifies. Currently invoked
+    only from commented-out code in get_alerta_leito (RULE-ALERTAS-006).
 
     '
   verification:
@@ -665,7 +798,12 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'AssistidoViewSet.create resolves the target trilha record via the overloaded ''ocupacoes__pk'' URL kwarg: first tries to interpret it as a Movimentacao pk (manual bed) and looks up the manual trilha model matching dados_prontuario=str(movimentacao.pk) via .get() (assumes exactly one match); if no such Movimentacao exists, falls back to treating the kwarg as a Leito pk - for ''automatica'' beds it fetches the trilha .get() by nr_atendimento (assumes uniqueness); for other (homecare) beds it fetches ALL matching records ordered by criado_em ascending and takes .last() (most recently created).
+  description: 'AssistidoViewSet.create resolves the target trilha record via the overloaded ''ocupacoes__pk'' URL
+    kwarg: first tries to interpret it as a Movimentacao pk (manual bed) and looks up the manual trilha model matching
+    dados_prontuario=str(movimentacao.pk) via .get() (assumes exactly one match); if no such Movimentacao exists,
+    falls back to treating the kwarg as a Leito pk - for ''automatica'' beds it fetches the trilha .get() by nr_atendimento
+    (assumes uniqueness); for other (homecare) beds it fetches ALL matching records ordered by criado_em ascending
+    and takes .last() (most recently created).
 
     '
   inputs:
@@ -674,8 +812,16 @@ rules:
   - request.data.id (uuid)
   outputs:
   - trilha (object)
-  logic: "try:\n    movimentacao = Movimentacao.objects.get(pk=kwargs[\"ocupacoes__pk\"])\n    Model = mapeamento_trilhas[\"manual\"][tipo_trilha]\n    trilha = Model.objects.get(dados_prontuario=str(movimentacao.pk))\n    leito, paciente = movimentacao.leito, movimentacao.paciente\nexcept Movimentacao.DoesNotExist:\n    leito = get_object_or_404(Leito, pk=kwargs[\"ocupacoes__pk\"])\n    paciente = leito.paciente\n    if leito.tipo == \"automatica\":\n        Model = mapeamento_trilhas[\"automatica\"][tipo_trilha]\n        trilha = Model.objects.get(nr_atendimento=leito.nr_atendimento)\n    else:\n        Model = mapeamento_trilhas[\"homecare\"][tipo_trilha]\n        trilha = Model.objects.filter(nr_atendimento=leito.nr_atendimento).order_by(\"criado_em\").last()\nsave_assistido(Model, trilha_pk=request.data[\"id\"], request=request)\n"
-  edge_cases: 'The ''automatica'' branch''s .get() raises MultipleObjectsReturned if more than one trilha record shares the same nr_atendimento for that pathway type (uniqueness assumed, not enforced/handled). The ''manual'' branch''s .get() similarly assumes exactly one trilha per dados_prontuario reference.
+  logic: "try:\n    movimentacao = Movimentacao.objects.get(pk=kwargs[\"ocupacoes__pk\"])\n    Model = mapeamento_trilhas[\"\
+    manual\"][tipo_trilha]\n    trilha = Model.objects.get(dados_prontuario=str(movimentacao.pk))\n    leito, paciente\
+    \ = movimentacao.leito, movimentacao.paciente\nexcept Movimentacao.DoesNotExist:\n    leito = get_object_or_404(Leito,\
+    \ pk=kwargs[\"ocupacoes__pk\"])\n    paciente = leito.paciente\n    if leito.tipo == \"automatica\":\n     \
+    \   Model = mapeamento_trilhas[\"automatica\"][tipo_trilha]\n        trilha = Model.objects.get(nr_atendimento=leito.nr_atendimento)\n\
+    \    else:\n        Model = mapeamento_trilhas[\"homecare\"][tipo_trilha]\n        trilha = Model.objects.filter(nr_atendimento=leito.nr_atendimento).order_by(\"\
+    criado_em\").last()\nsave_assistido(Model, trilha_pk=request.data[\"id\"], request=request)\n"
+  edge_cases: 'The ''automatica'' branch''s .get() raises MultipleObjectsReturned if more than one trilha record
+    shares the same nr_atendimento for that pathway type (uniqueness assumed, not enforced/handled). The ''manual''
+    branch''s .get() similarly assumes exactly one trilha per dados_prontuario reference.
 
     '
   confidence: high
@@ -691,7 +837,9 @@ rules:
     lines: 107-137
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Same ''ocupacoes__pk means Movimentacao-or-Leito'' overload pattern as RULE-observacao-BE-05-007 (other cluster). permission_trilhas=(''can_assist_ocupacao'',), exceto_metodo=''POST'' - i.e., create itself DOES require the permission (opposite of the GET-exempted pattern on other viewsets).
+  notes: 'Same ''ocupacoes__pk means Movimentacao-or-Leito'' overload pattern as RULE-observacao-BE-05-007 (other
+    cluster). permission_trilhas=(''can_assist_ocupacao'',), exceto_metodo=''POST'' - i.e., create itself DOES require
+    the permission (opposite of the GET-exempted pattern on other viewsets).
 
     '
   verification:
@@ -705,15 +853,26 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'Creates an Observacao (clinical note/alert) for a movimentacao that is ALWAYS alerta=''VERMELHO'' (RED), regardless of underlying pathway data, with content built by conteudo_trilha_criterios(movimentacao) (RULE-ALERTAS-012). The responsible user is a singleton system account (username=''sistema''), auto-created with a hardcoded email and password if it does not already exist. After creation, triggers an async Firebase unread-count fanout for the setor.
+  description: 'Creates an Observacao (clinical note/alert) for a movimentacao that is ALWAYS alerta=''VERMELHO''
+    (RED), regardless of underlying pathway data, with content built by conteudo_trilha_criterios(movimentacao)
+    (RULE-ALERTAS-012). The responsible user is a singleton system account (username=''sistema''), auto-created
+    with a hardcoded email and password if it does not already exist. After creation, triggers an async Firebase
+    unread-count fanout for the setor.
 
     '
   inputs:
   - movimentacao (Movimentacao instance)
   outputs:
   - Observacao (created model row, alerta='VERMELHO')
-  logic: "TRY: usuario = Usuario.objects.get(username=\"sistema\")\nEXCEPT Usuario.DoesNotExist:\n  usuario = Usuario.objects.create(username=\"sistema\", email=\"sistema@omnisaude.co\", password=\"sis_info\")\nObservacao.objects.create(\n  responsavel_id=usuario.id, setor_id=movimentacao.leito.setor.id,\n  movimentacao_id=movimentacao.id, leito_id=movimentacao.leito.id,\n  paciente_id=movimentacao.paciente.id, alerta=\"VERMELHO\", texto=None,\n  conteudo=conteudo_trilha_criterios(movimentacao))\nsend_qtd_mensagens_to_firebase.apply_async(args=[str(movimentacao.leito.setor.pk), str(usuario.id)])\n"
-  edge_cases: 'The system user''s ''password'' is passed directly to Usuario.objects.create as a plain literal (''sis_info'') rather than through a password-hashing helper (e.g. create_user/set_password) - as written, this would store the literal string as the password field value, not a hashed credential (a security-relevant observation, not a formula error, recorded verbatim).
+  logic: "TRY: usuario = Usuario.objects.get(username=\"sistema\")\nEXCEPT Usuario.DoesNotExist:\n  usuario = Usuario.objects.create(username=\"\
+    sistema\", email=\"sistema@omnisaude.co\", password=\"sis_info\")\nObservacao.objects.create(\n  responsavel_id=usuario.id,\
+    \ setor_id=movimentacao.leito.setor.id,\n  movimentacao_id=movimentacao.id, leito_id=movimentacao.leito.id,\n\
+    \  paciente_id=movimentacao.paciente.id, alerta=\"VERMELHO\", texto=None,\n  conteudo=conteudo_trilha_criterios(movimentacao))\n\
+    send_qtd_mensagens_to_firebase.apply_async(args=[str(movimentacao.leito.setor.pk), str(usuario.id)])\n"
+  edge_cases: 'The system user''s ''password'' is passed directly to Usuario.objects.create as a plain literal (''sis_info'')
+    rather than through a password-hashing helper (e.g. create_user/set_password) - as written, this would store
+    the literal string as the password field value, not a hashed credential (a security-relevant observation, not
+    a formula error, recorded verbatim).
 
     '
   confidence: high
@@ -728,7 +887,9 @@ rules:
     lines: 10-27, 29-48
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Every system-generated observation from this path is unconditionally RED; there is no code path here to generate a lower-severity system alert. Flag the plaintext-looking password literal for the rebuild''s auth design.
+  notes: 'Every system-generated observation from this path is unconditionally RED; there is no code path here to
+    generate a lower-severity system alert. Flag the plaintext-looking password literal for the rebuild''s auth
+    design.
 
     '
   verification:
@@ -742,7 +903,9 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'Creates an Observacao for a leito (bed) that is ALWAYS alerta=''VERMELHO'', using the same system-user provisioning as RULE-ALERTAS-018. Additionally attaches a patient reference in a tipo-dependent field: leito.tipo==''homecare'' sets paciente_homecare, leito.tipo==''automatica'' sets paciente_automatica; neither is set for any other tipo.
+  description: 'Creates an Observacao for a leito (bed) that is ALWAYS alerta=''VERMELHO'', using the same system-user
+    provisioning as RULE-ALERTAS-018. Additionally attaches a patient reference in a tipo-dependent field: leito.tipo==''homecare''
+    sets paciente_homecare, leito.tipo==''automatica'' sets paciente_automatica; neither is set for any other tipo.
 
     '
   inputs:
@@ -750,8 +913,13 @@ rules:
   - conteudo (any alert content payload; optional, default None)
   outputs:
   - Observacao (created model row, alerta='VERMELHO')
-  logic: "usuario = get_or_create_sistema_user()\npayload = {\n  \"responsavel_id\": usuario.id, \"setor_id\": leito.setor.id, \"leito_id\": leito.id,\n  \"paciente\": leito.paciente OR None, \"alerta\": \"VERMELHO\", \"texto\": None, \"conteudo\": conteudo,\n}\nIF leito.tipo == \"homecare\": payload[\"paciente_homecare\"] = leito.get_paciente_homecare\nELIF leito.tipo == \"automatica\": payload[\"paciente_automatica\"] = leito.get_paciente_automatica\nObservacao.objects.create(**payload)\nsend_qtd_mensagens_to_firebase.apply_async(args=[str(leito.setor.pk), str(usuario.id)])\n"
-  edge_cases: 'For leito.tipo not in {''homecare'',''automatica''} (e.g. ''manual''), neither paciente_homecare nor paciente_automatica is populated, relying solely on the generic ''paciente'' key.
+  logic: "usuario = get_or_create_sistema_user()\npayload = {\n  \"responsavel_id\": usuario.id, \"setor_id\": leito.setor.id,\
+    \ \"leito_id\": leito.id,\n  \"paciente\": leito.paciente OR None, \"alerta\": \"VERMELHO\", \"texto\": None,\
+    \ \"conteudo\": conteudo,\n}\nIF leito.tipo == \"homecare\": payload[\"paciente_homecare\"] = leito.get_paciente_homecare\n\
+    ELIF leito.tipo == \"automatica\": payload[\"paciente_automatica\"] = leito.get_paciente_automatica\nObservacao.objects.create(**payload)\n\
+    send_qtd_mensagens_to_firebase.apply_async(args=[str(leito.setor.pk), str(usuario.id)])\n"
+  edge_cases: 'For leito.tipo not in {''homecare'',''automatica''} (e.g. ''manual''), neither paciente_homecare
+    nor paciente_automatica is populated, relying solely on the generic ''paciente'' key.
 
     '
   confidence: high
@@ -778,15 +946,19 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'Across persisted trilhas, whenever the recomputed alert is NEUTRO the save() sets assistido=False, clearing any prior clinician acknowledgement when the patient no longer meets any criterion.
+  description: 'Across persisted trilhas, whenever the recomputed alert is NEUTRO the save() sets assistido=False,
+    clearing any prior clinician acknowledgement when the patient no longer meets any criterion.
 
     '
   inputs:
   - computed alerta (enum)
   outputs:
   - assistido (boolean)
-  logic: "def save(...):\n  <compute criteria if v3>\n  self.alerta = <calcular_alerta variant>\n  if self.alerta == \"NEUTRO\": self.assistido = False\n  super().save()\n"
-  edge_cases: 'Applied in trilha3 (Ventilacao), trilha5 (Antimicrobiano), trilha6 (Nutricao), trilha7 (Equilibrio), trilha9 (GlosaZero), and all v3 models. NOT applied in trilha1 (Sedacao v1), trilha2 (Estabilizacao v1), trilha4 (SEPSE v1), trilha8 (Profilaxias v1) - inconsistent.
+  logic: "def save(...):\n  <compute criteria if v3>\n  self.alerta = <calcular_alerta variant>\n  if self.alerta\
+    \ == \"NEUTRO\": self.assistido = False\n  super().save()\n"
+  edge_cases: 'Applied in trilha3 (Ventilacao), trilha5 (Antimicrobiano), trilha6 (Nutricao), trilha7 (Equilibrio),
+    trilha9 (GlosaZero), and all v3 models. NOT applied in trilha1 (Sedacao v1), trilha2 (Estabilizacao v1), trilha4
+    (SEPSE v1), trilha8 (Profilaxias v1) - inconsistent.
 
     '
   confidence: high
@@ -812,7 +984,10 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'mapeamento_trilhas maps a (tipo_leito, tipo_trilha) pair to the concrete Django model used to store that pathway''s data. The ''automatica'' bed-type mapping shows an in-progress v3 migration: the active code uses TrilhaSepseV3Model for ''sepse'' and TrilhaProfilaxiaV3Model for ''profilaxias'', while the legacy TrilhaSEPSEModel and TrilhaProfilaxiasModel are commented out (not used) for the same keys.
+  description: 'mapeamento_trilhas maps a (tipo_leito, tipo_trilha) pair to the concrete Django model used to store
+    that pathway''s data. The ''automatica'' bed-type mapping shows an in-progress v3 migration: the active code
+    uses TrilhaSepseV3Model for ''sepse'' and TrilhaProfilaxiaV3Model for ''profilaxias'', while the legacy TrilhaSEPSEModel
+    and TrilhaProfilaxiasModel are commented out (not used) for the same keys.
 
     '
   inputs:
@@ -820,8 +995,16 @@ rules:
   - tipo_trilha (string)
   outputs:
   - Model (Django model class)
-  logic: "mapeamento_trilhas = {\n  \"automatica\": {\n    \"sedacao\": TrilhaSedacaoV3Model, \"estabilizacao\": TrilhaEstabilidadeV3Model,\n    \"ventilacao\": TrilhaVentilacaoModel,\n    \"sepse\": TrilhaSepseV3Model,              # (commented alt: TrilhaSEPSEModel)\n    \"antimicrobiano\": TrilhaAntimicrobianoModel, \"nutricao\": TrilhaNutricaoModel,\n    \"equilibrio\": TrilhaEquilibrioModel,\n    \"profilaxias\": TrilhaProfilaxiaV3Model,   # (commented alt: TrilhaProfilaxiasModel)\n    \"auditoria\": TrilhaGlozaZeroModel, \"eficiencia\": TrilhaEficienciaV3Model,\n  },\n  \"manual\": {\"sedacao\": TrilhaSedacao, \"ventilacao\": TrilhaVentilacao,\n             \"sepse\": TrilhaSepse, \"estabilizacao\": TrilhaEstabilidade},\n  \"homecare\": {\"piora_clinica\": PioraClinica, \"sepse\": Sepse},\n}\n"
-  edge_cases: 'Unrecognized tipo_trilha for a given bed type resolves to Model=None via .get(), which would raise AttributeError on subsequent Model.objects access if not validated earlier by TrilhasPermissaoMixin/serializer.
+  logic: "mapeamento_trilhas = {\n  \"automatica\": {\n    \"sedacao\": TrilhaSedacaoV3Model, \"estabilizacao\"\
+    : TrilhaEstabilidadeV3Model,\n    \"ventilacao\": TrilhaVentilacaoModel,\n    \"sepse\": TrilhaSepseV3Model,\
+    \              # (commented alt: TrilhaSEPSEModel)\n    \"antimicrobiano\": TrilhaAntimicrobianoModel, \"nutricao\"\
+    : TrilhaNutricaoModel,\n    \"equilibrio\": TrilhaEquilibrioModel,\n    \"profilaxias\": TrilhaProfilaxiaV3Model,\
+    \   # (commented alt: TrilhaProfilaxiasModel)\n    \"auditoria\": TrilhaGlozaZeroModel, \"eficiencia\": TrilhaEficienciaV3Model,\n\
+    \  },\n  \"manual\": {\"sedacao\": TrilhaSedacao, \"ventilacao\": TrilhaVentilacao,\n             \"sepse\"\
+    : TrilhaSepse, \"estabilizacao\": TrilhaEstabilidade},\n  \"homecare\": {\"piora_clinica\": PioraClinica, \"\
+    sepse\": Sepse},\n}\n"
+  edge_cases: 'Unrecognized tipo_trilha for a given bed type resolves to Model=None via .get(), which would raise
+    AttributeError on subsequent Model.objects access if not validated earlier by TrilhasPermissaoMixin/serializer.
 
     '
   confidence: high
@@ -836,7 +1019,9 @@ rules:
     lines: 39-64
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'This is the ''sepse vs sepse_v3'' / ''profilaxias vs profilaxias_v3'' version-variant the task calls out: the v3 models are the ACTIVE ones; the legacy models remain importable/referenced but unused (dead) in this mapping. Engine-adjacent but kept in alertas as foundational context for the assist/acknowledge workflow (RULE-ALERTAS-017/022/023).
+  notes: 'This is the ''sepse vs sepse_v3'' / ''profilaxias vs profilaxias_v3'' version-variant the task calls out:
+    the v3 models are the ACTIVE ones; the legacy models remain importable/referenced but unused (dead) in this
+    mapping. Engine-adjacent but kept in alertas as foundational context for the assist/acknowledge workflow (RULE-ALERTAS-017/022/023).
 
     '
   verification:
@@ -850,7 +1035,11 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'save_assistido sets a trilha record''s assistido flag (defaulting to True if not specified), assistido_por (current user, or None if assistido is being set False), and assistido_em (now). For v3 automatic-pathway models (per Leito.get_trilhas_automaticas_v3()), done via a bulk .update() call (bypassing instance .save(), signals, custom save side-effects); for any other model (legacy automatica, manual, homecare), an instance is fetched, attributes set, then saved normally.
+  description: 'save_assistido sets a trilha record''s assistido flag (defaulting to True if not specified), assistido_por
+    (current user, or None if assistido is being set False), and assistido_em (now). For v3 automatic-pathway models
+    (per Leito.get_trilhas_automaticas_v3()), done via a bulk .update() call (bypassing instance .save(), signals,
+    custom save side-effects); for any other model (legacy automatica, manual, homecare), an instance is fetched,
+    attributes set, then saved normally.
 
     '
   inputs:
@@ -860,8 +1049,14 @@ rules:
   - trilha.assistido (boolean)
   - trilha.assistido_por (uuid | null)
   - trilha.assistido_em (datetime)
-  logic: "agora = timezone.now()\nassistido = request.data.get(\"assistido\", True)\ntrilha_obj = Model.objects.get(pk=trilha_pk)\nif isinstance(trilha_obj, tuple(Leito.get_trilhas_automaticas_v3())):\n    Model.objects.filter(pk=trilha_pk).update(\n        assistido=assistido, assistido_por=(request.user if assistido else None), assistido_em=agora)\nelse:\n    trilha_obj.assistido = assistido\n    trilha_obj.assistido_por = request.user if trilha_obj.assistido else None   # reads the just-assigned value, equivalent to \"if assistido\"\n    trilha_obj.assistido_em = agora\n    trilha_obj.save()\n"
-  edge_cases: 'assistido_por is always cleared to None when assistido is False (un-marking), for both branches - the audit trail of ''who attended'' is erased on un-assist, not preserved.
+  logic: "agora = timezone.now()\nassistido = request.data.get(\"assistido\", True)\ntrilha_obj = Model.objects.get(pk=trilha_pk)\n\
+    if isinstance(trilha_obj, tuple(Leito.get_trilhas_automaticas_v3())):\n    Model.objects.filter(pk=trilha_pk).update(\n\
+    \        assistido=assistido, assistido_por=(request.user if assistido else None), assistido_em=agora)\nelse:\n\
+    \    trilha_obj.assistido = assistido\n    trilha_obj.assistido_por = request.user if trilha_obj.assistido else\
+    \ None   # reads the just-assigned value, equivalent to \"if assistido\"\n    trilha_obj.assistido_em = agora\n\
+    \    trilha_obj.save()\n"
+  edge_cases: 'assistido_por is always cleared to None when assistido is False (un-marking), for both branches -
+    the audit trail of ''who attended'' is erased on un-assist, not preserved.
 
     '
   confidence: high
@@ -888,15 +1083,20 @@ rules:
   type: workflow
   status: OK
   verify: false
-  description: 'After save_assistido runs, an AssistidoPor audit record (tipo, leito, paciente, usuario, and a fully-stringified snapshot of every field on the trilha object) is created ONLY if the request''s ''assistido'' value (defaulting True) is truthy; explicitly un-marking a trilha (assistido=False) does not create any audit record.
+  description: 'After save_assistido runs, an AssistidoPor audit record (tipo, leito, paciente, usuario, and a fully-stringified
+    snapshot of every field on the trilha object) is created ONLY if the request''s ''assistido'' value (defaulting
+    True) is truthy; explicitly un-marking a trilha (assistido=False) does not create any audit record.
 
     '
   inputs:
   - request.data.assistido (boolean; defaults True)
   outputs:
   - AssistidoPor record (object | none)
-  logic: "if request.data.get(\"assistido\", True):\n    AssistidoPor.objects.create(\n        tipo=request.data.get(\"tipo\"), leito=leito, paciente=paciente, usuario=request.user,\n        payload_trilha=dict((k, str(v)) for k, v in model_to_dict(trilha).items()))\n"
-  edge_cases: 'Every field value in the snapshot is coerced to str(), including None -> the literal string ''None'', numbers, dates, etc. - so payload_trilha is a dict of strings, not typed values.
+  logic: "if request.data.get(\"assistido\", True):\n    AssistidoPor.objects.create(\n        tipo=request.data.get(\"\
+    tipo\"), leito=leito, paciente=paciente, usuario=request.user,\n        payload_trilha=dict((k, str(v)) for\
+    \ k, v in model_to_dict(trilha).items()))\n"
+  edge_cases: 'Every field value in the snapshot is coerced to str(), including None -> the literal string ''None'',
+    numbers, dates, etc. - so payload_trilha is a dict of strings, not typed values.
 
     '
   confidence: high
@@ -910,7 +1110,8 @@ rules:
     lines: 137-147
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: This audit record is consumed by the monthly 'Total de intervencoes' indicator (RULE-setor-BE-05-016, other cluster).
+  notes: This audit record is consumed by the monthly 'Total de intervencoes' indicator (RULE-setor-BE-05-016, other
+    cluster).
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
@@ -922,15 +1123,25 @@ rules:
   type: threshold
   status: OK
   verify: false
-  description: 'Defines the finite set of trilha status severity categories and the color scheme used to render each. Categories: NEUTRO (green/normal), VERMELHO (red/critical), AMARELO (yellow), LARANJA (orange), ASSISTIDO (blue/assisted). Ordering red > orange > yellow > green mirrors a triage severity color scale.
+  description: 'Defines the finite set of trilha status severity categories and the color scheme used to render
+    each. Categories: NEUTRO (green/normal), VERMELHO (red/critical), AMARELO (yellow), LARANJA (orange), ASSISTIDO
+    (blue/assisted). Ordering red > orange > yellow > green mirrors a triage severity color scale.
 
     '
   inputs:
   - statusKey (enum NEUTRO|VERMELHO|AMARELO|LARANJA|ASSISTIDO)
   outputs:
   - palette (object)
-  logic: "statusTrilha = {\n  NEUTRO:    { color:#5BCE85, background:#16302A, backgroundLight:#E1FCE0, ballColor:#00DC50, ballBackground:#08712E, backgroundShade:#08712E1A },  # green\n  VERMELHO:  { color:#C54C5C, background:#412125, backgroundLight:#FCE4DD, ballColor:#FF1633, ballBackground:#740614, backgroundShade:#7406141A },  # red\n  AMARELO:   { color:#cebc5a, background:#443f23, backgroundLight:#fffadb, ballColor:#ffd900, ballBackground:#726208, backgroundShade:#7262081A },  # yellow\n  LARANJA:   { color:#F9A65A, background:#4A2B1F, backgroundLight:#FFEDDD, ballColor:#ff5900, ballBackground:#712B08, backgroundShade:#7137081A },  # orange\n  ASSISTIDO: { color:#4FBFE1, background:#04314A, backgroundLight:#DCFDFB, ballColor:#00B0FF, ballBackground:#0060A0, backgroundShade:#0060A01A },  # blue\n}\n"
-  edge_cases: 'Typed `as any`; unknown keys return undefined. Note LARANJA.ballBackground is #712B08 but its backgroundShade base is #713708 (inconsistent hex, verbatim).
+  logic: "statusTrilha = {\n  NEUTRO:    { color:#5BCE85, background:#16302A, backgroundLight:#E1FCE0, ballColor:#00DC50,\
+    \ ballBackground:#08712E, backgroundShade:#08712E1A },  # green\n  VERMELHO:  { color:#C54C5C, background:#412125,\
+    \ backgroundLight:#FCE4DD, ballColor:#FF1633, ballBackground:#740614, backgroundShade:#7406141A },  # red\n\
+    \  AMARELO:   { color:#cebc5a, background:#443f23, backgroundLight:#fffadb, ballColor:#ffd900, ballBackground:#726208,\
+    \ backgroundShade:#7262081A },  # yellow\n  LARANJA:   { color:#F9A65A, background:#4A2B1F, backgroundLight:#FFEDDD,\
+    \ ballColor:#ff5900, ballBackground:#712B08, backgroundShade:#7137081A },  # orange\n  ASSISTIDO: { color:#4FBFE1,\
+    \ background:#04314A, backgroundLight:#DCFDFB, ballColor:#00B0FF, ballBackground:#0060A0, backgroundShade:#0060A01A\
+    \ },  # blue\n}\n"
+  edge_cases: 'Typed `as any`; unknown keys return undefined. Note LARANJA.ballBackground is #712B08 but its backgroundShade
+    base is #713708 (inconsistent hex, verbatim).
 
     '
   confidence: medium
@@ -944,7 +1155,9 @@ rules:
     lines: 1-44
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Enum values are the clinically meaningful pathway severity states shared with the backend alerta enum (VERMELHO/AMARELO/NEUTRO/LARANJA) plus the frontend-only ASSISTIDO. Color mapping itself is presentation; the enumeration of statuses is the rule. Status-computation (which record -> which color) lives elsewhere.
+  notes: 'Enum values are the clinically meaningful pathway severity states shared with the backend alerta enum
+    (VERMELHO/AMARELO/NEUTRO/LARANJA) plus the frontend-only ASSISTIDO. Color mapping itself is presentation; the
+    enumeration of statuses is the rule. Status-computation (which record -> which color) lives elsewhere.
 
     '
   verification:
@@ -958,15 +1171,24 @@ rules:
   type: validation
   status: AMBIGUOUS
   verify: false
-  description: 'next.config.js (modifyVars) and src/styles/variables.less both declare an identical set of named color tokens layered on antd''s dark+compact theme base: @primary-color #fe6d01 (orange), @secondary-color #606060, @success-color #258a10 (green), @info-color #1a3bb7 (blue), @warning-color #d6a400 (amber), @danger-color #ff1633 (red), @error-color = @danger-color, @default-color #bbbbbb. These establish a platform-wide semantic color convention (green=success, blue=info, amber=warning, red=danger/error) that antd components (Tag, Alert, Badge, Button) consume automatically.
+  description: 'next.config.js (modifyVars) and src/styles/variables.less both declare an identical set of named
+    color tokens layered on antd''s dark+compact theme base: @primary-color #fe6d01 (orange), @secondary-color #606060,
+    @success-color #258a10 (green), @info-color #1a3bb7 (blue), @warning-color #d6a400 (amber), @danger-color #ff1633
+    (red), @error-color = @danger-color, @default-color #bbbbbb. These establish a platform-wide semantic color
+    convention (green=success, blue=info, amber=warning, red=danger/error) that antd components (Tag, Alert, Badge,
+    Button) consume automatically.
 
     '
   inputs:
   - semantic_state (success | info | warning | danger/error | default)
   outputs:
   - 'hex_color (#258a10 | #1a3bb7 | #d6a400 | #ff1633 | #bbbbbb)'
-  logic: "COLOR_FOR_STATE = {\n  success: \"#258a10\",\n  info:    \"#1a3bb7\",\n  warning: \"#d6a400\",\n  danger:  \"#ff1633\",\n  error:   \"#ff1633\",   # aliased to danger\n  default: \"#bbbbbb\"\n}\n"
-  edge_cases: 'AMBIGUOUS: this partition only defines the token->color mapping; it does not show which specific clinical states/alerts map to which token - that wiring lives in component files outside this partition''s scope. Only the color-palette rule itself (a candidate severity/status convention) is recorded; surrounding aesthetic styling in globals.css/globals.less/LightTheme.less is excluded as pure design.
+  logic: "COLOR_FOR_STATE = {\n  success: \"#258a10\",\n  info:    \"#1a3bb7\",\n  warning: \"#d6a400\",\n  danger:\
+    \  \"#ff1633\",\n  error:   \"#ff1633\",   # aliased to danger\n  default: \"#bbbbbb\"\n}\n"
+  edge_cases: 'AMBIGUOUS: this partition only defines the token->color mapping; it does not show which specific
+    clinical states/alerts map to which token - that wiring lives in component files outside this partition''s scope.
+    Only the color-palette rule itself (a candidate severity/status convention) is recorded; surrounding aesthetic
+    styling in globals.css/globals.less/LightTheme.less is excluded as pure design.
 
     '
   confidence: low
@@ -985,7 +1207,11 @@ rules:
     lines: 5-21, 31-37
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: duplicate
-  notes: 'Duplicated verbatim between variables.less and next.config.js; theme base is antd getThemeVariables({dark:true, compact:true}). Distinct color system from statusTrilha (RULE-ALERTAS-024) - the antd semantic tokens (danger #ff1633 matches statusTrilha VERMELHO ballColor #FF1633) vs the trilha status ball palette; the two use the same red but different greens (#258a10 success vs #00DC50 NEUTRO ball). Not a clinical divergence - two independent presentation layers.
+  notes: 'Duplicated verbatim between variables.less and next.config.js; theme base is antd getThemeVariables({dark:true,
+    compact:true}). Distinct color system from statusTrilha (RULE-ALERTAS-024) - the antd semantic tokens (danger
+    #ff1633 matches statusTrilha VERMELHO ballColor #FF1633) vs the trilha status ball palette; the two use the
+    same red but different greens (#258a10 success vs #00DC50 NEUTRO ball). Not a clinical divergence - two independent
+    presentation layers.
 
     '
   verification:
@@ -999,7 +1225,9 @@ rules:
   type: decision-tree
   status: OK
   verify: false
-  description: 'Maps a record status string to an icon and color: "salvo" (saved) -> green check-circle, "liberado" (released/finalized) -> blue check-all, "inativo" (inactive) -> red cancel, empty string or anything else -> gray info icon.
+  description: 'Maps a record status string to an icon and color: "salvo" (saved) -> green check-circle, "liberado"
+    (released/finalized) -> blue check-all, "inativo" (inactive) -> red cancel, empty string or anything else ->
+    gray info icon.
 
     '
   inputs:
@@ -1007,8 +1235,12 @@ rules:
   outputs:
   - icon (mdi path string)
   - color (hex string)
-  logic: "switch(status):\n  \"salvo\":    { icon: mdiCheckCircleOutline, color: \"#258a10\" }   # green\n  \"liberado\": { icon: mdiCheckAll,           color: \"#1890ff\" }   # blue\n  \"inativo\":  { icon: mdiCancel,             color: \"#ff1633\" }   # red\n  \"\":         { icon: mdiInformation,        color: \"#bababa\" }   # gray\n  default:    { icon: mdiInformation,        color: \"#bababa\" }   # gray\n"
-  edge_cases: 'Empty string and default both fall to gray info. The status enum (salvo/liberado/inativo) encodes the clinical-record lifecycle: draft-saved vs released/signed vs deactivated.
+  logic: "switch(status):\n  \"salvo\":    { icon: mdiCheckCircleOutline, color: \"#258a10\" }   # green\n  \"liberado\"\
+    : { icon: mdiCheckAll,           color: \"#1890ff\" }   # blue\n  \"inativo\":  { icon: mdiCancel,         \
+    \    color: \"#ff1633\" }   # red\n  \"\":         { icon: mdiInformation,        color: \"#bababa\" }   # gray\n\
+    \  default:    { icon: mdiInformation,        color: \"#bababa\" }   # gray\n"
+  edge_cases: 'Empty string and default both fall to gray info. The status enum (salvo/liberado/inativo) encodes
+    the clinical-record lifecycle: draft-saved vs released/signed vs deactivated.
 
     '
   confidence: medium
@@ -1021,7 +1253,9 @@ rules:
     lines: 8-21
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Record-lifecycle status indicator (NOT alert severity); a generic UI helper. Kept in alertas as a status-enum sibling of the alert-color rules rather than misrouted, since no single other cluster is a clear owner. The domain rule is the status enumeration and its lifecycle meaning; icons/colors are presentation.
+  notes: 'Record-lifecycle status indicator (NOT alert severity); a generic UI helper. Kept in alertas as a status-enum
+    sibling of the alert-color rules rather than misrouted, since no single other cluster is a clear owner. The
+    domain rule is the status enumeration and its lifecycle meaning; icons/colors are presentation.
 
     '
   verification:
@@ -1029,4 +1263,158 @@ rules:
     clinical_impact: null
     reference: null
     detail_file: null
+- id: RULE-ALERTAS-027
+  name: Sector gender + automatic-alert rollup (get_total_generos_e_alertas_automaticos)
+  category: alert-threshold
+  type: scoring
+  status: OK
+  verify: false
+  description: Sector-level (automatica/homecare) rollup KPI. For each occupied bed it inspects every automatic
+    track's get_payload()["alerta"] and classifies the bed VERMELHO if ANY track is VERMELHO, else AMARELO if ANY
+    is AMARELO, else NEUTRO; separately it tallies the patient gender into {M, F, N, O}. Returns (generos, alertas).
+    Feeds setor/estabelecimento dashboards via the get_total_generos serializer (setor.py:184, estabelecimento.py:145).
+  inputs:
+  - leitos (iterable[Leito]; only leito.ocupado beds are counted)
+  - trilha.get_payload()['alerta'] per automatic track (string in {VERMELHO, AMARELO, NEUTRO, null})
+  - trilha.ie_sexo (v1 tracks) or trilha.paciente.genero (v3 tracks) in {M, F, N, O}
+  outputs:
+  - generos (dict[str,int] keyed M/F/N/O)
+  - alertas (dict[str,int] keyed VERMELHO/NEUTRO/AMARELO)
+  logic: "generos = {\"M\": 0, \"F\": 0, \"N\": 0, \"O\": 0}\nalertas = {\"VERMELHO\": 0, \"NEUTRO\": 0, \"AMARELO\"\
+    : 0}\nfor leito in leitos:\n    trilhas = []\n    if leito.ocupado:\n        trilha = None\n        for Trilha\
+    \ in Leito.get_trilhas_automaticas():\n            trilha_temp = get_trilha(Trilha, leito, leito.tipo)\n   \
+    \         if trilha_temp:\n                trilha = trilha_temp                 # keeps the LAST truthy track\n\
+    \                trilhas.append(trilha.get_payload())\n        trilhas_list = [t.get(\"alerta\") for t in trilhas]\n\
+    \        if \"VERMELHO\" in trilhas_list:\n            alertas[\"VERMELHO\"] += 1\n        elif \"AMARELO\"\
+    \ in trilhas_list:\n            alertas[\"AMARELO\"] += 1\n        else:\n            alertas[\"NEUTRO\"] +=\
+    \ 1\n        # gender source differs by track version\n        if not isinstance(trilha, tuple(Leito.get_trilhas_automaticas_v3())):\n\
+    \            if trilha and trilha.ie_sexo and (generos.get(trilha.ie_sexo) == 0 or generos.get(trilha.ie_sexo)):\n\
+    \                generos[trilha.ie_sexo] += 1\n        else:\n            if trilha and trilha.paciente.genero\
+    \ and (generos.get(trilha.paciente.genero) == 0 or generos.get(trilha.paciente.genero)):\n                generos[trilha.paciente.genero]\
+    \ += 1\nreturn generos, alertas\n"
+  edge_cases: 'A bed whose tracks all resolve to None leaves trilha=None: trilhas_list is empty so it falls through
+    to the NEUTRO bucket, and the gender branch short-circuits on the falsy `trilha` (no increment, no crash). Gender
+    is read from the LAST truthy track only (trilha is overwritten each loop), and that track''s class decides v1
+    (ie_sexo) vs v3 (paciente.genero). The guard `generos.get(k) == 0 or generos.get(k)` increments only when k
+    is one of M/F/N/O; any other gender key returns None from .get and is silently dropped. Bed color keys on get_payload()[''alerta'']
+    membership, so a null/unknown alerta is treated as NEUTRO.'
+  confidence: high
+  related:
+  - RULE-ALERTAS-002
+  - RULE-ALERTAS-028
+  - RULE-TENANCY-ORGANIZACAO-034
+  merged_from:
+  - RULE-gap6-01
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 764-816
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Sector KPI surfaced by the get_total_generos serializer (setor.py:184, estabelecimento.py:145) and consumed
+    by setor/estabelecimento dashboards. The VERMELHO>AMARELO>NEUTRO precedence mirrors RULE-ALERTAS-002 but keys
+    on each track''s get_payload()[''alerta''] rather than the four manual pathways. Previously uncited: RULE-TENANCY-ORGANIZACAO-034
+    cites only the serializer method, not this bed->sector severity-max rollup implementation.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-ALERTAS-028
+  name: Sector automatic-alert count keyed on alerta_nao_assistido (get_total_alertas_automaticos)
+  category: alert-threshold
+  type: scoring
+  status: OK
+  verify: false
+  description: 'Sector ''total_alertas'' KPI for automatica/homecare sectors: counts occupied beds bucketed by leito.alerta_nao_assistido
+    (the attendance-ignoring per-bed alert color, RULE-ALERTAS-007) into {VERMELHO, NEUTRO, AMARELO}. Feeds setor/estabelecimento
+    ''total_alertas'' (setor.py:234, estabelecimento.py:192).'
+  inputs:
+  - leitos (iterable[Leito]; already the occupied beds, re-checked via leito.ocupado)
+  - leito.alerta_nao_assistido (string alert color, RULE-ALERTAS-007)
+  outputs:
+  - alertas (dict[str,int] keyed VERMELHO/NEUTRO/AMARELO, plus any other value seen)
+  logic: "alertas = {\"VERMELHO\": 0, \"NEUTRO\": 0, \"AMARELO\": 0}\nfor leito in leitos:                     \
+    \ # leitos already filtered to occupied\n    if leito.ocupado:\n        alertas[leito.alerta_nao_assistido]\
+    \ = alertas.get(leito.alerta_nao_assistido, 0) + 1\nreturn alertas\n"
+  edge_cases: Keys on leito.alerta_nao_assistido (the alert IGNORING attendance), not the assisted-adjusted alert.
+    Because it uses alertas.get(k, 0) + 1 and then assigns alertas[k], any color outside the three seeded keys (e.g.
+    LARANJA, or None) creates a NEW bucket in the returned dict rather than being ignored. Non-occupied beds are
+    skipped.
+  confidence: high
+  related:
+  - RULE-ALERTAS-007
+  - RULE-ALERTAS-027
+  - RULE-TENANCY-ORGANIZACAO-035
+  merged_from:
+  - RULE-gap6-02
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 750-762
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Feeds setor/estabelecimento ''total_alertas'' for automatica/homecare sectors. Distinct from RULE-ALERTAS-002
+    (calcular_total_alertas), which buckets movimentacoes by the four manual-pathway alerts; this counter keys on
+    the precomputed per-bed alerta_nao_assistido. Previously uncited: RULE-TENANCY-ORGANIZACAO-035 cites the serializer
+    dispatch and the manual-path Count on alerta_movimentacao, not this automatica aggregation.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-ALERTAS-029
+  name: Sector assisted-bed counts (get_total_assistidos_automatica / _homecare)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Sector ''total_assistidos'' (assisted beds) KPI, two paths. Automatica: counts occupied beds where
+    leito.get_assistido (RULE-ALERTAS-009) is truthy. Homecare: for each bed it collects the `assistido` flag of
+    every non-NEUTRO homecare track and counts the bed only if there is at least one such track AND none of them
+    is False. Feeds setor/estabelecimento ''total_assistidos'' (setor.py:257,266; estabelecimento.py:216,225).'
+  inputs:
+  - leitos (iterable[Leito])
+  - leito.get_assistido (bool; automatica path)
+  - each homecare track's .alerta and .assistido (homecare path)
+  outputs:
+  - total_assistidos (int; count of assisted occupied beds)
+  logic: "# get_total_assistidos_automatica(leitos):\ntotal_assistidos = 0\nfor leito in leitos:\n    if leito.ocupado\
+    \ and leito.get_assistido:\n        total_assistidos += 1\nreturn total_assistidos\n\n# get_total_assistidos_homecare(leitos):\n\
+    Trilhas = Leito.get_trilhas_homecare()\ntotal_assistidos = 0\nfor leito in leitos:\n    assistidos = []\n  \
+    \  for Trilha in Trilhas:\n        trilha = get_trilha(Trilha, leito, leito.tipo)\n        if trilha and trilha.alerta\
+    \ != \"NEUTRO\":\n            assistidos.append(trilha.assistido)\n    if assistidos and not assistidos.count(False):\n\
+    \        total_assistidos += 1\nreturn total_assistidos\n"
+  edge_cases: 'Automatica path delegates the per-bed decision to leito.get_assistido (RULE-ALERTAS-009). Homecare
+    path: a bed with NO non-NEUTRO tracks yields assistidos == [] -> the `assistidos and ...` guard is falsy ->
+    the bed is NOT counted (a fully-neutral bed is never ''assisted''). Only an explicit False in assistidos blocks
+    the count: `not assistidos.count(False)` treats an assistido value of None as ''not False'', so a None among
+    non-neutral tracks still lets the bed count as assisted. Only non-NEUTRO homecare tracks contribute.'
+  confidence: high
+  related:
+  - RULE-ALERTAS-009
+  - RULE-ALERTAS-008
+  merged_from:
+  - RULE-gap6-03
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 332-361
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Feeds setor/estabelecimento 'total_assistidos'. Mirrors the per-bed rule RULE-ALERTAS-009 but the sector-count
+    aggregation (notably the homecare `assistidos and not assistidos.count(False)` predicate) is a distinct, previously
+    uncited predicate.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
 dropped: []
+gap_remediation:
+- gap: core/models/leito.py:764-816
+  rule: RULE-ALERTAS-027
+- gap: core/models/leito.py:750-762
+  rule: RULE-ALERTAS-028
+- gap: core/models/leito.py:332-361
+  rule: RULE-ALERTAS-029
