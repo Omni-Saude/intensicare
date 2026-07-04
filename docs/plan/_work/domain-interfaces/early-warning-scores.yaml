@@ -1,0 +1,68 @@
+domain: early-warning-scores
+# MEWS / NEWS2 / SOFA / qSOFA continuity (vision §2 Fase 1). Deterministic Python scorers (VIS-2-06),
+# computed on each new observation, persisted to operational PostgreSQL/TimescaleDB (clinical_scores,
+# ADR001-C-03) with algorithm_version (CON-0068, invariant #3), written back to AMH Gold fact_patient_score
+# (ADR001-C-04). Every input unit is canonical per _work/units/registry.yaml.
+
+consumes:
+  # --- vitals (AMH Gold Observation via Athena; ADR001-C-01) ---
+  - {quantity: heart_rate, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4"}
+  - {quantity: respiratory_rate, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1"}
+  - {quantity: systolic_blood_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6"}
+  - {quantity: body_temperature, unit: "degC", source: "AMH Gold Observation LOINC 8310-5"}
+  - {quantity: peripheral_oxygen_saturation, unit: "percent", source: "AMH Gold Observation LOINC 2708-6"}
+  - {quantity: mean_arterial_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8478-0"}
+  # --- consciousness (enum; AVPU for MEWS, ACVPU for NEWS2) — NOT yet a registry parameter, see open question ---
+  - {quantity: consciousness_level, unit: "enum", source: "AMH Gold Observation (AVPU/ACVPU enum {A,C,V,P,U})"}
+  - {quantity: glasgow_coma_scale, unit: "points", source: "AMH Gold Observation LOINC 9269-2 (SOFA-CNS, qSOFA)"}
+  - {quantity: richmond_agitation_sedation_scale, unit: "points", source: "AMH Gold Observation (RASS; discharge/step-down context)"}
+  # --- blood gas / oxygenation (SOFA respiratory; FiO2 canonical FRACTION, SYS-01) ---
+  - {quantity: pf_ratio, unit: "ratio", source: "respiratory domain (pao2 mmHg / fio2 FRACTION 0.21-1.0)"}
+  - {quantity: inspired_oxygen_fraction, unit: "fraction", source: "AMH Gold Observation LOINC 19935-6 (percent is edge/display only)"}
+  - {quantity: arterial_partial_pressure_o2, unit: "mmHg", source: "AMH Gold blood gas LOINC 2703-7"}
+  - {quantity: arterial_partial_pressure_co2, unit: "mmHg", source: "AMH Gold blood gas LOINC 2019-8 (NEWS2 Scale-2 selection)"}
+  # --- labs (SOFA sub-scores) ---
+  - {quantity: platelet_count, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 777-3"}
+  - {quantity: total_bilirubin, unit: "mg/dL", source: "AMH Gold lab_result LOINC 1975-2"}
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "aki domain / AMH Gold lab_result LOINC 2160-0"}
+  - {quantity: lactate, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (mmol/L only; discharge-readiness)"}
+  # --- derived / cross-domain (unit-checked, edge-normalized upstream) ---
+  - {quantity: weight_indexed_vasopressor_rate, unit: "mcg/kg/min", source: "hemodynamics domain conversion service (mL/h NOT convertible without concentration+peso, SYS-C-04)"}
+  - {quantity: urine_output_volume, unit: "mL", source: "aki domain (24h total; SOFA-renal urine band)"}
+  - {quantity: urine_output_rate_indexed, unit: "mL/kg/h", source: "aki domain (requires validated peso, SYS-09)"}
+  - {quantity: body_weight, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated comma/dot parse)"}
+  # --- boolean context flags ---
+  - {quantity: mechanical_ventilation_flag, unit: "boolean", source: "AMH Gold device/Procedure flag (gates SOFA-resp 3/4 bands, SOFA-C-02)"}
+  - {quantity: supplemental_o2_flag, unit: "boolean", source: "AMH Gold Observation (NEWS2 +2)"}
+  - {quantity: hypercapnic_flag, unit: "boolean", source: "clinical context (NEWS2 Scale-2; RATIFY source RAT-EWS-01)"}
+
+emits_events:
+  - event: ews.score.computed
+    meaning: "A MEWS/NEWS2/SOFA/qSOFA score was (re)computed for a patient on a new observation."
+    fields: [mpi_id, encounter_id, score_type, score_value, subscores, algorithm_version, computed_at, input_snapshot_ref, staleness_flags]
+  - event: ews.deterioration.detected
+    meaning: "NEWS2 crossed >=7 (new) or a new single red parameter appeared — acute deterioration (ALERT-EWS-NEWS2-DETERIORATION-01)."
+    fields: [mpi_id, encounter_id, news2_score, news2_score_prev, red_parameters, algorithm_version, detected_at]
+  - event: ews.trend.rising
+    meaning: "NEWS2 or MEWS rose >=3 across >=2 consecutive scorings (ALERT-EWS-TREND-RISING-02)."
+    fields: [mpi_id, encounter_id, score_type, delta, window_start, window_end, algorithm_version]
+  - event: ews.organ_dysfunction.detected
+    meaning: "Acute SOFA rise >=2 from 24h baseline — Sepsis-3 organ dysfunction (ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03); consumed by sepsis + correlation engine."
+    fields: [mpi_id, encounter_id, sofa_total, sofa_total_baseline_24h, delta, driving_subscores, algorithm_version, detected_at]
+  - event: ews.qsofa.computed
+    meaning: "qSOFA score (0-3) available for the sepsis domain's SEP-002 screen (this domain owns qSOFA computation, not the alert)."
+    fields: [mpi_id, encounter_id, qsofa_score, criteria_met, algorithm_version, computed_at]
+  - event: ews.discharge_readiness.detected
+    meaning: "Patient meets step-down/discharge stability composite (ALERT-EWS-DISCHARGE-READINESS-04); advisory to the physician."
+    fields: [mpi_id, encounter_id, criteria_met, algorithm_version, detected_at]
+
+latency_assumption_ms: 30000
+# p95 ingestion->alert < 30s (VIS-C-09). Scorers are pure deterministic functions (SCORERS-C-01);
+# compute cost is sub-millisecond. The 30s budget is dominated by AMH Gold/Athena read latency, bounded
+# by the inherited 99.5% data-availability SLO (ADR001-C-10) and the Silver-Entities P95 < 30 min batch
+# path (ADR001-F-02) — the Fase-4 MSK streaming escape hatch is the mitigation if ICU cadence needs sub-minute freshness.
+
+volume_estimate_per_100_beds_day: 23
+# Sum of the four EWS alerts' est_volume_per_100_beds_day: NEWS2-DETERIORATION-01 (5) + TREND-RISING-02 (6)
+# + SOFA-ACUTE-ORGAN-DYSFUNCTION-03 (4) + DISCHARGE-READINESS-04 (8). Score COMPUTATIONS are far more
+# frequent (every observation, ~hundreds/100 beds/day) but are not alerts; only edge-triggered crossings emit.

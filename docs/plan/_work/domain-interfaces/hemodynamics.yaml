@@ -1,0 +1,63 @@
+# Hemodynamics domain interface contract — IntensiCare v2 (vision §3.4, priority P4).
+# Declares what the hemodynamics domain CONSUMES (quantities from other domains / AMH Gold / local monitor),
+# what it EMITS (correlation + lifecycle events), its latency assumption, and its volume estimate. Units are
+# canonical per _work/units/registry.yaml. Platform: AMH Gold via Amazon Athena (ADR-001 C-01/C-05) for labs,
+# plus local TimescaleDB for continuous invasive-monitor streams (VIS-4.2-04); no own ingestion.
+# This domain OWNS the vasopressor unit-conversion service (clinical/domains/hemodynamics.md
+# #vasopressor-unit-conversion-service): edge mL/h + drug concentration + patient weight -> canonical mcg/kg/min.
+domain: hemodynamics
+
+consumes:
+  # Continuous invasive-monitor streams (local TimescaleDB, HL7 ORU) — the fast path for shock alerts.
+  - {quantity: heart_rate, unit: "bpm", source: "local TimescaleDB (invasive/multiparameter monitor, continuous) / AMH Gold Observation LOINC 8867-4"}
+  - {quantity: systolic_blood_pressure, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8480-6"}
+  - {quantity: diastolic_blood_pressure, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8462-4"}
+  - {quantity: mean_arterial_pressure, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8478-0"}
+  # Advanced hemodynamic monitor (low availability, DATA-AVAIL-09) — PPV/SVV/stroke-volume as percent.
+  - {quantity: pulse_pressure_variation, unit: "percent", source: "local TimescaleDB (advanced hemodynamic monitor)"}
+  - {quantity: stroke_volume_variation, unit: "percent", source: "local TimescaleDB (advanced hemodynamic monitor)"}
+  - {quantity: stroke_volume_change_fraction, unit: "percent", source: "hemodynamics domain (derived after fluid challenge)"}
+  # Labs (AMH Gold via Athena, batch-bound).
+  - {quantity: lactate, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7"}
+  - {quantity: capillary_refill_time, unit: "s", source: "AMH Gold Observation (TEC bedside)"}
+  # Fluid balance (recomputed from source rows; SYS-10 window-bug avoidance).
+  - {quantity: fluid_balance, unit: "mL", source: "aki/equilibrio domain (balanco_hidrico_24h, recomputed)"}
+  # Vasopressor/inotrope EDGE inputs to the conversion service (this domain converts them to canonical rate).
+  - {quantity: volumetric_infusion_rate, unit: "mL/h", source: "AMH Gold MedicationAdministration (dose.rate; EDGE — must be converted, never consumed directly)"}
+  - {quantity: drug_concentration, unit: "mg/mL", source: "AMH Gold MedicationAdministration / medication master (infusion concentration)"}
+  - {quantity: body_weight, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated peso; SYS-09 decimal-parse hazard)"}
+  # Cross-domain event input.
+  - {quantity: septic_shock_flag, unit: "boolean", source: "sepsis domain event sepsis.shock.detected (hands off lactate-clearance targeting + vasopressor conversion)"}
+
+emits_events:
+  - event: hemodynamics.shock_index.elevated
+    meaning: "Sustained elevated shock index with a perfusion corroborator (ALERT-HEMO-SHOCK-INDEX-01); occult-hypoperfusion candidate for the early-warning-scores and correlation engines."
+    fields: [mpi_id, encounter_id, indice_choque, modified_shock_index, lactato_arterial_mmol_L, tempo_enchimento_capilar_s, detected_at, alert_id]
+  - event: hemodynamics.lactate_clearance.inadequate
+    meaning: "Lactate clearance <10% at 2h or persistence >2 mmol/L at 6h under active resuscitation (ALERT-HEMO-LACTATE-CLEARANCE-02); consumed by sepsis (resuscitation-failure) and correlation."
+    fields: [mpi_id, encounter_id, lactato_inicial_mmol_L, lactato_2h_mmol_L, lactato_6h_mmol_L, clearance_lactato_2h_percent, detected_at, alert_id]
+  - event: hemodynamics.vasopressor.escalating
+    meaning: "Norepinephrine-equivalent dose rose >50% in 2h or a 2nd vasoactive agent was added (ALERT-HEMO-VASO-ESCALATION-03); all doses canonical mcg/kg/min."
+    fields: [mpi_id, encounter_id, dose_vasopressor_mcg_kg_min, dose_vasopressor_prev_mcg_kg_min, second_agent, detected_at, alert_id]
+  - event: hemodynamics.shock.refractory
+    meaning: "Refractory shock — MAP<65 mmHg >30 min on >1.0 mcg/kg/min norepinephrine-equivalent (ALERT-HEMO-REFRACTORY-SHOCK-04); consumed by sepsis, respiratory (SDRA+choque correlation VIS-4-03), correlation engine."
+    fields: [mpi_id, encounter_id, mean_arterial_pressure_mmHg, dose_vasopressor_mcg_kg_min, adjuncts_present, detected_at, alert_id]
+  - event: hemodynamics.fluid.non_responsive
+    meaning: "Fluid non-responsiveness with positive 24h balance (ALERT-HEMO-FLUID-NONRESPONSIVE-05); consumed by aki/equilibrio for de-resuscitation stewardship."
+    fields: [mpi_id, encounter_id, ppv_percent, svv_percent, delta_sv_pos_fluid_percent, balanco_hidrico_24h_mL, detected_at, alert_id]
+  - event: hemodynamics.vasopressor_dose.canonical
+    meaning: "Authoritative canonical vasopressor dose in mcg/kg/min from the conversion service; consumed by clinical-scoring (SOFA cardiovascular sub-score, P0-02 RULE-CLINICAL-SCORING-005) and pharmaco. Emits a conversion-rejected variant when concentration/weight are missing (loud reject, never a guess)."
+    fields: [mpi_id, encounter_id, drug, dose_vasopressor_mcg_kg_min, source_rate_mL_h, drug_concentration_mg_mL, body_weight_kg, conversion_status, detected_at]
+
+# Deterministic Python compute is sub-second; the binding latency is data ARRIVAL. Hemodynamics is DUAL-PATH:
+# continuous invasive-monitor streams (HR, arterial BP, MAP, PPV/SVV) arrive via the LOCAL TimescaleDB streaming
+# path (VIS-4.2-04 'contínuo'), so the shock-index / refractory-shock alerts CAN meet the vision <30 s ingestion-
+# to-alert SLO (VIS-C-09). Lactate (AMH Gold via Athena) is batch-bound (P95 < 30 min, ADR001-F-02), so the
+# lactate-clearance alert inherits that freshness bound. The number below is the domain's own compute+dispatch
+# budget once inputs are present (including the vasopressor conversion + shock-index/MSI derivation).
+latency_assumption_ms: 5000
+
+# Sum of the six alerts' est_volume_per_100_beds_day from _work/alerts/hemodynamics.yaml:
+#   SHOCK-INDEX-01 (5) + LACTATE-CLEARANCE-02 (2) + VASO-ESCALATION-03 (3) + REFRACTORY-SHOCK-04 (1)
+#   + FLUID-NONRESPONSIVE-05 (1) + ANTIHTN-CONFLICT-06 (2).
+volume_estimate_per_100_beds_day: 14

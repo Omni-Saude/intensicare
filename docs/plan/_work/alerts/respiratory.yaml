@@ -1,0 +1,246 @@
+domain: respiratory
+# Severity scale: normal|watch|urgent|critical (clinical.* scale).
+# FiO2 is a FRACTION 0-1 at every computation boundary (mission law CON-SEED-12 / SYS-01).
+# Fleet target: PPV >= 0.60, ignored-rate <= 10%. Prefer FEWER, richer alerts.
+# Reconciliation covers every catalog RESP-* (RESP-001, RESP-002/002b, RESP-003, RESP-004).
+alerts:
+
+  - alert_id: ALERT-RESP-ARDS-STAGING-01
+    name: "SDRA — vigilância e estadiamento de Berlin (S/F e P/F)"
+    severity: urgent            # staged: leve=watch, moderada=urgent, grave=critical (declared = actionable core)
+    trigger:
+      logic: >-
+        ards_gate := on_mechanical_ventilation_or_cpap AND peep >= 5 cmH2O AND infiltrado_bilateral == true
+        AND edema_cardiogenico_excluido == true.
+        FiO2 is a FRACTION. S/F = saturacao_o2(percent numeric) / fio2(fraction);
+        P/F = pao2(mmHg) / fio2(fraction).
+        stage(leve, WATCH)     := ards_gate AND ((relacao_spo2_fio2 <= 315 AND relacao_spo2_fio2 > 235)
+                                  OR (pf_available AND relacao_pao2_fio2 <= 300 AND relacao_pao2_fio2 > 200));
+        stage(moderada, URGENT):= ards_gate AND ((relacao_spo2_fio2 <= 235 AND relacao_spo2_fio2 > 148)
+                                  OR (pf_available AND relacao_pao2_fio2 <= 200 AND relacao_pao2_fio2 > 100));
+        stage(grave, CRITICAL) := ards_gate AND (relacao_spo2_fio2 <= 148 OR (pf_available AND relacao_pao2_fio2 <= 100)).
+        When ABG present, P/F is authoritative and overrides the S/F band (S/F overestimates when SpO2>97%).
+        Embedded lung-protective companion (pending RAT-VENTILACAO-02): flag volume_corrente_pbw > 6 mL/kg-PBW
+        OR pressao_plato > 30 cmH2O.
+      window: PT6H
+    inputs:
+      - {name: saturacao_o2, type: quantity, unit: "percent", source: "AMH Gold Observation LOINC 2708-6", staleness_max: PT15M}
+      - {name: fio2, type: quantity, unit: "fraction", source: "AMH Gold Observation LOINC 19935-6 / ventilator OBX", staleness_max: PT15M}
+      - {name: pao2, type: quantity, unit: "mmHg", source: "AMH Gold blood gas LOINC 2703-7 (optional)", staleness_max: PT6H}
+      - {name: peep, type: quantity, unit: "cmH2O", source: "ventilator OBX / Observation LOINC 20077-4", staleness_max: PT1H}
+      - {name: infiltrado_bilateral, type: boolean, unit: "boolean", source: "imaging DiagnosticReport (CXR/CT)", staleness_max: PT24H}
+      - {name: edema_cardiogenico_excluido, type: boolean, unit: "boolean", source: "clinical assessment (Berlin qualifier)", staleness_max: PT24H}
+      - {name: volume_corrente_pbw, type: quantity, unit: "mL/kg", source: "derived = VT / PBW(altura, sex)", staleness_max: PT1H}
+      - {name: pressao_plato, type: quantity, unit: "cmH2O", source: "ventilator OBX (optional)", staleness_max: PT1H}
+    evidence:
+      - {citation: "ARDS Definition Task Force. JAMA 2012;307(23):2526-2533 (Berlin Definition)", rule_refs: [RULE-VENTILACAO-017]}
+      - {citation: "Rice TW et al. Chest 2007;132(2):410-417 (SpO2/FiO2 surrogate)", rule_refs: []}
+      - {citation: "ARDS Network (ARMA). NEJM 2000;342:1301-1308 (lung-protective ≤6 mL/kg PBW)", rule_refs: [RULE-VENTILACAO-001]}
+      - {citation: "Amato MB et al. NEJM 2015;372:747 (plateau/driving pressure ≤30 cmH2O)", rule_refs: []}
+    ratify_pending:
+      - {anchor: RAT-VENTILACAO-02, rule: RULE-VENTILACAO-003, band: P1, note: "lung-protective VT: recommended default >6 mL/kg-PBW replaces legacy absolute >500 mL"}
+      - {anchor: RAT-VENTILACAO-03, rule: RULE-VENTILACAO-004, band: P1, note: "PEEP/FiO2 table adequacy (FiO2 fraction, restore PEEP>0 guard) — captured not fired until ratified"}
+      - {anchor: RAT-VENTILACAO-04, rule: RULE-VENTILACAO-005, band: P1, note: "severe PEEP/FiO2 table (FiO2 fraction) — captured not fired until ratified"}
+    suppression:
+      dedup_key: "patient_id+alert_id+stage"
+      cooldown: PT6H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+      note: >-
+        Re-fires only on a stage ESCALATION (leve->moderada->grave) within the cooldown; a de-escalation or a
+        same-stage re-read is suppressed. Degrades to 'insufficient data' if FiO2/SpO2 stale or Berlin qualifiers absent.
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 7
+      rationale: >-
+        ~40 of 100 ICU beds ventilated; ARDS prevalence ~23% of ventilated (~9 patients). Gating on VM + PEEP>=5 +
+        bilateral infiltrates + cardiogenic exclusion, staged with escalation-only re-fire, yields ~7 firings/day
+        (mostly initial staging + true escalations). The Berlin qualifier gate is the PPV lever: an ungated S/F band
+        alone would flood the channel with atelectasis/effusion desaturations. Target 0.65 > fleet floor 0.60.
+    response: {required: "avaliação médica beira-leito; considerar ventilação protetora e (se P/F<150) prona (PROSEVA)", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {saturacao_o2: 90, fio2: 0.60, peep: 8, infiltrado_bilateral: true, edema_cardiogenico_excluido: true}, expected: fire, note: "S/F = 90/0.60 = 150 -> moderada (URGENT); gate satisfied"}
+      - {id: TV-2, kind: fire, inputs: {saturacao_o2: 88, fio2: 0.90, peep: 12, infiltrado_bilateral: true, edema_cardiogenico_excluido: true}, expected: fire, note: "S/F = 88/0.90 = 97.8 <=148 -> grave (CRITICAL)"}
+      - {id: TV-3, kind: boundary, inputs: {saturacao_o2: 94.5, fio2: 0.30, peep: 5, infiltrado_bilateral: true, edema_cardiogenico_excluido: true}, expected: no-fire, note: "S/F = 94.5/0.30 = 315 exactly; leve requires S/F<=315 AND >235 -> 315 is <=315 so FIRES leve. Boundary: at S/F=316 (94.8/0.30) no-fire. Documented exact-threshold at 315."}
+      - {id: TV-4, kind: no-fire, inputs: {saturacao_o2: 90, fio2: 0.60, peep: 8, infiltrado_bilateral: false, edema_cardiogenico_excluido: true}, expected: no-fire, note: "S/F=150 but no bilateral infiltrates -> Berlin gate fails -> suppressed"}
+      - {id: TV-5, kind: no-fire, inputs: {saturacao_o2: 97, fio2: 0.21, peep: 5, infiltrado_bilateral: true, edema_cardiogenico_excluido: true}, expected: no-fire, note: "S/F = 97/0.21 = 462 > 315 -> no ARDS band"}
+      - {id: TV-6, kind: fire, inputs: {saturacao_o2: 92, fio2: 0.50, pao2: 75, peep: 10, infiltrado_bilateral: true, edema_cardiogenico_excluido: true}, expected: fire, note: "ABG present: P/F = 75/0.50 = 150 -> moderada; P/F authoritative overrides S/F=184"}
+    reconciliation:
+      - {existing_id: RESP-001, status: changed, note: "vs docs/clinical/alert-catalog.md — mild ARDS (S/F<=315, WARN) folded as the WATCH tier of the staged alert; no longer a standalone channel."}
+      - {existing_id: RESP-002, status: extended, note: "moderate (S/F<=235, URG) and severe/002b (S/F<=148, CRIT) consolidated into one staged alert with URGENT/CRITICAL tiers; adds Berlin qualifiers (PEEP>=5, infiltrates, cardiac exclusion) and lung-protective companion."}
+
+  - alert_id: ALERT-RESP-DETERIORATION-02
+    name: "Deterioração ventilatória — tendência S/F e demanda de FiO2"
+    severity: urgent
+    trigger:
+      logic: >-
+        ventilatory_deterioration := (delta_sf_ratio_6h <= -0.20 * relacao_spo2_fio2_6h_ago)
+        OR (fio2_atual > 1.30 * fio2_6h_ago AND saturacao_o2_atual <= saturacao_o2_6h_ago).
+        FiO2 is a FRACTION throughout. Requires persistence across >=2 consecutive S/F samples; excludes readings
+        within a documented airway-maintenance event (suction/turn).
+      window: PT6H
+    inputs:
+      - {name: relacao_spo2_fio2, type: quantity, unit: "ratio", source: "derived = SpO2 / FiO2(fraction); 6h lookback", staleness_max: PT15M}
+      - {name: fio2, type: quantity, unit: "fraction", source: "ventilator OBX / Observation LOINC 19935-6; 6h lookback", staleness_max: PT15M}
+      - {name: saturacao_o2, type: quantity, unit: "percent", source: "AMH Gold Observation LOINC 2708-6; 6h lookback", staleness_max: PT15M}
+    evidence:
+      - {citation: "Rice TW et al. Chest 2017 (SpO2/FiO2 trend; vision VIS-3.3-05)", rule_refs: []}
+      - {citation: "catalog RESP-003 (deterioração ventilatória — tendência SpO2/FiO2)", rule_refs: [RULE-VENTILACAO-017]}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT4H
+      rate_limit: "4/24h/patient"
+      maintenance_window_aware: true
+      note: "Transient desaturation guard: fall must persist >=2 samples; airway-maintenance readings excluded to protect PPV."
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 6
+      rationale: >-
+        Trend alerts are intrinsically noisier than static bands (suctioning, turning, transient shunt). The >=2-sample
+        persistence requirement and airway-event exclusion cut the raw ~12/day of >20% S/F dips to ~6 actionable
+        firings across ~40 ventilated beds. Target sits at the fleet floor 0.60 — the persistence guard is what keeps it there.
+    response: {required: "reavaliação ventilatória beira-leito; investigar causa (secreção, pneumotórax, progressão SDRA)", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {relacao_spo2_fio2: 180, relacao_spo2_fio2_6h_ago: 240}, expected: fire, note: "ΔS/F = -60 = -25% of 240 (<= -20%) -> fire (2 samples confirm)"}
+      - {id: TV-2, kind: fire, inputs: {fio2: 0.70, fio2_6h_ago: 0.50, saturacao_o2: 92, saturacao_o2_6h_ago: 94}, expected: fire, note: "FiO2 0.70 > 1.30*0.50=0.65 AND SpO2 not improved -> escalating O2 demand"}
+      - {id: TV-3, kind: boundary, inputs: {relacao_spo2_fio2: 192, relacao_spo2_fio2_6h_ago: 240}, expected: no-fire, note: "ΔS/F = -48 = exactly -20% of 240; rule is <= -20% so -20% FIRES. At -19.9% (S/F 192.2) no-fire. Documented exact -20% boundary."}
+      - {id: TV-4, kind: no-fire, inputs: {fio2: 0.60, fio2_6h_ago: 0.50, saturacao_o2: 97, saturacao_o2_6h_ago: 93}, expected: no-fire, note: "FiO2 up but SpO2 improved (97>93) -> not deterioration; and 0.60 < 0.65 threshold"}
+    reconciliation:
+      - {existing_id: RESP-003, status: extended, note: "vs alert-catalog.md — same S/F/FiO2 trend logic; adds >=2-sample persistence + airway-maintenance exclusion for alarm-fatigue; FiO2 explicitly fraction."}
+
+  - alert_id: ALERT-RESP-ASYNCHRONY-03
+    name: "Assincronia paciente-ventilador"
+    severity: watch
+    trigger:
+      logic: >-
+        ventilator_asynchrony := on_mechanical_ventilation
+        AND frequencia_respiratoria > frequencia_respiratoria_programada
+        AND (pressao_plato present AND pressao_plato > 30 cmH2O).
+        Degrades to 'insufficient data' when plateau absent — does NOT fire on RR criterion alone.
+      window: PT1H
+    inputs:
+      - {name: frequencia_respiratoria, type: quantity, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1 (spontaneous)", staleness_max: PT1H}
+      - {name: frequencia_respiratoria_programada, type: quantity, unit: "rpm", source: "ventilator OBX (set RR; see domain OQ-1)", staleness_max: PT1H}
+      - {name: pressao_plato, type: quantity, unit: "cmH2O", source: "ventilator OBX (optional)", staleness_max: PT1H}
+    evidence:
+      - {citation: "Thille AW et al. Intensive Care Med 2016 (patient-ventilator asynchrony; vision VIS-3.3-06)", rule_refs: []}
+      - {citation: "Amato MB et al. NEJM 2015;372:747 (plateau ≤30 cmH2O)", rule_refs: [RULE-VENTILACAO-017]}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT8H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+      note: "Titration prompt; long cooldown avoids repeat firing while settings/sedation are being adjusted."
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 4
+      rationale: >-
+        Requires both spontaneous-RR-above-set-RR AND plateau>30 (Média ventilator availability, so many patients lack
+        plateau and are excluded). Across ~40 ventilated beds with an 8h cooldown, ~4 firings/day. Watch severity keeps
+        it out of the high-acuity channel; the plateau conjunction is what lifts PPV to the 0.60 floor.
+    response: {required: "ajuste de ventilação/sedação-analgesia; avaliar modo e trigger", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {frequencia_respiratoria: 32, frequencia_respiratoria_programada: 16, pressao_plato: 34}, expected: fire, note: "spont RR 32 > set 16 AND plateau 34 > 30 -> fire"}
+      - {id: TV-2, kind: no-fire, inputs: {frequencia_respiratoria: 32, frequencia_respiratoria_programada: 16, pressao_plato: 26}, expected: no-fire, note: "RR high but plateau 26 <= 30 -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {frequencia_respiratoria: 17, frequencia_respiratoria_programada: 16, pressao_plato: 31}, expected: fire, note: "spont RR 17 > set 16 (strict >) AND plateau 31 > 30 -> fire; at RR 16==16 no-fire. Documented RR strict-inequality boundary."}
+      - {id: TV-4, kind: no-fire, inputs: {frequencia_respiratoria: 32, frequencia_respiratoria_programada: 16, pressao_plato: null}, expected: no-fire, note: "plateau absent -> insufficient data, no fire on RR alone"}
+    reconciliation:
+      - {existing_id: null, status: new, note: "No catalog RESP-* for asynchrony; net-new from vision VIS-3.3-06 (Assincronia ventilatória)."}
+
+  - alert_id: ALERT-RESP-WEANING-READY-04
+    name: "Prontidão para desmame / extubação"
+    severity: normal
+    trigger:
+      logic: >-
+        weaning_ready := ALL sustained >= 2h:
+        relacao_spo2_fio2 > 315 (S/F; ~P/F>300)
+        AND peep <= 8 cmH2O
+        AND fio2 <= 0.40 (FRACTION; pending RAT-VENTILACAO-06 / P0)
+        AND (indice_respiracao_rapida_superficial < 105 if present)
+        AND rass >= -2 AND glasgow > 8
+        AND dose_vasopressor <= 0.2 mcg/kg/min
+        AND dias_em_ventilacao_mecanica >= 1 (pending RAT-VENTILACAO-01).
+        Controlled-mode check uses modalidade_ventilatoria (corrects legacy C4 dispositivo/modalidade mismatch).
+      window: PT2H
+    inputs:
+      - {name: relacao_spo2_fio2, type: quantity, unit: "ratio", source: "derived = SpO2 / FiO2(fraction)", staleness_max: PT15M}
+      - {name: peep, type: quantity, unit: "cmH2O", source: "ventilator OBX / Observation LOINC 20077-4", staleness_max: PT1H}
+      - {name: fio2, type: quantity, unit: "fraction", source: "ventilator OBX / Observation LOINC 19935-6", staleness_max: PT15M}
+      - {name: indice_respiracao_rapida_superficial, type: quantity, unit: "ratio", source: "derived = RR / VT(L) (RSBI)", staleness_max: PT1H}
+      - {name: rass, type: quantity, unit: "points", source: "sedacao domain, Observation LOINC 75826-6", staleness_max: PT4H}
+      - {name: glasgow, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 9269-2", staleness_max: PT8H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain (MedicationAdministration)", staleness_max: PT1H}
+      - {name: dias_em_ventilacao_mecanica, type: quantity, unit: "count", source: "derived (see domain OQ-2)", staleness_max: PT1H}
+    evidence:
+      - {citation: "Boles JM et al. Eur Respir J 2007;29:1033-1056 (ERS/ATS weaning consensus; catalog RESP-004)", rule_refs: [RULE-VENTILACAO-017]}
+      - {citation: "Yang KL, Tobin MJ. NEJM 1991;324:1445-1450 (RSBI <105)", rule_refs: []}
+      - {citation: "Sessler CN et al. AJRCCM 2002 (RASS); Teasdale G. 1974 (GCS)", rule_refs: [RULE-VENTILACAO-007]}
+    ratify_pending:
+      - {anchor: RAT-VENTILACAO-06, rule: RULE-VENTILACAO-011, band: P0, note: "extubation-readiness FiO2 fraction (<=0.40); mission-law number, committee confirms the alert-forcing bundle"}
+      - {anchor: RAT-VENTILACAO-01, rule: RULE-VENTILACAO-002, band: UNVERIFIABLE, note: "days-on-VM primitive: whole elapsed days, no abs() on future timestamps"}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+      note: "Positive opportunity prompt; long cooldown so a persistently-ready patient does not re-nag once an SBT is planned."
+    ppv_budget:
+      target_ppv: 0.70
+      est_volume_per_100_beds_day: 3
+      rationale: >-
+        Fires when a ventilated patient first meets ALL readiness criteria sustained 2h — a genuine SBT opportunity.
+        Across ~40 ventilated beds, ~3/day become newly ready. 'PPV' here = truly SBT-eligible; the conjunctive bundle
+        (oxygenation + low support + arousal + no high vasopressor) makes it specific, so target 0.70. Normal severity,
+        so it never competes with deterioration alerts for attention.
+    response: {required: "considerar teste de respiração espontânea (TRE/SBT) e avaliação de extubação", ack_sla: PT6H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {relacao_spo2_fio2: 350, peep: 5, fio2: 0.30, indice_respiracao_rapida_superficial: 80, rass: -1, glasgow: 14, dose_vasopressor: 0.0, dias_em_ventilacao_mecanica: 3}, expected: fire, note: "all criteria met, sustained 2h -> ready"}
+      - {id: TV-2, kind: no-fire, inputs: {relacao_spo2_fio2: 350, peep: 5, fio2: 0.30, indice_respiracao_rapida_superficial: 120, rass: -1, glasgow: 14, dose_vasopressor: 0.0, dias_em_ventilacao_mecanica: 3}, expected: no-fire, note: "RSBI 120 >= 105 -> not ready (rapid shallow breathing)"}
+      - {id: TV-3, kind: boundary, inputs: {relacao_spo2_fio2: 316, peep: 8, fio2: 0.40, indice_respiracao_rapida_superficial: 104, rass: -2, glasgow: 9, dose_vasopressor: 0.2, dias_em_ventilacao_mecanica: 1}, expected: fire, note: "every criterion at its exact boundary (S/F>315 so 316 ok; PEEP<=8; FiO2<=0.40; RSBI<105; RASS>=-2; GCS>8 so 9 ok; vaso<=0.2; days>=1) -> fire"}
+      - {id: TV-4, kind: no-fire, inputs: {relacao_spo2_fio2: 350, peep: 5, fio2: 0.30, indice_respiracao_rapida_superficial: 80, rass: -4, glasgow: 6, dose_vasopressor: 0.0, dias_em_ventilacao_mecanica: 3}, expected: no-fire, note: "RASS -4 (< -2) deep sedation AND GCS 6 (<=8) -> not arousable"}
+      - {id: TV-5, kind: no-fire, inputs: {relacao_spo2_fio2: 350, peep: 5, fio2: 0.30, indice_respiracao_rapida_superficial: 80, rass: -1, glasgow: 14, dose_vasopressor: 0.5, dias_em_ventilacao_mecanica: 3}, expected: no-fire, note: "vasopressor 0.5 > 0.2 mcg/kg/min -> hemodynamically unfit for weaning"}
+    reconciliation:
+      - {existing_id: RESP-004, status: extended, note: "vs alert-catalog.md — RESP-004 readiness bundle (INFO->normal); adds RULE-VENTILACAO-007 arousal disjunct (RASS/GCS), corrected FiO2 fraction (RAT-VENTILACAO-06), modalidade-field controlled-mode fix, days-on-VM floor (RAT-VENTILACAO-01)."}
+
+  - alert_id: ALERT-RESP-PROLONGED-INTUB-05
+    name: "Intubação prolongada — avaliar traqueostomia"
+    severity: watch
+    trigger:
+      logic: >-
+        prolonged_intubation := dispositivo_via_aerea == "TOT"
+        AND dias_em_ventilacao_mecanica > 10.
+        COVID companion (pending RAT-VENTILACAO-05): if covid19_ativo == true, use threshold
+        dias_em_ventilacao_mecanica >= 14 (AAO-HNS 2020 recommended default) instead of >10.
+      window: P1D
+    inputs:
+      - {name: dispositivo_via_aerea, type: enum, unit: "enum", source: "clinical form / EMR (see domain §6)", staleness_max: PT12H}
+      - {name: dias_em_ventilacao_mecanica, type: quantity, unit: "count", source: "derived (see domain OQ-2 / RAT-VENTILACAO-01)", staleness_max: PT1H}
+      - {name: covid19_ativo, type: boolean, unit: "boolean", source: "Condition (COVID-19)", staleness_max: PT7D}
+    evidence:
+      - {citation: "Young D et al. JAMA 2013;309(20):2121-2129 (TracMan; tracheostomy timing)", rule_refs: [RULE-VENTILACAO-008]}
+      - {citation: "AAO-HNS COVID-19 tracheostomy guidelines 2020 (defer to >=14 days)", rule_refs: []}
+    ratify_pending:
+      - {anchor: RAT-VENTILACAO-05, rule: RULE-VENTILACAO-009, band: P1, note: "COVID tracheostomy timing: code >10d vs facade/guideline >14d; recommended default >=14d for active COVID"}
+      - {anchor: RAT-VENTILACAO-01, rule: RULE-VENTILACAO-002, band: UNVERIFIABLE, note: "days-on-VM primitive correction"}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: P3D
+      rate_limit: "1/admission/patient"
+      maintenance_window_aware: true
+      note: "Fires once at the threshold crossing per admission; deduped so the trach discussion is prompted a single time."
+    ppv_budget:
+      target_ppv: 0.75
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Deterministic duration trigger (TOT + >10 days), fired once per admission. Across a 100-bed ICU with typical
+        VM durations, ~1-2 patients/day cross day 10 still orotracheally intubated. High actionability (multidisciplinary
+        trach-timing decision) gives target 0.75; the once-per-admission dedup keeps volume minimal.
+    response: {required: "discussão multidisciplinar de traqueostomia (timing, elegibilidade)", ack_sla: PT12H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {dispositivo_via_aerea: "TOT", dias_em_ventilacao_mecanica: 12, covid19_ativo: false}, expected: fire, note: "TOT 12 days > 10 (non-COVID) -> fire"}
+      - {id: TV-2, kind: no-fire, inputs: {dispositivo_via_aerea: "TQT", dias_em_ventilacao_mecanica: 20, covid19_ativo: false}, expected: no-fire, note: "already tracheostomized (TQT) -> excluded from the intubation timer"}
+      - {id: TV-3, kind: boundary, inputs: {dispositivo_via_aerea: "TOT", dias_em_ventilacao_mecanica: 10, covid19_ativo: false}, expected: no-fire, note: "exactly 10 days; rule is strict >10 so day 10 no-fire, day 11 fires. Documented day-10 boundary."}
+      - {id: TV-4, kind: no-fire, inputs: {dispositivo_via_aerea: "TOT", dias_em_ventilacao_mecanica: 12, covid19_ativo: true}, expected: no-fire, note: "active COVID uses >=14d threshold (RAT-VENTILACAO-05); 12 < 14 -> deferred, no-fire"}
+      - {id: TV-5, kind: fire, inputs: {dispositivo_via_aerea: "TOT", dias_em_ventilacao_mecanica: 14, covid19_ativo: true}, expected: fire, note: "active COVID at 14 days (>=14) -> fire"}
+    reconciliation:
+      - {existing_id: null, status: new, note: "No catalog RESP-* for tracheostomy timing; net-new to the respiratory alert set from legacy RULE-VENTILACAO-008 (ADOPT) + -009 (RATIFY)."}

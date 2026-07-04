@@ -1,0 +1,52 @@
+domain: respiratory
+
+# What this domain reads. Raw clinical signals come from AMH Gold via Athena (ADR-001-C-01);
+# cross-domain quantities come from sibling domains. FiO2 is a FRACTION 0-1 (mission law CON-SEED-12 / SYS-01).
+consumes:
+  # --- raw clinical signals (AMH Gold, via Athena) ---
+  - {quantity: peripheral_oxygen_saturation, unit: "percent", source: "AMH Gold Observation LOINC 2708-6"}
+  - {quantity: inspired_oxygen_fraction, unit: "fraction", source: "AMH Gold Observation LOINC 19935-6 / ventilator HL7 ORU OBX"}
+  - {quantity: arterial_partial_pressure_o2, unit: "mmHg", source: "AMH Gold blood gas LOINC 2703-7"}
+  - {quantity: arterial_partial_pressure_co2, unit: "mmHg", source: "AMH Gold blood gas LOINC 2019-8"}
+  - {quantity: positive_end_expiratory_pressure, unit: "cmH2O", source: "AMH Gold Observation LOINC 20077-4 / ventilator OBX"}
+  - {quantity: plateau_pressure, unit: "cmH2O", source: "ventilator OBX (optional)"}
+  - {quantity: tidal_volume_absolute, unit: "mL", source: "ventilator OBX"}
+  - {quantity: respiratory_rate, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1 (spontaneous) + ventilator OBX (set RR)"}
+  - {quantity: body_height, unit: "cm", source: "AMH Gold Observation LOINC 8302-2 (for PBW)"}
+  - {quantity: body_weight, unit: "kg", source: "AMH Gold Observation LOINC 29463-7"}
+  - {quantity: bilateral_infiltrates_present, unit: "boolean", source: "AMH Gold imaging DiagnosticReport (CXR/CT)"}
+  - {quantity: copd_hypercapnia_risk, unit: "boolean", source: "AMH Gold Condition (SNOMED, DPOC)"}
+  - {quantity: covid19_active, unit: "boolean", source: "AMH Gold Condition (COVID-19)"}
+  - {quantity: airway_device, unit: "enum", source: "clinical form / EMR (TOT|TQT|DNI; see respiratory.md §6)"}
+  - {quantity: ventilation_modality, unit: "enum", source: "ventilator / clinical form (PSV|VCV|PCV; see respiratory.md §6)"}
+  # --- cross-domain quantities (sibling domains) ---
+  - {quantity: richmond_agitation_sedation_scale, unit: "points", source: "sedacao domain (weaning arousal gate)"}
+  - {quantity: glasgow_coma_scale, unit: "points", source: "clinical-scoring / neuro domain"}
+  - {quantity: weight_indexed_vasopressor_rate, unit: "mcg/kg/min", source: "hemodynamics domain (already converted from mL/h; SYS-C-04)"}
+
+# What this domain publishes. The FiO2-normalized P/F and S/F ratios are carried on the staging event
+# fields and consumed by clinical-scoring (SOFA-resp) and sepsis (oxygenation minor criterion).
+emits_events:
+  - event: respiratory.ards.staged
+    meaning: "Berlin ARDS stage entered/escalated for a ventilated patient (S/F primary, P/F authoritative when ABG present)."
+    fields: [mpi_id, stage, severity, relacao_spo2_fio2, relacao_pao2_fio2, fio2_fraction, peep, on_mechanical_ventilation, volume_corrente_pbw, pressao_plato, timestamp]
+  - event: respiratory.deterioration.detected
+    meaning: "Short-horizon ventilatory deterioration: >20% S/F fall in 6h OR >30% FiO2 rise to hold SpO2."
+    fields: [mpi_id, relacao_spo2_fio2_atual, relacao_spo2_fio2_6h_ago, delta_pct, fio2_atual, fio2_6h_ago, timestamp]
+  - event: respiratory.asynchrony.detected
+    meaning: "Patient-ventilator asynchrony: spontaneous RR above set RR with elevated plateau pressure."
+    fields: [mpi_id, frequencia_respiratoria, frequencia_respiratoria_programada, pressao_plato, timestamp]
+  - event: respiratory.weaning.ready
+    meaning: "Patient meets the ERS/ATS spontaneous-breathing-trial readiness bundle sustained >=2h (SBT opportunity)."
+    fields: [mpi_id, relacao_spo2_fio2, peep, fio2_fraction, rsbi, rass, glasgow, dose_vasopressor, dias_em_ventilacao_mecanica, timestamp]
+  - event: respiratory.prolonged_intubation.flagged
+    meaning: "Orotracheal ventilation beyond the tracheostomy-timing threshold (>10d; >=14d if active COVID, pending RAT-VENTILACAO-05)."
+    fields: [mpi_id, dias_em_ventilacao_mecanica, dispositivo_via_aerea, covid19_ativo, threshold_days_applied, timestamp]
+
+# Ingestion->alert p95 budget = 30 s (VIS-C-09). Ventilator/SpO2 streams sample ~every 5 min (vision VIS-4.2-03);
+# the 30 s ceiling governs compute+publish latency once a sample lands, not the physiological sampling cadence.
+latency_assumption_ms: 30000
+
+# Sum of the five alerts' est_volume_per_100_beds_day (ARDS 7 + deterioration 6 + asynchrony 4 + weaning 3 +
+# prolonged-intubation 2). Respiratory is P5 with Media ventilator-data availability, so a deliberately low burden.
+volume_estimate_per_100_beds_day: 22

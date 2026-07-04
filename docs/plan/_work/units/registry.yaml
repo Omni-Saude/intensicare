@@ -20,7 +20,13 @@
 #
 # Rule: a unit string on an alert input that is neither canonical_unit nor a declared alias is a
 # BUILD-TIME error in the alert-definition schema (not a runtime surprise).
-version: 1
+#
+# CHANGELOG:
+#   v2 (2026-07-04): +intervalo_tempo (elapsed duration, canonical "h"); +clearance_creatinina
+#     (CrCl, mL/min, drug-dosing); +taxa_filtracao_glomerular (eGFR CKD-EPI, mL/min/1.73m2, KDIGO
+#     staging). Added per units-gate request for the neuro-sedation + pharmaco-interaction domains.
+#   v1: initial 64-parameter registry (mission-law canonicals per CON-SEED-12).
+version: 2
 parameters:
 
   # ============================================================================
@@ -327,6 +333,24 @@ parameters:
     conversion_notes: "MISSION LAW: canonical mg/dL. SOFA-renal bands (<1.2 / 1.2-1.9 / 2.0-3.4 / 3.5-4.9 / >=5.0) and KDIGO (>=0.3 rise, 1.5-3x baseline, >=4.0) all in mg/dL. NB P0-03: legacy strict '>5' leaves a dead gap at (4.9,5.0] — a boundary bug, unit is correct."
     refs: ["CON-SEED-12", "KDIGO-2012", "vision §3.2", "P0-03 (RULE-CLINICAL-SCORING-007)", "RULE-SINAIS-VITAIS-024"]
 
+  - parameter: clearance_creatinina
+    quantity: creatinine_clearance
+    canonical_unit: "mL/min"
+    aliases: ["ml/min", "CrCl", "ClCr", "clearance"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Cockcroft-Gault creatinine clearance — an ABSOLUTE, whole-patient clearance, NOT body-surface-normalized. vision §3.7: a renally-cleared antimicrobial + CrCl < 30 mL/min without dose adjustment fires an alert. Use CrCl (absolute) for DRUG DOSING; do NOT substitute BSA-normalized eGFR (taxa_filtracao_glomerular) for a dosing decision. Derived from creatinina (mg/dL) + peso (kg) + idade + sex."
+    refs: ["vision §3.7 (Rybak AJHP 2020, vancomycin)", "KDIGO-2012", "Cockcroft-Gault (Nephron 1976)", "vision §3.2"]
+
+  - parameter: taxa_filtracao_glomerular
+    quantity: estimated_gfr
+    canonical_unit: "mL/min/1.73m2"
+    aliases: ["mL/min/1.73 m2", "ml/min/1.73m2", "eGFR", "TFG"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "CKD-EPI estimated GFR, NORMALIZED to 1.73 m2 body-surface area — used for KDIGO CKD/AKI staging (G1 >=90 ... G5 <15). Because it is BSA-normalized it is NOT directly interchangeable with absolute CrCl (clearance_creatinina) for drug dosing; to obtain an absolute value multiply by (patient BSA / 1.73). Kept as a separate parameter precisely so the two renal measures are never conflated."
+    refs: ["KDIGO-2012 (CKD-EPI equation)", "vision §3.2 (renal function / KDIGO)", "CON-SEED-12"]
+
   - parameter: glicemia
     quantity: blood_glucose
     canonical_unit: "mg/dL"
@@ -596,6 +620,18 @@ parameters:
     display_transform: null
     conversion_notes: "QTc in milliseconds. vision §3.7: Torsades risk QTc>500 ms or delta>60 ms + >=2 QT-prolonging drugs."
     refs: ["vision §3.7 (Tisdale Circ 2013)", "Tisdale-2013"]
+
+  - parameter: intervalo_tempo
+    quantity: elapsed_duration
+    canonical_unit: "h"
+    aliases: ["hours", "horas", "hr"]
+    edge_conversions:
+      - {from: "min", factor: 0.0166667, note: "min -> h: divide by 60"}
+      - {from: "s", factor: 0.000277778, note: "s -> h: divide by 3600"}
+      - {from: "d", factor: 24.0, note: "days -> h: multiply by 24 (days-on-VM, days since intubation/TOT, BZD > 7d)"}
+    display_transform: null
+    conversion_notes: "Elapsed time since a clinical event (e.g. horas_desde_ultimo_cam_icu, hours since last sedation, hours-on-VM). Canonical 'h' applies to PLAIN NUMERIC inputs; trigger-window bounds instead use ISO-8601 durations (window PT1H, staleness_max PT4H) per CONTRACTS.md alert schema — the two representations are complementary, not interchangeable. HAZARD: the legacy elapsed-hours helper used timedelta.seconds (wraps at 24h) instead of total_seconds(), making sepsis recency guards (<=24h, <=12h, <2h) unreliable for records >24h old (RULE-BALANCO-HIDRICO-016). Compute as total_seconds()/3600."
+    refs: ["vision §3.5 (no sedation in last 4h)", "vision §3.7 (BZD/opioid >7 days continuous)", "RULE-BALANCO-HIDRICO-016", "RULE-VENTILACAO-002 (days-on-VM)", "RULE-VENTILACAO-009 (trach >10d)", "CONTRACTS.md (ISO-8601 PT*H windows)"]
 
   # ============================================================================
   # DRUG ADMINISTRATION (edge inputs to the vasopressor conversion service)

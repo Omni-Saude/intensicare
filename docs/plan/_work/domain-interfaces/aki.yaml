@@ -1,0 +1,33 @@
+domain: aki
+# AKI (KDIGO 2012) domain interface contract. Consumes fluid-balance/urine aggregates from hemodynamics,
+# creatinine + weight from AMH Gold, and sepsis organ-dysfunction context; emits KDIGO stage events consumed
+# by sepsis, correlation-engine, and electrolytes. Latency governed by lab/fluid-balance cadence (1-6h,
+# vision VIS-4.2-02), well within the <30s ingestion->alert SLO (VIS-C-09) once inputs land.
+consumes:
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0 (Athena, ADR-001)"}
+  - {quantity: urine_output_volume, unit: "mL", source: "hemodynamics domain (fluid-balance saida source rows, LOINC 9187-6)"}
+  - {quantity: fluid_balance, unit: "mL", source: "hemodynamics domain (cumulative signed balance)"}
+  - {quantity: body_weight, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated peso; SYS-09)"}
+  - {quantity: age, unit: "years", source: "AMH Gold Patient / MPI mpi_id (ADR-001)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold MedicationAdministration (vancomicina/aminoglicosideo/AINE/IECA-BRA active)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold Procedure (contraste_iodado last 72h; terapia_renal_substitutiva active)"}
+  - {quantity: dimensionless, unit: "boolean", source: "hemodynamics domain (hipovolemia / volume-depletion flag)"}
+  - {event: sepsis.organ_dysfunction.detected, source: "sepsis domain (raises pre-test AKI suspicion; sepse é #1 causa de AKI, VIS-4-03)"}
+emits_events:
+  - event: aki.stage.detected
+    meaning: "A KDIGO stage (1/2/3) was computed for the patient from the worst of the creatinine and urine-output criteria."
+    fields: [patient_id, mpi_id, kdigo_stage, driving_criterion, baseline_source, creatinina, creatinina_basal, debito_urinario_horario, severity, computed_at]
+  - event: aki.progression.detected
+    meaning: "The KDIGO stage increased within a rolling 24h window (deterioration signal)."
+    fields: [patient_id, mpi_id, kdigo_stage_now, kdigo_stage_24h_ago, severity, detected_at]
+  - event: aki.nephrotoxin.exposure
+    meaning: "A rising-creatinine trend coincides with an additive nephrotoxic-drug combination (pre-KDIGO-stage-1 signal)."
+    fields: [patient_id, mpi_id, active_nephrotoxin_set, creatinina, creatinina_basal, hipovolemia, detected_at]
+latency_assumption_ms: 300000
+# 5 min: bounded by the fluid-balance / creatinine input cadence (every 1-6h, VIS-4.2-02) and the AMH Gold
+# Silver-Entities P95 < 30 min batch pipeline (ADR001-F-02). Once a new creatinine or timed urine row lands,
+# stage recomputation and event emission are well under the <30s ingestion->alert p95 SLO (VIS-C-09).
+volume_estimate_per_100_beds_day: 9
+# ~9 alerts/100-beds/day total: KDIGO-STAGE-01 ~5, PROGRESSION-02 ~2, NEPHROTOXIN-03 ~2. Consistent with
+# AKI incidence 30-60% (VIS-3.2-01) and the fewer-richer-alerts design (three catalog stage alerts folded
+# into one stage-scaling alert) supporting the >=0.60 fleet PPV / <=10% ignored targets (VIS-7.1-02/04).

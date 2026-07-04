@@ -1,0 +1,67 @@
+# Correlation-engine domain interface contract — IntensiCare v2 (vision §4.1, Fase 2d, VIS-5.2-04).
+# The correlation engine is a MULTI-DOMAIN layer: it does NOT read raw AMH Gold quantities to stage a
+# primary condition. It CONSUMES the typed domain EVENTS emitted by the seven Fase-2 detectors (each per
+# its own interface contract), joins them over temporal windows, and EMITS a single richer correlated alert
+# per causal chain — REPLACING (folding) the member alerts to protect the alarm-fatigue budget (VIS-7.1-04
+# ignored-rate <=10%). Units on carried quantities are canonical per _work/units/registry.yaml.
+# Platform: reads member events off the Redis pub/sub bus (VIS-2-08) + operational state (TimescaleDB,
+# ADR-001 C-03); persists correlated facts to AMH Gold fact_alert (ADR-001 C-04). No own ingestion (C-01).
+domain: correlation-engine
+
+consumes:
+  # ---- MEMBER DOMAIN EVENTS (the real inputs): each carries already-canonical quantities. ----
+  # Sepsis domain (vision §3.1) — feeds the sepsis->AKI causal chain.
+  - {quantity: lactate, unit: "mmol/L", source: "sepsis domain event sepsis.organ_dysfunction.detected / sepsis.shock.detected (field lactato_arterial_mmol_L)"}
+  - {quantity: quick_sofa, unit: "points", source: "sepsis domain event sepsis.organ_dysfunction.detected (field qsofa)"}
+  - {quantity: mean_arterial_pressure, unit: "mmHg", source: "sepsis domain event sepsis.shock.detected (field mean_arterial_pressure_mmHg)"}
+  # AKI domain (vision §3.2, KDIGO) — the second member of the sepsis->AKI chain.
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "aki domain event aki.stage.detected (field creatinina_mg_dL)"}
+  - {quantity: urine_output_rate_indexed, unit: "mL/kg/h", source: "aki domain event aki.stage.detected (field debito_urinario_horario_mL_kg_h; requires validated peso, SYS-09)"}
+  - {quantity: kdigo_stage, unit: "enum", source: "aki domain event aki.stage.detected / aki.kdigo.stage_change (field kdigo_stage; ordinal 0-3 — NOT in units registry, see open question OQ-CORR-01)"}
+  # Respiratory domain (vision §3.3, Berlin) — first member of the SDRA+choque chain.
+  - {quantity: pf_ratio, unit: "ratio", source: "respiratory domain event respiratory.ards.detected (field relacao_pao2_fio2; FiO2 in canonical fraction, SYS-01)"}
+  - {quantity: sf_ratio, unit: "ratio", source: "respiratory domain event respiratory.ards.detected (field relacao_spo2_fio2; non-invasive surrogate)"}
+  # Hemodynamics domain (vision §3.4) — second member of the SDRA+choque chain.
+  - {quantity: weight_indexed_vasopressor_rate, unit: "mcg/kg/min", source: "hemodynamics domain event hemodynamic.shock.detected / hemodynamic.vasopressor.escalating (field dose_vasopressor; mL/h->mcg/kg/min via conversion service, CON-0060/SYS-C-04)"}
+  - {quantity: shock_index, unit: "ratio", source: "hemodynamics domain event hemodynamic.shock.detected (field indice_choque; HR/SBP)"}
+  # Drug-interaction domain (vision §3.7) — first member of the QTc + K+/Mg2+ chain.
+  - {quantity: corrected_qt_interval, unit: "ms", source: "drug-interaction domain event drug.qtc.prolonged (field qtc_ms)"}
+  - {quantity: count, unit: "count", source: "drug-interaction domain event drug.qtc.prolonged (field qt_prolonging_drug_count; CredibleMeds Known-Risk active drugs)"}
+  # Electrolyte domain (vision §3.6) — second member of the QTc + K+/Mg2+ chain.
+  - {quantity: serum_potassium, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypokalemia.detected (field potassio_mmol_L)"}
+  - {quantity: serum_magnesium, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypomagnesemia.detected (field magnesio_mmol_L)"}
+  # Efficiency / stewardship (my cluster, RULE-EFICIENCIA-007 ADAPT) — repeat diagnostic-order events.
+  - {quantity: count, unit: "count", source: "AMH Gold ServiceRequest/DiagnosticReport per exam_class (repeat-order count within class-specific reassessment window)"}
+  # Admission signal (RULE-TRILHAS-ENGINE-011 ADAPT) — enables the per-patient correlation subscription.
+  - {quantity: boolean, unit: "boolean", source: "AMH Gold Encounter (ICU admission -> subscribe patient to correlation joins; supersedes legacy CriarTrilhas, RULE-TRILHAS-ENGINE-001)"}
+
+emits_events:
+  - event: correlation.sepsis_aki.detected
+    meaning: "Sepsis-associated AKI (SA-AKI): a sepsis organ-dysfunction/shock event and a KDIGO>=1 AKI event joined within PT72H, sepsis-first causal ordering (sepse é #1 causa de AKI, VIS-4-03). Replaces the member sepsis + AKI alerts with one richer alert."
+    fields: [mpi_id, encounter_id, alert_id, sepsis_event_ref, sepsis_onset_at, aki_event_ref, aki_onset_at, kdigo_stage, lactato_arterial_mmol_L, creatinina_mg_dL, causal_lag_h, member_alerts_suppressed]
+  - event: correlation.resp_hemo.detected
+    meaning: "Combined cardiopulmonary failure (SDRA + choque, VIS-4-03): moderate/severe ARDS event and a shock event joined within PT6H. Replaces the member respiratory + hemodynamic alerts with one richer alert."
+    fields: [mpi_id, encounter_id, alert_id, ards_event_ref, ards_severity, relacao_pao2_fio2, shock_event_ref, mean_arterial_pressure_mmHg, dose_vasopressor_mcg_kg_min, member_alerts_suppressed]
+  - event: correlation.qtc_electrolyte.detected
+    meaning: "Amplified Torsades substrate (QTc + K+/Mg2+, VIS-4-03): QTc>500 ms with a QT-prolonging drug and hypokalemia/hypomagnesemia joined within PT24H. AMPLIFIES two WARN member signals into one critical alert."
+    fields: [mpi_id, encounter_id, alert_id, qtc_ms, qt_prolonging_drug_count, potassio_mmol_L, magnesio_mmol_L, qtc_event_ref, electrolyte_event_ref, member_alerts_suppressed]
+  - event: correlation.redundant_exam.detected
+    meaning: "Redundant diagnostic ordering: a new exam order duplicates a same-class order still within its reassessment window (per-class, corrected from the legacy summed-across-classes bug, RULE-EFICIENCIA-007). Stewardship, not deterioration."
+    fields: [mpi_id, encounter_id, alert_id, exam_class, prior_order_at, new_order_at, reassessment_window]
+  - event: correlation.member_suppressed
+    meaning: "Suppression directive to the alert dispatcher: for the correlation's dedup window, fold the named member alerts into the correlated alert (push only the correlation to the clinician; still log each member to prontuário NGS-2 per VIS-C-07). This is the alarm-fatigue mechanism."
+    fields: [mpi_id, encounter_id, correlation_alert_id, suppressed_member_alert_ids, suppress_until, reason]
+
+# The correlation engine's own compute (temporal join over the last N member events per patient) is
+# sub-second. The BINDING latency is (a) member-event arrival, itself bounded by the AMH Gold batch
+# pipeline P95 < 30 min (ADR001-F-02), NOT the vision <30 s ingestion-to-alert SLO (VIS-C-09), and
+# (b) the temporal JOIN WINDOW itself (a correlation can only fire once BOTH members have arrived, so a
+# sepsis->AKI correlation is inherently paced by AKI biomarker cadence, hours-scale). The number below is
+# the engine's compute+dispatch budget once both member events are present on the bus.
+latency_assumption_ms: 8000
+
+# Sum of the four correlated alerts' est_volume_per_100_beds_day (_work/alerts/correlation-engine.yaml):
+#   SEPSIS-AKI (2) + RESP-HEMO (1) + QTC-ELEC (1) + EXAM-REDUND (2) = 6.
+# NET alarm-fatigue effect is a REDUCTION: each clinical correlation folds >=2 member alerts into one, so
+# the ~4 correlated deterioration alerts REPLACE ~9-10 member pushes/100 beds/day (see alerts file rationale).
+volume_estimate_per_100_beds_day: 6

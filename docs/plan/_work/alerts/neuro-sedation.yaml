@@ -1,0 +1,219 @@
+domain: neuro-sedation
+# Neuro-sedation alert suite — RASS / CAM-ICU / PADIS-aligned. Severity scale: normal|watch|urgent|critical.
+# Fleet targets: PPV >= 0.60, ignored-rate <= 10%. Low-acuity (P7) domain: prefer FEWER, richer alerts;
+# depth alerts require sustained >=2 consecutive assessments; indication-absence gates protect PPV.
+# Every input unit is canonical per _work/units/registry.yaml. Every rule_refs ID is ADOPT/ADOPT-CORRECTED/ADAPT.
+alerts:
+
+  - alert_id: ALERT-NEUROSED-OVERSED-01
+    name: "Sedação profunda fora do alvo (RASS < -3 sem indicação)"
+    severity: watch
+    trigger:
+      logic: "ventilacao_mecanica == true AND (rass >= -5 AND rass <= -3) AND indicacao_sedacao_profunda == false AND sedacao_paliativa == false, sustained over >=2 consecutive RASS assessments (>=PT4H)"
+      window: PT4H
+    inputs:
+      - {name: rass, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 75826-6 (signed -5..+4)", staleness_max: PT4H}
+      - {name: ventilacao_mecanica, type: boolean, unit: "boolean", source: "Procedure / device presence", staleness_max: PT6H}
+      - {name: indicacao_sedacao_profunda, type: boolean, unit: "boolean", source: "derived (SDRA grave/ECMO/BNM/HIC/EME)", staleness_max: PT12H}
+      - {name: sedacao_paliativa, type: boolean, unit: "boolean", source: "care-plan flag (diurna_sedoanalgesia_justificativas)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Sessler CN et al. Am J Respir Crit Care Med 2002;166(10):1338-1344 (RASS)", rule_refs: [RULE-SEDACAO-003]}
+      - {citation: "Devlin JW et al. Crit Care Med 2018;46(9):e825-e873 (PADIS light-sedation target)", rule_refs: [RULE-SEDACAO-016]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT8H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 4
+      rationale: "~40% of a 100-bed ICU is ventilated; a minority are RASS<-3 off-target sustained >=4h with NO documented deep-sedation indication (the indication gate excludes intentional deep sedation for ARDS/ECMO/BNM/HIC/EME). >=2-consecutive requirement plus PT8H cooldown caps re-fires. Most fires are genuine over-sedation reducible by the team -> PPV ~0.65."
+    response: {required: "reavaliação da meta de sedação e titulação à faixa RASS 0 a -2", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {rass: -4, ventilacao_mecanica: true, indicacao_sedacao_profunda: false, sedacao_paliativa: false, consecutive: 2}, expected: fire, note: "deep sedation, no indication, sustained"}
+      - {id: TV-2, kind: no-fire, inputs: {rass: -4, ventilacao_mecanica: true, indicacao_sedacao_profunda: true, sedacao_paliativa: false, consecutive: 2}, expected: no-fire, note: "deep sedation IS indicated (e.g. SDRA grave/BNM) -> suppressed"}
+      - {id: TV-3, kind: boundary, inputs: {rass: -3, ventilacao_mecanica: true, indicacao_sedacao_profunda: false, sedacao_paliativa: false, consecutive: 2}, expected: fire, note: "boundary: RASS exactly -3 is INSIDE the inclusive band (-5<=rass<=-3); fires. Corrects legacy unsatisfiable -3<=x<=-5 (RULE-SEDACAO-003)"}
+      - {id: TV-4, kind: boundary, inputs: {rass: -2, ventilacao_mecanica: true, indicacao_sedacao_profunda: false, sedacao_paliativa: false, consecutive: 2}, expected: no-fire, note: "boundary: RASS -2 is the light-sedation target (0..-2); no fire"}
+      - {id: TV-5, kind: no-fire, inputs: {rass: -4, ventilacao_mecanica: true, indicacao_sedacao_profunda: false, sedacao_paliativa: false, consecutive: 1}, expected: no-fire, note: "single assessment only; sustained-2 requirement not met"}
+    reconciliation: {existing_id: DEL-001, status: changed, note: "vs docs/clinical/alert-catalog.md DEL-001 'Sedação fora da faixa alvo (RASS)': DEL-001's deep-sedation branch (RASS<-3) becomes this watch alert; its agitation branch (RASS>+1) is split into ALERT-NEUROSED-AGITATION-02 with a distinct urgent severity/response."}
+
+  - alert_id: ALERT-NEUROSED-AGITATION-02
+    name: "Agitação psicomotora — risco de remoção de dispositivos (RASS > +1)"
+    severity: urgent
+    trigger:
+      logic: "rass > +1 sustained over >=2 consecutive RASS assessments, OR any single rass >= +3"
+      window: PT4H
+    inputs:
+      - {name: rass, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 75826-6 (signed -5..+4)", staleness_max: PT4H}
+    evidence:
+      - {citation: "Sessler CN et al. Am J Respir Crit Care Med 2002 (RASS agitation band +2..+4)", rule_refs: []}
+      - {citation: "Ely EW et al. JAMA 2003;289(22):2983-2991 (RASS validity/reliability in ICU)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "4/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.70
+      est_volume_per_100_beds_day: 2
+      rationale: "RASS>+1 sustained is uncommon (~2/100 beds/day) and directly actionable: agitation carries self-extubation / line-removal risk. Single RASS>=+3 (muito agitado/combativo) bypasses the sustained gate for immediate safety. maintenance_window_aware:false because agitation is never suppressible by a maintenance window. High PPV (~0.70) because RASS>+1 is a concrete observed state, not a trend inference."
+    response: {required: "avaliação de segurança beira-leito: causa reversível (dor/delirium/hipóxia), proteção de dispositivos", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {rass: 2, consecutive: 2}, expected: fire, note: "agitado, sustained"}
+      - {id: TV-2, kind: fire, inputs: {rass: 3, consecutive: 1}, expected: fire, note: "muito agitado single reading -> immediate (bypasses sustained gate)"}
+      - {id: TV-3, kind: boundary, inputs: {rass: 1, consecutive: 2}, expected: no-fire, note: "boundary: RASS +1 (inquieto) is NOT > +1; no fire"}
+      - {id: TV-4, kind: no-fire, inputs: {rass: 2, consecutive: 1}, expected: no-fire, note: "RASS +2 single reading; sustained-2 not met and not >=+3"}
+    reconciliation: {existing_id: DEL-001, status: changed, note: "vs DEL-001 (agitation branch): promoted from WARN to urgent and split into its own alert because self-extubation risk needs a <15min bedside response distinct from the watch-level over-sedation half (ALERT-NEUROSED-OVERSED-01)."}
+
+  - alert_id: ALERT-NEUROSED-SAT-03
+    name: "Despertar diário (SAT) não realizado / candidato a redução de sedação"
+    severity: watch
+    trigger:
+      logic: "ventilacao_mecanica == true AND sedativo_continuo_presente == true AND relacao_pao2_fio2 > 200 AND fio2 < 0.50 AND indicacao_sedacao_profunda == false AND (reducao_sedacao_matinal_pct < 50 OR sedativo_continuo_gt_96h == true)"
+      window: PT24H
+    inputs:
+      - {name: ventilacao_mecanica, type: boolean, unit: "boolean", source: "Procedure / device presence", staleness_max: PT6H}
+      - {name: sedativo_continuo_presente, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (sedatives)", staleness_max: PT4H}
+      - {name: relacao_pao2_fio2, type: quantity, unit: "ratio", source: "respiratory domain (FiO2 fraction!)", staleness_max: PT6H}
+      - {name: fio2, type: quantity, unit: "fraction", source: "AMH Gold Observation LOINC 19935-6", staleness_max: PT6H}
+      - {name: indicacao_sedacao_profunda, type: boolean, unit: "boolean", source: "derived (SDRA grave/ECMO/BNM/HIC/EME)", staleness_max: PT12H}
+      - {name: reducao_sedacao_matinal_pct, type: quantity, unit: "percent", source: "derived (06:00-10:00 sedation dose delta)", staleness_max: PT6H}
+      - {name: sedativo_continuo_gt_96h, type: boolean, unit: "boolean", source: "derived from MedicationAdministration start (>96h)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Kress JP et al. NEJM 2000;342(20):1471-1477 (daily interruption of sedation)", rule_refs: [RULE-SEDACAO-006]}
+      - {citation: "Girard TD et al. Lancet 2008;371(9607):126-134 (ABC / SAT+SBT)", rule_refs: [RULE-SEDACAO-017]}
+      - {citation: "Devlin JW et al. PADIS 2018 (sedation minimisation); ARDS Definition Task Force JAMA 2012 (P/F>200)", rule_refs: [RULE-SEDACAO-011]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT20H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 3
+      rationale: "Evaluated once per morning window; rate_limit 1/24h/patient makes this at most 1 per ventilated-sedated patient/day. Oxygenation gate (P/F>200, FiO2<0.50) + indication-absence gate select true lightening candidates. ~3/100 beds/day. PPV floor 0.60 (some candidates have soft contraindications not captured as indication flags) — recommended-default reduction threshold pending RAT-SEDACAO-02."
+    response: {required: "considerar interrupção diária de sedação (SAT) e teste de respiração espontânea se elegível", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {ventilacao_mecanica: true, sedativo_continuo_presente: true, relacao_pao2_fio2: 260, fio2: 0.40, indicacao_sedacao_profunda: false, reducao_sedacao_matinal_pct: 20}, expected: fire, note: "adequate oxygenation, still sedated, morning reduction <50%"}
+      - {id: TV-2, kind: no-fire, inputs: {ventilacao_mecanica: true, sedativo_continuo_presente: true, relacao_pao2_fio2: 180, fio2: 0.60, indicacao_sedacao_profunda: false, reducao_sedacao_matinal_pct: 10}, expected: no-fire, note: "P/F 180<200 and FiO2 0.60 -> not a lightening candidate (oxygenation gate fails)"}
+      - {id: TV-3, kind: boundary, inputs: {ventilacao_mecanica: true, sedativo_continuo_presente: true, relacao_pao2_fio2: 260, fio2: 0.40, indicacao_sedacao_profunda: false, reducao_sedacao_matinal_pct: 50}, expected: no-fire, note: "boundary: exactly 50% reduction is COMPLIANT (>=50% passes); corrects RULE-SEDACAO-009 half-reduction bug (RAT-SEDACAO-02)"}
+      - {id: TV-4, kind: boundary, inputs: {ventilacao_mecanica: true, sedativo_continuo_presente: true, relacao_pao2_fio2: 200, fio2: 0.40, indicacao_sedacao_profunda: false, reducao_sedacao_matinal_pct: 20}, expected: no-fire, note: "boundary: P/F exactly 200 is NOT >200 (strict); no fire"}
+      - {id: TV-5, kind: fire, inputs: {ventilacao_mecanica: true, sedativo_continuo_presente: true, relacao_pao2_fio2: 260, fio2: 0.40, indicacao_sedacao_profunda: false, reducao_sedacao_matinal_pct: 70, sedativo_continuo_gt_96h: true}, expected: fire, note: "reduction OK but >96h continuous sedation -> prolonged-sedation surveillance branch fires (RULE-SEDACAO-011)"}
+    reconciliation: {existing_id: null, status: new, note: "No DEL-* catalog alert covers SAT/daily-awakening; new alert consolidating RULE-SEDACAO-006/017 (lightening candidate) + RULE-SEDACAO-011 (prolonged sedation) + RULE-SEDACAO-009 morning-reduction (pending RAT-SEDACAO-02)."}
+
+  - alert_id: ALERT-NEUROSED-DELIRIUM-04
+    name: "Delirium — CAM-ICU positivo"
+    severity: urgent
+    trigger:
+      logic: "cam_icu == positivo"
+      window: PT12H
+    inputs:
+      - {name: cam_icu, type: enum, unit: "enum", source: "AMH Gold Observation LOINC 8683-5/8684-3/8686-8 (CAM-ICU: {positivo,negativo,nao_avaliavel})", staleness_max: PT12H}
+    evidence:
+      - {citation: "Ely EW et al. NEJM 2001;345(14):1013-1020 (CAM-ICU validity/reliability)", rule_refs: []}
+      - {citation: "Devlin JW et al. PADIS 2018 (delirium management bundle)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "2/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.75
+      est_volume_per_100_beds_day: 5
+      rationale: "Delirium prevalence in ventilated patients is 50-80% but CAM-ICU is assessed per shift; positive screens fire once per positive assessment (deduped). ~5/100 beds/day. CAM-ICU is a validated instrument -> a positive screen is a genuine, directly-actionable finding, PPV ~0.75. Not maintenance-suppressible."
+    response: {required: "abordagem PADIS: causas reversíveis, revisão de sedativos deliriogênicos, medidas não-farmacológicas", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {cam_icu: positivo}, expected: fire, note: "CAM-ICU positive"}
+      - {id: TV-2, kind: no-fire, inputs: {cam_icu: negativo}, expected: no-fire, note: "CAM-ICU negative"}
+      - {id: TV-3, kind: boundary, inputs: {cam_icu: nao_avaliavel}, expected: no-fire, note: "boundary: unassessable (RASS -4/-5 or language barrier) is NOT positive; no fire, but feeds SCREEN-GAP cadence clock"}
+    reconciliation: {existing_id: DEL-002, status: aligned, note: "vs DEL-002 'Delirium — CAM-ICU positivo'; same trigger and evidence (Ely 2001). Severity mapped catalog URG -> urgent."}
+
+  - alert_id: ALERT-NEUROSED-SCREEN-GAP-05
+    name: "Rastreio de delirium em atraso / suspeita de delirium hipoativo"
+    severity: watch
+    trigger:
+      logic: "(ventilacao_mecanica == true OR sedativo_continuo_presente == true) AND horas_desde_ultimo_cam_icu > 24 AND (rass >= -3 AND rass <= -1) AND sedativo_continuo_presente_ultimas_4h == false"
+      window: PT24H
+    inputs:
+      - {name: horas_desde_ultimo_cam_icu, type: quantity, unit: "h", source: "derived from last CAM-ICU Observation timestamp", staleness_max: PT1H}
+      - {name: rass, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 75826-6", staleness_max: PT4H}
+      - {name: ventilacao_mecanica, type: boolean, unit: "boolean", source: "Procedure / device presence", staleness_max: PT6H}
+      - {name: sedativo_continuo_presente, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (sedatives)", staleness_max: PT4H}
+    evidence:
+      - {citation: "van den Boogaard M et al. BMJ 2014;348:g1173 (hypoactive delirium under-recognition / PRE-DELIRIC)", rule_refs: []}
+      - {citation: "Devlin JW et al. PADIS 2018 (routine delirium screening cadence)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT24H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.55
+      est_volume_per_100_beds_day: 3
+      rationale: "A process/cadence alert (missing screening), inherently lower-yield than a positive screen. rate_limit 1/24h/patient bounds it to at most one nudge per patient/day. ~3/100 beds/day. PPV ~0.55 (below fleet floor is acceptable for a screening-prompt class because the action cost is a single low-burden CAM-ICU assessment) — kept watch and heavily rate-limited so it cannot drive ignored-rate."
+    response: {required: "aplicar CAM-ICU; documentar avaliação de delirium hipoativo", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {ventilacao_mecanica: true, horas_desde_ultimo_cam_icu: 30, rass: -2, sedativo_continuo_presente_ultimas_4h: false}, expected: fire, note: "at-risk, no CAM-ICU in 30h, hypoactive window, no active sedation"}
+      - {id: TV-2, kind: no-fire, inputs: {ventilacao_mecanica: true, horas_desde_ultimo_cam_icu: 30, rass: -2, sedativo_continuo_presente_ultimas_4h: true}, expected: no-fire, note: "reduced RASS explained by active sedation in last 4h -> not hypoactive suspicion (DEL-004)"}
+      - {id: TV-3, kind: boundary, inputs: {ventilacao_mecanica: true, horas_desde_ultimo_cam_icu: 24, rass: -2, sedativo_continuo_presente_ultimas_4h: false}, expected: no-fire, note: "boundary: exactly 24h is NOT >24 (strict); no fire. Uses true rolling 24h window (RAT-SEDACAO-10), not calendar-day"}
+      - {id: TV-4, kind: boundary, inputs: {ventilacao_mecanica: true, horas_desde_ultimo_cam_icu: 30, rass: 0, sedativo_continuo_presente_ultimas_4h: false}, expected: no-fire, note: "boundary: RASS 0 outside the -1..-3 hypoactive window; no fire"}
+    reconciliation: {existing_id: DEL-004, status: extended, note: "vs DEL-004 'Delirium hipoativo possivelmente não reconhecido'; adds an explicit >24h rolling cadence clock (true rolling window per RAT-SEDACAO-10) to the vision's 'no CAM-ICU record' condition. PT-BR alert text preserved verbatim."}
+
+  - alert_id: ALERT-NEUROSED-IATRO-06
+    name: "Risco de delirium iatrogênico — benzodiazepínico em idoso sedado"
+    severity: watch
+    trigger:
+      logic: "benzodiazepinico_continuo == true AND idade > 65 AND rass <= -2 AND indicacao_sedacao_profunda == false"
+      window: PT8H
+    inputs:
+      - {name: benzodiazepinico_continuo, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (midazolam/diazepam/lorazepam)", staleness_max: PT4H}
+      - {name: idade, type: quantity, unit: "years", source: "MPI demographics (Patient)", staleness_max: P30D}
+      - {name: rass, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 75826-6", staleness_max: PT4H}
+      - {name: indicacao_sedacao_profunda, type: boolean, unit: "boolean", source: "derived (SDRA grave/ECMO/BNM/HIC/EME)", staleness_max: PT12H}
+    evidence:
+      - {citation: "Devlin JW et al. PADIS 2018 (suggest non-benzodiazepine over benzodiazepine sedation to reduce delirium)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 1
+      rationale: "Narrow conjunction (BZD continuous infusion AND age>65 AND RASS<=-2 AND no deep-sed indication) selects a small, specific high-risk cohort (~1/100 beds/day). rate_limit 1/24h. PPV ~0.65 — the recommendation (consider dexmedetomidine/propofol substitution) is actionable whenever the conjunction holds; PADIS-anchored."
+    response: {required: "considerar sedativo não-benzodiazepínico (dexmedetomidina/propofol) se apropriado", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {benzodiazepinico_continuo: true, idade: 72, rass: -3, indicacao_sedacao_profunda: false}, expected: fire, note: "elderly, BZD infusion, sedated, no deep-sed indication"}
+      - {id: TV-2, kind: no-fire, inputs: {benzodiazepinico_continuo: false, idade: 72, rass: -3, indicacao_sedacao_profunda: false}, expected: no-fire, note: "no continuous benzodiazepine"}
+      - {id: TV-3, kind: boundary, inputs: {benzodiazepinico_continuo: true, idade: 65, rass: -3, indicacao_sedacao_profunda: false}, expected: no-fire, note: "boundary: age exactly 65 is NOT >65 (strict, per vision age>65); no fire"}
+      - {id: TV-4, kind: boundary, inputs: {benzodiazepinico_continuo: true, idade: 72, rass: -2, indicacao_sedacao_profunda: false}, expected: fire, note: "boundary: RASS exactly -2 satisfies rass<=-2; fires"}
+    reconciliation: {existing_id: DEL-003, status: aligned, note: "vs DEL-003 'Risco de delirium iatrogênico — sedação inadequada'; same conjunction (BZD infusion + age>65 + RASS<=-2 + no deep-sed indication). Severity mapped catalog WARN -> watch."}
+
+  - alert_id: ALERT-NEUROSED-PRIS-07
+    name: "Vigilância de síndrome de infusão de propofol (PRIS) — labs de segurança em falta"
+    severity: watch
+    trigger:
+      logic: "propofol_continuo_gt_96h == true AND (cpk_resultado_48h == false OR transaminases_resultado_48h == false OR triglicerides_resultado_48h == false)"
+      window: PT48H
+    inputs:
+      - {name: propofol_continuo_gt_96h, type: boolean, unit: "boolean", source: "derived from MedicationAdministration start (>96h continuous propofol)", staleness_max: PT6H}
+      - {name: cpk_resultado_48h, type: boolean, unit: "boolean", source: "AMH Gold lab_result presence (CPK) in 48h", staleness_max: PT48H}
+      - {name: transaminases_resultado_48h, type: boolean, unit: "boolean", source: "AMH Gold lab_result presence (TGO/AST + TGP/ALT) in 48h", staleness_max: PT48H}
+      - {name: triglicerides_resultado_48h, type: boolean, unit: "boolean", source: "AMH Gold lab_result presence (triglycerides) in 48h", staleness_max: PT48H}
+    evidence:
+      - {citation: "Mirrakhimov AE et al. Crit Care Res Pract 2015;2015:260385 (propofol infusion syndrome)", rule_refs: [RULE-SEDACAO-012]}
+      - {citation: "Devlin JW et al. PADIS 2018 (propofol monitoring)", rule_refs: [RULE-SEDACAO-012]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT24H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 1
+      rationale: "Prolonged (>96h) continuous propofol is uncommon and the missing-safety-lab conjunction narrows further (~1/100 beds/day; rounds up from <1). rate_limit 1/24h. PPV ~0.60 — every fire is a concrete, cheap-to-close safety-lab gap (order CPK/transaminases/triglycerides + review lactate/pH); fixes the legacy 'trigliceres' typo that silently made the triglyceride leg inert (RULE-SEDACAO-012)."
+    response: {required: "solicitar CPK, TGO/TGP, triglicérides; revisar lactato/pH; reavaliar dose e duração do propofol", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {propofol_continuo_gt_96h: true, cpk_resultado_48h: false, transaminases_resultado_48h: true, triglicerides_resultado_48h: true}, expected: fire, note: ">96h propofol and CPK missing in 48h"}
+      - {id: TV-2, kind: no-fire, inputs: {propofol_continuo_gt_96h: true, cpk_resultado_48h: true, transaminases_resultado_48h: true, triglicerides_resultado_48h: true}, expected: no-fire, note: "all safety labs present in 48h -> surveillance satisfied"}
+      - {id: TV-3, kind: fire, inputs: {propofol_continuo_gt_96h: true, cpk_resultado_48h: true, transaminases_resultado_48h: true, triglicerides_resultado_48h: false}, expected: fire, note: "triglyceride leg missing -> fires (this is the leg the legacy 'trigliceres' typo silently disabled)"}
+      - {id: TV-4, kind: boundary, inputs: {propofol_continuo_gt_96h: false, cpk_resultado_48h: false, transaminases_resultado_48h: false, triglicerides_resultado_48h: false}, expected: no-fire, note: "boundary: propofol not yet >96h continuous; surveillance not triggered regardless of missing labs"}
+    reconciliation: {existing_id: null, status: new, note: "No DEL-* catalog alert covers PRIS; new alert carrying RULE-SEDACAO-012 (ADOPT) forward with the 'trigliceres' field-name typo corrected."}
+
+  - alert_id: ALERT-NEUROSED-PAIN-08
+    name: "Dor não controlada (escala VISUAL/COMPORTAMENTAL, dois balanços consecutivos)"
+    severity: watch
+    trigger:
+      logic: "(escala_dor_numerica >= 4 OR escala_dor_comportamental >= 7) confirmed on TWO consecutive fluid-balance records"
+      window: PT12H
+    inputs:
+      - {name: escala_dor_numerica, type: quantity, unit: "points", source: "AMH Gold Observation (EVA/VISUAL 0-10)", staleness_max: PT6H}
+      - {name: escala_dor_comportamental, type: quantity, unit: "points", source: "AMH Gold Observation (BPS/COMPORTAMENTAL 3-12)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Devlin JW et al. PADIS 2018 (pain assessment standard)", rule_refs: [RULE-SEDACAO-001]}
+      - {citation: "Payen JF et al. Crit Care Med 2001;29(12):2258-2263 (Behavioral Pain Scale)", rule_refs: [RULE-SEDACAO-002]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT6H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 3
+      rationale: "The two-consecutive-balance confirmation is a built-in false-positive filter (a single spurious high score never fires), directly carried from RULE-SEDACAO-001/002. ~3/100 beds/day. PPV ~0.60 — uncontrolled pain confirmed on two balances is a genuine analgesia-titration prompt; severe band (VISUAL 7-10 / BPS 10-12) escalates the advisory text but severity stays watch (not an imminent-life-threat class)."
+    response: {required: "reavaliar analgesia e titular; distinguir dor de agitação/delirium", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {escala_dor_numerica: 6, consecutive_balances: 2}, expected: fire, note: "VISUAL 6 (moderate) on two consecutive balances"}
+      - {id: TV-2, kind: no-fire, inputs: {escala_dor_numerica: 6, consecutive_balances: 1}, expected: no-fire, note: "single balance only; two-consecutive confirmation not met"}
+      - {id: TV-3, kind: boundary, inputs: {escala_dor_numerica: 4, consecutive_balances: 2}, expected: fire, note: "boundary: VISUAL exactly 4 is the moderate-band floor (>=4); fires"}
+      - {id: TV-4, kind: boundary, inputs: {escala_dor_numerica: 3, escala_dor_comportamental: 7, consecutive_balances: 2}, expected: fire, note: "boundary: VISUAL 3 below floor but BPS exactly 7 meets the COMPORTAMENTAL moderate floor; OR-branch fires. Guards against the chained-comparison severe-band suppression bug (SYS-06/P0-04/05)"}
+      - {id: TV-5, kind: boundary, inputs: {escala_dor_numerica: 3, escala_dor_comportamental: 6, consecutive_balances: 2}, expected: no-fire, note: "boundary: VISUAL 3 and BPS 6 both below floors; no fire"}
+    reconciliation: {existing_id: null, status: new, note: "No DEL-* catalog alert covers pain (analgesia pillar); new alert carrying RULE-SEDACAO-001 (moderate) and RULE-SEDACAO-002 (severe) ADOPT forward with the two-consecutive-balance confirmation preserved."}

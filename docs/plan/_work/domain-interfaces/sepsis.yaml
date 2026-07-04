@@ -1,0 +1,62 @@
+# Sepsis domain interface contract — IntensiCare v2 (vision §3.1, priority P1).
+# Declares what the sepsis domain CONSUMES (quantities from other domains / AMH Gold), what it EMITS
+# (correlation + lifecycle events), its latency assumption, and its volume estimate. Units are canonical
+# per _work/units/registry.yaml. Platform: AMH Gold via Amazon Athena (ADR-001 C-01/C-05), no own ingestion.
+domain: sepsis
+
+consumes:
+  # From the AMH Gold layer (FHIR-sourced Observations / labs, read via Athena) — screening + staging inputs.
+  - {quantity: body_temperature, unit: "degC", source: "AMH Gold Observation LOINC 8310-5"}
+  - {quantity: heart_rate, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4"}
+  - {quantity: respiratory_rate, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1"}
+  - {quantity: systolic_blood_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6"}
+  - {quantity: mean_arterial_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8478-0"}
+  - {quantity: glasgow_coma_scale, unit: "points", source: "AMH Gold Observation LOINC 9269-2"}
+  - {quantity: white_blood_cell_count, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 6690-2"}
+  - {quantity: band_neutrophils_fraction, unit: "percent", source: "AMH Gold lab_result LOINC 35332-6"}
+  - {quantity: platelet_count, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 777-3"}
+  - {quantity: total_bilirubin, unit: "mg/dL", source: "AMH Gold lab_result LOINC 1975-2"}
+  - {quantity: lactate, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7"}
+  - {quantity: procalcitonin, unit: "ng/mL", source: "AMH Gold lab_result LOINC 33959-8"}
+  - {quantity: c_reactive_protein, unit: "mg/L", source: "AMH Gold lab_result LOINC 1988-5"}
+  - {quantity: arterial_partial_pressure_co2, unit: "mmHg", source: "AMH Gold blood gas LOINC 2019-8"}
+  - {quantity: capillary_refill_time, unit: "s", source: "AMH Gold Observation (TEC bedside)"}
+  # Cross-domain derived quantities (NOT staged by sepsis; consumed already-canonical).
+  - {quantity: quick_sofa, unit: "points", source: "clinical-scoring domain (derived: RR>=22, SBP<=100, GCS<15)"}
+  - {quantity: urine_output_rate_indexed, unit: "mL/kg/h", source: "aki domain (requires validated peso; sepsis does not stage AKI)"}
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "aki domain"}
+  - {quantity: weight_indexed_vasopressor_rate, unit: "mcg/kg/min", source: "hemodynamics domain (mL/h->mcg/kg/min conversion service, SYS-C-04)"}
+  - {quantity: shock_index, unit: "ratio", source: "hemodynamics domain (HR/SBP)"}
+  - {quantity: pf_ratio, unit: "ratio", source: "respiratory domain (FiO2 in canonical fraction)"}
+  # Infection-source signals (for the PPV-protecting infection gate on ALERT-SEPSIS-SCREEN-01).
+  - {quantity: infection_evidence, unit: "boolean", source: "AMH Gold DiagnosticReport (microbiology) / MedicationAdministration (ATB<24h) / Condition (suspeita de infecção)"}
+  # Antimicrobial exposure duration for procalcitonin stewardship alerts.
+  - {quantity: active_antimicrobial_duration, unit: "count", source: "AMH Gold MedicationRequest / MedicationAdministration (hours)"}
+
+emits_events:
+  - event: sepsis.screening.positive
+    meaning: "Infection-gated SIRS/qSOFA screen crossed threshold (ALERT-SEPSIS-SCREEN-01); candidate for hour-1 bundle."
+    fields: [mpi_id, encounter_id, sirs_count, qsofa, infection_source, detected_at, alert_id]
+  - event: sepsis.organ_dysfunction.detected
+    meaning: "qSOFA>=2 with lactate elevation/trend (ALERT-SEPSIS-ORGAN-02); consumed by aki domain (sepse é #1 causa de AKI, VIS-4-03)."
+    fields: [mpi_id, encounter_id, qsofa, lactato_arterial_mmol_L, delta_lactato_mmol_L_per_h, supporting_criteria, detected_at, alert_id]
+  - event: sepsis.shock.detected
+    meaning: "Septic shock imminent — lactate>=4 mmol/L or vasopressor/fluid-refractory MAP<65 (ALERT-SEPSIS-SHOCK-03); hands lactate-clearance targeting to hemodynamics."
+    fields: [mpi_id, encounter_id, lactato_arterial_mmol_L, mean_arterial_pressure_mmHg, dose_vasopressor_mcg_kg_min, detected_at, alert_id]
+  - event: sepsis.bundle.overdue
+    meaning: "An accepted hour-1 bundle has an uncompleted item past its SSC deadline (ALERT-SEPSIS-BUNDLE-OVERDUE-04)."
+    fields: [mpi_id, encounter_id, protocol_id, item_name, item_pacote, due_at, overdue_since, alert_id]
+  - event: sepsis.pct.trend
+    meaning: "Procalcitonin trend event — rising (treatment failure, ALERT-SEPSIS-PCT-RISING-05) or de-escalation-eligible (ALERT-SEPSIS-PCT-DEESC-06)."
+    fields: [mpi_id, encounter_id, procalcitonina_ng_mL, pico_pct_ng_mL, delta_pct_ng_mL_24h, direction, patient_stable, detected_at, alert_id]
+
+# Deterministic Python compute is sub-second; the binding latency is data ARRIVAL. Per ADR-001, clinical data
+# is read from the AMH Gold layer whose batch pipeline P95 is < 30 min (ADR001-F-02) — sepsis inherits that
+# freshness bound, NOT the vision's <30 s ingestion-to-alert SLO (VIS-C-09), which the AMH batch path cannot
+# meet today (ADR-001 flags a dedicated MSK streaming channel as the Fase-4 escape hatch). The number below is
+# the domain's own compute+dispatch budget once inputs are present; end-to-end freshness is data-arrival-bound.
+latency_assumption_ms: 5000
+
+# Sum of the six alerts' est_volume_per_100_beds_day from _work/alerts/sepsis.yaml:
+#   SCREEN-01 (7) + ORGAN-02 (3) + SHOCK-03 (1) + BUNDLE-OVERDUE-04 (3) + PCT-RISING-05 (1) + PCT-DEESC-06 (2).
+volume_estimate_per_100_beds_day: 17

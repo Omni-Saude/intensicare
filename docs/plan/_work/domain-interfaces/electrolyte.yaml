@@ -1,0 +1,54 @@
+domain: electrolyte
+# Electrolyte-emergency domain interface contract (vision §3.6). Consumes the electrolyte panel + albumin +
+# ECG QTc + active-drug flags from AMH Gold via Athena (ADR-001-C-01), and AKI stage context from the AKI
+# domain; emits per-ion disturbance events plus the QTc-risk composite that realizes vision cross-domain
+# correlation #3 "Drug + Electrolyte — QTc + K+/Mg2+" (VIS-4-03) into the pharmaco-interaction domain
+# (DDX-001 Torsades). Electrolytes arrive on lab result (no local streaming, VIS-4.2-06).
+consumes:
+  - {quantity: serum_potassium, unit: "mmol/L", source: "AMH Gold lab_result LOINC 6298-4 (Athena, ADR-001)"}
+  - {quantity: serum_sodium, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2951-2 (Athena)"}
+  - {quantity: serum_magnesium, unit: "mmol/L", source: "AMH Gold lab_result LOINC 19123-9 (Athena)"}
+  - {quantity: ionized_calcium, unit: "mmol/L", source: "AMH Gold lab_result LOINC 1994-3 (Athena)"}
+  - {quantity: total_calcium, unit: "mg/dL", source: "AMH Gold lab_result LOINC 17861-6 (fallback for corrected total Ca)"}
+  - {quantity: serum_phosphate, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2777-1 (canonical mg/dL pending RAT-ELY-01)"}
+  - {quantity: serum_albumin, unit: "g/dL", source: "AMH Gold lab_result LOINC 1751-7 (albumina; parameter NOT YET in units registry — open question, g/dL mission canonical)"}
+  - {quantity: blood_glucose, unit: "mg/dL", source: "AMH Gold lab_result (glucose-corrected sodium context)"}
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0 (CKD / free-water / tumor-lysis context)"}
+  - {quantity: corrected_qt_interval, unit: "ms", source: "AMH Gold Observation ECG QTc LOINC 44974-4"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold MedicationAdministration (digoxina_ativa)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold MedicationAdministration (medicamento_hipercalemiante_ativo: espironolactona/eplerenona/IECA/BRA/TMP-SMX/heparina/succinilcolina)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold MedicationAdministration (furosemida_dose_alta)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold Condition / eGFR<60 (ckd_moderada_grave)"}
+  - {event: aki.stage.detected, source: "AKI domain (CKD/AKI raises pre-test hyperkalemia + hyperphosphatemia + hypocalcemia probability)"}
+emits_events:
+  - event: electrolyte.dyskalemia.detected
+    meaning: "Severe potassium disturbance (hyper or hypo) with band + direction; carries the digoxin-toxicity pairing flag."
+    fields: [patient_id, mpi_id, potassio, direction, band, delta_k_24h, digoxin_toxicity_context, severity, detected_at]
+  - event: electrolyte.dysnatremia.detected
+    meaning: "Severe sodium disturbance (hyper or hypo), glucose-corrected when glucose available."
+    fields: [patient_id, mpi_id, sodio, sodio_corrigido, direction, band, delta_na_24h, severity, detected_at]
+  - event: electrolyte.sodium_correction.hazard
+    meaning: "Sodium correction rate exceeded the osmotic-demyelination safety ceiling (>8 or >10 mmol/L/24h)."
+    fields: [patient_id, mpi_id, sodio, delta_na_24h, sodio_nadir_24h, band, severity, detected_at]
+  - event: electrolyte.calcium.disturbance
+    meaning: "Severe ionized (or corrected-total fallback) calcium disturbance, hypo or hyper."
+    fields: [patient_id, mpi_id, calcio_ionizado, calcio_total_corrigido, direction, band, severity, detected_at]
+  - event: electrolyte.hypomagnesemia.detected
+    meaning: "Severe/at-risk hypomagnesemia; carries hypokalemia-perpetuation and QTc cofactor flags."
+    fields: [patient_id, mpi_id, magnesio, potassio, qtc, band, severity, detected_at]
+  - event: electrolyte.phosphate.disturbance
+    meaning: "Severe hypo- or hyperphosphatemia (thresholds pending RAT-ELY-01); hyperphosphatemia routes to AKI/tumor-lysis review."
+    fields: [patient_id, mpi_id, fosfato, direction, band, severity, detected_at]
+  - event: electrolyte.qtc_risk.electrolyte
+    meaning: "Composite QTc-risk signal for the pharmaco domain: hypokalemia (K<3.5) and/or hypomagnesemia (Mg<0.9) and/or hypocalcemia present, feeding DDX-001 Torsades correlation (vision #3 Drug+Electrolyte)."
+    fields: [patient_id, mpi_id, potassio, magnesio, calcio_ionizado, qtc, contributing_ions, detected_at]
+latency_assumption_ms: 300000
+# 5 min: electrolytes are event-driven on lab result (VIS-4.2-06, no local streaming). Bound is the AMH Gold
+# Silver-Entities P95 < 30 min batch pipeline (ADR001-F-02) for the panel to land; once a new electrolyte or
+# QTc row is available, band evaluation + event emission are well under the < 30s ingestion->alert p95 SLO
+# (VIS-C-09 / CON-0062 critical action < 5 min).
+volume_estimate_per_100_beds_day: 10
+# ~10 alerts/100-beds/day: POTASSIUM-01 ~3, SODIUM-01 ~2, SODIUM-CORRECTION-02 ~1, CALCIUM-01 ~2,
+# MAGNESIUM-01 ~1, PHOSPHATE-01 ~1. Six folded per-ion alerts (vs the vision's 9-row §3.6 table and the
+# catalog's 6 ELY-* entries with 2-3 bands each) keep per-alert PPV high (0.65-0.88) and support the >=0.60
+# fleet PPV and <=10% ignored targets (VIS-7.1-02/04).

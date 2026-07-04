@@ -1,0 +1,81 @@
+domain: pharmaco-interaction
+# Pharmaco-interaction domain interface contract — IntensiCare v2 (vision §3.7, Fase 2c, VIS-5.2-03; P6).
+# The domain's PRIMARY input is the active medication list (AMH Gold MedicationRequest + MedicationAdministration,
+# "on order/administration" cadence, VIS-4.2-07), matched against a DECLARATIVE + VERSIONED interaction knowledge
+# base (CredibleMeds QT / serotonergic / CNS-depressant / nephrotoxic / duplication-class / renal-dose KBs;
+# clinical/domains/pharmaco-interaction.md §3). It joins that med list with ECG (QTc), vitals (RR/SpO2/HR/SBP/temp),
+# and electrolytes (K+/Mg2+). It EMITS drug.* events; two of them are cross-domain feeders: drug.qtc.prolonged
+# (-> correlation engine QTc+K/Mg amplification, VIS-4-03) and pharmaco.nephrotoxic_burden.changed (-> AKI domain,
+# whose ALERT-AKI-NEPHROTOXIN-03 owns the firing nephrotoxic-stacking alert; this domain does NOT duplicate it).
+# Platform: reads MedicationRequest/Observation from AMH Gold via Athena (ADR-001 C-01/C-05); no own ingestion.
+# Units on carried quantities are canonical per _work/units/registry.yaml EXCEPT crcl (mL/min), missing from the
+# registry, used as mission canonical pending its addition (domain §7 open question OQ-PHARMACO-01).
+
+consumes:
+  # ---- PRIMARY INPUT: the active medication list (matched to the interaction KB, domain §3). ----
+  - {quantity: medication_list, unit: "enum", source: "AMH Gold MedicationRequest + MedicationAdministration (drug, dose, route, frequency, start date; ADR-001 C-05 HAPI FHIR / Athena) — matched to QT/serotonergic/CNS/nephrotoxic/duplication/renal-clearance KBs"}
+  # ---- ECG / cardiac (QTc alert). ----
+  - {quantity: corrected_qt_interval, unit: "ms", source: "AMH Gold Observation LOINC 44974-4 (QTc Bazett/Fridericia); DATA-AVAIL-07 Média"}
+  # ---- Vitals (CNS-depression, withdrawal, CVC-fever alerts). ----
+  - {quantity: respiratory_rate, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1 / monitor HL7 ORU"}
+  - {quantity: peripheral_oxygen_saturation, unit: "percent", source: "AMH Gold Observation LOINC 2708-6 / monitor HL7 ORU"}
+  - {quantity: heart_rate, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4 / monitor"}
+  - {quantity: systolic_blood_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6 / monitor"}
+  - {quantity: body_temperature, unit: "degC", source: "AMH Gold Observation LOINC 8310-5 / monitor"}
+  # ---- Electrolytes (QTc substrate; consumed from the electrolyte domain / AMH Gold). ----
+  - {quantity: serum_potassium, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypokalemia.detected / AMH Gold lab_result LOINC 6298-4"}
+  - {quantity: serum_magnesium, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypomagnesemia.detected / AMH Gold lab_result LOINC 19123-9"}
+  # ---- Renal function (renal-dose-adjust + nephrotoxic-burden). ----
+  - {quantity: serum_creatinine, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0 (feeds Cockcroft-Gault CrCl)"}
+  - {quantity: creatinine_clearance, unit: "mL/min", source: "derived Cockcroft-Gault (creatinina + peso + idade + sex); UNIT MISSING from _work/units/registry.yaml — mission canonical mL/min, OQ-PHARMACO-01"}
+  - {quantity: body_weight, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated peso; SYS-09)"}
+  - {quantity: age, unit: "years", source: "AMH Gold Patient / MPI mpi_id (ADR-001 C-02)"}
+  # ---- Neuro (withdrawal autonomic sign; prolonged-sedation exposure). ----
+  - {quantity: richmond_agitation_sedation_scale, unit: "points", source: "neuro-sedation domain / AMH Gold Observation LOINC 75826-6 (signed -5..+4)"}
+  - {event: neurosed.prolonged_sedation.flagged, source: "neuro-sedation domain (continuous sedative/BZD/opioid >96h or >7d exposure) -> feeds ALERT-PHARMACO-WITHDRAWAL-05 exposure gate"}
+  # ---- Clinical context (indication/culture/candidemia gates). ----
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold Condition / care-plan (documented dual-therapy indication; candidemia risk factors; documented infection source)"}
+  - {quantity: dimensionless, unit: "boolean", source: "AMH Gold ServiceRequest/DiagnosticReport (culture ordered <=48h; CVC insertion Procedure dwell)"}
+  - {event: sepsis.antimicrobial.de_escalation, source: "sepsis domain (PCT<0.25 ng/mL or >80% drop; PCR<100 mg/L CAP) -> feeds ALERT-PHARMACO-STEWARDSHIP-07 de-escalation branch"}
+
+emits_events:
+  - event: drug.qtc.prolonged
+    meaning: "QTc > 500 ms (or delta > 60 ms) with >=1 CredibleMeds Known-Risk drug active. When >=2 drugs (or delta branch) it also raises the critical ALERT-PHARMACO-QTC-01; with exactly 1 drug it is emitted for the correlation engine to AMPLIFY with hypokalemia/hypomagnesemia (correlation.qtc_electrolyte.detected, VIS-4-03)."
+    fields: [mpi_id, encounter_id, alert_id, qtc_ms, delta_qtc_ms, qt_prolonging_drug_count, qt_prolonging_drug_set, potassio_mmol_L, magnesio_mmol_L, detected_at]
+  - event: drug.serotonergic_load.high
+    meaning: "Three or more active serotonergic agents WITHOUT a Hunter-criterion clinical sign (DDX-002b surveillance). Not a push; feeds risk dashboards and the correlation layer."
+    fields: [mpi_id, encounter_id, serotonergic_agent_count, serotonergic_agent_set, detected_at]
+  - event: drug.cns_depression.risk
+    meaning: "Spontaneously-breathing patient on >=2 CNS depressants with RR<10 rpm or SpO2<90% (raises ALERT-PHARMACO-CNS-DEPRESSION-03); also emitted as a monitoring-gap signal when >=3 depressants lack continuous SpO2."
+    fields: [mpi_id, encounter_id, alert_id, cns_depressant_count, cns_depressant_set, frequencia_respiratoria_rpm, spo2_percent, detected_at]
+  - event: drug.therapeutic_duplication.detected
+    meaning: "Two or more active drugs of the same duplication-flagged class with no documented combination indication (ALERT-PHARMACO-DUP-04)."
+    fields: [mpi_id, encounter_id, alert_id, duplicated_class, same_class_active_count, member_drugs, detected_at]
+  - event: drug.withdrawal.risk
+    meaning: "Abrupt discontinuation of a >7-day continuous BZD/opioid with >=1 new autonomic sign (ALERT-PHARMACO-WITHDRAWAL-05)."
+    fields: [mpi_id, encounter_id, alert_id, agent_class, exposure_days, autonomic_signs, detected_at]
+  - event: drug.renal_dose.mismatch
+    meaning: "Renally-cleared antimicrobial at CrCl<30 mL/min prescribed above the versioned renal-adjust dose table, drug not on the no-adjust exception KB (ALERT-PHARMACO-RENALADJ-06)."
+    fields: [mpi_id, encounter_id, alert_id, drug, crcl_mL_min, prescribed_dose, recommended_dose, detected_at]
+  - event: drug.antimicrobial.stewardship_review
+    meaning: "Antimicrobial due for stewardship review: >7d duration, broad-spectrum without cultures, or an active de-escalation opportunity (ALERT-PHARMACO-STEWARDSHIP-07)."
+    fields: [mpi_id, encounter_id, alert_id, review_reason, antimicrobial, duration_days, de_escalation_signal, detected_at]
+  - event: drug.cvc.dwell_fever
+    meaning: "Central venous catheter dwell >7d with fever >=38.3 degC (IDSA); catheter-source workup + candidemia-branch prompt (ALERT-PHARMACO-CVC-FEVER-08)."
+    fields: [mpi_id, encounter_id, alert_id, cvc_dwell_days, temperatura_degC, candidemia_risk, detected_at]
+  - event: pharmaco.nephrotoxic_burden.changed
+    meaning: "The active additive-nephrotoxic drug set changed (vancomicina / aminoglicosídeo / AINE / IECA-BRA / contraste iodado <72h; nephrotoxic KB §3.5). CROSS-DOMAIN FEED to the AKI domain, which owns the firing nephrotoxic-stacking alert (ALERT-AKI-NEPHROTOXIN-03 / catalog AKI-005). This domain deliberately does NOT raise its own nephrotoxic push (no duplicate alarm)."
+    fields: [mpi_id, encounter_id, active_nephrotoxin_set, nephrotoxin_count, contraste_iodado_72h, detected_at]
+
+# p95 ingest->alert COMPUTE budget (VIS-C-09: <30s). The KB match + join is sub-second; the BINDING latency is
+# input arrival — medication events land on the AMH Gold batch pipeline (Silver-Entities P95 <30min, ADR001-F-02)
+# and med-administration availability is Baixa/not-always-real-time (VIS-5.1-06, DATA-AVAIL-06). Wall-clock
+# recognition is data-availability-bound; the compute path from a landed med/lab/ECG event to an emitted alert is <30s.
+latency_assumption_ms: 30000
+
+# Sum of the 8 alerts' est_volume_per_100_beds_day (_work/alerts/pharmaco-interaction.yaml):
+#   QTC 1 + SEROTONIN 1 + CNS-DEPRESSION 2 + DUP 2 + WITHDRAWAL 1 + RENALADJ 2 + STEWARDSHIP 3 + CVC-FEVER 2 = 14.
+# Nephrotoxic stacking is NOT counted here — it is emitted as pharmaco.nephrotoxic_burden.changed and fires within
+# the AKI domain (AKI-005), avoiding a duplicate push. P6 is low-burden by design (6 watch/urgent + 2 critical),
+# every alert gated by a symptom/physiologic/indication filter to hold the >=0.60 fleet PPV / <=10% ignored targets.
+volume_estimate_per_100_beds_day: 14

@@ -1,0 +1,287 @@
+domain: sepsis
+# Sepsis domain alert definitions — IntensiCare v2 (vision §3.1, priority P1).
+# Reconciles the legacy's four sepsis screening variants (v1 AND / v3 OR / manual _REGRAS / homecare)
+# plus the SSC hour-1 interactive bundle into ONE evidence-anchored design: a Sepsis-3 + SIRS screening
+# layer feeding an SSC-2021 hour-1 bundle tracker. Severity scale: normal|watch|urgent|critical.
+# Every rule_ref cited in evidence has disposition ADOPT / ADOPT-CORRECTED / ADAPT (per CONTRACTS §Alert).
+# Disputed aggregation (v1-AND vs v3-OR) is designed to the reference-anchored recommended default and
+# marked pending RAT-SEPSE-* — see clinical/domains/sepsis.md §6. Fleet targets: PPV >=0.60, ignored <=10%.
+alerts:
+
+  # ==========================================================================================
+  # 1. SCREENING LAYER — infection-gated SIRS/qSOFA. Reconciles legacy SEP-001.
+  #    Recommended default aggregation pending RAT-SEPSE-02 (v1-AND vs v3-OR dispute).
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-SCREEN-01
+    name: "Triagem de sepse — SIRS/qSOFA com suspeita de infecção"
+    severity: urgent
+    trigger:
+      logic: >-
+        infection_present AND ( qsofa >= 2 points OR sirs_count >= 2 )
+        where infection_present := (cultura_positiva OR atb_iniciado_ultimas_24h OR suspeita_infeccao_documentada);
+        qsofa counts {frequencia_respiratoria >= 22 rpm, pressao_arterial_sistolica <= 100 mmHg, glasgow < 15 points};
+        sirs_count counts (>=2 of 4) {(temperatura > 38.0 degC OR temperatura < 36.0 degC),
+        frequencia_cardiaca > 90 bpm, (frequencia_respiratoria > 20 rpm OR paco2_arterial < 32 mmHg),
+        (leucocitos > 12 10^3/uL OR leucocitos < 4 10^3/uL OR bastonetes > 10 percent)}.
+        PENDING RAT-SEPSE-02 — recommended default is OR-within published sets, AND-gated by infection;
+        branch A (v1 maiores>=3 AND menores>=4) and branch B (v3 OR-all) both specified in domain doc §6.
+      window: PT6H
+    inputs:
+      - {name: temperatura, type: quantity, unit: "degC", source: "AMH Gold Observation LOINC 8310-5", staleness_max: PT6H}
+      - {name: frequencia_cardiaca, type: quantity, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4", staleness_max: PT1H}
+      - {name: frequencia_respiratoria, type: quantity, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1", staleness_max: PT1H}
+      - {name: pressao_arterial_sistolica, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6", staleness_max: PT1H}
+      - {name: glasgow, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 9269-2", staleness_max: PT8H}
+      - {name: leucocitos, type: quantity, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 6690-2", staleness_max: PT24H}
+      - {name: bastonetes, type: quantity, unit: "percent", source: "AMH Gold lab_result LOINC 35332-6", staleness_max: PT24H}
+      - {name: paco2_arterial, type: quantity, unit: "mmHg", source: "AMH Gold blood gas LOINC 2019-8", staleness_max: PT6H}
+      - {name: qsofa, type: quantity, unit: "points", source: "clinical-scoring domain (derived)", staleness_max: PT1H}
+      - {name: cultura_positiva, type: boolean, unit: "boolean", source: "AMH Gold DiagnosticReport (microbiology)", staleness_max: PT72H}
+      - {name: atb_iniciado_ultimas_24h, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (antimicrobial)", staleness_max: PT24H}
+      - {name: suspeita_infeccao_documentada, type: boolean, unit: "boolean", source: "AMH Gold Condition (SNOMED, suspeita de infecção)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Bone RC et al. ACCP/SCCM Consensus, Chest 1992;101(6):1644-1655 (SIRS)", rule_refs: [RULE-SEPSE-027, RULE-SEPSE-028, RULE-SEPSE-034, RULE-SEPSE-038, RULE-SEPSE-039, RULE-SEPSE-049, RULE-SEPSE-051]}
+      - {citation: "Seymour CW et al. JAMA 2016;315(8):762-774 (qSOFA); Singer M et al. JAMA 2016;315(8):801-810 (Sepsis-3)", rule_refs: [RULE-SEPSE-045, RULE-SEPSE-054]}
+      - {citation: "Levy MM et al. Crit Care Med 2003;31(4):1250-1256 (SCCM/ESICM/ACCP/ATS/SIS); SIRS tachycardia HR>90 correction", rule_refs: [RULE-SEPSE-035, RULE-SEPSE-048]}
+      - {citation: "Evans L et al. Surviving Sepsis Campaign 2021, Crit Care Med 2021;49(11):e1063-e1143 (infection-source screening)", rule_refs: [RULE-SEPSE-067, RULE-SEPSE-099]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT6H, rate_limit: "2/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 7
+      rationale: >-
+        SIRS alone has low specificity (fires in pancreatitis/trauma/post-op without infection — CAT-SEP-001 Lim);
+        the infection gate (cultura OR atb<24h OR suspeita documentada) is what lifts PPV to the 0.60 fleet floor.
+        Rejecting the ungated v3 OR-all branch (which collapses PPV) and the v1 AND-of-large-groups branch
+        (which misses the vision's >=80% early-detection target, VIS-7.1-01) keeps this the single richest
+        screening alert rather than one alert per criterion. ~30% sepsis incidence over ICU turnover yields
+        ~7 screen-positives/100 beds/day; 6h cooldown + 2/24h rate limit prevents re-fire on the same episode.
+    response: {required: "avaliação médica beira-leito + considerar abertura de protocolo de sepse", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {qsofa: 2, frequencia_respiratoria: 24, pressao_arterial_sistolica: 96, glasgow: 14, suspeita_infeccao_documentada: true}, expected: fire, note: "qSOFA>=2 (RR>=22 + SBP<=100 + GCS<15) with documented infection suspicion"}
+      - {id: TV-2, kind: fire, inputs: {temperatura: 38.6, frequencia_cardiaca: 112, leucocitos: 15.2, qsofa: 0, atb_iniciado_ultimas_24h: true}, expected: fire, note: "3 SIRS criteria (fever+tachycardia+leukocytosis) with antimicrobial started <24h"}
+      - {id: TV-3, kind: no-fire, inputs: {temperatura: 38.6, frequencia_cardiaca: 112, leucocitos: 15.2, qsofa: 0, cultura_positiva: false, atb_iniciado_ultimas_24h: false, suspeita_infeccao_documentada: false}, expected: no-fire, note: "3 SIRS criteria but NO infection evidence — infection gate suppresses (PPV protection)"}
+      - {id: TV-4, kind: boundary, inputs: {frequencia_cardiaca: 90, temperatura: 37.4, frequencia_respiratoria: 20, leucocitos: 12.0, suspeita_infeccao_documentada: true}, expected: no-fire, note: "exact-threshold boundary: HR=90 (not >90), RR=20 (not >20), WBC=12.0 (not >12) => sirs_count 0; infection present but no criterion met"}
+      - {id: TV-5, kind: boundary, inputs: {frequencia_cardiaca: 91, temperatura: 38.1, frequencia_respiratoria: 20, leucocitos: 12.0, qsofa: 0, cultura_positiva: true}, expected: fire, note: "boundary: HR=91 (>90) + temp=38.1 (>38.0) => sirs_count=2 with positive culture"}
+    reconciliation:
+      - {existing_id: SEP-001, status: changed,
+         note: "vs alert-catalog.md SEP-001 'SIRS positivo com suspeita de infecção' (URG/P1): legacy required a strict conjunction of all four SIRS clauses AND >=2 SIRS AND infection. v2 changes the aggregation to the reconciled recommended default — OR-within published SIRS(>=2/4) and qSOFA(>=2/3) sets, AND-gated by infection — resolving the v1-AND vs v3-OR dispute (pending RAT-SEPSE-02); SIRS tachycardia corrected 110/100->90 bpm. Same urgent severity and infection gate; logic changed, not merely aligned."}
+
+  # ==========================================================================================
+  # 2. ORGAN DYSFUNCTION / HYPOPERFUSION — qSOFA>=2 + lactate. Reconciles legacy SEP-002 (core).
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-ORGAN-02
+    name: "qSOFA >=2 com lactato elevado ou em elevação"
+    severity: critical
+    trigger:
+      logic: >-
+        qsofa >= 2 points
+        AND ( lactato_arterial > 2 mmol/L OR delta_lactato > 0.5 mmol/L per hour over PT6H );
+        supporting organ-dysfunction inputs (any reinforces, none required):
+        plaquetas < 100 10^3/uL, bilirubina > 2 mg/dL, tempo_enchimento_capilar > 3 s.
+        Lactate anchor corrected from legacy >=3 (RULE-SEPSE-013) / >=2.5 (RULE-SEPSE-050) to SSC-2021 >2 mmol/L.
+      window: PT6H
+    inputs:
+      - {name: qsofa, type: quantity, unit: "points", source: "clinical-scoring domain (derived; RR>=22, SBP<=100, GCS<15)", staleness_max: PT1H}
+      - {name: lactato_arterial, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7", staleness_max: PT4H}
+      - {name: lactato_arterial_anterior, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (prior result, 6h lookback)", staleness_max: PT6H}
+      - {name: plaquetas, type: quantity, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 777-3", staleness_max: PT24H}
+      - {name: bilirubina, type: quantity, unit: "mg/dL", source: "AMH Gold lab_result LOINC 1975-2", staleness_max: PT24H}
+      - {name: tempo_enchimento_capilar, type: quantity, unit: "s", source: "AMH Gold Observation (TEC bedside)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Singer M et al. JAMA 2016;315(8):801-810 (Sepsis-3); Seymour CW et al. JAMA 2016;315(8):762-774 (qSOFA)", rule_refs: [RULE-SEPSE-045, RULE-SEPSE-054]}
+      - {citation: "Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (lactate >2 mmol/L hypoperfusion)", rule_refs: [RULE-SEPSE-013, RULE-SEPSE-050]}
+      - {citation: "Vincent JL et al. SOFA score, Intensive Care Med 1996;22:707-710 (coag <100 10^3/uL; liver >2 mg/dL)", rule_refs: [RULE-SEPSE-012, RULE-SEPSE-052, RULE-SEPSE-046]}
+      - {citation: "Hernandez G et al. ANDROMEDA-SHOCK, JAMA 2019;321(7):654-664 (capillary refill >3 s)", rule_refs: [RULE-SEPSE-022, RULE-SEPSE-030, RULE-SEPSE-042]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT4H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.72
+      est_volume_per_100_beds_day: 3
+      rationale: >-
+        Requiring BOTH qSOFA>=2 (organ dysfunction) AND lactate elevation/trend is far more specific than
+        screening; qSOFA>=2 already selects a high-mortality subset (Seymour 2016). Lactate can rise from
+        hepatopathy/epinephrine/metformin (CAT-SEP-002 Lim) so PPV target is set at 0.72 not higher. Estimated
+        ~3/100 beds/day. Kept as one critical alert (not split by supporting criterion) to avoid alarm-fatigue;
+        thrombocytopenia/bilirubin/CRT only reinforce, never independently fire.
+    response: {required: "avaliação médica imediata beira-leito + iniciar bundle hora-1 (lactato, culturas, ATB, cristaloide)", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {qsofa: 2, lactato_arterial: 2.4}, expected: fire, note: "qSOFA>=2 with lactate>2 mmol/L (SSC hypoperfusion)"}
+      - {id: TV-2, kind: no-fire, inputs: {qsofa: 2, lactato_arterial: 1.8, lactato_arterial_anterior: 1.2}, expected: no-fire, note: "qSOFA>=2 but lactate<2 and trend 0.6 mmol/L over 6h = 0.1 mmol/L/h < 0.5/h — neither lactate branch met"}
+      - {id: TV-3, kind: no-fire, inputs: {qsofa: 1, lactato_arterial: 5.0}, expected: no-fire, note: "high lactate but qSOFA<2 — qSOFA gate not met (this alert requires organ dysfunction; isolated hyperlactatemia routes to SHOCK-03 if >=4)"}
+      - {id: TV-4, kind: boundary, inputs: {qsofa: 2, lactato_arterial: 2.0}, expected: no-fire, note: "boundary exact-threshold: lactate=2.0 is NOT >2 (strict); 2.0-2.0 band excluded, matches SSC >2 mmol/L anchor"}
+      - {id: TV-5, kind: boundary, inputs: {qsofa: 2, lactato_arterial: 2.01}, expected: fire, note: "boundary: lactate just above 2 mmol/L fires"}
+      - {id: TV-6, kind: fire, inputs: {qsofa: 2, lactato_arterial: 1.9, lactato_arterial_anterior: 1.0}, expected: fire, note: "delta 0.9 mmol/L over 1h lookback = 0.9 mmol/L/h > 0.5/h trend fires even with current lactate <2"}
+    reconciliation:
+      - {existing_id: SEP-002, status: extended,
+         note: "vs alert-catalog.md SEP-002 'qSOFA positivo com lactato elevado ou em elevação' (CRIT/P1): carried forward with the lactate anchor corrected to SSC-2021 >2 mmol/L (legacy variants used >=3 / >=2.5) and altered mentation widened GCS<=13 -> GCS<15. SEP-002's embedded 'choque séptico iminente' escalation (lactate>=4 / refractory hypotension) is extended out into the standalone critical alert ALERT-SEPSIS-SHOCK-03 because its response differs; delta-lactato trend (>0.5 mmol/L/h) retained here."}
+
+  # ==========================================================================================
+  # 3. SEPTIC SHOCK — lactate>=4 or refractory hypotension. Extends SEP-002 embedded shock flag.
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-SHOCK-03
+    name: "Choque séptico iminente"
+    severity: critical
+    trigger:
+      logic: >-
+        lactato_arterial >= 4 mmol/L
+        OR ( pressao_arterial_media < 65 mmHg
+             AND ( fluid_bolus_given OR dose_vasopressor > 0 mcg/kg/min ) );
+        MAP anchor from Sepsis-3 (RULE-SEPSE-011 VERIFIED reference); vasopressor already canonical mcg/kg/min
+        from hemodynamics (mL/h NOT convertible without concentration+weight, SYS-C-04). Emits sepsis.shock.detected
+        and hands lactate-clearance targeting to the hemodynamics domain.
+      window: PT1H
+    inputs:
+      - {name: lactato_arterial, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7", staleness_max: PT4H}
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8478-0", staleness_max: PT1H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain (MedicationAdministration, already converted)", staleness_max: PT1H}
+      - {name: fluid_bolus_given, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (30 mL/kg crystalloid, 6h lookback)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (hour-1 bundle; lactate >=4 mmol/L; MAP >=65)", rule_refs: [RULE-SEPSE-061, RULE-SEPSE-065]}
+      - {citation: "Singer M et al. JAMA 2016;315(8):801-810 (Sepsis-3 shock: vasopressor-requiring hypotension MAP<65)", rule_refs: [RULE-SEPSE-011, RULE-SEPSE-010]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "6/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.82
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        Lactate >=4 mmol/L or vasopressor/fluid-refractory MAP<65 is a narrow, high-mortality (>80% for
+        unrecognized shock, VIS-3.4-01) definition — highest PPV in the domain. Kept separate from ORGAN-02 as
+        a first-class critical alert (vs SEP-002's embedded flag) because the response differs (immediate shock
+        management, not just bundle start). maintenance_window_aware:false — a life-threatening alert must never
+        be suppressed by a maintenance window. Estimated ~1/100 beds/day.
+    response: {required: "ativação de equipe de resposta rápida + manejo de choque (vasopressor precoce, ressuscitação volêmica dirigida)", ack_sla: PT5M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {lactato_arterial: 4.2}, expected: fire, note: "lactate >=4 mmol/L (SSC septic-shock hour-1 marker)"}
+      - {id: TV-2, kind: fire, inputs: {pressao_arterial_media: 58, dose_vasopressor: 0.2, lactato_arterial: 3.1}, expected: fire, note: "MAP<65 on active vasopressor despite lactate<4 — refractory hypotension branch"}
+      - {id: TV-3, kind: no-fire, inputs: {pressao_arterial_media: 58, dose_vasopressor: 0, fluid_bolus_given: false, lactato_arterial: 2.5}, expected: no-fire, note: "MAP<65 but no fluid bolus and no vasopressor yet — not refractory; hypotension routes to ORGAN-02/SCREEN-01"}
+      - {id: TV-4, kind: boundary, inputs: {lactato_arterial: 4.0, pressao_arterial_media: 70}, expected: fire, note: "boundary exact-threshold: lactate=4.0 is >=4 (inclusive) => fires"}
+      - {id: TV-5, kind: boundary, inputs: {pressao_arterial_media: 65, dose_vasopressor: 0.3, lactato_arterial: 3.0}, expected: no-fire, note: "boundary: MAP=65 is NOT <65 (strict); refractory branch not met"}
+    reconciliation:
+      - {existing_id: null, status: extended,
+         note: "No standalone catalog SEP-* id existed for this. Promotes the 'choque séptico iminente' escalation embedded inside legacy SEP-002 (elevate to CRIT when lactate>=4 mmol/L or refractory MAP<65) into a standalone critical alert with a distinct rapid-response workflow and a 5-min ack SLA; sourced from vision VIS-3.1-04 plus SEP-002's embedded flag (the formal SEP-002 existing_id is recorded once, under ALERT-SEPSIS-ORGAN-02)."}
+
+  # ==========================================================================================
+  # 4. HOUR-1 BUNDLE OVERDUE — SSC compliance timer. New (rebuilt from legacy interactive bundle).
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-BUNDLE-OVERDUE-04
+    name: "Item do bundle hora-1 em atraso"
+    severity: urgent
+    trigger:
+      logic: >-
+        protocol_active AND item.checked == false AND now > item.due_at
+        where item.due_at = protocol_accept_time + (PT1H if item.pacote == 'primeira_hora' else PT3H);
+        7-item SSC bundle (RULE-SEPSE-076/096 item set + PT-BR pacote vocabulary verbatim). Auto-checks
+        (RULE-SEPSE-078/079/080/081 ADAPT, event-driven vs AMH Gold) mark items done from CPOE (24h) / ADEP (4h)
+        before the timer fires. Corrected bugs: dispatch string solicitacao_exame->solicitacao_exames
+        (RULE-SEPSE-079), overdue flag field unified (RULE-SEPSE-095).
+      window: PT3H
+    inputs:
+      - {name: protocol_active, type: boolean, unit: "boolean", source: "IntensiCare operational state (TimescaleDB, sepsis protocol lifecycle)", staleness_max: PT1H}
+      - {name: item_checked, type: boolean, unit: "boolean", source: "IntensiCare operational state (bundle item check-off)", staleness_max: PT1H}
+      - {name: protocol_accept_time, type: quantity, unit: "s", source: "IntensiCare operational state (protocol acceptance timestamp)", staleness_max: PT6H}
+      - {name: item_pacote, type: enum, unit: "enum", source: "bundle item catalog (enum {primeira_hora, reavaliacao})", staleness_max: PT6H}
+    evidence:
+      - {citation: "Levy MM, Evans LE, Rhodes A. Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997-1000 (hour-1 bundle timers)", rule_refs: [RULE-SEPSE-069, RULE-SEPSE-070]}
+      - {citation: "Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (7-item hour-1 bundle content)", rule_refs: [RULE-SEPSE-076, RULE-SEPSE-096]}
+      - {citation: "Automation/lifecycle re-implementation (event-driven, AMH Gold via Athena; dead-code bug corrections)", rule_refs: [RULE-SEPSE-078, RULE-SEPSE-079, RULE-SEPSE-080, RULE-SEPSE-081, RULE-SEPSE-095, RULE-SEPSE-071, RULE-SEPSE-075]}
+    suppression: {dedup_key: "patient_id+protocol_id+item_name", cooldown: PT1H, rate_limit: "7/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.85
+      est_volume_per_100_beds_day: 3
+      rationale: >-
+        Deterministic compliance timer (not a physiological prediction) so PPV is high by construction — it fires
+        only when a clinician-accepted protocol has a genuinely uncompleted item past its SSC deadline. Auto-checks
+        against CPOE/ADEP suppress the common false-positive (item done but not manually checked). dedup per item
+        prevents one protocol from emitting a storm; ~3/100 beds/day given sepsis protocol incidence. This single
+        overdue alert replaces per-item legacy flags.
+    response: {required: "completar item do bundle hora-1 pendente (documentar no prontuário NGS-2)", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {protocol_active: true, item_checked: false, item_pacote: primeira_hora, minutes_since_accept: 75}, expected: fire, note: "primeira_hora item still unchecked 75 min after accept (due at 60 min)"}
+      - {id: TV-2, kind: no-fire, inputs: {protocol_active: true, item_checked: true, item_pacote: primeira_hora, minutes_since_accept: 75}, expected: no-fire, note: "item already checked (or auto-checked from CPOE/ADEP) — no overdue"}
+      - {id: TV-3, kind: no-fire, inputs: {protocol_active: true, item_checked: false, item_pacote: reavaliacao, minutes_since_accept: 120}, expected: no-fire, note: "reavaliacao item due at 180 min, only 120 elapsed — not yet overdue (also within 2h reveal-delay)"}
+      - {id: TV-4, kind: boundary, inputs: {protocol_active: true, item_checked: false, item_pacote: primeira_hora, minutes_since_accept: 60}, expected: no-fire, note: "boundary exact-threshold: at exactly 60 min due_at is reached but now > due_at is strict — not yet overdue"}
+      - {id: TV-5, kind: boundary, inputs: {protocol_active: true, item_checked: false, item_pacote: reavaliacao, minutes_since_accept: 181}, expected: fire, note: "boundary: reavaliacao item 1 min past the 180 min deadline fires"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No catalog SEP-* alert covers hour-1 bundle compliance tracking; rebuilt from the legacy interactive-bundle rules (RULE-SEPSE-069/070/076/096 ADOPT; auto-check bugs corrected RULE-SEPSE-079/095) into a single deterministic overdue-item timer, replacing per-item legacy flags."}
+
+  # ==========================================================================================
+  # 5. PROCALCITONIN RISING — treatment-failure trend. Reconciles legacy SEP-003b.
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-PCT-RISING-05
+    name: "Procalcitonina em elevação — possível falha terapêutica"
+    severity: watch
+    trigger:
+      logic: >-
+        procalcitonina > procalcitonina_anterior
+        AND delta_pct > 0.25 ng/mL over PT24H
+        AND atb_ativa_horas >= 48;
+        no legacy RULE-SEPSE-* covers PCT — cites guidelines directly (Schuetz 2018).
+      window: PT24H
+    inputs:
+      - {name: procalcitonina, type: quantity, unit: "ng/mL", source: "AMH Gold lab_result LOINC 33959-8", staleness_max: PT48H}
+      - {name: procalcitonina_anterior, type: quantity, unit: "ng/mL", source: "AMH Gold lab_result LOINC 33959-8 (prior result, 24h lookback)", staleness_max: PT48H}
+      - {name: atb_ativa_horas, type: quantity, unit: "count", source: "AMH Gold MedicationRequest/MedicationAdministration (active antimicrobial duration, hours)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Schuetz P et al. Lancet Infect Dis 2018;18(1):95-107 (procalcitonin-guided antibiotic therapy); PROGRESS/Jensen JU et al. Am J Respir Crit Care Med 2011 (treatment-failure trend)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT24H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.58
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        PCT can rise from major post-op/trauma/burns/medullary thyroid carcinoma without infection (CAT-SEP-003
+        Lim), so PPV is set just below the fleet floor (0.58) and severity is only WATCH (advisory trend, not a
+        deterioration alarm) to stay within the <=10% ignored-rate budget. Requires >=48h of active antimicrobial
+        so it only fires when a treatment-failure question is clinically meaningful; degrades gracefully to
+        insufficient-data when no PCT present (P2 availability). ~1/100 beds/day.
+    response: {required: "reavaliar cobertura antimicrobiana e controle de foco (avaliação médica)", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {procalcitonina: 1.2, procalcitonina_anterior: 0.8, atb_ativa_horas: 60}, expected: fire, note: "PCT rising, delta 0.4 > 0.25 ng/mL, ATB active >=48h"}
+      - {id: TV-2, kind: no-fire, inputs: {procalcitonina: 1.2, procalcitonina_anterior: 0.8, atb_ativa_horas: 24}, expected: no-fire, note: "rising but ATB active only 24h (<48h) — too early to call failure"}
+      - {id: TV-3, kind: no-fire, inputs: {procalcitonina: 0.9, procalcitonina_anterior: 1.5, atb_ativa_horas: 72}, expected: no-fire, note: "PCT falling — responding to therapy, no alert"}
+      - {id: TV-4, kind: boundary, inputs: {procalcitonina: 1.05, procalcitonina_anterior: 0.80, atb_ativa_horas: 48}, expected: no-fire, note: "boundary exact-threshold: delta=0.25 is NOT >0.25 (strict); ATB=48 exactly meets >=48"}
+      - {id: TV-5, kind: boundary, inputs: {procalcitonina: 1.06, procalcitonina_anterior: 0.80, atb_ativa_horas: 48}, expected: fire, note: "boundary: delta 0.26 > 0.25 with ATB exactly 48h fires"}
+    reconciliation:
+      - {existing_id: SEP-003, status: changed,
+         note: "vs alert-catalog.md SEP-003 'Procalcitonina — orientação para antibioticoterapia' (INFO(a)/URG(b), P2): legacy bundled two sub-triggers (3a de-escalation, 3b treatment-failure) in one entry. v2 splits them into two severity-appropriate alerts: the 3b treatment-failure branch is changed here (severity lowered URG->watch, a trend not a deterioration alarm) as ALERT-SEPSIS-PCT-RISING-05; thresholds (delta>0.25 ng/mL/24h, ATB>=48h) unchanged. The 3a de-escalation branch becomes ALERT-SEPSIS-PCT-DEESC-06 (see its own reconciliation note)."}
+
+  # ==========================================================================================
+  # 6. PROCALCITONIN DE-ESCALATION — antimicrobial stewardship. Reconciles legacy SEP-003a.
+  # ==========================================================================================
+  - alert_id: ALERT-SEPSIS-PCT-DEESC-06
+    name: "Desmame antimicrobiano guiado por procalcitonina"
+    severity: normal
+    trigger:
+      logic: >-
+        ( procalcitonina < 0.25 ng/mL OR (pico_pct - procalcitonina)/pico_pct > 0.80 )
+        AND atb_ativa_horas >= 48
+        AND NOT ( screen_positive OR organ_dysfunction OR septic_shock_imminent );
+        stability gate references SCREEN-01/ORGAN-02/SHOCK-03 states so de-escalation is never suggested for an
+        unstable patient. Cites guidelines directly (Schuetz Cochrane 2017; PROGRESS).
+      window: PT48H
+    inputs:
+      - {name: procalcitonina, type: quantity, unit: "ng/mL", source: "AMH Gold lab_result LOINC 33959-8", staleness_max: PT48H}
+      - {name: pico_pct, type: quantity, unit: "ng/mL", source: "AMH Gold lab_result LOINC 33959-8 (peak value this episode)", staleness_max: PT7D}
+      - {name: atb_ativa_horas, type: quantity, unit: "count", source: "AMH Gold MedicationRequest/MedicationAdministration (active antimicrobial duration, hours)", staleness_max: PT24H}
+      - {name: patient_unstable, type: boolean, unit: "boolean", source: "sepsis domain (SCREEN-01/ORGAN-02/SHOCK-03 active-state)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Schuetz P et al. Cochrane Database Syst Rev 2017;10:CD007498 (procalcitonin to guide antibiotics); PROGRESS/Jensen JU et al. 2011 (de-escalation)", rule_refs: []}
+      - {citation: "Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (antimicrobial stewardship / de-escalation)", rule_refs: [RULE-SEPSE-062]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT24H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Stewardship prompt (normal severity — informational, <6h action window) so it does not consume the
+        deterioration-alarm attention budget; the stability gate (NOT screen_positive/organ_dysfunction/shock)
+        removes the dangerous false-positive of suggesting de-escalation in an actively septic patient, keeping
+        PPV at 0.65. ~2/100 beds/day. Kept as a single normal-severity alert rather than a channel of stewardship
+        nudges to respect the fewer-richer-alerts principle.
+    response: {required: "considerar suspensão/estreitamento do antimicrobiano (decisão médica, stewardship)", ack_sla: PT6H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {procalcitonina: 0.18, atb_ativa_horas: 60, patient_unstable: false}, expected: fire, note: "PCT <0.25 ng/mL, ATB >=48h, patient stable"}
+      - {id: TV-2, kind: fire, inputs: {procalcitonina: 0.9, pico_pct: 6.0, atb_ativa_horas: 72, patient_unstable: false}, expected: fire, note: ">85% drop from peak (6.0->0.9 = 85%) with stable patient"}
+      - {id: TV-3, kind: no-fire, inputs: {procalcitonina: 0.18, atb_ativa_horas: 60, patient_unstable: true}, expected: no-fire, note: "PCT low but patient still meets screen/organ/shock — stability gate suppresses de-escalation"}
+      - {id: TV-4, kind: boundary, inputs: {procalcitonina: 0.25, atb_ativa_horas: 60, patient_unstable: false}, expected: no-fire, note: "boundary exact-threshold: PCT=0.25 is NOT <0.25 (strict); and no peak-drop supplied"}
+      - {id: TV-5, kind: boundary, inputs: {procalcitonina: 0.24, atb_ativa_horas: 48, patient_unstable: false}, expected: fire, note: "boundary: PCT 0.24 <0.25 with ATB exactly 48h and stable fires"}
+    reconciliation:
+      - {existing_id: null, status: extended,
+         note: "Operationalizes the de-escalation branch (3a) of legacy catalog SEP-003 (PCT<0.25 ng/mL OR >80% drop from peak, + 48h stable ATB); the formal SEP-003 existing_id is recorded once, under ALERT-SEPSIS-PCT-RISING-05, to avoid double-mapping the same catalog entry. Extended here with an explicit stability gate wired to SCREEN-01/ORGAN-02/SHOCK-03 active states so de-escalation is never suggested for an actively septic patient; thresholds unchanged."}

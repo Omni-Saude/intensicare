@@ -1,0 +1,211 @@
+domain: early-warning-scores
+# Early-warning-scores domain (vision §2 Fase 1 continuity): MEWS / NEWS2 / SOFA / qSOFA.
+# Severity scale: normal|watch|urgent|critical ONLY. Fleet targets: PPV >=0.60, ignored-rate <=10%.
+# Design principle: FEWER, richer alerts. The static "MEWS>=5" and "NEWS2>=5 medium" snapshots are
+# INTENTIONALLY NOT separate alerts — in an ICU many patients sit chronically high (ventilated / on
+# pressors), so a static-level EWS alert has near-zero PPV. The primary EWS alert is EDGE-TRIGGERED
+# (fires on a NEW upward crossing), and gradual rises are caught by the TREND alert. qSOFA is computed
+# and emitted to the sepsis domain (SEP-002 owns the qSOFA+lactate alert) — no duplicate here.
+alerts:
+
+  - alert_id: ALERT-EWS-NEWS2-DETERIORATION-01
+    name: "Deterioração clínica — NEWS2 alto (novo cruzamento >=7 ou parâmetro vermelho)"
+    severity: urgent
+    trigger:
+      logic: >-
+        edge_trigger := ( news2_score >= 7 AND news2_score_prev < 7 )
+        OR ( any_single_parameter_score == 3 AND that_parameter_was_not_red_at_prev_measurement ).
+        news2_score is the RCP-2017 aggregate 0-20 (RR<=8|>=25=3, 9-11=1, 12-20=0, 21-24=2;
+        SpO2 Scale1 >=96=0/94-95=1/92-93=2/<=91=3 or Scale2 hypercapnic >=93=0/88-92=1/86-87=2/84-85=2/<=83=3;
+        supplemental_o2 +2; SBP<=90|>=220=3/91-100=2/101-110=1/111-219=0; HR<=40|>=131=3/41-50=1/51-90=0/91-110=1/111-130=2;
+        ACVPU A=0 else 3; temp<=35.0=3/35.1-36.0=1/36.1-38.0=0/38.1-39.0=1/>=39.1=2). Scale 2 selected only
+        when hypercapnic==true. Edge-triggered on the transition, NOT on persistent high state.
+      window: PT1H
+    inputs:
+      - {name: frequencia_respiratoria, type: quantity, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1", staleness_max: PT1H}
+      - {name: saturacao_o2, type: quantity, unit: "percent", source: "AMH Gold Observation LOINC 2708-6", staleness_max: PT1H}
+      - {name: supplemental_o2, type: boolean, unit: "boolean", source: "AMH Gold Observation (O2 therapy flag)", staleness_max: PT1H}
+      - {name: hypercapnic, type: boolean, unit: "boolean", source: "clinical context (chronic type-2 resp failure flag; RATIFY source RAT-EWS-01)", staleness_max: PT7D}
+      - {name: pressao_arterial_sistolica, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6", staleness_max: PT1H}
+      - {name: frequencia_cardiaca, type: quantity, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4", staleness_max: PT1H}
+      - {name: nivel_consciencia, type: enum, unit: "enum", source: "AMH Gold Observation (ACVPU; enum {A,C,V,P,U}) — see open question, not yet in registry", staleness_max: PT4H}
+      - {name: temperatura, type: quantity, unit: "degC", source: "AMH Gold Observation LOINC 8310-5", staleness_max: PT6H}
+      - {name: news2, type: quantity, unit: "points", source: "clinical-scoring domain (this domain, NEWS2-v1.0.0)", staleness_max: PT1H}
+    evidence:
+      - {citation: "Royal College of Physicians. National Early Warning Score (NEWS) 2. London: RCP, 2017", rule_refs: []}
+      - {citation: "Smith GB et al. Resuscitation 2013;84(4):465-470 (NEWS validation)", rule_refs: []}
+      - {citation: "Legacy proprietary EWS temperature contiguity fix carried into NEWS2 banding", rule_refs: [RULE-PIORA-CLINICA-002]}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT4H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+      note: "Edge-trigger + 4h cooldown suppress the ICU chronic-high-NEWS2 flood; re-arms only after the score drops below 7 and no red parameter persists."
+    ppv_budget:
+      target_ppv: 0.62
+      est_volume_per_100_beds_day: 5
+      rationale: >-
+        A static NEWS2>=7 alert in ICU would fire on nearly every ventilated/pressor patient (PPV <0.2).
+        Edge-triggering on the upward crossing + 4h cooldown restricts firing to genuine acute deteriorations,
+        lifting PPV to ~0.62 and holding volume near 5/100 beds/day. NEWS2>=7 carries a documented ~10x rise
+        in in-hospital mortality/ICU-transfer odds (Smith 2013), so a true crossing is highly actionable.
+
+    response: {required: "avaliação médica beira-leito + reavaliação do conjunto de sinais vitais", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {news2: 7, news2_score_prev: 4}, expected: fire, note: "new upward crossing into high-risk band"}
+      - {id: TV-2, kind: no-fire, inputs: {news2: 6, news2_score_prev: 5}, expected: no-fire, note: "medium band (5-6) — handled by TREND alert, not a static alert here"}
+      - {id: TV-3, kind: boundary, inputs: {news2: 7, news2_score_prev: 7}, expected: no-fire, note: "boundary — persistent high (already >=7 at prior), edge-trigger suppressed to avoid chronic-high ICU flood"}
+      - {id: TV-4, kind: fire, inputs: {news2: 5, frequencia_respiratoria: 25, rr_param_score: 3, rr_was_red_prev: false}, expected: fire, note: "new single red parameter (RR>=25 => 3) even though aggregate only 5"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — docs/clinical/alert-catalog.md is entirely Phase-2 clinical detectors (SEP/AKI/RESP/HEMO/DEL/ELY/DDX) and contains no MEWS/NEWS2/SOFA/qSOFA early-warning-score alert. This is the Phase-1 EWS continuity workhorse, superseding the legacy proprietary piora-clinica aggregate (RULE-PIORA-CLINICA-010, RATIFY) with the validated NHS NEWS2."}
+
+  - alert_id: ALERT-EWS-TREND-RISING-02
+    name: "Tendência de piora — escore de alerta precoce em elevação"
+    severity: watch
+    trigger:
+      logic: >-
+        rising := ( news2_score - news2_score_at_window_start >= 3 )
+        OR ( mews_score - mews_score_at_window_start >= 3 ),
+        measured across >=2 consecutive scorings within the window (MEWS trend requires >=2 samples,
+        MEWS-1-29). Direction 'increasing' per compute_trend (MEWS-1-31). Delta threshold is >=3 (not >=2)
+        to hold PPV above the fleet floor. Fires once per sustained rise (not per intermediate sample).
+      window: PT8H
+    inputs:
+      - {name: news2, type: quantity, unit: "points", source: "clinical-scoring domain (NEWS2-v1.0.0)", staleness_max: PT4H}
+      - {name: mews, type: quantity, unit: "points", source: "clinical-scoring domain (MEWS-v1.0.0)", staleness_max: PT4H}
+    evidence:
+      - {citation: "Subbe CP et al. QJM 2001;94(10):521-526 (MEWS; trend of the aggregate score predicts deterioration)", rule_refs: []}
+      - {citation: "Royal College of Physicians. NEWS2, London: RCP, 2017 (recommends acting on the trend, not only the absolute value)", rule_refs: []}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT6H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+      note: "One alert per sustained rising episode; cooldown prevents re-firing on each new sample within the same deterioration."
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 6
+      rationale: >-
+        A +3 rise across consecutive scorings is a stronger deterioration signal than any single static band
+        and precedes the >=7 crossing, buying lead time toward the vision's <1h early-detection target
+        (VIS-7.1-01). Requiring >=3 (not >=2) and >=2 consecutive samples suppresses measurement noise and
+        single-artifact spikes, keeping PPV at ~0.60 and volume ~6/100 beds/day.
+    response: {required: "reavaliação de enfermagem + aumentar frequência de aferição; escalonar se cruzar NEWS2>=7", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {news2_score_at_window_start: 3, news2: 7}, expected: fire, note: "delta +4 across window"}
+      - {id: TV-2, kind: no-fire, inputs: {news2_score_at_window_start: 5, news2: 6}, expected: no-fire, note: "delta +1 below threshold"}
+      - {id: TV-3, kind: boundary, inputs: {news2_score_at_window_start: 4, news2: 7}, expected: fire, note: "boundary — delta exactly +3 fires (>=3)"}
+      - {id: TV-4, kind: boundary, inputs: {mews_score_at_window_start: 4, mews: 6}, expected: no-fire, note: "boundary — MEWS delta exactly +2, below +3 threshold, no-fire"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — no EWS-trend alert exists in the catalog. Absorbs the MEWS/NEWS2 medium-band and rising-trend signal so no static low-band snapshot alert is needed (deliberate alarm-fatigue design); MEWS itself keeps a computed score/event but no standalone alert, avoiding double-firing against ALERT-EWS-NEWS2-DETERIORATION-01."}
+
+  - alert_id: ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03
+    name: "Disfunção orgânica aguda — aumento de SOFA >=2"
+    severity: urgent
+    trigger:
+      logic: >-
+        acute_organ_dysfunction := ( sofa_total - sofa_total_baseline_24h >= 2 ).
+        sofa_total is the 0-24 arithmetic sum of 6 sub-scores (RULE-CLINICAL-SCORING-001, ADOPT):
+        respiration = P/F band with FiO2 as FRACTION (>=400=0/300-399=1/200-299=2/100-199=3(vent)/<100=4(vent));
+        coagulation platelets (>=150=0/100-149=1/50-99=2/20-49=3/<20=4); liver bilirubin mg/dL closed intervals
+        (<1.2=0/1.2-1.9=1/2.0-5.9=2/6.0-11.9=3/>=12.0=4); cardiovascular vasopressor mcg/kg/min
+        (MAP<70=1; dopa<=5=2/5.1-15=3/>15=4; norepi|epi<=0.1=3/>0.1=4; dobut any=2); CNS GCS
+        (15=0/13-14=1/10-12=2/6-9=3/<6=4); renal = MAX(creatinine mg/dL band, urine-output band). A ΔSOFA>=2
+        is the Sepsis-3 organ-dysfunction definition (Singer 2016). SOFA sub-scores marked pending
+        RAT-CLINICAL-SCORING-01..05 (P0 FiO2/vasopressor/renal/liver defects) are designed to the reference default.
+      window: PT24H
+    inputs:
+      - {name: relacao_pao2_fio2, type: quantity, unit: "ratio", source: "respiratory domain (pao2 mmHg / fio2 FRACTION 0.21-1.0)", staleness_max: PT12H}
+      - {name: fio2, type: quantity, unit: "fraction", source: "AMH Gold Observation LOINC 19935-6 (canonical fraction; percent is edge/display only)", staleness_max: PT6H}
+      - {name: pao2, type: quantity, unit: "mmHg", source: "AMH Gold blood gas LOINC 2703-7", staleness_max: PT12H}
+      - {name: mechanical_ventilation, type: boolean, unit: "boolean", source: "AMH Gold device/Procedure flag (gates SOFA-resp 3/4 bands, SOFA-C-02)", staleness_max: PT6H}
+      - {name: plaquetas, type: quantity, unit: "10^3/uL", source: "AMH Gold lab_result LOINC 777-3", staleness_max: PT24H}
+      - {name: bilirubina, type: quantity, unit: "mg/dL", source: "AMH Gold lab_result LOINC 1975-2", staleness_max: PT24H}
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8478-0", staleness_max: PT1H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain conversion service (mL/h NOT convertible without concentration+peso, SYS-C-04)", staleness_max: PT1H}
+      - {name: glasgow, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 9269-2", staleness_max: PT8H}
+      - {name: creatinina, type: quantity, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0 (via aki domain)", staleness_max: PT24H}
+      - {name: debito_urinario, type: quantity, unit: "mL", source: "aki domain (24h total; requires validated peso for rate form)", staleness_max: PT24H}
+      - {name: peso, type: quantity, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated parse; SYS-09)", staleness_max: PT7D}
+      - {name: sofa, type: quantity, unit: "points", source: "clinical-scoring domain (SOFA-v2.0.0)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Vincent JL et al. Intensive Care Med 1996;22(7):707-710 (SOFA)", rule_refs: [RULE-CLINICAL-SCORING-001, RULE-CLINICAL-SCORING-003, RULE-CLINICAL-SCORING-006]}
+      - {citation: "Singer M et al. JAMA 2016;315(8):801-810 (Sepsis-3: acute change in total SOFA >=2 = organ dysfunction)", rule_refs: []}
+      - {citation: "SOFA input assembly/sourcing adapted from legacy save-hook to deterministic compute service", rule_refs: [RULE-CLINICAL-SCORING-011, RULE-CLINICAL-SCORING-012]}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+      note: "SOFA is a daily organ-dysfunction score; 12h cooldown matches its measurement cadence and prevents re-firing on lab-batch jitter."
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 4
+      rationale: >-
+        ΔSOFA>=2 from a 24h baseline is the published Sepsis-3 organ-dysfunction anchor with strong association
+        to mortality; an acute rise (not a static high SOFA) is what carries actionable PPV in ICU. Correct
+        FiO2-fraction handling is essential — with percent FiO2 the respiratory sub-score is ~100x wrong (SYS-01),
+        which would flood this alert with false organ dysfunction. Volume ~4/100 beds/day; PPV ~0.65.
+    response: {required: "avaliação médica; rastrear foco (sepse/SDRA/AKI) via correlation engine", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {sofa: 6, sofa_total_baseline_24h: 3}, expected: fire, note: "delta +3 acute organ dysfunction"}
+      - {id: TV-2, kind: no-fire, inputs: {sofa: 5, sofa_total_baseline_24h: 4}, expected: no-fire, note: "delta +1 below Sepsis-3 anchor"}
+      - {id: TV-3, kind: boundary, inputs: {sofa: 4, sofa_total_baseline_24h: 2}, expected: fire, note: "boundary — delta exactly +2 fires (Sepsis-3 >=2)"}
+      - {id: TV-4, kind: boundary, inputs: {pao2: 80, fio2: 0.5, mechanical_ventilation: true, expected_pf_ratio: 160, expected_resp_subscore: 3}, expected: fire, note: "FiO2-FRACTION correctness: P/F=80/0.5=160 => resp sub-score 3 on vent. If fio2 arrived as percent (50), P/F=1.6 would wrongly force sub-score 4 — the P0-01 defect this design fixes"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — SOFA has no catalog alert. Distinct from catalog SEP-002 (qSOFA+lactato, owned by the sepsis domain, see sepsis.yaml reconciliation): this fires on delta-SOFA>=2 organ dysfunction and emits an event the sepsis/correlation domains consume; qSOFA is computed and emitted here but deliberately not alerted, avoiding a duplicate of the sepsis screen."}
+
+  - alert_id: ALERT-EWS-DISCHARGE-READINESS-04
+    name: "Prontidão para alta/step-down da UTI"
+    severity: normal
+    trigger:
+      logic: >-
+        discharge_ready := admitted_gt_24h
+        AND glasgow >= 14
+        AND dose_vasopressor == 0 mcg/kg/min
+        AND pressao_arterial_media >= 65 mmHg
+        AND lactato_arterial < 2 mmol/L
+        AND NOT mechanical_ventilation
+        AND saturacao_o2 >= 92 percent on room air or low-flow O2
+        AND no_active_deterioration_alert (no EWS-01/-02/-03 firing).
+        Rebuilds RULE-EFICIENCIA-008 (ADAPT): corrects the wrong aggregate key ('temp'->'max_temp'),
+        the truthiness GCS check (-> >=14), and the inverted TEC>5/lactate>2 requirement (-> absence of
+        instability, lactate<2). Aggregation shape reuses RULE-EFICIENCIA-001 (ADAPT) count->enum but
+        rewired so all sub-predicates actually reach the signal.
+      window: PT24H
+    inputs:
+      - {name: glasgow, type: quantity, unit: "points", source: "AMH Gold Observation LOINC 9269-2", staleness_max: PT8H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain conversion service", staleness_max: PT2H}
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8478-0", staleness_max: PT2H}
+      - {name: lactato_arterial, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (mmol/L only, SYS-03)", staleness_max: PT6H}
+      - {name: mechanical_ventilation, type: boolean, unit: "boolean", source: "AMH Gold device/Procedure flag", staleness_max: PT2H}
+      - {name: saturacao_o2, type: quantity, unit: "percent", source: "AMH Gold Observation LOINC 2708-6", staleness_max: PT2H}
+    evidence:
+      - {citation: "Carson JL et al. JAMA 2016;316(19):2025-2035 (AABB — restrictive/stability posture; facade intent RULE-EFICIENCIA-012)", rule_refs: [RULE-EFICIENCIA-008, RULE-EFICIENCIA-001]}
+      - {citation: "Singer M et al. JAMA 2016;315(8):801-810 (lactate <2 mmol/L as resolved-hypoperfusion stability marker)", rule_refs: []}
+    suppression:
+      dedup_key: "patient_id+alert_id"
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+      note: "Positive/efficiency signal; low cadence. Suppressed while any deterioration alert (EWS-01/-02/-03) is active for the same patient."
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 8
+      rationale: >-
+        A readiness signal (physician still owns the disposition, VIS-C-08) — 'PPV' here means the patient is
+        genuinely step-down-eligible. Conjunctive gating (all stability criteria AND no active deterioration
+        alert) keeps false-ready signals low; volume ~8/100 beds/day reflects the natural discharge cadence of a
+        turning-over ICU. Low severity (normal, action <6h) keeps it off the acute channel.
+    response: {required: "revisão médica de elegibilidade para step-down; decisão de alta é do médico", ack_sla: PT6H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {admitted_gt_24h: true, glasgow: 15, dose_vasopressor: 0, pressao_arterial_media: 75, lactato_arterial: 1.5, mechanical_ventilation: false, saturacao_o2: 96, no_active_deterioration_alert: true}, expected: fire, note: "all stability criteria met"}
+      - {id: TV-2, kind: no-fire, inputs: {admitted_gt_24h: true, glasgow: 15, dose_vasopressor: 0.08, pressao_arterial_media: 70, lactato_arterial: 1.4, mechanical_ventilation: false, saturacao_o2: 96, no_active_deterioration_alert: true}, expected: no-fire, note: "still on vasopressor — not ready"}
+      - {id: TV-3, kind: boundary, inputs: {admitted_gt_24h: true, glasgow: 14, dose_vasopressor: 0, pressao_arterial_media: 65, lactato_arterial: 2.0, mechanical_ventilation: false, saturacao_o2: 92, no_active_deterioration_alert: true}, expected: no-fire, note: "boundary — lactate exactly 2.0 fails the strict <2 mmol/L stability gate"}
+      - {id: TV-4, kind: boundary, inputs: {admitted_gt_24h: true, glasgow: 14, dose_vasopressor: 0, pressao_arterial_media: 65, lactato_arterial: 1.9, mechanical_ventilation: false, saturacao_o2: 92, no_active_deterioration_alert: true}, expected: fire, note: "boundary — GCS=14, MAP=65, lactate 1.9 all just inside the gates => ready"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — no discharge/step-down readiness alert exists in the catalog. Rebuilt from legacy RULE-EFICIENCIA-008 (ADAPT, corrected aggregate key / truthiness-GCS / inverted-TEC bugs); efficiency signal, normal severity."}
