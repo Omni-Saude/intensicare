@@ -1,0 +1,181 @@
+- rule_id: RULE-VENTILACAO-001
+  reference:
+    citation: >
+      ARDS Network (ARMA/ARDSNet) low tidal volume protocol - PBW (Devine formula):
+      male = 50 + 0.91*(height_cm - 152.4); female = 45.5 + 0.91*(height_cm - 152.4);
+      lung-protective tidal volume 4-6 mL/kg PBW (ARDSNet ventilator protocol card;
+      ARMA trial NEJM 2000;342:1301-1308).
+    url: https://www.nejm.org/doi/full/10.1056/NEJM200005043421801
+  checks:
+    equation: ok
+    coefficients: >
+      ok - sex base 50 (M) / 45.5 (F) and 0.91 kg/cm above 152.4 cm match ARDSNet PBW.
+      Exact Devine slope is 2.3 kg/inch = 0.9055 kg/cm; 0.91 is the standard published
+      cm-rounded value used on the ARDSNet card. Negligible.
+    units: ok - height cm, weight kg, VC mL; 4/5/6 mL/kg PBW matches protocol
+    ranges: >
+      diff (non-clinical) - no upper plausibility bound on altura; height null/0 forces
+      pesoIdeal=0 (safe sentinel). No effect on formula correctness in valid range.
+    rounding: >
+      ok/n-a - outputs are strings via toFixed(4) (4 decimals); reference does not specify
+      rounding, clinicians round to whole mL. Not a clinical discrepancy.
+    cutoffs: n/a - no score bands
+  test_vectors:
+    - {inputs: {genero: M, altura_cm: 180}, expected_reference: "PBW=50+0.91*27.6=75.116 kg; VC6=450.70 mL, VC5=375.58, VC4=300.46", actual_legacy: "pesoIdeal=75.116; vc_ideal_6=450.6960, vc_5=375.5800, vc_4=300.4640", match: true}
+    - {inputs: {genero: F, altura_cm: 152.4}, expected_reference: "PBW=45.5+0=45.5 kg; VC6=273.0 mL", actual_legacy: "pesoIdeal=45.5000; vc_ideal_6=273.0000", match: true}
+    - {inputs: {genero: M, altura_cm: 160}, expected_reference: "PBW=50+0.91*7.6=56.916 kg; VC6=341.50 mL", actual_legacy: "pesoIdeal=56.9160; vc_ideal_6=341.4960", match: true}
+    - {inputs: {genero: undefined, altura_cm: 170}, expected_reference: "unknown sex -> male base 50 is a defensible default; PBW=50+0.91*17.6=66.016; VC6=396.10", actual_legacy: "non-F falls to male base 50 -> pesoIdeal=66.0160; vc_6=396.0960", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Formula and 4-6 mL/kg targets match ARDSNet exactly. One cosmetic defect: calculo_peso
+    (UI label "Calculo Peso") stores the raw sex base constant (45.5/50), NOT a computed body
+    weight - naming/behavior mismatch, but the clinically-used outputs (peso_ideal, vc_ideal_*)
+    are computed correctly and are unaffected. Any non-"F" genero (incl. undefined) defaults to
+    male base 50.
+
+- rule_id: RULE-VENTILACAO-002
+  reference:
+    citation: >
+      No authoritative published clinical reference. This is an internal date-arithmetic helper
+      (days since ventilacao_mecanica.horario_inicio) consumed by downstream ventilation criteria
+      C4/C5/C6/C8. "Days on mechanical ventilation" is a raw duration count, not a published
+      scale/equation/cutoff.
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: >
+      ok (internal) - returns timedelta.days (whole-day integer, truncates the hours component).
+      abs() makes future start times return a positive count. No VM object -> returns False.
+    ranges: n/a
+    rounding: >
+      note - truncation (not rounding) of the sub-day remainder: e.g. 6 days 23 h -> 6, so a
+      ">7 days" downstream test does not fire until a full 8th calendar-day boundary of elapsed time.
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {horario_inicio: "now - 11 days 5h"}, expected_reference: "~11 days elapsed", actual_legacy: "abs((now-start).days)=11", match: true}
+    - {inputs: {horario_inicio: "now - 6 days 23h"}, expected_reference: "conceptually ~7 days elapsed", actual_legacy: "timedelta.days truncates to 6 (not 7)", match: true}
+    - {inputs: {ventilacao_mecanica: absent}, expected_reference: "no VM -> not on ventilator", actual_legacy: "returns False", match: true}
+    - {inputs: {horario_inicio: "now + 3 days (future/data-entry error)"}, expected_reference: "invalid / 0 expected", actual_legacy: "abs() -> returns 3 (positive)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Trivial internal duration helper; no published clinical anchor (flagged verify=true only
+    because type=formula). Behaviorally correct as a day-count. Two documented quirks for internal
+    review: (1) .days truncation means fractional final day is dropped before strict > comparisons
+    downstream (C4 >7, C5/C6 >10, C8 >1); (2) abs() silently turns a future/erroneous start time
+    into a positive count. Neither is a reference discrepancy.
+
+- rule_id: RULE-VENTILACAO-003
+  reference:
+    citation: >
+      Lung-protective ventilation: tidal volume <=6 mL/kg PREDICTED body weight (ARDSNet ARMA,
+      NEJM 2000;342:1301); driving/plateau pressure limits (Amato et al, driving pressure <=15
+      cmH2O, NEJM 2015;372:747; plateau <=30 cmH2O). Tidal-volume safety is weight-indexed, not
+      an absolute mL threshold.
+    url: https://www.nejm.org/doi/full/10.1056/NEJMsa1410639
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: >
+      DIFF - volume_corrente compared to an ABSOLUTE 500 mL, whereas the reference (and the
+      prior _ANTIGAS_REGRAS: "Volume Corrente >6 mL/kg") indexes VC to predicted body weight.
+      500 mL = 6 mL/kg only at PBW ~83 kg; smaller patients are under-detected.
+    ranges: n/a
+    rounding: n/a
+    cutoffs: >
+      DIFF - PINS strict >16 cmH2O (prior version used >15; near the ~15 cmH2O driving-pressure
+      safety anchor). VC strict >500 mL absolute (vs weight-based 6 mL/kg).
+  test_vectors:
+    - {inputs: {volume_corrente: 480, pressao_inspiratoria: 12, PBW_context: "50 kg (480 mL = 9.6 mL/kg)"}, expected_reference: "over-ventilated (>6 mL/kg) -> should flag True", actual_legacy: "480>500 False; 12>16 False; any()=False -> NOT flagged", match: false}
+    - {inputs: {volume_corrente: 501, pressao_inspiratoria: 10, PBW_context: "typical PBW <=83 kg"}, expected_reference: ">6 mL/kg for typical PBW -> flag True", actual_legacy: "501>500 True -> True", match: true}
+    - {inputs: {volume_corrente: 400, pressao_inspiratoria: 17}, expected_reference: "high inspiratory pressure -> flag True", actual_legacy: "17>16 True -> True", match: true}
+    - {inputs: {volume_corrente: 500, pressao_inspiratoria: 16}, expected_reference: "500 mL at PBW 50 = 10 mL/kg -> should flag True", actual_legacy: "500>500 False; 16>16 False -> False (boundary, not flagged)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms the extraction-tagged DISCREPANCY. Current code (PINS>16 OR VC>500 mL absolute)
+    replaced the weight-based _ANTIGAS rule (Pressao Controlada >15 OU VC >6 mL/kg) and raised the
+    pressure cutoff 15->16. Clinical impact MODERATE (not high) because this is a decision-support
+    alert-forcing criterion (feeds RULE-VENTILACAO-014 VERMELHO override), not a ventilator order:
+    the absolute 500 mL threshold produces FALSE NEGATIVES for small-PBW patients who are being
+    ventilated well above 6 mL/kg (e.g. a 50 kg PBW patient at 480 mL / 9.6 mL/kg is not flagged).
+    Verified verbatim against trilha_ventilacao.py:124-134.
+
+- rule_id: RULE-VENTILACAO-004
+  reference:
+    citation: >
+      ARDSNet Lower-PEEP/Higher-FiO2 titration table (moderate/less-severe hypoxemia arm). Canonical
+      allowed PEEP per FiO2: 0.3->5; 0.4->5,8; 0.5->8,10; 0.6->10; 0.7->10,12,14; 0.8->14;
+      0.9->14,16,18; 1.0->18,20,22,24. Berlin ARDS severity by P/F: mild 200-300, moderate 100-200,
+      severe <100 (JAMA 2012;307:2526).
+    url: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8285534/
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: >
+      DIFF (fragile) - key = str(fio2/100)[0:3] assumes fio2 is a PERCENTAGE (fio2=40 -> "0.4"),
+      which matches the stored FiO2 range 21-100 (RULE-VENTILACAO-018). But if any caller passes a
+      FRACTION (fio2=1, as the unit test does) then 1/100=0.01 -> key "0.0", collapsing every high-FiO2
+      setting into the fabricated "0.0" bucket [5]. Note: C8 (RULE-VENTILACAO-011) treats fio2 as a
+      fraction (<0.4) - intra-model FiO2 unit inconsistency.
+    ranges: >
+      diff - table adds non-ARDSNet buckets "0.0","0.1","0.2" (FiO2 min in ARDSNet is 0.3); these
+      exist only to catch the buggy fraction keys.
+    rounding: n/a
+    cutoffs: >
+      DIFF - band 151 < P/F < 300 spans Berlin mild+moderate (not "moderate" alone; Berlin moderate
+      is 100-200). Table matches ARDSNet as a range-FILL superset EXCEPT FiO2 0.7 = [10,11,12]:
+      omits the ARDSNet-valid PEEP 14 (and adds non-standard 11).
+  test_vectors:
+    - {inputs: {fio2: 70 (percent), peep: 14, relacao_po2_fio2: 180}, expected_reference: "PEEP 14 IS valid at FiO2 0.7 (ARDSNet 10,12,14) -> no mismatch -> False", actual_legacy: "key '0.7'->[10,11,12]; 14 not in list -> mismatch True; 151<180<300 True -> returns True (FALSE POSITIVE)", match: false}
+    - {inputs: {fio2: 40 (percent), peep: 20, relacao_po2_fio2: 200}, expected_reference: "PEEP 20 invalid at FiO2 0.4 (should be 5/8) -> mismatch, moderate P/F -> True", actual_legacy: "key '0.4'->[5,6,7,8]; 20 not in -> True; 151<200<300 -> True", match: true}
+    - {inputs: {fio2: 100 (percent), peep: 20, relacao_po2_fio2: 250}, expected_reference: "PEEP 20 valid at FiO2 1.0 (18-24) -> no mismatch -> False", actual_legacy: "key '1.0'->[18..24]; 20 in list -> False", match: true}
+    - {inputs: {fio2: 1 (fraction, as in test), peep: 5, relacao_po2_fio2: 200}, expected_reference: "FiO2 1.0 with PEEP 5 grossly inadequate -> mismatch -> True", actual_legacy: "1/100=0.01 -> key '0.0'->[5]; 5 in list -> no mismatch -> False (FALSE NEGATIVE from unit bug)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms extraction DISCREPANCY. Two independent issues vs ARDSNet: (1) fio2/100 percentage
+    assumption is correct for stored 21-100 values but silently mis-buckets any fraction input into
+    "0.0" (false negatives at high FiO2) - the malformed guard (`False and peep>0`) also leaves PEEP>0
+    unenforced; (2) FiO2 0.7 row omits the ARDSNet-valid PEEP 14 (false positive) and the P/F band
+    151-300 conflates Berlin mild+moderate. Impact MODERATE: decision-support flag, not an order; net
+    effect is occasional false pos/neg on PEEP-titration prompting. Verified against
+    trilha_ventilacao.py:136-180.
+
+- rule_id: RULE-VENTILACAO-005
+  reference:
+    citation: >
+      ARDSNet Higher-PEEP/Lower-FiO2 titration table (severe hypoxemia arm, ALVEOLI). Canonical
+      allowed PEEP per FiO2: 0.3->5,8,10,12,14; 0.4->14,16; 0.5->16,18; 0.5-0.8->20; 0.8->22;
+      0.9->22; 1.0->22,24. P/F <150 is the PROSEVA prone-positioning threshold (NEJM 2013;368:2159);
+      Berlin "severe" ARDS is P/F <100 (JAMA 2012;307:2526).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC5863129/
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: >
+      DIFF (fragile) - same key = str(fio2/100)[0:3] percentage assumption as C2; correct for stored
+      21-100 FiO2 but collapses fraction inputs (fio2=1 -> "0.0") into a fabricated bucket. Guard here
+      is CORRECT (relacao_po2_fio2 truthy AND peep>0), unlike C2.
+    ranges: diff - adds non-ARDSNet "0.0","0.1","0.2" buckets as in C2.
+    rounding: n/a
+    cutoffs: >
+      DIFF - ratio strict <150 corresponds to the PROSEVA prone threshold, NOT Berlin "severe" (<100);
+      table matches ARDSNet as a range-fill superset EXCEPT FiO2 1.0 = [22]: omits the ARDSNet-valid
+      PEEP 24 (false positive at 100% FiO2 with PEEP 24).
+  test_vectors:
+    - {inputs: {fio2: 100 (percent), peep: 24, relacao_po2_fio2: 100}, expected_reference: "PEEP 24 IS valid at FiO2 1.0 (ARDSNet 22,24) -> no mismatch -> False", actual_legacy: "key '1.0'->[22]; 24 not in list -> mismatch True; 100<150 True -> returns True (FALSE POSITIVE)", match: false}
+    - {inputs: {fio2: 50 (percent), peep: 16, relacao_po2_fio2: 120}, expected_reference: "PEEP 16 valid at FiO2 0.5 (16,18) -> no mismatch -> False", actual_legacy: "key '0.5'->[16,17,18]; 16 in list -> False", match: true}
+    - {inputs: {fio2: 40 (percent), peep: 5, relacao_po2_fio2: 149}, expected_reference: "PEEP 5 invalid at FiO2 0.4 (needs 14,16) -> mismatch, P/F<150 -> True", actual_legacy: "key '0.4'->[14,15,16]; 5 not in -> True; 149<150 -> True", match: true}
+    - {inputs: {fio2: 1 (fraction, as in test), peep: 5, relacao_po2_fio2: 149}, expected_reference: "FiO2 1.0 PEEP 5 grossly inadequate -> mismatch -> True", actual_legacy: "1/100=0.01 -> key '0.0'->[5]; 5 in list -> no mismatch -> False (FALSE NEGATIVE from unit bug)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms extraction DISCREPANCY. The severe-arm (higher-PEEP) table is ARDSNet-consistent as a
+    superset except FiO2 1.0 omits PEEP 24 (produces a false positive for a correctly-titrated 100%
+    FiO2 / PEEP 24 patient). Guard is clean here (unlike C2). Same fio2/100 fragility: correct for
+    stored 21-100 FiO2, false negatives if a fraction is supplied (test passes fio2=1 -> "0.0"). Ratio
+    <150 is the PROSEVA prone anchor, not Berlin severe (<100). Impact MODERATE (decision-support flag).
+    Verified against trilha_ventilacao.py:182-223.

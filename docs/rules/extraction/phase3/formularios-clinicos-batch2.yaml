@@ -1,0 +1,51 @@
+- rule_id: RULE-FORMULARIOS-CLINICOS-014
+  reference:
+    citation: >
+      No authoritative published clinical reference exists. This rule captures an internal
+      data-capture vocabulary (drug name + administration-route multicheck + body-site multicheck +
+      equipment/bath/incident fields) for the TecEnfermagem form. The route codes (EV=endovenosa/IV,
+      IM=intramuscular, SC=subcutanea, SL=sublingual, IT=intratecal, outras=other) and body-site codes
+      (MID/MIE/MSD/MSE = membro inferior/superior direito/esquerdo; VJD/VJE = veia jugular direita/esquerda)
+      are standard Brazilian-Portuguese clinical abbreviations, but the list is a proprietary form
+      vocabulary, not a scored scale, formula, or dose calculator. There is no equation, coefficient,
+      unit conversion, valid-range bound, rounding step, or score-band cutoff to audit against a guideline.
+    url: null
+  checks:
+    equation: n/a       # no calculation performed; vocabulary + conditional-reveal form only
+    coefficients: n/a   # none present
+    units: n/a          # no numeric units; drug dose/rate NOT captured despite drug-dosing Phase-1 tag
+    ranges: n/a         # no numeric input; all inputs are enum multichecks / free-text strings
+    rounding: n/a       # no numeric computation
+    cutoffs: n/a        # no score bands or thresholds
+  test_vectors:
+    # No reference-derived clinical vectors exist (no published source). Vectors below hand-trace the
+    # only behavioral logic present - the conditional free-text reveals - through the legacy code
+    # (dataFormTecEnfermagem.ts:555-655) to confirm internal consistency with the rule's logic field.
+    - inputs: {via_administracao: ["outras"]}
+      expected_reference: "reveal free-text 'outras_vias' field (per rule logic: outras -> outras_vias)"
+      actual_legacy: "conditions.outras fires -> outras_vias string field shown (lines 586-594)"
+      match: true
+    - inputs: {via_administracao: ["ev"], local: ["vjd"]}
+      expected_reference: "route EV + site right-jugular recorded; no conditional reveal"
+      actual_legacy: "ev/vjd stored as multicheck values; no condition triggered (lines 579,605)"
+      match: true
+    - inputs: {equipamentos_em_uso: ["outros"]}
+      expected_reference: "reveal free-text 'outros_equipamentos' field (per rule logic: outros -> outros_equipamentos)"
+      actual_legacy: "conditions.outros fires -> outros_equipamentos string field shown (lines 628-636)"
+      match: true
+    - inputs: {via_administracao: ["ev","im","sc","sl","it","outras"]}
+      expected_reference: "all 6 route options selectable together (multicheck); 'outras' still reveals free text"
+      actual_legacy: "6 options present exactly {ev,im,sc,sl,it,outras}; outras reveal fires (lines 578-594)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Internal-review flag (not a defect). Legacy vocabulary and conditional-reveal logic reproduce the
+    rule's logic field verbatim (dataFormTecEnfermagem.ts:555-655): route multicheck {ev,im,sc,sl,it,outras}
+    with outras->outras_vias reveal; site multicheck {mid,mie,msd,mse,vjd,vje}; equipment multicheck with
+    outros->outros_equipamentos reveal; banho {leito,aspersao}; intercorrencias_24h free text. Route and
+    site abbreviations are clinically standard and mapped correctly (label<->value consistent, no unit or
+    code errors observed). The rule carries verify=true only because its Phase-1 taxonomy category is
+    'drug-dosing', but it captures NO dose amount, concentration, rate, or weight - so none of the
+    unit-mismatch failure modes this audit targets (mg/dl vs mmol/L, FiO2 fraction vs percent,
+    mcg/kg/min vs mcg/kg/h) can occur here. Nothing to correct; no authoritative source to verify against.

@@ -1,0 +1,143 @@
+- rule_id: RULE-TENANCY-ORGANIZACAO-006
+  reference:
+    citation: "No authoritative published clinical reference. Internal proprietary data-fetch rule: SetorStatusSerializer.get_macro_indicadores single-record fetch of a MacroIndicadores row keyed by (CD_ESTABELECIMENTO, CD_SETOR_ATENDIMENTO). Legacy verbatim confirmed at core/api/v1/serializers/setor.py:187-206 @ 8166c07."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: "diff (internal, not vs a reference): no rounding here; establishment-level counterpart RULE-005 rounds Sum/Avg to 2 decimals. This is an intra-codebase inconsistency, not a deviation from any published source."
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {tipo: manual}
+      expected_reference: "n/a (no reference)"
+      actual_legacy: "{} (guard skips the try block entirely)"
+      match: true
+    - inputs: {tipo: automatica, single_matching_row: {VIDAS_SALVAS: 12, OBITOS: 3, TEMPO_PERMANENCIA: 4.7, TX_MORTALIDADE: 8.1, TX_OCUPACAO: 91.3, ADMISSAO: 40}}
+      expected_reference: "n/a"
+      actual_legacy: "{vidas_salvas:12, obitos:3, tempo_permanencia:4.7, tx_mortalidade:8.1, tx_ocupacao:91.3, admissao:40} (raw, un-rounded)"
+      match: true
+    - inputs: {tipo: automatica, matching_rows: 0 (DoesNotExist)}
+      expected_reference: "n/a"
+      actual_legacy: "{} (bare except swallows DoesNotExist)"
+      match: true
+    - inputs: {tipo: automatica, matching_rows: 2 (MultipleObjectsReturned)}
+      expected_reference: "n/a"
+      actual_legacy: "{} (bare except silently treats duplicate exactly like not-found; no error surfaced)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Proprietary multi-tenant data-fetch; no published clinical calculator governs it. Flag for internal review. Extraction-flagged DISCREPANCY is an intra-codebase divergence vs RULE-005 (no rounding here; establishment version rounds), plus a bare `except:` that collapses DoesNotExist and MultipleObjectsReturned into an empty dict. These are code-quality/robustness concerns for internal owners, not deviations from any authoritative reference. Legacy behavior traced and confirmed against setor.py:187-206."
+- rule_id: RULE-TENANCY-ORGANIZACAO-007
+  reference:
+    citation: "No authoritative published reference. Internal messaging/tenancy rule: EstabelecimentoStatusSerializer.get_qtd_mensagens sums Firestore unread counters across instance.setores.all(). Legacy verbatim confirmed at core/api/v1/serializers/estabelecimento.py:231-251 @ 8166c07."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {setores: 3, user_docs: {setorA: 5, setorB: 3, setorC: none}}
+      expected_reference: "n/a (business-defined intent)"
+      actual_legacy: "8 (sums 5+3+0 across ALL sectors regardless of user membership)"
+      match: true
+    - inputs: {setores: 0}
+      expected_reference: "n/a"
+      actual_legacy: "0 (loop body never runs)"
+      match: true
+    - inputs: {setores: 1, user has stale Firestore doc from a past membership: {qtd_mensagens: 2}}
+      expected_reference: "n/a"
+      actual_legacy: "2 (counted; no setor__usuarios=user filter, unlike sibling methods)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Proprietary business rule; extraction status AMBIGUOUS. No clinical/published reference exists to declare right or wrong. Not a data-leak (Firestore path is keyed by the requesting user's own pk: chats/{setor}/usuarios/{user.pk}), but the absence of a setor__usuarios=user filter is inconsistent with sibling computed fields in the same serializer. Intent (sum 'my' sectors vs whole establishment) is unresolvable from code alone. Flag for internal product-owner review. Helper get_qtd_msg_setor is duplicated verbatim in setor.py (see RULE-008)."
+- rule_id: RULE-TENANCY-ORGANIZACAO-008
+  reference:
+    citation: "No authoritative published reference. Internal Firestore lookup: get_qtd_msg_setor reads chats/{setor.pk}/usuarios/{usuario.pk}, returning data.get('qtd_mensagens', 0). Legacy verbatim confirmed at core/api/v1/serializers/setor.py:270-286 @ 8166c07."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {firestore_doc: {qtd_mensagens: 7}}
+      expected_reference: "n/a"
+      actual_legacy: "7"
+      match: true
+    - inputs: {firestore_doc: missing (to_dict() is None)}
+      expected_reference: "n/a"
+      actual_legacy: "0 (`... or {}` then .get default 0)"
+      match: true
+    - inputs: {firestore_doc: "{} (present but no qtd_mensagens field)"}
+      expected_reference: "n/a"
+      actual_legacy: "0 (.get('qtd_mensagens', 0))"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Proprietary messaging counter; no published reference. Extraction status OK; behavior is internally consistent (missing doc and missing field both resolve to 0). Legacy traced and confirmed. Nothing to characterize against an external source."
+- rule_id: RULE-TENANCY-ORGANIZACAO-009
+  reference:
+    citation: "No authoritative published reference. Internal display-string rule: SetorUsuarioSerializer.get_nome returns instance.estabelecimento.nome + ' - ' + instance.nome. Legacy verbatim confirmed at core/api/v1/serializers/setor.py:22-23 @ 8166c07."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {estabelecimento.nome: "Hospital A", nome: "UTI 3"}
+      expected_reference: "n/a"
+      actual_legacy: "\"Hospital A - UTI 3\""
+      match: true
+    - inputs: {estabelecimento.nome: "Hospital A", nome: ""}
+      expected_reference: "n/a"
+      actual_legacy: "\"Hospital A - \" (trailing separator; empty setor name)"
+      match: true
+    - inputs: {estabelecimento: null}
+      expected_reference: "n/a"
+      actual_legacy: "AttributeError (no None-guard on instance.estabelecimento) - unreachable if FK is non-nullable"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Pure presentation string concatenation; no clinical or published reference applies. Extraction status OK. Behavior traced and confirmed; the only edge is a hard dependency on a non-null estabelecimento FK, which is a schema concern for internal review, not an external-reference deviation."
+- rule_id: RULE-TENANCY-ORGANIZACAO-010
+  reference:
+    citation: "No authoritative published reference. Internal cache-bucketing helper: SetorSerializer.get_atualizado_em floors the minute component to the nearest lower multiple of 5. Legacy verbatim confirmed at core/api/v1/serializers/setor.py:112-116 @ 8166c07. Arithmetic (n - n%5) is a standard floor-to-bucket; checked for internal self-consistency only."
+    url: null
+  checks:
+    equation: "ok (internal arithmetic self-consistent: minuto = minute - minute%5 correctly floors to lower multiple of 5)"
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: "ok (floor-down on minute field only; seconds/microseconds intentionally preserved, so result is NOT an exact :00 boundary - matches the description's stated edge case)"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {now: "14:37:42.123456"}
+      expected_reference: "14:35 bucket (37 - 37%5 = 35)"
+      actual_legacy: "14:35:42.123456 (minute->35, seconds/micros preserved)"
+      match: true
+    - inputs: {now: "14:35:00.000000"}
+      expected_reference: "14:35 bucket (35%5 = 0)"
+      actual_legacy: "14:35:00.000000"
+      match: true
+    - inputs: {now: "14:39:59.900000"}
+      expected_reference: "14:35 bucket (39 - 39%5 = 35)"
+      actual_legacy: "14:35:59.900000 (upper boundary of bucket)"
+      match: true
+    - inputs: {now: "14:00:07.000000"}
+      expected_reference: "14:00 bucket (0%5 = 0)"
+      actual_legacy: "14:00:07.000000"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Proprietary 'last updated' cache-bucketing/throttling value, not a clinical computation; no published reference governs it. The floor-to-5-minute arithmetic is internally correct and matches the rule description on all traced vectors, and the seconds/micros-preserved edge case is behaving as documented. Flagged UNVERIFIABLE (no external authority) rather than VERIFIED; impact n/a. If intent were an exact 5-minute clock boundary, seconds/microseconds would need zeroing too - a note for internal owners, not a reference discrepancy."

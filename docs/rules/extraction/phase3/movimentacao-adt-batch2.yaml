@@ -1,0 +1,144 @@
+- rule_id: RULE-MOVIMENTACAO-ADT-006
+  reference:
+    citation: "No authoritative published clinical reference exists. Internal serializer contract (OcupacaoSerializer.get_paciente returns flattened patient dict, or {} when bed unassigned). Verified against legacy source only."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {instance.paciente: "Paciente(pk=42, nome_fracionado='J. Silva', nome_abreviado='JOAO SILVA', idade_paciente=64, genero='M')"}
+      expected_reference: "n/a (no clinical reference) - internal expected: {id:42, nome:'J. Silva', nome_extendido:'JOAO SILVA', idade:64, genero:'M'}"
+      actual_legacy: "{id:42, nome:'J. Silva', nome_extendido:'JOAO SILVA', idade:64, genero:'M'}"
+      match: true
+    - inputs: {instance.paciente: "None (empty/unassigned bed)"}
+      expected_reference: "n/a - internal expected: {} (empty dict, not null)"
+      actual_legacy: "{} (empty dict)"
+      match: true
+    - inputs: {instance.paciente: "Paciente present but idade_paciente=None (missing DOB)"}
+      expected_reference: "n/a - internal expected: dict with idade:None passed through (no validation)"
+      actual_legacy: "{...,'idade':None,...} (no range/None guard on fields)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Software/data-plumbing rule, not a clinical calculation - no published reference (paper/guideline/calculator) applies. Legacy logic at core/api/v1/serializers/leito.py:101-116 confirmed byte-for-byte against catalog (empty-dict-not-null on unassigned bed). Flag for internal review re the intentional {} vs None asymmetry with ObservacaoSerializer.get_paciente (documented in rule); not a defect against any authority. No unit/coefficient/cutoff surface to audit.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-007
+  reference:
+    citation: "No authoritative published clinical reference exists. Internal field mapping (PacienteSimplesSerializer: get_nome->nome_fracionado, get_idade->idade_paciente, nome_extendido<-nome_abreviado). Verified against legacy source only."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {nome_fracionado: "'M. Souza'", idade_paciente: 78, nome_abreviado: "'MARIA SOUZA'"}
+      expected_reference: "n/a - internal expected: nome='M. Souza', idade=78, nome_extendido='MARIA SOUZA'"
+      actual_legacy: "nome='M. Souza', idade=78, nome_extendido='MARIA SOUZA'"
+      match: true
+    - inputs: {nome_fracionado: "''", idade_paciente: 0, nome_abreviado: "''"}
+      expected_reference: "n/a - internal expected: empty strings + idade=0 passed through verbatim"
+      actual_legacy: "nome='', idade=0, nome_extendido=''"
+      match: true
+    - inputs: {idade_paciente: "None"}
+      expected_reference: "n/a - internal expected: idade=None (property delegated, no coercion)"
+      actual_legacy: "idade=None"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Pure serializer field-delegation rule; no clinical formula, unit, or cutoff to verify against any authority. Legacy at core/api/v1/serializers/paciente.py:7-26 confirmed against catalog. idade_paciente age computation lives in a model property (out of partition) and would be the only clinically-relevant surface if one existed; here it is opaquely delegated. Flag for internal review only if the underlying idade_paciente property is later audited.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-008
+  reference:
+    citation: "No authoritative published clinical reference exists. Software correctness finding (dead precomputed context dict + N+1 per-row query in SetorPacienteViewSet.get_serializer_context vs SetorPacienteSerializer.get_vinculo). Verified against legacy source only."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {N_patients_in_list: 1, context.vinculos_paciente_leito: "prebuilt with 1 entry"}
+      expected_reference: "n/a - intent (per precomputed dict): 0 extra queries, read from context"
+      actual_legacy: "1 extra DB query in get_vinculo; context dict never read"
+      match: false
+    - inputs: {N_patients_in_list: 30, context.vinculos_paciente_leito: "prebuilt with 30 entries"}
+      expected_reference: "n/a - intent: 1 upfront query, dict lookups thereafter"
+      actual_legacy: "30 additional per-row queries (N+1); prebuilt dict is dead code"
+      match: false
+    - inputs: {patient_with_no_vinculo: true}
+      expected_reference: "n/a - internal expected: get_vinculo returns None"
+      actual_legacy: "filter(...).first() -> None -> returns None (functionally correct output)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Carries DISCREPANCY status from extraction; characterized here as a confirmed intent-vs-implementation software defect (dead context['vinculos_paciente_leito'] dict + N+1 query), NOT dismissed. Confirmed against core/api/v1/views/paciente.py:44-63 (builds dict, verified verbatim) and serializer get_vinculo (per-row query) - the two do not agree. It is a performance/dead-code issue with no clinical formula, unit, or cutoff, hence no published authority to verify against. Output correctness (returns vinculo pk or None) is unaffected; only query count / apparent intent diverges. Flag for internal engineering review.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-009
+  reference:
+    citation: "IANA tz database (America/Sao_Paulo) and Brazil DST law: DST permanently abolished 2019 (Decreto 9.772/2019, eff. Apr 2019); Brasilia Time = UTC-3 year-round since 2019, previously UTC-2 during summer DST (mid-Oct to mid-Feb)."
+    url: "https://en.wikipedia.org/wiki/Daylight_saving_time_in_Brazil"
+  checks:
+    equation: diff
+    coefficients: "diff - fixed -3h subtraction hardcoded vs tz-aware offset that was -2h during pre-2019 DST windows"
+    units: ok
+    ranges: n/a
+    rounding: "ok - strftime truncates to minute; no rounding of the offset"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {criado_em: "2026-07-03 15:00 UTC (post-DST era, winter)"}
+      expected_reference: "America/Sao_Paulo = UTC-3 (no DST) -> local 12:00 -> label '2026-07-03 12:00'; correct"
+      actual_legacy: "criado_em - 3h -> '2026-07-03 12:00'"
+      match: true
+    - inputs: {criado_em: "2018-01-15 15:00 UTC (pre-2019, summer DST active, America/Sao_Paulo=UTC-2)"}
+      expected_reference: "tz-aware local = 13:00 -> '2018-01-15 13:00'"
+      actual_legacy: "criado_em - 3h -> '2018-01-15 12:00' (1 hour too early)"
+      match: false
+    - inputs: {criado_em: "any timestamp for a non-UTC-3 deployment (e.g. a UTC+0 site)"}
+      expected_reference: "tz-aware local conversion for that region"
+      actual_legacy: "always subtracts exactly 3h regardless of region -> wrong offset"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: |
+    Confirmed at core/models/movimentacao.py:105-119 (montar_list_ultimos_dados: criado_em - timedelta(hours=3)). Against the authoritative tz reference: since Brazil permanently ended DST in 2019, America/Sao_Paulo is a constant UTC-3, so the fixed -3h matches wall-clock for all current/future Brazilian timestamps -> impact is effectively none for present-day operation. The DISCREPANCY (already flagged at extraction) manifests only for (a) historical prontuario timestamps recorded during pre-2019 DST windows, which display 1 hour too early, or (b) any non-UTC-3 deployment. These are display-only labels on historical data, not values feeding a clinical calculation; hence low (not moderate/high) - a mislabeled minute on an old record could marginally confuse chart-time reconstruction but does not alter any score or dosing. Assumes criado_em is stored UTC; if it were stored tz-aware local instead, the -3h would double-shift (raising impact) - storage semantics out of partition, flag for internal review.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-010
+  reference:
+    citation: "No authoritative published clinical reference exists. RTSP basic-auth-in-URL is the standard rtsp://user:pass@host convention (RFC 7826/2326 userinfo); a networking pattern, not a clinical rule. Verified against legacy source only."
+    url: "https://datatracker.ietf.org/doc/html/rfc7826"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {login_camera: "admin", senha_camera: "s3cret", ip_camera: "10.0.0.5"}
+      expected_reference: "n/a - standard form: rtsp://admin:s3cret@10.0.0.5"
+      actual_legacy: "rtsp://admin:s3cret@10.0.0.5"
+      match: true
+    - inputs: {login_camera: "admin", senha_camera: "p@ss:word", ip_camera: "10.0.0.5"}
+      expected_reference: "n/a - RFC would require percent-encoding '@' and ':' in userinfo"
+      actual_legacy: "rtsp://admin:p@ss:word@10.0.0.5 (unescaped; ambiguous userinfo per RFC)"
+      match: false
+    - inputs: {ip_camera: "None or '' (unconfigured)"}
+      expected_reference: "n/a - no valid stream"
+      actual_legacy: "rtsp://admin:s3cret@None (malformed string; no guard)"
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Software URL-construction rule, no clinical calculation. Confirmed at core/api/v1/views/camera.py:18-27 (rtsp://{usuario}:{senha}@{ip}). Only external touchpoint is the RTSP URI convention (RFC 7826), against which the legacy is correct for simple credentials but omits percent-encoding of special characters in login/senha and has no null-IP guard - noted as robustness gaps, not clinical discrepancies. Endpoint auth via HasAPIKey (not JWT) noted in rule. Flag for internal security/robustness review (credential escaping); not a clinical audit finding.

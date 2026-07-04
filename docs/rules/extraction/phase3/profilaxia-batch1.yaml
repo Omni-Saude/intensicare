@@ -1,0 +1,159 @@
+- rule_id: RULE-PROFILAXIA-001
+  reference:
+    citation: >
+      ADA Standards of Care in Diabetes (Diabetes Care) inpatient glycemic
+      management + Umpierrez et al. RABBIT-2 (Diabetes Care 2007) basal-bolus
+      protocol: insulin-naive hospitalized T2DM starting total daily dose (TDD)
+      0.3-0.5 U/kg/day. The correction (supplemental) sliding-scale increment and
+      the NPH-three-times-daily split are institutional protocol specifics, not a
+      single published standard.
+    url: https://diabetesjournals.org/care/issue (ADA Standards of Care, Diabetes in Hospital chapter); https://pubmed.ncbi.nlm.nih.gov/17563345/ (RABBIT-2)
+  checks:
+    equation: ok            # TDD = coefficient x weight; correction = 1 U per 50 mg/dl above 150 mg/dl
+    coefficients: ok        # 0.3-0.5 U/kg/day inclusive matches published inpatient starting TDD range
+    units: ok               # weight kg, glucose mg/dl (Brazilian/US convention); U output. No unit mismatch.
+    ranges: n/a             # no explicit input valid-range enforced in legacy
+    rounding: n/a           # legacy performs no rounding; integer-U correction is clinician-applied
+    cutoffs: ok             # correction reference point 150 mg/dl, step 50 mg/dl (internally consistent institutional sliding scale)
+  test_vectors:
+    - inputs: {peso: 70, purpose: NPH daily dose}
+      expected_reference: "TDD 0.3-0.5 U/kg -> 21 to 35 U/day (divided 3x)"
+      actual_legacy: "0.3*70=21 to 0.5*70=35 U/day, divided 3x/day"
+      match: true
+    - inputs: {HGT: 250, purpose: regular-insulin correction}
+      expected_reference: "institutional scale: (250-150)/50 = 2 U regular (n/a to a single published standard; arithmetic self-consistent)"
+      actual_legacy: "+1 U per 50 mg/dl above 150 -> (250-150)/50 = 2 U"
+      match: true
+    - inputs: {HGT: 150, purpose: correction boundary}
+      expected_reference: "at/below 150 mg/dl -> 0 correction units"
+      actual_legacy: "(150-150)/50 = 0 U"
+      match: true
+    - inputs: {HGT: 200, purpose: single-step boundary}
+      expected_reference: "(200-150)/50 = 1 U"
+      actual_legacy: "1 U"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    The verifiable clinical anchor - weight-based starting TDD 0.3-0.5 U/kg/day -
+    matches ADA inpatient guidance exactly, with correct units (no mg/dl vs mmol/L
+    or per-kg error). Two elements are institutional and have no single
+    authoritative published value: (a) the +1 U regular per 50 mg/dl above a
+    150 mg/dl target correction scale, and (b) delivering NPH divided 3x/day
+    (NPH is intermediate-acting and is conventionally BID; TID is an institutional
+    choice). These are documented as institutional protocol, not flagged as errors.
+    criterio_8 (IV insulin BIC per institutional protocol) is an unverifiable
+    internal-protocol pointer. Overall matches reference on every checkable
+    dimension.
+
+- rule_id: RULE-PROFILAXIA-002
+  reference:
+    citation: >
+      ACCP/CHEST Antithrombotic Therapy for VTE Prophylaxis and ASH 2018
+      Guidelines for VTE prophylaxis in hospitalized medical patients: enoxaparin
+      40 mg SC once daily standard prophylaxis; unfractionated heparin (UFH)
+      5000 U SC q8h or q12h accepted for severe renal impairment (CrCl <30 mL/min,
+      where LMWH is avoided/UFH preferred); increased/weight-adjusted LMWH dosing
+      for morbid obesity (BMI >= 40).
+    url: https://www.ahajournals.org/ (ACCP/CHEST VTE prophylaxis); https://ashpublications.org/bloodadvances/article/2/22/3198 (ASH 2018 prophylaxis of medical inpatients)
+  checks:
+    equation: n/a           # decision-tree, no equation
+    coefficients: ok        # enoxaparin 40 mg, UFH 5000 U, enoxaparin 60 mg (obesity) all published prophylactic doses
+    units: ok               # mg (enoxaparin), U (heparin), mg/dl (creatinine), kg/m2 (BMI) - no unit mismatch
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff           # renal switch keyed to serum creatinine >2.0 mg/dl as surrogate for CrCl <30; guidelines use CrCl, not raw creatinine
+  test_vectors:
+    - inputs: {creatinina: 1.0, TRS: false, IMC: 30, criterio: 4}
+      expected_reference: "enoxaparin 40 mg SC once daily (standard prophylaxis)"
+      actual_legacy: "enoxaparina 40 mg 1x/dia"
+      match: true
+    - inputs: {creatinina: 2.5, TRS: false, IMC: 30, criterio: 4}
+      expected_reference: "severe renal impairment -> UFH 5000 U SC (q8h or q12h both accepted)"
+      actual_legacy: "heparina 5000 U 8/8h"
+      match: true
+    - inputs: {creatinina: 1.0, TRS: false, IMC: 45, criterio: 4}
+      expected_reference: "morbid obesity BMI>=40 -> intensified LMWH dosing"
+      actual_legacy: "enoxaparina 60 mg 1x/dia"
+      match: true
+    - inputs: {creatinina: 2.5, TRS: false, IMC: 30, criterio: 5}
+      expected_reference: "severe renal impairment -> UFH 5000 U SC (q12h accepted)"
+      actual_legacy: "heparina 5000 U 12/12h"
+      match: true
+    - inputs: {creatinina: 2.0, TRS: false, IMC: 30, criterio: 4}
+      expected_reference: "boundary: elderly/low-weight pt at Cr 2.0 mg/dl may have CrCl <30 -> guideline would favor UFH"
+      actual_legacy: "cutoff is strictly >2.0, so 2.0 stays on enoxaparina 40 mg (renal branch NOT triggered)"
+      match: true    # not a reference error; documents that raw-creatinine surrogate can miss borderline renal cases
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All prescribed doses match published prophylactic regimens: enoxaparin 40 mg
+    daily, UFH 5000 U (q8h and q12h are both accepted CHEST prophylactic UFH
+    frequencies), enoxaparin 60 mg daily as an accepted morbid-obesity
+    intensification. No unit error. The only reference-side nuance: guidelines
+    key the LMWH->UFH switch to estimated CrCl <30 mL/min, whereas the legacy uses
+    raw serum creatinine >2.0 mg/dl as a surrogate - clinically reasonable but not
+    identical (a low-weight/elderly patient at Cr 2.0 can have CrCl <30 yet stay
+    on LMWH); low practical significance, documented not corrected. The recorded
+    intra-rule 8/8h (criterio_4) vs 12/12h (criterio_5) difference is NOT a
+    reference discrepancy: both UFH frequencies are published and the two criteria
+    are distinct clinical indications, so neither contradicts the guideline.
+
+- rule_id: RULE-PROFILAXIA-005
+  reference:
+    citation: >
+      Cook DJ et al. "Risk Factors for Gastrointestinal Bleeding in Critically Ill
+      Patients." N Engl J Med 1994;330:377-381 (Canadian Critical Care Trials
+      Group). Two independent risk factors for clinically important GI bleeding:
+      respiratory failure = mechanical ventilation >48h (OR 15.6) and coagulopathy
+      = platelet count <50,000/mm3 OR INR >1.5 OR PTT >2x ULN (OR 4.3). ASPEN/ASHP
+      stress-ulcer prophylaxis guidance adds high-risk conditions (TBI, extensive
+      burns, sepsis, hepatic failure, GI bleed) as accepted additional indications.
+    url: https://www.nejm.org/doi/full/10.1056/NEJM199402103300601
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok               # platelets /mm3, time hours - units themselves correct
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff           # ventilation window coded as 50h vs reference 48h; platelets coded <=50000 vs reference <50000; diet window 26h vs documented 24h
+  test_vectors:
+    - inputs: {ventilation: invasive MV documented in an evolucao 60h old but updated within last 50h, PPI: absent, plaquetas: 200000, dieta: logged, nora: absent}
+      expected_reference: "MV >48h present -> stress-ulcer prophylaxis indicated -> criterio_1 TRUE"
+      actual_legacy: "branch2 (evolucao within now-50h with ventilation mode in MV set) contributes -> any() TRUE"
+      match: true
+    - inputs: {plaquetas: 50000, ventilation: none, PPI: absent, dieta: logged, nora: absent, diag: none}
+      expected_reference: "Cook coagulopathy = platelets <50,000; exactly 50,000 is NOT coagulopathy -> criterio_1 FALSE"
+      actual_legacy: "branch3 get_number(diurna_plaquetas) <= 50000 -> 50000<=50000 TRUE -> any() TRUE"
+      match: false
+    - inputs: {diag_inter_1: "Grande queimado", ventilation: none, plaquetas: 200000, PPI: absent, dieta: logged, nora: absent}
+      expected_reference: "extensive burn is an accepted additional SUP indication -> criterio_1 TRUE"
+      actual_legacy: "branch5 iterates dict.fromkeys(('diag_inter_1',...)) = the KEY NAME strings, never the field VALUES, so 'Grande queimado' is never tested; additionally the string-concat bug fuses 'Acidente vascular cerebral hemorragico'+'Grande queimado' into one unmatchable entry. Branch inert -> any() FALSE"
+      match: false
+    - inputs: {ventilation: invasive MV but only evolucao is 52h old (outside now-50h window), everything else negative}
+      expected_reference: "still ventilated >48h -> indication present -> TRUE"
+      actual_legacy: "evolucao__mais_que_48hrs (dt >= now-50h) queryset empty; also empty queryset fails the guard 'and evolucao__mais_que_48hrs' -> predicate returns False"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirmed against Cook 1994 verbatim. Four intent-vs-implementation divergences:
+    (1) Ventilation window: reference/docstring "48h" but code uses
+    timedelta(hours=50) - 2h looser; low impact on its own.
+    (2) Platelet cutoff: code uses <=50000 while Cook's coagulopathy is platelets
+    <50,000; at exactly 50,000 the legacy over-triggers by one boundary unit -
+    none/low impact (arguably clinically conservative).
+    (3) Diet-absence window: documented "24h" implemented as now-26h; the enteral-
+    nutrition-absence branch has no single published cutoff (institutional), so this
+    is an intent-vs-code divergence rather than a reference contradiction.
+    (4) High-risk admission-diagnosis OR-clause is fully INERT: dict.fromkeys(
+    ("diag_inter_1"..)) iterates the literal key-name strings, never the evolucao
+    field values, so TBI/AVC/sepsis/burn/cirrhosis/HDA never contribute; compounded
+    by a Python implicit-string-concat bug fusing "...hemorragico"+"Grande queimado"
+    into one unmatchable string. This is the driver of the MODERATE rating: an
+    entire recognized indication class (ASPEN/ASHP additional SUP conditions) is
+    silently unable to raise the AMARELO alert, causing under-detection for patients
+    who qualify ONLY via admission diagnosis. Mitigating factors keeping it below
+    high: this is an advisory alert (not an order), and the two evidence-strongest
+    Cook branches - PPI-absence+noradrenaline, and platelets<=50000 - remain sound
+    and functional. Per-audit policy the legacy is documented, not corrected.

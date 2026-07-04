@@ -1,0 +1,139 @@
+- rule_id: RULE-SEPSE-011
+  reference:
+    citation: "Singer M et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3). JAMA 2016;315(8):801-810 (septic shock: vasopressor to maintain MAP >=65 mmHg); Surviving Sepsis Campaign 2021 (MAP >=65 mmHg resuscitation target); ACCP/SCCM sepsis-induced hypotension SBP <90 mmHg."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2492881"
+  checks:
+    equation: n/a
+    coefficients: "PAS<90 / PAD<60 / PAM<65 thresholds vs standard sepsis hypotension anchors"
+    units: ok  # mmHg for all three BP measures
+    ranges: ok  # NULL BP excluded by < comparison (not coerced to 0), correct fail-safe
+    rounding: n/a
+    cutoffs: ok  # MAP<65 = Sepsis-3/SSC target; SBP<90 = classic sepsis hypotension; DBP<60 reasonable diastolic hypotension
+  test_vectors:
+    - inputs: {qt_vol_nora_12h: 0, pam_6h: 64}
+      expected_reference: "MAP 64 < 65 mmHg, no vasopressor -> untreated hypotension -> positive"
+      actual_legacy: "not(nora exists)=True; Q(pam<65) matches 64 -> True; all=True"
+      match: true
+    - inputs: {qt_vol_nora_12h: 0, pas: 90, pad: 60, pam: 65}
+      expected_reference: "all at/above thresholds (strict <) -> no hypotension -> negative"
+      actual_legacy: "pas<90 F, pad<60 F, pam<65 F -> exists()=False -> all=False"
+      match: true
+    - inputs: {qt_vol_nora_12h: 5, pam_6h: 50}
+      expected_reference: "MAP 50 but already on noradrenaline -> untreated-hypotension criterion N/A -> negative"
+      actual_legacy: "not(nora exists)=False -> all=False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "BP cutoffs match standard sepsis hypotension definitions (MAP<65 Sepsis-3/SSC target; SBP<90 severe-sepsis hypotension; DBP<60 diastolic hypotension). NULL BP correctly excluded by strict-less comparison. Catalog reconciliation (lines 1960-1961) flags a UI-label mismatch ('PAS<90 ou PAM<60' omits PAD, shows MAP<60) vs code (PAS<90 OR PAD<60 OR PAM<65) - a documentation/label discrepancy only; code thresholds are the clinically correct ones. Docstring mislabels PAD as 'PAS (PAD)' but filters the pad column correctly."
+
+- rule_id: RULE-SEPSE-012
+  reference:
+    citation: "Vincent JL et al. The SOFA (Sepsis-related Organ Failure Assessment) score. Intensive Care Med 1996;22:707-710 - coagulation subscore: platelets <100 x10^3/uL = 2 points. Sepsis-3 (Singer 2016) uses SOFA increase >=2."
+    url: "https://link.springer.com/article/10.1007/BF01709751"
+  checks:
+    equation: n/a
+    coefficients: "platelet threshold 100000/mm3 vs SOFA 2-point boundary (<100 x10^3/uL)"
+    units: ok  # /mm3 == x10^3/uL numerically identical for platelet counts
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok  # <100000/mm3 matches SOFA coagulation 2-point cutoff
+  test_vectors:
+    - inputs: {qt_vol_nora_6h: 0, diurna_plaquetas: 99000}
+      expected_reference: "99k < 100k -> SOFA coag >=2 organ dysfunction -> positive"
+      actual_legacy: "not(nora)=True; filter(plaquetas__lt=100000) matches -> True; all=True"
+      match: true
+    - inputs: {qt_vol_nora_6h: 0, diurna_plaquetas: 100000}
+      expected_reference: "exactly 100k -> SOFA 1 point (not <100) -> negative"
+      actual_legacy: "100000 not < 100000 -> exists()=False -> all=False"
+      match: true
+    - inputs: {qt_vol_nora_6h: 3, diurna_plaquetas: 50000}
+      expected_reference: "thrombocytopenia but on vasopressor -> untreated criterion N/A -> negative"
+      actual_legacy: "not(nora exists)=False -> all=False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Numeric threshold 100000/mm3 matches SOFA coagulation 2-point cutoff. IMPLEMENTATION RISK (not a reference discrepancy): diurna_plaquetas is a CharField; Django __lt on a text column can do lexical rather than numeric comparison on some backends (e.g. '99000' > '100000' lexically because '9'>'1'), which could invert the test. Backend-dependent bug flagged for internal review; the clinical cutoff itself is correct."
+
+- rule_id: RULE-SEPSE-013
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49:e1063) - elevated lactate >2 mmol/L marks tissue hypoperfusion; Sepsis-3 septic shock uses lactate >2 mmol/L; SSC database analysis: 'elevated' cutoffs 1.6-2.5 mmol/L, >4 mmol/L strongly mortality-associated."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/"
+  checks:
+    equation: n/a
+    coefficients: "legacy threshold lactate >=3 mmol/L"
+    units: ok  # mmol/L, correct lactate unit
+    ranges: ok  # get_number(null)->0, 0>=3 fails safe
+    rounding: n/a
+    cutoffs: diff  # >=3 mmol/L vs SSC/Sepsis-3 elevated-lactate anchor >2 mmol/L (severe >4)
+  test_vectors:
+    - inputs: {qt_vol_nora_12h: 0, diurna_lactato: 3.0}
+      expected_reference: "lactate 3.0 > 2 -> elevated -> positive"
+      actual_legacy: "not(nora)=True; get_number(3.0)>=3 True; all=True"
+      match: true
+    - inputs: {qt_vol_nora_12h: 0, diurna_lactato: 2.5}
+      expected_reference: "lactate 2.5 > 2 mmol/L -> elevated per SSC/Sepsis-3 -> should flag"
+      actual_legacy: "2.5 >= 3 -> False -> all=False (NOT flagged)"
+      match: false
+    - inputs: {qt_vol_nora_12h: 0, diurna_lactato: null}
+      expected_reference: "no lactate value -> no criterion"
+      actual_legacy: "get_number(null)=0; 0>=3 False -> all=False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Legacy uses lactate >=3 mmol/L; SSC 2021 / Sepsis-3 treat >2 mmol/L as the elevated/tissue-hypoperfusion anchor (severe >4). The >=3 cutoff is stricter than any guideline 'elevated' threshold, so lactate 2-3 mmol/L is missed by this single criterion (reduced sensitivity). Impact low: 2-3 mmol/L is prognostically weaker than >4 and such patients are usually captured by other organ-dysfunction criteria; units correct and fails safe on missing data. Flag as possibly-intentional protocol choice for internal review."
+
+- rule_id: RULE-SEPSE-014
+  reference:
+    citation: "KDIGO Clinical Practice Guideline for Acute Kidney Injury 2012 (Kidney Int Suppl 2012;2:1-138) - AKI urine criterion: urine output <0.5 mL/kg/h for 6-12 h (Stage 1)."
+    url: "https://kdigo.org/guidelines/acute-kidney-injury/"
+  checks:
+    equation: diff  # (sum diurese/12)/peso < 0.5 matches KDIGO in intent; implementation defective
+    coefficients: "/12 (12h window) reasonable vs KDIGO 6-12h; threshold 0.5 mL/kg/h correct"
+    units: diff  # peso parse strips decimal separator -> kg inflated ~10x
+    ranges: ok  # division guarded by peso truthiness
+    rounding: diff  # re.findall(\\d+)+join corrupts weight to concatenated integer digits
+    cutoffs: n/a  # criterion is non-functional (dead gate)
+  test_vectors:
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, peso: "70,5", diurese_total_12h: 300, diagnostico_1_4: [none]}
+      expected_reference: "rate=(300/12)/70.5=0.354 mL/kg/h <0.5 -> KDIGO oliguria -> positive"
+      actual_legacy: "peso '70.5'->findall->['70','5']->'705'->705.0; ratio=(300/12)/705=0.035<0.5=True; BUT list(filter(=='DRC em TRS', fromkeys(diagnostico_1..4)))=[] -> falsy -> all([...,[],...])=False"
+      match: false
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, peso: "80", diurese_total_12h: 600}
+      expected_reference: "rate=(600/12)/80=0.625 mL/kg/h >=0.5 -> not oliguric -> negative"
+      actual_legacy: "0.625<0.5=False AND DRC gate []=falsy -> all=False"
+      match: true  # correct outcome, wrong reason (gate already forces False)
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, peso: "60", diurese_total_12h: 120}
+      expected_reference: "rate=(120/12)/60=0.167 mL/kg/h <0.5 -> KDIGO oliguria -> positive"
+      actual_legacy: "DRC gate fromkeys->[]->falsy -> all=False (never fires)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: "Confirmed extraction DISCREPANCY. Two compounding defects vs KDIGO: (a) DRC gate list(filter(lambda x:x=='DRC em TRS', vars(evolucao).fromkeys((diagnostico_1..4)))) builds a dict keyed by field NAMES (never == 'DRC em TRS'), always yields [] -> falsy -> forces the whole all([]) to False, so the oliguria criterion NEVER fires (permanent false-negative); also logically inverted vs docstring (docstring wants ABSENCE of DRC, code has no `not`). (b) Weight parse float(''.join(re.findall(r'\\d+', peso.replace(',','.')))) strips the decimal point, so '70,5'/'70.5'->705 kg, inflating weight ~10x and understating mL/kg/h ~10x (would over-flag oliguria if the gate were fixed). Core clinical target (<0.5 mL/kg/h) is correct; /12 assumes exactly 12h regardless of sample count. Impact high: a safety-relevant organ-dysfunction criterion is dead code."
+
+- rule_id: RULE-SEPSE-015
+  reference:
+    citation: "KDIGO AKI 2012 - AKI = SCr increase >=0.3 mg/dL within 48h OR >=1.5x baseline; SOFA renal subscore (Vincent 1996): creatinine 2.0-3.4 mg/dL = 2 points."
+    url: "https://kdigo.org/guidelines/acute-kidney-injury/"
+  checks:
+    equation: n/a
+    coefficients: "creatinine >2 mg/dL (SOFA 2-pt boundary) OR delta >0.5 mg/dL over last 2 evolutions"
+    units: ok  # mg/dL, correct creatinine unit
+    ranges: ok  # get_number(null)->0 fail-safe; requires >=2 evolutions
+    rounding: n/a
+    cutoffs: diff  # delta 0.5 mg/dL vs KDIGO 0.3 mg/dL/48h; DRC exclusion gate non-functional
+  test_vectors:
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, ultima_creat: 2.5, penultima_creat: 2.0, diag_inter_1_4: [none]}
+      expected_reference: "Cr 2.5 > 2 -> SOFA renal 2pt / AKI -> positive (if acute)"
+      actual_legacy: "not(nora)=T; not hemo=T; any([2.5>2 T,...])=T; not list(filter fromkeys)=not[]=T; all=True"
+      match: true
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, ultima_creat: 1.8, penultima_creat: 1.4}
+      expected_reference: "rise 0.4 mg/dL >=0.3 -> KDIGO Stage 1 AKI -> should flag"
+      actual_legacy: "1.8>2 F; 1.8-1.4=0.4 >0.5 F -> any=False -> all=False (NOT flagged)"
+      match: false
+    - inputs: {qt_vol_nora_12h: 0, diurna_terapia_hemo: null, ultima_creat: 6.0, penultima_creat: 6.0, diag_inter_1: "DRC em TRS"}
+      expected_reference: "chronic ESRD on RRT, stable Cr -> should be EXCLUDED (not acute sepsis-AKI) -> negative"
+      actual_legacy: "6>2 T; DRC gate not list(filter(=='DRC em TRS', fromkeys(diag_inter_1..4)))=not[]=True (vacuous) -> exclusion never applies -> all=True (FALSE POSITIVE)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Confirmed extraction DISCREPANCY. (a) DRC-on-RRT exclusion gate `not list(filter(lambda x:x=='DRC em TRS', vars(ultima).fromkeys((diag_inter_1..4))))` is vacuously True (fromkeys keys are field NAMES, never 'DRC em TRS', so filter->[]->not[]->True): chronic dialysis/CKD patients with chronically elevated creatinine are NOT excluded and can falsely trigger the AKI criterion (false positive). (b) creatinine-rise threshold >0.5 mg/dL exceeds KDIGO's >=0.3 mg/dL/48h, missing Stage-1 AKI rises of 0.3-0.5 mg/dL (false negative), and no 48h window is enforced (compares only the last two evolutions whatever their spacing). The Cr>2 mg/dL absolute cutoff aligns with the SOFA renal 2-point boundary (SOFA uses >=2.0; legacy strict >2 excludes exactly 2.0 - minor boundary difference). Impact moderate: opposing sensitivity/specificity errors on a single OR-ed organ criterion."

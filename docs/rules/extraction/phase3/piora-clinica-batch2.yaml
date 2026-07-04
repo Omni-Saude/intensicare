@@ -1,0 +1,168 @@
+- rule_id: RULE-PIORA-CLINICA-006
+  reference:
+    citation: 'Numeric Rating Scale (NRS 0-10) for pain intensity. Standard cut-offs:
+      mild 1-3/1-4, moderate 5-6, severe 7-10; higher = worse and severe is the band
+      that must drive intervention. Boonstra AM et al., "Cut-Off Points for Mild,
+      Moderate, and Severe Pain on the NRS for Pain in Patients with Chronic Musculoskeletal
+      Pain," Front Psychol 2016;7:1466.'
+    url: https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2016.01466/full
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (0-10 NRS points, matches reference)
+    ranges: ok (validator-capped 0-10)
+    rounding: n/a (integer input)
+    cutoffs: diff (severe band 7-10 never fires; mild band starts at 2 not 1)
+  test_vectors:
+    - {inputs: {escala_dor: 8}, expected_reference: 'severe (grade 3 / 3+ VERMELHO)', actual_legacy: '"0" (7<=8 AND 8>10 is False -> no branch)', match: false}
+    - {inputs: {escala_dor: 10}, expected_reference: 'severe (grade 3 / 3+ VERMELHO)', actual_legacy: '"0" (7<=10 AND 10>10 is False)', match: false}
+    - {inputs: {escala_dor: 5}, expected_reference: 'moderate (2+)', actual_legacy: '"2+" (4<=5<=6)', match: true}
+    - {inputs: {escala_dor: 3}, expected_reference: 'mild (1+)', actual_legacy: '"1+" (2<=3<=3)', match: true}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: 'Confirms extraction DISCREPANCY. The severe band `if 7 <= dor > 10` chains
+    as (7 <= dor) AND (dor > 10); escala_dor is validator-capped at 10 so dor > 10
+    is impossible and grade-3 (severe pain, NRS 7-10) is UNREACHABLE — the single
+    most actionable pain band never contributes a VERMELHO trigger via criterio_6.
+    Intended code was clearly `7 <= dor <= 10 -> 3+`. High impact: severe pain is
+    silently suppressed. Minor secondary: reference "mild" begins at 1 but legacy
+    1+ band begins at 2, so NRS=1 scores 0 (low impact). dor==0/1 -> "0". Legacy
+    source confirmed at trilha_homecare/models/piora_clinica.py lines 167-177.'
+
+- rule_id: RULE-PIORA-CLINICA-007
+  reference:
+    citation: 'Behavioral Pain Scale (BPS), Payen JF et al., Crit Care Med 2001;29(12):2258-63.
+      Three domains (facial expression, upper-limb movement, ventilator compliance),
+      each 1-4, total range 3 (no pain) to 12 (maximal pain), higher = worse; score
+      >5 (>=6) commonly indicates significant/unacceptable pain requiring analgesia.'
+    url: https://www.mdcalc.com/calc/3622/behavioral-pain-scale-bps-pain-assessment-intubated-patients
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (BPS 3-12 points, matches reference)
+    ranges: ok (validator-capped 3-12)
+    rounding: n/a (integer input)
+    cutoffs: diff (severe band 10-12 never fires)
+  test_vectors:
+    - {inputs: {sinais_dor: 12}, expected_reference: 'maximal pain (grade 3 / 3+ VERMELHO)', actual_legacy: '"0" (10<=12 AND 12>12 is False)', match: false}
+    - {inputs: {sinais_dor: 11}, expected_reference: 'severe (grade 3 / 3+)', actual_legacy: '"0" (10<=11 AND 11>12 is False)', match: false}
+    - {inputs: {sinais_dor: 8}, expected_reference: 'significant pain (>5) -> 2+', actual_legacy: '"2+" (7<=8<=9)', match: true}
+    - {inputs: {sinais_dor: 6}, expected_reference: 'threshold/significant (1+)', actual_legacy: '"1+" (5<=6<=6)', match: true}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: 'Confirms extraction DISCREPANCY, identical bug pattern to criterio_6. `if
+    10 <= sinais > 12` parses as (10 <= sinais) AND (sinais > 12); sinais_dor is capped
+    at 12 so sinais > 12 is impossible and the severe band (BPS 10-12) is UNREACHABLE.
+    Intended `10 <= sinais <= 12 -> 3+`. High impact: for the exact population BPS
+    exists for (non-communicative/sedated ICU patients), maximal behavioral pain never
+    fires a grade-3 (VERMELHO) trigger via criterio_7. sinais 3,4 -> "0". Legacy
+    source confirmed at lines 179-189.'
+
+- rule_id: RULE-PIORA-CLINICA-008
+  reference:
+    citation: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 1 (default, non-hypercapnic
+      patients): >=96% = 0, 94-95% = 1, 92-93% = 2, <=91% = 3. High saturation is
+      NOT penalized on Scale 1; points accrue only for hypoxaemia (supplemental O2
+      scores separately +2, not the saturation value itself).'
+    url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (% SpO2)
+    ranges: diff (94-96% window uncovered -> scores 0)
+    rounding: n/a
+    cutoffs: diff (sign inversion at >96%; magnitude mismatch in hypoxaemia bands)
+  test_vectors:
+    - {inputs: {saturacao_o2: 98}, expected_reference: '0 (normal, not penalized)', actual_legacy: '"2+" (>96 -> positive deterioration / hiperoxia)', match: false}
+    - {inputs: {saturacao_o2: 95}, expected_reference: '1 (mild hypoxaemia)', actual_legacy: '"0" (falls in uncovered 94-96 gap)', match: false}
+    - {inputs: {saturacao_o2: 92}, expected_reference: '2 (moderate hypoxaemia)', actual_legacy: '"1-" (91<=92<=93 -> magnitude 1)', match: false}
+    - {inputs: {saturacao_o2: 89}, expected_reference: '3 (<=91)', actual_legacy: '"2-" (88<=89<=90 -> magnitude 2)', match: false}
+    - {inputs: {saturacao_o2: 85}, expected_reference: '3 (<=91)', actual_legacy: '"3-" (sato2<=88)', match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'Confirms extraction DISCREPANCY. Two problems vs NEWS2 Scale 1: (1) sign
+    inversion — a normal non-COPD saturation >96% yields a POSITIVE deterioration
+    sub-score "2+" ("hiperoxia"), firing a false AMARELO on a healthy room-air patient
+    (alarm fatigue / false positive); NEWS2 Scale 1 scores >=96% as 0. (2) 94-96%
+    window scores "0" whereas NEWS2 gives 1 at 94-95% (mild-hypoxaemia under-detection).
+    Lower bands are directionally correct but magnitudes differ. Additionally criterio_8
+    and criterio_9 both read the SAME saturacao_o2 and are BOTH summed with no regular/COPD
+    mutual exclusivity (double-weights SpO2; see rule 010). Moderate impact: false-positive
+    alerts + mild-hypoxaemia under-detection, but severe-desat bands still fire so
+    life-threatening hypoxaemia is not missed. sato2==88 -> "2-" (88<=90 wins before
+    <=88). sato2==0 falsy -> "0". Legacy source confirmed at lines 191-203.'
+
+- rule_id: RULE-PIORA-CLINICA-009
+  reference:
+    citation: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 2, for hypercapnic
+      (type 2) respiratory failure / COPD, target 88-92%: <=83% = 3, 84-85% = 2, 86-87%
+      = 1, 88-92% (or >=93% on air) = 0, 93-94% on oxygen = 1, 95-96% on oxygen = 2,
+      >=97% on oxygen = 3. High saturation IS penalized (over-oxygenation is dangerous
+      in these patients).'
+    url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (% SpO2)
+    ranges: diff (81-87% window uncovered -> scores 0)
+    rounding: n/a
+    cutoffs: diff (in-target 88-92 over-flagged; low-80s desat gap)
+  test_vectors:
+    - {inputs: {saturacao_o2: 98}, expected_reference: '3 (>=97 on O2, over-oxygenation)', actual_legacy: '"3+" (>94 -> hiperoxia, high penalized)', match: true}
+    - {inputs: {saturacao_o2: 94}, expected_reference: '1 (93-94 on O2)', actual_legacy: '"1+" (==94)', match: true}
+    - {inputs: {saturacao_o2: 79}, expected_reference: '3 (<=83)', actual_legacy: '"3-" (sato2<=80)', match: true}
+    - {inputs: {saturacao_o2: 90}, expected_reference: '0 (in target 88-92)', actual_legacy: '"2-" (88<=90<=90 -> moderate desat)', match: false}
+    - {inputs: {saturacao_o2: 85}, expected_reference: '2 (84-85)', actual_legacy: '"0" (uncovered 81-87 gap)', match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'Extraction status was OK (design INTENT — penalizing high SpO2 in COPD,
+    ==94->1+, >94->3+ hiperoxia — is verified against NEWS2 Scale 2 rationale, and
+    the high-SpO2 penalization works). Against the reference the specific bands still
+    diverge two clinically relevant ways: (1) 81-87% is uncovered and scores "0",
+    so a COPD patient desaturating to 82-87% receives NO sub-score (NEWS2 Scale 2
+    assigns 1-2 at 84-87 and 3 at <=83) — a false-negative coverage gap; (2) 88-90%
+    scores "2-" (moderate desat) even though 88-92% is the guideline TARGET range
+    NEWS2 scores 0 — over-flag of in-target saturation (also 91-93 -> "1-" over-flags
+    the >=93%-on-air = 0 case). Moderate impact: the safety-critical over-oxygenation
+    feature works, but a real desaturation into the low-80s can score 0. Exact band
+    numbers are otherwise a proprietary choice; only the coverage gap and target-range
+    over-flag are characterized as discrepant. sato2==88 -> "2-". sato2==0 falsy ->
+    "0". Legacy source confirmed at lines 205-219.'
+
+- rule_id: RULE-PIORA-CLINICA-010
+  reference:
+    citation: 'NEWS2 / MEWS track-and-trigger escalation logic (Royal College of Physicians
+      NEWS2, 2017; NICE MIB205). Two-tier trigger: (a) ANY single parameter scoring
+      3 ("red score") mandates urgent escalation regardless of aggregate; (b) aggregate
+      bands drive graded response (NEWS2: 0-4 low, 5-6 medium, >=7 high). A high-severity
+      single parameter must never be downgraded by other parameters, and every abnormal
+      parameter contributes to the aggregate.'
+    url: https://www.nice.org.uk/advice/mib205/chapter/The-technology
+  checks:
+    equation: diff (aggregation sums magnitude only; sign +/- discarded)
+    coefficients: n/a
+    units: n/a
+    ranges: diff (soma-band branch only runs when no criterion reached grade 2/3, so reachable soma<=9; 15-21 band and most of 8-14 are dead code)
+    rounding: n/a
+    cutoffs: diff (last-writer-wins overwrite can downgrade VERMELHO to AMARELO)
+  test_vectors:
+    - {inputs: {criterio_1: '3+', criterio_9: '2+', others: '0'}, expected_reference: 'VERMELHO (single red parameter -> urgent escalation)', actual_legacy: 'AMARELO (c1 sets VERMELHO, later c9 grade-2 OVERWRITES payload -> AMARELO)', match: false}
+    - {inputs: {criterio_3: '3-', criterio_8: '2+', others: '0'}, expected_reference: 'VERMELHO (single red parameter)', actual_legacy: 'AMARELO (c3 VERMELHO overwritten by later c8 grade-2)', match: false}
+    - {inputs: {all_nine: '1+'}, expected_reference: 'high aggregate (9 abnormal params; NEWS2 >=7 = high risk)', actual_legacy: 'AMARELO (no grade-2/3 -> soma=9 -> 8<=9<=14 = medium); sign discarded so 1+/1- indistinguishable', match: false}
+    - {inputs: {criterio_5: '3+', others: '0'}, expected_reference: 'VERMELHO (single red parameter)', actual_legacy: 'VERMELHO (c5 sets it; nothing later overwrites)', match: true}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: 'Confirms extraction DISCREPANCY (three defects, all reproduced against reference).
+    (1) Last-writer-wins: payload["alerta"]/["mensagem"] are reassigned every loop
+    iteration, so the HIGHEST-INDEX grade-2/3 criterion wins; a later grade-2 (AMARELO)
+    overwrites an earlier grade-3 (VERMELHO), DOWNGRADING a red alert to yellow —
+    a direct violation of the NEWS2/MEWS single-red-parameter rule and the core high-impact
+    safety defect (a critically deteriorating patient can be under-triaged). (2) `soma
+    += int(criterio[0])` reads only the first char, discarding +/- direction, so equal-magnitude
+    low and high deviations are indistinguishable in the aggregate. (3) The soma-banding
+    branch runs only when NO criterion reached grade 2/3 (all sub-scores in {0,1+,1-}),
+    capping reachable soma at 9, so the 15-21 (VERMELHO) band and most of the 8-14
+    band are dead code. The two-tier trigger concept is a valid NEWS2/MEWS anchor,
+    but the implementation both masks red flags and leaves aggregate escalation largely
+    non-functional. Also: criterio[0] on a None criterio (unsaved instance) raises.
+    Legacy source confirmed at lines 236-262.'

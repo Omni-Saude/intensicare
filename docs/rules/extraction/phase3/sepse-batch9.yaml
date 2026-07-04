@@ -1,0 +1,132 @@
+- rule_id: RULE-SEPSE-041
+  reference:
+    citation: "Singer M et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3). JAMA 2016;315(8):801-810. Septic shock = vasopressor requirement to maintain MAP>=65 mmHg + lactate >2 mmol/L. No published calculator defines 'noradrenaline started within the last 24h' as a discrete weighted screening item; this is an institutional Trilha-Sepse screening-tool design element."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2492881"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {noradrenalina.horario_inicio: "23h ago"}, expected_reference: "vasopressor in use -> shock marker (concept-consistent, no numeric ref)", actual_legacy: true, match: true}
+    - {inputs: {noradrenalina.horario_inicio: "20h ago"}, expected_reference: "vasopressor in use (concept-consistent)", actual_legacy: true, match: true}
+    - {inputs: {noradrenalina.horario_inicio: "25h ago"}, expected_reference: "n/a (lookback window is internal)", actual_legacy: false, match: true}
+    - {inputs: {noradrenalina: "object absent"}, expected_reference: "no vasopressor -> False", actual_legacy: false, match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Vasopressor use as a shock/organ-dysfunction marker is consistent with Sepsis-3, but the specific
+    "noradrenaline started within 24h counts as a MAJOR screening criterion" with an inclusive >= now-1day
+    window is a proprietary institutional rule with no authoritative published equation or cutoff to check
+    against. Legacy (lines 259-267) matches its own docstring (inclusive >=, contrast C3 strict >). Flag for
+    internal clinical review; not treated as wrong.
+
+- rule_id: RULE-SEPSE-042
+  reference:
+    citation: "Hernandez G et al. (ANDROMEDA-SHOCK) Effect of a Resuscitation Strategy Targeting Peripheral Perfusion Status vs Serum Lactate Levels on 28-Day Mortality Among Patients With Septic Shock. JAMA 2019;321(7):654-664. Abnormal capillary refill time (CRT) defined as > 3 seconds (glass-slide technique, distal phalanx). SSC 2021 endorses CRT-guided resuscitation."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2724361"
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {tec: 6}, expected_reference: "abnormal CRT (>3s) -> True", actual_legacy: true, match: true}
+    - {inputs: {tec: 5}, expected_reference: "abnormal CRT (>3s) -> True", actual_legacy: false, match: false}
+    - {inputs: {tec: 4}, expected_reference: "abnormal CRT (>3s) -> True", actual_legacy: false, match: false}
+    - {inputs: {tec: 3}, expected_reference: "not >3s -> normal -> False", actual_legacy: false, match: true}
+    - {inputs: {tec: 0}, expected_reference: "not recorded/normal -> False", actual_legacy: false, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Legacy (line 270) fires only when CRT > 5 s; the published abnormal-perfusion threshold (ANDROMEDA-SHOCK,
+    SSC 2021) is > 3 s. The 5 s cut is stricter/more specific, so patients with CRT 3.1-5.0 s (established
+    hypoperfusion by the reference) are missed by this major criterion. Low impact: CRT is one of several major
+    criteria and the overall alert still requires >=2 majors AND >=3 minors; the 5 s cut is also internally
+    consistent with the homecare 'tec_5s' item (RULE-SEPSE-030). Code matches its own docstring.
+
+- rule_id: RULE-SEPSE-043
+  reference:
+    citation: "Sepsis-3 / SSC 2021 and prior severe-sepsis criteria (Dellinger/Levy ACCP-SCCM): sepsis-related hypotension = systolic BP < 90 mmHg, MAP < 70 mmHg, or SBP decrease > 40 mmHg from baseline; qSOFA uses SBP <= 100 mmHg. Diastolic BP is not a standard sepsis hypotension trigger; a low diastolic threshold, when used, is ~ < 60 mmHg (physiologic normal diastolic ~ 60-80 mmHg)."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2492881"
+  checks:
+    equation: ok
+    coefficients: diff
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {pas: 89, pad: 75}, expected_reference: "SBP<90 -> hypotension True", actual_legacy: true, match: true}
+    - {inputs: {pas: 120, pad: 75}, expected_reference: "SBP normal, diastolic 75 normal -> False", actual_legacy: true, match: false}
+    - {inputs: {pas: 120, pad: 85}, expected_reference: "normotensive -> False", actual_legacy: true, match: false}
+    - {inputs: {pas: 120, pad: 95}, expected_reference: "normotensive -> False", actual_legacy: false, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    Confirmed against reference: the SBP<90 disjunct is correct, but the diastolic disjunct compares PAD < 90
+    (lines 283-284) instead of the documented PAD < 60. Because a normal diastolic BP is ~60-80 mmHg, PAD < 90
+    is satisfied by essentially every patient with a recorded diastolic value, so this MAJOR criterion is nearly
+    always True and ceases to discriminate. High impact: it pushes the major-criterion count toward the 2-major
+    alert bar for almost all patients, degrading specificity and driving false-positive sepsis alerts. Matches
+    the extraction's DISCREPANCY status (_REGRAS text says PAD < 60).
+
+- rule_id: RULE-SEPSE-044
+  reference:
+    citation: "SOFA renal component (Vincent JL et al. Intensive Care Med 1996;22:707-710): creatinine 2.0-3.4 mg/dL = 2 pts; urine < 500 mL/day = 3 pts; < 200 mL/day = 4 pts. KDIGO 2012 AKI oliguria = urine output < 0.5 mL/kg/h (~840 mL/24h for a 70 kg adult)."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC6880479/"
+  checks:
+    equation: ok
+    coefficients: diff
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {debito_urinario_24h: 1200, creatinina: 0.9, hemodialise: false}, expected_reference: "1200 mL/24h (~0.71 mL/kg/h @70kg) NOT oliguric by SOFA(<500)/KDIGO(<0.5) -> False", actual_legacy: true, match: false}
+    - {inputs: {debito_urinario_24h: 1201, creatinina: 0.9, hemodialise: false}, expected_reference: "not oliguric -> False", actual_legacy: false, match: true}
+    - {inputs: {debito_urinario_24h: 0, creatinina: 0.9, hemodialise: false}, expected_reference: "anuria (0 mL) = severe AKI -> True", actual_legacy: false, match: false}
+    - {inputs: {debito_urinario_24h: 2000, creatinina: 3, hemodialise: false}, expected_reference: "creat 3.0 mg/dL = SOFA renal 2 pts -> True", actual_legacy: true, match: true}
+    - {inputs: {debito_urinario_24h: 2000, creatinina: 3, hemodialise: true}, expected_reference: "on HD, creat not interpretable as new AKI -> exclude", actual_legacy: false, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Two documented differences vs reference. (1) Oliguria uses a fixed <=1200 mL/24h threshold (lines 291-293),
+    far above the SOFA oliguria cut (<500 mL/day) and the KDIGO weight-based cut (0.5 mL/kg/h ~ 840 mL/24h @70kg):
+    a urine output of 1200 mL/24h is normal yet fires this MAJOR criterion -> over-triggering / false positives.
+    (2) debito_urinario_24h == 0 is falsy, so true anuria (the most severe case) is EXCLUDED from the oliguria
+    disjunct -> false negative in the sickest patients (mitigated only if creatinine is concurrently >2). The
+    creatinine >2 not-on-HD disjunct aligns with the SOFA 2-point renal cutoff (strict >2 vs SOFA >=2.0 means
+    creatinine exactly 2.0 is not flagged - minor boundary nuance). Net moderate impact: bidirectional error
+    (false positives from the 1200 cut, false negative on anuria). Matches extraction DISCREPANCY status.
+
+- rule_id: RULE-SEPSE-045
+  reference:
+    citation: "Sepsis-3 organ-dysfunction framework (Singer M et al, JAMA 2016): acute alteration in mental status is a recognized sepsis organ-dysfunction sign; SOFA CNS is GCS-based and qSOFA scores altered mentation (GCS < 15). Delirium (CAM-ICU) is the standard construct for sepsis-associated acute encephalopathy; an acute drop in GCS reflects new neurologic dysfunction."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2492881"
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {glasgow: 3, glasgow_em_24: 5, delirium: false}, expected_reference: "acute GCS drop of 2 -> True", actual_legacy: true, match: true}
+    - {inputs: {glasgow: 4, glasgow_em_24: 5, delirium: false}, expected_reference: "drop of 1 (< 2) -> False", actual_legacy: false, match: true}
+    - {inputs: {glasgow: 5, glasgow_em_24: 3, delirium: false}, expected_reference: "GCS improved (+2), no acute decline -> False", actual_legacy: false, match: true}
+    - {inputs: {glasgow: 15, glasgow_em_24: 15, delirium: true}, expected_reference: "delirium present -> True", actual_legacy: true, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Logic direction is CORRECT: (glasgow - glasgow_em_24 <= -2), lines 316-318, fires only on a DECREASE of >=2
+    points, matching the intended acute neurologic deterioration - notably the OPPOSITE of the sign-inverted v3
+    bug in RULE-SEPSE-016 (which computed last-minus-penultimate >= 2, detecting an INCREASE). Third test vector
+    confirms an improving GCS does not fire. The delirium OR-branch aligns with CAM-ICU / sepsis-associated
+    encephalopathy. The exact ">=2 point drop" cutoff is an institutional choice with no single contradicting
+    published number and is clinically consistent with the Sepsis-3 organ-dysfunction framework; all checked
+    dimensions match.

@@ -1,0 +1,100 @@
+- rule_id: RULE-SEPSE-046
+  reference:
+    citation: "Vincent JL et al. The SOFA score. Intensive Care Med 1996;22:707-710 (hepatic component: bilirubin 2.0-5.9 mg/dL = 2 points, organ dysfunction). Also ACCP/SCCM severe-sepsis organ-dysfunction lists (hyperbilirubinemia total bilirubin > 2 mg/dL / > 34 umol/L)."
+    url: "https://link.springer.com/article/10.1007/BF01709751"
+  checks:
+    equation: ok
+    coefficients: "threshold 2 mg/dL matches hepatic organ-dysfunction cutoff"
+    units: "mg/dL correct (SOFA/severe-sepsis use mg/dL; not umol/L)"
+    ranges: "input 0-30 mg/dL plausible"
+    rounding: n/a
+    cutoffs: "strict > 2; SOFA hepatic dysfunction begins at bilirubin = 2.0 (>=2 pts), so exactly 2.0 differs by one boundary point but published 'severe sepsis' lists phrase it as '> 2 mg/dL'"
+  test_vectors:
+    - {inputs: {bilirrubinas: 2.0}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {bilirrubinas: 3.0}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {bilirrubinas: 2.1}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {bilirrubinas: 0}, expected_reference: false, actual_legacy: false, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Major criterion. > 2 mg/dL is the standard hepatic organ-dysfunction threshold (SOFA 2-point band 2.0-5.9 mg/dL). Falsy guard means bilirubin 0 -> False (harmless). Units correct in mg/dL. Legacy confirmed at trilha_manual/models/trilha_sepse.py:325-330."
+
+- rule_id: RULE-SEPSE-047
+  reference:
+    citation: "ACCP/SCCM Consensus Conference (Bone RC et al.), Chest 1992;101:1644-1655. SIRS temperature criterion: < 36 C or > 38 C."
+    url: "https://pubmed.ncbi.nlm.nih.gov/1303622/"
+  checks:
+    equation: ok
+    coefficients: "hypothermia threshold 36 C matches SIRS"
+    units: "Celsius correct"
+    ranges: "plausible"
+    rounding: n/a
+    cutoffs: "strict < 36 matches SIRS lower bound"
+  test_vectors:
+    - {inputs: {temp_24hrs: 36}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {temp_24hrs: 35}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {temp_24hrs: 36.5}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {temp_24hrs: null}, expected_reference: false, actual_legacy: false, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Minor (SIRS) criterion; captures the hypothermia arm of the SIRS temperature criterion (fever arm >38 handled by the separate major criterio_1). Value pulled from 24h lookback chain, not the current record. Legacy confirmed at trilha_sepse.py:332-341."
+
+- rule_id: RULE-SEPSE-048
+  reference:
+    citation: "ACCP/SCCM Consensus Conference (Bone RC et al.), Chest 1992;101:1644-1655. SIRS heart-rate criterion: HR > 90 bpm."
+    url: "https://pubmed.ncbi.nlm.nih.gov/1303622/"
+  checks:
+    equation: ok
+    coefficients: "diff - legacy uses HR > 100 bpm; SIRS tachycardia criterion is HR > 90 bpm"
+    units: "bpm correct"
+    ranges: "plausible"
+    rounding: n/a
+    cutoffs: "diff - strict > 100 vs SIRS strict > 90; 12h fallback branch uses same 100 threshold"
+  test_vectors:
+    - {inputs: {fc_24hrs: 110}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {fc_24hrs: 95}, expected_reference: true, actual_legacy: false, match: false}
+    - {inputs: {fc_24hrs: 100}, expected_reference: true, actual_legacy: false, match: false}
+    - {inputs: {fc_24hrs: 90}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {fc_24hrs: null, fc_12hrs: 105}, expected_reference: true, actual_legacy: true, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Threshold discrepancy: legacy fires only at HR > 100, but the SIRS tachycardia criterion is HR > 90, so HR 91-100 bpm is silently missed on this minor criterion (reduced sensitivity). The catalog AMBIGUOUS status concerns conditional-expression precedence (collapses to 'use 24h value if present else 12h'); both branches apply the same >100 cutoff, so the threshold difference vs SIRS holds regardless of branch. Clinical tachycardia is often defined generically as >100, so this may be an institutional choice; documented as difference, not corrected. Legacy confirmed at trilha_sepse.py:343-364."
+
+- rule_id: RULE-SEPSE-049
+  reference:
+    citation: "SIRS respiratory criterion PaCO2 < 32 mmHg (ACCP/SCCM 1992, Chest 1992;101:1644-1655); PaO2/FiO2 < 300 = arterial hypoxemia / mild ARDS organ dysfunction (Surviving Sepsis Campaign severe-sepsis criteria; Berlin ARDS mild = P/F <= 300)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/1303622/"
+  checks:
+    equation: ok
+    coefficients: "PaCO2 32 mmHg and P/F 300 match references"
+    units: "PaCO2 mmHg correct; P/F ratio uses PaO2(mmHg)/FiO2(fraction) per verificar_relacao_po2_fio2"
+    ranges: "paco2 0-150 plausible"
+    rounding: n/a
+    cutoffs: "strict PaCO2 < 32 and P/F < 300 (Berlin is <=300; 1-point difference at exactly 300)"
+  test_vectors:
+    - {inputs: {paco2: 31, ventilacao_mecanica_exists: false}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {paco2: 31, ventilacao_mecanica_exists: true}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {relacao_po2_fio2: 299, po2: 90, fio2: 0.3}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {relacao_po2_fio2: 300, po2: 90, fio2: 0.3}, expected_reference: false, actual_legacy: false, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Minor criterion combining SIRS hypocapnia (PaCO2<32, gated on absence of mechanical ventilation to avoid vent-driven hypocapnia) OR hypoxemic organ dysfunction (P/F<300). Both cutoffs match published references; strict <300 vs Berlin's <=300 differs only at exactly 300 (negligible). P/F requires both po2 and fio2 present. Assumes FiO2 stored as fraction; not flagged as a unit bug in extraction. Legacy confirmed at trilha_sepse.py:366-383."
+
+- rule_id: RULE-SEPSE-050
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49:e1063-e1143) and severe-sepsis definitions: serum lactate > 2 mmol/L marks tissue hypoperfusion/organ dysfunction; > 4 mmol/L = high risk."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/"
+  checks:
+    equation: ok
+    coefficients: "diff - legacy uses lactate >= 2.5 mmol/L; SSC uses > 2 mmol/L"
+    units: "mmol/L correct (NOT mg/dL) - unit is right, only the numeric cutoff differs"
+    ranges: "0-20 mmol/L plausible"
+    rounding: n/a
+    cutoffs: "diff - inclusive >= 2.5 vs SSC strict > 2"
+  test_vectors:
+    - {inputs: {lactato_arterial: 2.5}, expected_reference: true, actual_legacy: true, match: true}
+    - {inputs: {lactato_arterial: 2.4}, expected_reference: true, actual_legacy: false, match: false}
+    - {inputs: {lactato_arterial: 2.0}, expected_reference: false, actual_legacy: false, match: true}
+    - {inputs: {lactato_arterial: 0}, expected_reference: false, actual_legacy: false, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Threshold discrepancy: legacy fires at lactate >= 2.5 mmol/L vs the Surviving Sepsis Campaign hyperlactatemia threshold of > 2 mmol/L, so lactate 2.0-2.49 mmol/L is missed on this minor criterion (reduced sensitivity). Units are correctly mmol/L (the mmol/L-vs-mg/dL trap this audit targets is NOT present here). 2.5 mmol/L sits near some labs' upper limit of normal, so may be an institutional choice; documented as difference, not corrected. Legacy confirmed at trilha_sepse.py:385-390."

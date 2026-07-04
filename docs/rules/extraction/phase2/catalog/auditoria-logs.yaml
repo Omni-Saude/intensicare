@@ -8,9 +8,7 @@ rules:
   type: formula
   status: OK
   verify: true
-  description: 'When the ''criado_em__gte''/''criado_em__lte'' filters are supplied, the parsed date is combined
-    with time.min (00:00:00) for the lower bound and time.max (23:59:59.999999) for the upper bound, so the range
-    is inclusive of the entire day on both ends.
+  description: 'When the ''criado_em__gte''/''criado_em__lte'' filters are supplied, the parsed date is combined with time.min (00:00:00) for the lower bound and time.max (23:59:59.999999) for the upper bound, so the range is inclusive of the entire day on both ends.
 
     '
   inputs:
@@ -21,11 +19,8 @@ rules:
   - name: criado_em__gte / criado_em__lte (datetime)
     type: datetime
     unit: n/a
-  logic: "if chave == \"criado_em__gte\":\n    valor = datetime.combine(parse_date_to_iso(valor), time.min)\nelif\
-    \ chave == \"criado_em__lte\":\n    valor = datetime.combine(parse_date_to_iso(valor), time.max)\n"
-  edge_cases: parse_date_to_iso (utils/handlers.py) accepts multiple date formats (MM/YYYY, YYYY-MM, DD/MM/YYYY,
-    YYYY-MM-DD, or a generic dateutil.parse fallback); an ambiguous/garbled date string falls through to dateutil's
-    best-effort parse.
+  logic: "if chave == \"criado_em__gte\":\n    valor = datetime.combine(parse_date_to_iso(valor), time.min)\nelif chave == \"criado_em__lte\":\n    valor = datetime.combine(parse_date_to_iso(valor), time.max)\n"
+  edge_cases: parse_date_to_iso (utils/handlers.py) accepts multiple date formats (MM/YYYY, YYYY-MM, DD/MM/YYYY, YYYY-MM-DD, or a generic dateutil.parse fallback); an ambiguous/garbled date string falls through to dateutil's best-effort parse.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-030
@@ -41,30 +36,15 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative clinical/published reference applies. This is an internal software date-range-filter
-        boundary convention (inclusive start-of-day / end-of-day). Only cross-checkable against the Python standard
-        library datetime documentation (datetime.time.min = 00:00:00, datetime.time.max = 23:59:59.999999, datetime.combine(date,
-        time)).
-      url: https://docs.python.org/3/library/datetime.html#datetime.time.max
-    evidence: auditoria-logs-batch1.yaml
-    test_vectors: 5/5 match
-    summary: 'Internal business rule (audit-log date-range filter), not a clinical scale or calculator — no authoritative
-      published clinical reference exists, so flagged for internal review rather than treated as wrong. Legacy behavior
-      confirmed verbatim against log/views/log.py (lines 41-45) and utils/handlers.py parse_date_to_iso. Technically
-      consistent with documented Python datetime semantics: inclusive of the full day on both bounds. One non-clinical
-      quirk worth internal note: because parse_date_to_iso maps MM/YYYY and YYYY-MM to the first day of the month
-      (day=1), a month-granularity filter collapses to a single day rather than the whole month; and dateutil.parse
-      fallback on a garbled string is best-effort. Neither affects any clinical computation.'
+    reference: No authoritative clinical/published reference applies. This is an internal software date-range-filter boundary convention (inclusive start-of-day / end-of-day). Only cross-checkable against the Python standard library datetime documentation (datetime.time.min = 00:00:00, datetime.time.max = 23:59:59.999999, datetime.combine(date, time)).
+    detail_file: auditoria-logs-batch1.yaml
 - id: RULE-AUDITORIA-LOGS-002
   name: request_body capture (GET vs write methods, JSON fallback)
   category: data-validation
   type: decision-tree
   status: OK
   verify: false
-  description: 'The logged request_body is the GET querydict for GET requests, or the POST querydict otherwise;
-    if reading either raises, it falls back to parsing request.body as JSON; if that also fails, the parse error
-    is recorded instead of the body.
+  description: 'The logged request_body is the GET querydict for GET requests, or the POST querydict otherwise; if reading either raises, it falls back to parsing request.body as JSON; if that also fails, the parse error is recorded instead of the body.
 
     '
   inputs:
@@ -75,12 +55,8 @@ rules:
   - name: request_body
     type: dict|json
     unit: n/a
-  logic: "try:\n    request_body = request.GET if request.method == \"GET\" else request.POST\nexcept (SyntaxError,\
-    \ KeyError, Exception):   # redundant tuple, effectively \"except Exception\"\n    try:\n        request_body\
-    \ = json.loads(request.body.decode(\"UTF-8\")) if request.body else {}\n    except Exception as e:\n       \
-    \ error_request_body = repr(e)\n"
-  edge_cases: Multipart/binary bodies that are neither a QueryDict-compatible method nor valid JSON end up recorded
-    only as an error string in error_request_body, with no request_body value at all.
+  logic: "try:\n    request_body = request.GET if request.method == \"GET\" else request.POST\nexcept (SyntaxError, KeyError, Exception):   # redundant tuple, effectively \"except Exception\"\n    try:\n        request_body = json.loads(request.body.decode(\"UTF-8\")) if request.body else {}\n    except Exception as e:\n        error_request_body = repr(e)\n"
+  edge_cases: Multipart/binary bodies that are neither a QueryDict-compatible method nor valid JSON end up recorded only as an error string in error_request_body, with no request_body value at all.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -93,22 +69,19 @@ rules:
     lines: 59-70
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (cosmetic): ''except (SyntaxError, KeyError, Exception):'' is redundant — Exception already
-    subsumes SyntaxError and KeyError, so this is functionally identical to a bare ''except Exception:''. Recorded
-    verbatim; does not change runtime behavior.'
+  notes: 'DISCREPANCY (cosmetic): ''except (SyntaxError, KeyError, Exception):'' is redundant — Exception already subsumes SyntaxError and KeyError, so this is functionally identical to a bare ''except Exception:''. Recorded verbatim; does not change runtime behavior.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-003
   name: response_body capture (JSON then raw-text fallback)
   category: data-validation
   type: decision-tree
   status: OK
   verify: false
-  description: 'The logged response_body is the JSON-decoded response content if parseable; otherwise the raw utf-8-decoded
-    content string; otherwise a recorded parse error. Empty response content yields an empty dict in both success
-    branches.
+  description: 'The logged response_body is the JSON-decoded response content if parseable; otherwise the raw utf-8-decoded content string; otherwise a recorded parse error. Empty response content yields an empty dict in both success branches.
 
     '
   inputs:
@@ -119,11 +92,8 @@ rules:
   - name: response_body
     type: dict|str
     unit: n/a
-  logic: "try:\n    response_body = json.loads(response.content.decode(\"UTF-8\")) if response.content else {}\n\
-    except (SyntaxError, KeyError, Exception):\n    try:\n        response_body = response.content.decode(\"UTF-8\"\
-    ) if response.content else {}\n    except Exception as e:\n        error_response_log = repr(e)\n"
-  edge_cases: Binary (non-utf-8) response bodies (e.g. PDFs, images) fail both branches and are logged only as an
-    error string, never storing the actual bytes.
+  logic: "try:\n    response_body = json.loads(response.content.decode(\"UTF-8\")) if response.content else {}\nexcept (SyntaxError, KeyError, Exception):\n    try:\n        response_body = response.content.decode(\"UTF-8\") if response.content else {}\n    except Exception as e:\n        error_response_log = repr(e)\n"
+  edge_cases: Binary (non-utf-8) response bodies (e.g. PDFs, images) fail both branches and are logged only as an error string, never storing the actual bytes.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -140,16 +110,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-004
   name: Device classification from user agent (dispositivo)
   category: data-validation
   type: decision-tree
   status: OK
   verify: false
-  description: 'The ''dispositivo'' (device type) field is derived from the parsed user agent using a fixed priority
-    order of boolean flags; the first matching flag wins. Default is ''other'' when there is no user agent or none
-    of the flags match.
+  description: 'The ''dispositivo'' (device type) field is derived from the parsed user agent using a fixed priority order of boolean flags; the first matching flag wins. Default is ''other'' when there is no user agent or none of the flags match.
 
     '
   inputs:
@@ -161,13 +130,8 @@ rules:
     type: string
     unit: n/a
     range: browser|mobile|bot|tablet|email|touch_capable|other
-  logic: "user_agent_str = \"other\"\nif request.user_agent:\n    agent = request.user_agent\n    if agent.is_pc:\
-    \ user_agent_str = \"browser\"\n    elif agent.is_mobile: user_agent_str = \"mobile\"\n    elif agent.is_bot:\
-    \ user_agent_str = \"bot\"\n    elif agent.is_tablet: user_agent_str = \"tablet\"\n    elif agent.is_email_client:\
-    \ user_agent_str = \"email\"\n    elif agent.is_touch_capable: user_agent_str = \"touch_capable\"\ndispositivo\
-    \ = user_agent_str\n"
-  edge_cases: A device that is both touch-capable and a tablet is classified as 'tablet' (tablet checked before
-    touch_capable); a PC-flagged bot would be classified as 'browser' not 'bot' since is_pc is checked first.
+  logic: "user_agent_str = \"other\"\nif request.user_agent:\n    agent = request.user_agent\n    if agent.is_pc: user_agent_str = \"browser\"\n    elif agent.is_mobile: user_agent_str = \"mobile\"\n    elif agent.is_bot: user_agent_str = \"bot\"\n    elif agent.is_tablet: user_agent_str = \"tablet\"\n    elif agent.is_email_client: user_agent_str = \"email\"\n    elif agent.is_touch_capable: user_agent_str = \"touch_capable\"\ndispositivo = user_agent_str\n"
+  edge_cases: A device that is both touch-capable and a tablet is classified as 'tablet' (tablet checked before touch_capable); a PC-flagged bot would be classified as 'browser' not 'bot' since is_pc is checked first.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-012
@@ -184,17 +148,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-005
   name: Log retention / purge threshold (2 weeks, hard delete)
   category: billing-administrative
   type: threshold
   status: OK
   verify: false
-  description: "A scheduled Celery task permanently deletes LogModel rows older than 2 weeks (14 days) from criado_em,\
-    \ using a queryset bulk .delete() — which performs a real SQL DELETE, bypassing the model's soft-delete override\
-    \ entirely.\n Cadence: no celery-beat schedule entry for limpar_logs was found in-repo by either capture; trigger\
-    \ frequency is not determinable from code alone."
+  description: "A scheduled Celery task permanently deletes LogModel rows older than 2 weeks (14 days) from criado_em, using a queryset bulk .delete() — which performs a real SQL DELETE, bypassing the model's soft-delete override entirely.\n Cadence: no celery-beat schedule entry for limpar_logs was found in-repo by either capture; trigger frequency is not determinable from code alone."
   inputs:
   - name: LogModel.criado_em
     type: datetime
@@ -203,12 +165,8 @@ rules:
   - name: deleted_rows
     type: n/a
     unit: n/a
-  logic: "def limpar_logs():\n    LogModel.objects.filter(\n        criado_em__lt=timezone.now() - timezone.timedelta(weeks=2)\n\
-    \    ).delete()   # QuerySet.delete() => bulk hard delete, not soft-delete\n"
-  edge_cases: No scheduling/celery-beat entry for limpar_logs was found anywhere in the repo (grep for the task
-    name only matches its own definition), so it is unclear from the code what triggers this purge or how often
-    it runs. Strict less-than (records exactly 2 weeks old to the microsecond are kept). Cadence set by celery beat
-    elsewhere.
+  logic: "def limpar_logs():\n    LogModel.objects.filter(\n        criado_em__lt=timezone.now() - timezone.timedelta(weeks=2)\n    ).delete()   # QuerySet.delete() => bulk hard delete, not soft-delete\n"
+  edge_cases: No scheduling/celery-beat entry for limpar_logs was found anywhere in the repo (grep for the task name only matches its own definition), so it is unclear from the code what triggers this purge or how often it runs. Strict less-than (records exactly 2 weeks old to the microsecond are kept). Cadence set by celery beat elsewhere.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-021
@@ -226,26 +184,19 @@ rules:
     lines: 47-54
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: duplicate
-  notes: 'core/tasks.py is OUTSIDE the log/* file enumeration for this partition, but it is the only retention rule
-    that exists for LogModel data and the task brief explicitly calls out ''audit-logging retention rules'' as in-scope,
-    so it is included here with its true source path for traceability. This is the definitive retention policy for
-    the audit log: 14 days, then hard delete. | Duplicate capture reconciled: RULE-SCHED-BE-12-020 (partition BE-12)
-    independently captured the identical function (core/tasks.py limpar_logs, same commit) under name ''Log retention
-    - purge logs older than 2 weeks'', category ''scheduling-operational''. Its extra detail: ''Cadence set by celery
-    beat elsewhere.'' and the sibling-task note (''Sibling task limpar_historicos_duplicados runs clean_duplicate_history
-    --auto, no explicit threshold in-file'') are folded in here without loss.'
+  notes: 'core/tasks.py is OUTSIDE the log/* file enumeration for this partition, but it is the only retention rule that exists for LogModel data and the task brief explicitly calls out ''audit-logging retention rules'' as in-scope, so it is included here with its true source path for traceability. This is the definitive retention policy for the audit log: 14 days, then hard delete. | Duplicate capture reconciled: RULE-SCHED-BE-12-020 (partition BE-12) independently captured the identical function (core/tasks.py limpar_logs, same commit) under name ''Log retention - purge logs older than 2 weeks'', category ''scheduling-operational''. Its extra detail: ''Cadence set by celery beat elsewhere.'' and the sibling-task note (''Sibling task limpar_historicos_duplicados runs clean_duplicate_history --auto, no explicit threshold in-file'') are folded in here without loss.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-006
   name: Default and selectable page size for log list
   category: billing-administrative
   type: threshold
   status: OK
   verify: false
-  description: 'The log list defaults to 50 results per page when no ''limit'' query param is supplied (both server-side
-    default and the client JS default), with selectable page sizes of 10/20/50/100/200/500.
+  description: 'The log list defaults to 50 results per page when no ''limit'' query param is supplied (both server-side default and the client JS default), with selectable page sizes of 10/20/50/100/200/500.
 
     '
   inputs:
@@ -264,8 +215,7 @@ rules:
     # <select id="limit"> options: 10, 20, 50, 100, 200, 500
 
     '
-  edge_cases: No server-side validation caps 'limit' to the listed choices; an arbitrary numeric (or non-numeric)
-    limit value supplied directly via the URL query string is passed straight to Paginator().
+  edge_cases: No server-side validation caps 'limit' to the listed choices; an arbitrary numeric (or non-numeric) limit value supplied directly via the URL query string is passed straight to Paginator().
   confidence: high
   related: []
   merged_from:
@@ -280,7 +230,8 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-007
   name: Top-4 most-accessed-routes limit
   category: billing-administrative
@@ -293,10 +244,8 @@ rules:
   - name: qtd_paths
     type: dict
     unit: n/a
-  logic: "qtd_paths = LogModel.objects.exclude(path=None).values(\"path\")\n              .annotate(qtd=Count(\"\
-    path\")).values_list(\"path\",\"qtd\")\n              .order_by(\"-qtd\")[:4]\n"
-  edge_cases: This aggregation runs over ALL LogModel rows (not the currently filtered 'logs' queryset used for
-    the list/table), so it is unaffected by the user's active filters.
+  logic: "qtd_paths = LogModel.objects.exclude(path=None).values(\"path\")\n              .annotate(qtd=Count(\"path\")).values_list(\"path\",\"qtd\")\n              .order_by(\"-qtd\")[:4]\n"
+  edge_cases: This aggregation runs over ALL LogModel rows (not the currently filtered 'logs' queryset used for the list/table), so it is unaffected by the user's active filters.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-009
@@ -310,23 +259,19 @@ rules:
     lines: 132-138
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Same 'unfiltered aggregate' behavior applies to qtd_dispositivos, qtd_metodos, and qtd_status (lines 112-131)
-    — all query LogModel.objects directly rather than the filtered 'logs' variable.
+  notes: Same 'unfiltered aggregate' behavior applies to qtd_dispositivos, qtd_metodos, and qtd_status (lines 112-131) — all query LogModel.objects directly rather than the filtered 'logs' variable.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-008
   name: '''Problematic routes'' selection: one path per status code, top 4'
   category: billing-administrative
   type: decision-tree
   status: OK
   verify: false
-  description: 'Candidate rows for the ''most problematic routes'' chart are non-favicon paths with response_status_code
-    in [399, 600), grouped by (path, status) and ordered by count descending. The loop then keeps only the FIRST
-    row encountered for each distinct status code (i.e., the highest-count path for that code, since the queryset
-    is pre-sorted by -qtd), discarding any other path sharing that status code, and the resulting list is capped
-    to 4 entries.
+  description: 'Candidate rows for the ''most problematic routes'' chart are non-favicon paths with response_status_code in [399, 600), grouped by (path, status) and ordered by count descending. The loop then keeps only the FIRST row encountered for each distinct status code (i.e., the highest-count path for that code, since the queryset is pre-sorted by -qtd), discarding any other path sharing that status code, and the resulting list is capped to 4 entries.
 
     '
   inputs: []
@@ -334,14 +279,8 @@ rules:
   - name: bad_paths
     type: list[dict]
     unit: n/a
-  logic: "paths = LogModel.objects.exclude(path=\"/favicon.ico\")\n          .filter(path__isnull=False, response_status_code__range=(399,\
-    \ 600))\n          .values_list(\"path\",\"response_status_code\").annotate(qtd=Count(\"path\"))\n         \
-    \ .order_by(\"-qtd\")\nlis, stats_diff = [], []\nfor path, status, qtd in paths:\n    if status in stats_diff:\
-    \ continue        # only first (highest-qtd) path per status kept\n    lis.append({\"path\": path, \"status\"\
-    : status, \"qtd\": qtd})\n    stats_diff.append(status)\nbad_paths = lis[:4]\n"
-  edge_cases: If two different paths tie for the highest count under the same status code, only the one that sorts
-    first in the DB's tie-break order is shown, silently dropping the other path with that same status entirely
-    from the chart (not just deduped, but never revisited even in a lower position).
+  logic: "paths = LogModel.objects.exclude(path=\"/favicon.ico\")\n          .filter(path__isnull=False, response_status_code__range=(399, 600))\n          .values_list(\"path\",\"response_status_code\").annotate(qtd=Count(\"path\"))\n          .order_by(\"-qtd\")\nlis, stats_diff = [], []\nfor path, status, qtd in paths:\n    if status in stats_diff: continue        # only first (highest-qtd) path per status kept\n    lis.append({\"path\": path, \"status\": status, \"qtd\": qtd})\n    stats_diff.append(status)\nbad_paths = lis[:4]\n"
+  edge_cases: If two different paths tie for the highest count under the same status code, only the one that sorts first in the DB's tie-break order is shown, silently dropping the other path with that same status entirely from the chart (not just deduped, but never revisited even in a lower position).
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-010
@@ -355,25 +294,19 @@ rules:
     lines: 139-155
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Range (399, 600) here treats status 399 as 'bad' (unlike RULE-024's get_status_style, which treats 399
-    as neither success nor clearly danger, folding it into 'warning').
+  notes: Range (399, 600) here treats status 399 as 'bad' (unlike RULE-024's get_status_style, which treats 399 as neither success nor clearly danger, folding it into 'warning').
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-009
   name: '''Undesirable status codes'' chart exclude is a no-op (AND instead of OR)'
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'The ''qtd_status'' aggregate (used for the chart titled ''Status de resposta indesejáveis'' / undesirable
-    response statuses) is built by excluding rows that match BOTH response_status_code__isnull=True AND response_status_code__range=
-    (200, 399) in a single .exclude() call. Because a single .exclude(A=x, B=y) call combines conditions with AND,
-    and a value can never be simultaneously NULL and within a numeric range, no row ever satisfies both conditions
-    at once — so this exclude() removes ZERO rows. The chart therefore includes every status code, including nulls
-    and 2xx/3xx ''successful'' codes, despite the intent implied by its title and by the analogous-but-correctly-chained
-    exclude used elsewhere (RULE-022 uses .exclude(...).filter(...) as two separate calls).
+  description: 'The ''qtd_status'' aggregate (used for the chart titled ''Status de resposta indesejáveis'' / undesirable response statuses) is built by excluding rows that match BOTH response_status_code__isnull=True AND response_status_code__range= (200, 399) in a single .exclude() call. Because a single .exclude(A=x, B=y) call combines conditions with AND, and a value can never be simultaneously NULL and within a numeric range, no row ever satisfies both conditions at once — so this exclude() removes ZERO rows. The chart therefore includes every status code, including nulls and 2xx/3xx ''successful'' codes, despite the intent implied by its title and by the analogous-but-correctly-chained exclude used elsewhere (RULE-022 uses .exclude(...).filter(...) as two separate calls).
 
     '
   inputs: []
@@ -381,19 +314,12 @@ rules:
   - name: qtd_status
     type: dict
     unit: n/a
-  logic: "qtd_status = LogModel.objects.exclude(\n        response_status_code__isnull=True, response_status_code__range=(200,\
-    \ 399)\n    ).values(\"response_status_code\").annotate(qtd=Count(\"response_status_code\"))\n     .values_list(\"\
-    response_status_code\", \"qtd\")\n# NOTE: exclude(A=x, B=y) == NOT(A AND B). Since isnull=True and range(200,399)\
-    \ are\n# mutually exclusive on the same field, NOT(A AND B) is always True => nothing excluded.\n"
+  logic: "qtd_status = LogModel.objects.exclude(\n        response_status_code__isnull=True, response_status_code__range=(200, 399)\n    ).values(\"response_status_code\").annotate(qtd=Count(\"response_status_code\"))\n     .values_list(\"response_status_code\", \"qtd\")\n# NOTE: exclude(A=x, B=y) == NOT(A AND B). Since isnull=True and range(200,399) are\n# mutually exclusive on the same field, NOT(A AND B) is always True => nothing excluded.\n"
   edge_cases: n/a — the bug manifests on every request, unconditionally, not just an edge case.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-008
-  divergence: 'Intent (implied by chart title ''Status de resposta indesejáveis'' and by the correctly-chained exclude()+filter()
-    pattern used in RULE-AUDITORIA-LOGS-008/old RULE-022) vs actual: the single .exclude(response_status_code__isnull=True,
-    response_status_code__range=(200,399)) call ANDs the two conditions, which are mutually exclusive on one field,
-    so the exclude removes zero rows. Should have been two chained .exclude() calls. No frontend counterpart; this
-    is a single-backend ORM-semantics bug, recorded verbatim.'
+  divergence: 'Intent (implied by chart title ''Status de resposta indesejáveis'' and by the correctly-chained exclude()+filter() pattern used in RULE-AUDITORIA-LOGS-008/old RULE-022) vs actual: the single .exclude(response_status_code__isnull=True, response_status_code__range=(200,399)) call ANDs the two conditions, which are mutually exclusive on one field, so the exclude removes zero rows. Should have been two chained .exclude() calls. No frontend counterpart; this is a single-backend ORM-semantics bug, recorded verbatim.'
   merged_from:
   - RULE-log-BE-13-023
   sources:
@@ -402,22 +328,19 @@ rules:
     lines: 124-131
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY, high confidence: this is a Django ORM semantics bug (should have been two chained .exclude()
-    calls, e.g. .exclude(response_status_code__isnull=True).exclude(response_status_code__range=(200,399))). Recorded
-    exactly as implemented, not corrected.'
+  notes: 'DISCREPANCY, high confidence: this is a Django ORM semantics bug (should have been two chained .exclude() calls, e.g. .exclude(response_status_code__isnull=True).exclude(response_status_code__range=(200,399))). Recorded exactly as implemented, not corrected.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-010
   name: Status-code badge color mapping (get_status_style) — 399 boundary bug
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'Response status codes are mapped to a bootstrap badge color: ''success'' if the code is in range(100,
-    399) (i.e. 100-398 inclusive — 399 is EXCLUDED because Python''s range() stop bound is exclusive), ''warning''
-    if less than 500 (this catches 399 and any value <100, in addition to 400-499), else ''danger''.
+  description: 'Response status codes are mapped to a bootstrap badge color: ''success'' if the code is in range(100, 399) (i.e. 100-398 inclusive — 399 is EXCLUDED because Python''s range() stop bound is exclusive), ''warning'' if less than 500 (this catches 399 and any value <100, in addition to 400-499), else ''danger''.
 
     '
   inputs:
@@ -437,17 +360,12 @@ rules:
     else: return "danger"
 
     '
-  edge_cases: Status code 399 (a 3xx-adjacent value) renders as 'warning' instead of 'success', inconsistent with
-    the rest of the 300-398 block. A (non-real-world) value below 100 would also render as 'warning' rather than
-    falling through to a distinct bucket.
+  edge_cases: Status code 399 (a 3xx-adjacent value) renders as 'warning' instead of 'success', inconsistent with the rest of the 300-398 block. A (non-real-world) value below 100 would also render as 'warning' rather than falling through to a distinct bucket.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-008
   - RULE-AUDITORIA-LOGS-013
-  divergence: range(100,399) excludes 399 (Python range() stop bound is exclusive), so status 399 falls through
-    to the 'warning' branch (value < 500) instead of 'success', inconsistent with the rest of the 300-398 block
-    and with RULE-AUDITORIA-LOGS-008's (old RULE-022) treatment of 399 as 'bad'/danger-range. Off-by-one, single
-    backend implementation, recorded verbatim.
+  divergence: range(100,399) excludes 399 (Python range() stop bound is exclusive), so status 399 falls through to the 'warning' branch (value < 500) instead of 'success', inconsistent with the rest of the 300-398 block and with RULE-AUDITORIA-LOGS-008's (old RULE-022) treatment of 399 as 'bad'/danger-range. Off-by-one, single backend implementation, recorded verbatim.
   merged_from:
   - RULE-log-BE-13-024
   sources:
@@ -456,20 +374,19 @@ rules:
     lines: 85-92
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY: off-by-one on the upper bound of the ''success'' range, recorded verbatim (range(100,399)
-    instead of range(100,400) or an inclusive check).'
+  notes: 'DISCREPANCY: off-by-one on the upper bound of the ''success'' range, recorded verbatim (range(100,399) instead of range(100,400) or an inclusive check).'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-011
   name: HTTP method badge color mapping (get_method_style)
   category: data-validation
   type: decision-tree
   status: OK
   verify: false
-  description: 'HTTP methods are mapped to a badge color: GET is ''success''; POST/PUT/PATCH are ''warning''; any
-    other method (DELETE, HEAD, OPTIONS, etc.) is ''danger''.'
+  description: 'HTTP methods are mapped to a badge color: GET is ''success''; POST/PUT/PATCH are ''warning''; any other method (DELETE, HEAD, OPTIONS, etc.) is ''danger''.'
   inputs:
   - name: value
     type: string
@@ -503,17 +420,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-012
   name: Device icon mapping (get_icon) missing branches for tablet/email/touch_capable
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'get_icon maps the ''dispositivo'' value to a FontAwesome icon class for ''browser'', ''mobile'',
-    ''bot'', and ''other'' only. It has no branch for ''tablet'', ''email'', or ''touch_capable'' — all of which
-    log_handler''s device classification (RULE-007) can actually produce — so the filter implicitly returns None
-    for those, rendering no icon in the log-list table.
+  description: 'get_icon maps the ''dispositivo'' value to a FontAwesome icon class for ''browser'', ''mobile'', ''bot'', and ''other'' only. It has no branch for ''tablet'', ''email'', or ''touch_capable'' — all of which log_handler''s device classification (RULE-007) can actually produce — so the filter implicitly returns None for those, rendering no icon in the log-list table.
 
     '
   inputs:
@@ -536,16 +451,11 @@ rules:
     # no elif for ''tablet'' / ''email'' / ''touch_capable'' -> implicit return None
 
     '
-  edge_cases: Any log entry classified as tablet/email/touch_capable device (see RULE-007) shows the device text
-    with no icon in the log-list table (blank <i class="None">? actually template does {{ obj.dispositivo|get_icon
-    }} inside class="", so a None renders as the literal string 'None' in the class attribute).
+  edge_cases: Any log entry classified as tablet/email/touch_capable device (see RULE-007) shows the device text with no icon in the log-list table (blank <i class="None">? actually template does {{ obj.dispositivo|get_icon }} inside class="", so a None renders as the literal string 'None' in the class attribute).
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-004
-  divergence: get_icon() branches only on dispositivo in {browser, mobile, bot, other}, but the classification producing
-    'dispositivo' (RULE-AUDITORIA-LOGS-004, old RULE-007) can also emit 'tablet', 'email', or 'touch_capable' --
-    for those three values get_icon() implicitly returns None, which the template then renders as the literal string
-    'None' in a class attribute. Single backend implementation gap, recorded verbatim.
+  divergence: get_icon() branches only on dispositivo in {browser, mobile, bot, other}, but the classification producing 'dispositivo' (RULE-AUDITORIA-LOGS-004, old RULE-007) can also emit 'tablet', 'email', or 'touch_capable' -- for those three values get_icon() implicitly returns None, which the template then renders as the literal string 'None' in a class attribute. Single backend implementation gap, recorded verbatim.
   merged_from:
   - RULE-log-BE-13-026
   sources:
@@ -554,21 +464,19 @@ rules:
     lines: 73-82
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY: incomplete mapping relative to the value space produced elsewhere in the same app; recorded
-    verbatim.'
+  notes: 'DISCREPANCY: incomplete mapping relative to the value space produced elsewhere in the same app; recorded verbatim.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-013
   name: is_status_code validity check — 599 boundary, unused (dead code)
   category: data-validation
   type: validation
   status: DISCREPANCY
   verify: false
-  description: 'is_status_code(value) returns True only for value in range(100, 599) — i.e. 100-598 inclusive, excluding
-    599 due to range()''s exclusive stop bound — and returns None (falsy) otherwise. This filter is defined but
-    never referenced by any template in the repository.
+  description: 'is_status_code(value) returns True only for value in range(100, 599) — i.e. 100-598 inclusive, excluding 599 due to range()''s exclusive stop bound — and returns None (falsy) otherwise. This filter is defined but never referenced by any template in the repository.
 
     '
   inputs:
@@ -579,15 +487,12 @@ rules:
   - name: is_valid
     type: boolean|None
     unit: n/a
-  logic: "def is_status_code(value):\n    if value in range(100, 599):   # excludes 599\n        return True\n \
-    \   # implicit return None otherwise\n"
+  logic: "def is_status_code(value):\n    if value in range(100, 599):   # excludes 599\n        return True\n    # implicit return None otherwise\n"
   edge_cases: n/a — dead code, no runtime callers found via repo-wide grep.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-010
-  divergence: range(100,599) excludes 599 (exclusive stop bound), same off-by-one pattern as RULE-AUDITORIA-LOGS-010
-    (old RULE-024); however this filter has zero call sites in any template (dead code), so the bug has no observable
-    runtime effect today. Recorded verbatim.
+  divergence: range(100,599) excludes 599 (exclusive stop bound), same off-by-one pattern as RULE-AUDITORIA-LOGS-010 (old RULE-024); however this filter has zero call sites in any template (dead code), so the bug has no observable runtime effect today. Recorded verbatim.
   merged_from:
   - RULE-log-BE-13-027
   sources:
@@ -596,24 +501,19 @@ rules:
     lines: 105-108
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (low impact — dead code): same off-by-one pattern as RULE-024. Grep across the repo for ''is_status_code''
-    finds only this definition, no usage in any .html template.'
+  notes: 'DISCREPANCY (low impact — dead code): same off-by-one pattern as RULE-024. Grep across the repo for ''is_status_code'' finds only this definition, no usage in any .html template.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-014
   name: pretty_json double-encodes string-typed JSON values instead of formatting them
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'pretty_json is meant to indent/format a JSON-classified value for display. For non-string values
-    (dict/list) it correctly does json.dumps(value, indent=4). For STRING values that pass is_json (i.e. valid JSON
-    text stored as a string), it first re-serializes the raw string itself via json.dumps (wrapping/escaping it
-    as a JSON string literal), then json.dumps''s that already-serialized string again for the ''indent=4'' pass
-    — producing a garbled, escaped single-line string rather than a parsed-and-reformatted JSON structure. The code
-    never calls json.loads on the string branch.
+  description: 'pretty_json is meant to indent/format a JSON-classified value for display. For non-string values (dict/list) it correctly does json.dumps(value, indent=4). For STRING values that pass is_json (i.e. valid JSON text stored as a string), it first re-serializes the raw string itself via json.dumps (wrapping/escaping it as a JSON string literal), then json.dumps''s that already-serialized string again for the ''indent=4'' pass — producing a garbled, escaped single-line string rather than a parsed-and-reformatted JSON structure. The code never calls json.loads on the string branch.
 
     '
   inputs:
@@ -624,22 +524,12 @@ rules:
   - name: formatted
     type: string
     unit: n/a
-  logic: "def pretty_json(value):\n    res = value\n    if is_json(value):\n        if isinstance(value, str):\n\
-    \            value = json.dumps(value, ensure_ascii=False)   # BUG: re-serializes the raw string,\n        \
-    \                                                      # does not parse it (should be json.loads)\n        res\
-    \ = json.dumps(value, indent=4, ensure_ascii=False)  # dumps a string -> no real indentation\n    return res\n"
-  edge_cases: Only manifests when the underlying log_data value is itself a JSON-formatted STRING (rather than an
-    already-decoded dict/list); most JSONField values from LogSerializer come through as native dicts/lists (where
-    the bug does not trigger), but any header/meta/body value that ended up stored as a raw JSON string text would
-    be rendered garbled in log-detail.html's <pre>{{ value|pretty_json }}</pre> block.
+  logic: "def pretty_json(value):\n    res = value\n    if is_json(value):\n        if isinstance(value, str):\n            value = json.dumps(value, ensure_ascii=False)   # BUG: re-serializes the raw string,\n                                                              # does not parse it (should be json.loads)\n        res = json.dumps(value, indent=4, ensure_ascii=False)  # dumps a string -> no real indentation\n    return res\n"
+  edge_cases: Only manifests when the underlying log_data value is itself a JSON-formatted STRING (rather than an already-decoded dict/list); most JSONField values from LogSerializer come through as native dicts/lists (where the bug does not trigger), but any header/meta/body value that ended up stored as a raw JSON string text would be rendered garbled in log-detail.html's <pre>{{ value|pretty_json }}</pre> block.
   confidence: medium
   related:
   - RULE-AUDITORIA-LOGS-015
-  divergence: 'Intended behavior: parse a JSON-formatted string then pretty-print it with indent=4. Actual: for
-    string-typed JSON values the code re-serializes the raw string via json.dumps (escaping it as a JSON string
-    literal) instead of json.loads-ing it, then dumps the already-serialized string again -- producing a garbled
-    single-line escaped string instead of an indented structure. Only manifests when a log_data value is itself
-    a JSON-formatted string rather than an already-decoded dict/list. Single backend implementation, recorded verbatim.'
+  divergence: 'Intended behavior: parse a JSON-formatted string then pretty-print it with indent=4. Actual: for string-typed JSON values the code re-serializes the raw string via json.dumps (escaping it as a JSON string literal) instead of json.loads-ing it, then dumps the already-serialized string again -- producing a garbled single-line escaped string instead of an indented structure. Only manifests when a log_data value is itself a JSON-formatted string rather than an already-decoded dict/list. Single backend implementation, recorded verbatim.'
   merged_from:
   - RULE-log-BE-13-028
   sources:
@@ -648,23 +538,19 @@ rules:
     lines: 63-70
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: DISCREPANCY recorded verbatim. Confidence is medium because whether string-typed JSON values actually reach
-    this template filter in practice (vs. always-already-decoded dicts) depends on runtime data shapes not fully
-    determinable from static code alone.
+  notes: DISCREPANCY recorded verbatim. Confidence is medium because whether string-typed JSON values actually reach this template filter in practice (vs. always-already-decoded dicts) depends on runtime data shapes not fully determinable from static code alone.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-015
   name: Log-detail field rendering rules (skip falsy, JSON/HTML/plain branching)
   category: data-validation
   type: decision-tree
   status: OK
   verify: false
-  description: 'On the single-log detail page, every field of the serialized log (LogSerializer, all fields) is
-    iterated; fields with a falsy value are skipped entirely (no placeholder shown, unlike the list view''s ''-''
-    placeholder). For each rendered field: JSON-classified values are pretty-printed in a <pre> block; else HTML-classified
-    values are rendered inside a sandboxed <iframe srcdoc>; else the raw value is shown as plain text.
+  description: 'On the single-log detail page, every field of the serialized log (LogSerializer, all fields) is iterated; fields with a falsy value are skipped entirely (no placeholder shown, unlike the list view''s ''-'' placeholder). For each rendered field: JSON-classified values are pretty-printed in a <pre> block; else HTML-classified values are rendered inside a sandboxed <iframe srcdoc>; else the raw value is shown as plain text.
 
     '
   inputs:
@@ -672,12 +558,8 @@ rules:
     type: dict
     unit: n/a
   outputs: []
-  logic: "for name, value in log_data.items():\n    if not value: continue\n    if is_json(value) is True: render\
-    \ <pre>{{ value|pretty_json }}</pre>\n    elif is_html(value) is True: render <iframe srcdoc=\"{{ value|clean_html\
-    \ }}\">\n    else: render <p>{{ value }}</p>\n"
-  edge_cases: Falsy-but-meaningful values (0, False, empty list/dict) are indistinguishable from 'absent' on this
-    page since they are hidden entirely — e.g. a response_status_code of 0, or an empty geolocalizacao {}, would
-    not be shown at all.
+  logic: "for name, value in log_data.items():\n    if not value: continue\n    if is_json(value) is True: render <pre>{{ value|pretty_json }}</pre>\n    elif is_html(value) is True: render <iframe srcdoc=\"{{ value|clean_html }}\">\n    else: render <p>{{ value }}</p>\n"
+  edge_cases: Falsy-but-meaningful values (0, False, empty list/dict) are indistinguishable from 'absent' on this page since they are hidden entirely — e.g. a response_status_code of 0, or an empty geolocalizacao {}, would not be shown at all.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-014
@@ -694,17 +576,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-016
   name: Request/response log-capture payload
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'On every HTTP response, an audit-log payload is assembled from the request/response (user, path,
-    content_type, method, display name, sanitized meta, headers, response status code, client IP and public/private
-    flag) and handed off asynchronously for persistence. Each enrichment step is independently wrapped in try/except
-    so a failure in one field does not prevent the others from being logged.
+  description: 'On every HTTP response, an audit-log payload is assembled from the request/response (user, path, content_type, method, display name, sanitized meta, headers, response status code, client IP and public/private flag) and handed off asynchronously for persistence. Each enrichment step is independently wrapped in try/except so a failure in one field does not prevent the others from being logged.
 
     '
   inputs:
@@ -720,14 +600,8 @@ rules:
   - name: payload_log
     type: dict
     unit: n/a
-  logic: "payload_log = {\"user\": str(request.user.pk) if request.user.pk else \"\"}\ntry:\n    payload_log +=\
-    \ {path, content_type, method,\n                     nome = request.user.nome if isinstance(request.user, Usuario)\
-    \ else \"\",\n                     meta, headers=dict(request.headers),\n                     response_status_code=int(response.status_code),\n\
-    \                     ip, ip_publico}\nexcept Exception as e:\n    payload_log[\"error_request_log\"] = repr(e)\n\
-    ... (see RULE-005/006/007/009 for the sub-steps)\nsalvar_log.apply_async(args=(payload_log,))   # async persistence,\
-    \ see RULE-003\n"
-  edge_cases: Any exception during the main enrichment block is swallowed and recorded as payload_log['error_request_log']
-    instead of aborting the log; the log is still dispatched with whatever partial payload was built.
+  logic: "payload_log = {\"user\": str(request.user.pk) if request.user.pk else \"\"}\ntry:\n    payload_log += {path, content_type, method,\n                     nome = request.user.nome if isinstance(request.user, Usuario) else \"\",\n                     meta, headers=dict(request.headers),\n                     response_status_code=int(response.status_code),\n                     ip, ip_publico}\nexcept Exception as e:\n    payload_log[\"error_request_log\"] = repr(e)\n... (see RULE-005/006/007/009 for the sub-steps)\nsalvar_log.apply_async(args=(payload_log,))   # async persistence, see RULE-003\n"
+  edge_cases: Any exception during the main enrichment block is swallowed and recorded as payload_log['error_request_log'] instead of aborting the log; the log is still dispatched with whatever partial payload was built.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-017
@@ -744,21 +618,19 @@ rules:
     lines: 18-113
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: This is the central audit-logging capture rule for the whole platform (every request/response, see RULE-004
-    for the unconditional trigger).
+  notes: This is the central audit-logging capture rule for the whole platform (every request/response, see RULE-004 for the unconditional trigger).
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-017
   name: Asynchronous log persistence dispatch
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'Log persistence is never done inline in the request/response cycle; log_handler always dispatches
-    the assembled payload to the salvar_log Celery task via apply_async, routed on exchange ''trilhas'' with routing
-    key ''{ENVIRONMENT}.trilhas.log'' (empty-string environment prefix if ENVIRONMENT is unset).
+  description: 'Log persistence is never done inline in the request/response cycle; log_handler always dispatches the assembled payload to the salvar_log Celery task via apply_async, routed on exchange ''trilhas'' with routing key ''{ENVIRONMENT}.trilhas.log'' (empty-string environment prefix if ENVIRONMENT is unset).
 
     '
   inputs:
@@ -776,8 +648,7 @@ rules:
     #   routing_key=os.environ.get("ENVIRONMENT", "") + ".trilhas.log")
 
     '
-  edge_cases: If the broker is unreachable or the task silently fails, log_handler itself has no feedback loop /
-    no fallback synchronous write; requests are not blocked or retried by this code path.
+  edge_cases: If the broker is unreachable or the task silently fails, log_handler itself has no feedback loop / no fallback synchronous write; requests are not blocked or retried by this code path.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -793,24 +664,21 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-018
   name: Unconditional what-gets-logged predicate (every response)
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'There is no filtering predicate anywhere in the log app (no exclusion by path, method, status code,
-    or content type) that determines whether a request gets logged. log_handler(request, response) is invoked for
-    literally every HTTP response processed by the application.
+  description: 'There is no filtering predicate anywhere in the log app (no exclusion by path, method, status code, or content type) that determines whether a request gets logged. log_handler(request, response) is invoked for literally every HTTP response processed by the application.
 
     '
   inputs: []
   outputs: []
-  logic: "class LogMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        log_handler(request,\
-    \ response)   # unconditional, no predicate\n        return response\n"
-  edge_cases: Static assets, health checks, admin pages, and error responses (4xx/5xx) are all logged identically
-    to normal API calls; nothing is exempted.
+  logic: "class LogMiddleware(MiddlewareMixin):\n    def process_response(self, request, response):\n        log_handler(request, response)   # unconditional, no predicate\n        return response\n"
+  edge_cases: Static assets, health checks, admin pages, and error responses (4xx/5xx) are all logged identically to normal API calls; nothing is exempted.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -822,22 +690,19 @@ rules:
     lines: 9-15
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: trilhas/middleware.py is OUTSIDE this partition's enumerated log/* file list (it is the invocation site,
-    likely owned by another partition covering the trilhas/ project package), but it is the only place that answers
-    the task brief's explicit 'what-gets-logged predicate' question for the log app, so it is included here for
-    completeness. No other file in log/* contains a call to log_handler.
+  notes: trilhas/middleware.py is OUTSIDE this partition's enumerated log/* file list (it is the invocation site, likely owned by another partition covering the trilhas/ project package), but it is the only place that answers the task brief's explicit 'what-gets-logged predicate' question for the log app, so it is included here for completeness. No other file in log/* contains a call to log_handler.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-019
   name: Client IP and public/private classification
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'The client IP address and whether it is publicly routable are captured via django-ipware''s get_client_ip(request),
-    which returns (ip, is_routable); is_routable is stored verbatim as ''ip_publico''.
+  description: 'The client IP address and whether it is publicly routable are captured via django-ipware''s get_client_ip(request), which returns (ip, is_routable); is_routable is stored verbatim as ''ip_publico''.
 
     '
   inputs:
@@ -858,8 +723,7 @@ rules:
     payload_log["ip_publico"] = ip_publico
 
     '
-  edge_cases: If no IP can be determined, ipware conventionally returns (None, False); LogModel.ip_publico default=False
-    aligns with this, but ip_publico=False is ambiguous between 'confirmed private IP' and 'IP undetermined'.
+  edge_cases: If no IP can be determined, ipware conventionally returns (None, False); LogModel.ip_publico default=False aligns with this, but ip_publico=False is ambiguous between 'confirmed private IP' and 'IP undetermined'.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-035
@@ -876,16 +740,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-020
   name: Geolocation enrichment via GeoIP2 (async stage)
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'In the async persistence task, if an IP was captured, a GeoIP2 city lookup is performed and its
-    result stored as ''geolocalizacao''; on any failure the error is recorded in ''error_geolocalizacao'' and geolocalizacao
-    remains an empty dict; if no IP was captured, geolocalizacao is also an empty dict.
+  description: 'In the async persistence task, if an IP was captured, a GeoIP2 city lookup is performed and its result stored as ''geolocalizacao''; on any failure the error is recorded in ''error_geolocalizacao'' and geolocalizacao remains an empty dict; if no IP was captured, geolocalizacao is also an empty dict.
 
     '
   inputs:
@@ -896,12 +759,8 @@ rules:
   - name: geolocalizacao
     type: dict
     unit: n/a
-  logic: "ip = payload_log.get(\"ip\", None)\ngeo_data = {}\nif ip:\n    try:\n        geo_data = GeoIP2().city(ip)\n\
-    \    except Exception as e:\n        payload_log[\"error_geolocalizacao\"] = repr(e)\npayload_log[\"geolocalizacao\"\
-    ] = geo_data\n"
-  edge_cases: Private/non-routable IPs (ip_publico=False) are still passed to GeoIP2().city(ip) with no guard, and
-    will raise/be caught the same as any other lookup failure (recorded, not distinguished from a genuine GeoIP
-    database miss).
+  logic: "ip = payload_log.get(\"ip\", None)\ngeo_data = {}\nif ip:\n    try:\n        geo_data = GeoIP2().city(ip)\n    except Exception as e:\n        payload_log[\"error_geolocalizacao\"] = repr(e)\npayload_log[\"geolocalizacao\"] = geo_data\n"
+  edge_cases: Private/non-routable IPs (ip_publico=False) are still passed to GeoIP2().city(ip) with no guard, and will raise/be caught the same as any other lookup failure (recorded, not distinguished from a genuine GeoIP database miss).
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-034
@@ -917,31 +776,21 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-021
   name: Soft-delete mixin present but not exercised for logs
   category: billing-administrative
   type: workflow
   status: AMBIGUOUS
   verify: false
-  description: 'LogModel inherits SetUpModel -> ParanoiaMixin, which provides a ''deletado_em'' soft-delete column,
-    an instance .delete() override that soft-deletes by default, and both an unfiltered ''objects'' manager and
-    a filtered ''objects_without_deleted'' manager. Nothing in the log app ever calls .delete() on an individual
-    LogModel instance, and the only bulk deletion (RULE-012''s limpar_logs) uses QuerySet.delete() which does not
-    go through the instance override, so it hard-deletes regardless. All log queries in views/log.py use the plain
-    ''objects'' manager, which returns rows regardless of deletado_em.
+  description: 'LogModel inherits SetUpModel -> ParanoiaMixin, which provides a ''deletado_em'' soft-delete column, an instance .delete() override that soft-deletes by default, and both an unfiltered ''objects'' manager and a filtered ''objects_without_deleted'' manager. Nothing in the log app ever calls .delete() on an individual LogModel instance, and the only bulk deletion (RULE-012''s limpar_logs) uses QuerySet.delete() which does not go through the instance override, so it hard-deletes regardless. All log queries in views/log.py use the plain ''objects'' manager, which returns rows regardless of deletado_em.
 
     '
   inputs: []
   outputs: []
-  logic: "# ParanoiaMixin (utils/models.py):\nobjects = models.Manager()                 # unfiltered — used everywhere\
-    \ in log/views\nobjects_without_deleted = ParanoiaManager()  # filters deletado_em__isnull=True — never used\
-    \ by log app\ndef delete(self, **kwargs):\n    ... soft-delete path (sets deletado_em) unless force_delete/admin-path\
-    \ ...\n# LogModel/log app never calls instance .delete(); only bulk .filter().delete() (RULE-012) is used, which\n\
-    # bypasses this override entirely (hard delete).\n"
-  edge_cases: If any LogModel row were ever individually soft-deleted (deletado_em set) through some code path outside
-    this partition, it would still show up in every dashboard/list/detail view in log/views/log.py because they
-    all query LogModel.objects (unfiltered), not objects_without_deleted.
+  logic: "# ParanoiaMixin (utils/models.py):\nobjects = models.Manager()                 # unfiltered — used everywhere in log/views\nobjects_without_deleted = ParanoiaManager()  # filters deletado_em__isnull=True — never used by log app\ndef delete(self, **kwargs):\n    ... soft-delete path (sets deletado_em) unless force_delete/admin-path ...\n# LogModel/log app never calls instance .delete(); only bulk .filter().delete() (RULE-012) is used, which\n# bypasses this override entirely (hard delete).\n"
+  edge_cases: If any LogModel row were ever individually soft-deleted (deletado_em set) through some code path outside this partition, it would still show up in every dashboard/list/detail view in log/views/log.py because they all query LogModel.objects (unfiltered), not objects_without_deleted.
   confidence: medium
   related:
   - RULE-AUDITORIA-LOGS-005
@@ -953,25 +802,19 @@ rules:
     lines: 1-13
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: inherited soft-delete machinery appears to be dead weight for this model given how it''s actually
-    used (only ever hard-deleted in bulk by age); best interpretation is that soft-delete was inherited automatically
-    via SetUpModel and simply never leveraged for logs. Supporting mixin code is in utils/models.py (outside log/*),
-    cited only for evidence.'
+  notes: 'AMBIGUOUS: inherited soft-delete machinery appears to be dead weight for this model given how it''s actually used (only ever hard-deleted in bulk by age); best interpretation is that soft-delete was inherited automatically via SetUpModel and simply never leveraged for logs. Supporting mixin code is in utils/models.py (outside log/*), cited only for evidence.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-022
   name: Log dashboard access control (authenticated-only, no staff/ownership check)
   category: billing-administrative
   type: eligibility
   status: AMBIGUOUS
   verify: false
-  description: 'All four log views (LogView, EstadoLogView, CityLogView, LogDetailView) are gated only by LoginRequiredMixin
-    with login_url=''/admin/''. There is no is_staff, is_superuser, or permission-class check anywhere in the log
-    app. Any authenticated core.Usuario — not just administrators — can view the full log dashboard (including every
-    other user''s IP, geolocation, request/response bodies, and headers) and can fetch ANY single log''s full detail
-    by primary key (get_object_or_404(LogModel, pk=logs_pk)) with no ownership scoping to the requesting user.
+  description: 'All four log views (LogView, EstadoLogView, CityLogView, LogDetailView) are gated only by LoginRequiredMixin with login_url=''/admin/''. There is no is_staff, is_superuser, or permission-class check anywhere in the log app. Any authenticated core.Usuario — not just administrators — can view the full log dashboard (including every other user''s IP, geolocation, request/response bodies, and headers) and can fetch ANY single log''s full detail by primary key (get_object_or_404(LogModel, pk=logs_pk)) with no ownership scoping to the requesting user.
 
     '
   inputs:
@@ -982,11 +825,8 @@ rules:
   - name: access_granted
     type: boolean
     unit: n/a
-  logic: "class LogView(LoginRequiredMixin, TemplateView):\n    login_url = \"/admin/\"   # only requires request.user.is_authenticated;\
-    \ no is_staff check\n# identical pattern in EstadoLogView, CityLogView, LogDetailView\n# LogDetailView.get_context_data:\
-    \ log = get_object_or_404(LogModel, pk=logs_pk)  # no owner/user filter\n"
-  edge_cases: A non-staff Usuario who is merely logged in can browse every other user's audit trail, including request/response
-    bodies that may contain clinical or personal data logged by other apps' endpoints.
+  logic: "class LogView(LoginRequiredMixin, TemplateView):\n    login_url = \"/admin/\"   # only requires request.user.is_authenticated; no is_staff check\n# identical pattern in EstadoLogView, CityLogView, LogDetailView\n# LogDetailView.get_context_data: log = get_object_or_404(LogModel, pk=logs_pk)  # no owner/user filter\n"
+  edge_cases: A non-staff Usuario who is merely logged in can browse every other user's audit trail, including request/response bodies that may contain clinical or personal data logged by other apps' endpoints.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-033
@@ -998,22 +838,19 @@ rules:
     lines: 17-21, 274-289
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: the URL prefix ''/admin/'' and login_url=''/admin/'' (Django admin login) strongly suggest
-    staff-only intent, but the code as written only checks authentication, not staff status. Recorded verbatim per
-    instructions; flagged as AMBIGUOUS rather than DISCREPANCY because there is no explicit ''should be staff-only''
-    statement to compare against, only naming convention.'
+  notes: 'AMBIGUOUS: the URL prefix ''/admin/'' and login_url=''/admin/'' (Django admin login) strongly suggest staff-only intent, but the code as written only checks authentication, not staff status. Recorded verbatim per instructions; flagged as AMBIGUOUS rather than DISCREPANCY because there is no explicit ''should be staff-only'' statement to compare against, only naming convention.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-023
   name: Default log list ordering (most recent first)
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: The filtered log queryset is always ordered by -criado_em (most recently created first) before pagination,
-    regardless of any other filter applied.
+  description: The filtered log queryset is always ordered by -criado_em (most recently created first) before pagination, regardless of any other filter applied.
   inputs: []
   outputs: []
   logic: 'paginator = Paginator(logs.order_by("-criado_em"), limit)
@@ -1034,33 +871,26 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-024
   name: Dead nested duplicate of EstadoLogView
   category: data-validation
   type: workflow
   status: DISCREPANCY
   verify: false
-  description: 'LogView contains a nested inner class also named EstadoLogView (indented inside LogView, directly
-    after get_context_data), whose body is functionally identical to the real module-level EstadoLogView defined
-    immediately afterward. The inner class is unreachable: log/views/__init__.py and log/urls.py only ever reference
-    the module-level EstadoLogView; LogView.EstadoLogView is never imported or instantiated anywhere.
+  description: 'LogView contains a nested inner class also named EstadoLogView (indented inside LogView, directly after get_context_data), whose body is functionally identical to the real module-level EstadoLogView defined immediately afterward. The inner class is unreachable: log/views/__init__.py and log/urls.py only ever reference the module-level EstadoLogView; LogView.EstadoLogView is never imported or instantiated anywhere.
 
     '
   inputs: []
   outputs: []
-  logic: "class LogView(LoginRequiredMixin, TemplateView):\n    def get_context_data(self, **kwargs): ...\n    class\
-    \ EstadoLogView(LoginRequiredMixin, APIView):   # dead code, unreachable\n        def get(self, request, *args,\
-    \ **kwargs): ...\nclass EstadoLogView(LoginRequiredMixin, APIView):        # the real, used one\n    def get(self,\
-    \ request, *args, **kwargs): ...\n"
+  logic: "class LogView(LoginRequiredMixin, TemplateView):\n    def get_context_data(self, **kwargs): ...\n    class EstadoLogView(LoginRequiredMixin, APIView):   # dead code, unreachable\n        def get(self, request, *args, **kwargs): ...\nclass EstadoLogView(LoginRequiredMixin, APIView):        # the real, used one\n    def get(self, request, *args, **kwargs): ...\n"
   edge_cases: n/a — purely dead code, no runtime effect.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-031
   - RULE-AUDITORIA-LOGS-034
-  divergence: A nested inner class LogView.EstadoLogView duplicates the module-level EstadoLogView's body but is
-    never imported/instantiated by log/views/__init__.py or log/urls.py -- purely dead code with no runtime effect,
-    recorded verbatim as found (likely copy/paste-and-forget).
+  divergence: A nested inner class LogView.EstadoLogView duplicates the module-level EstadoLogView's body but is never imported/instantiated by log/views/__init__.py or log/urls.py -- purely dead code with no runtime effect, recorded verbatim as found (likely copy/paste-and-forget).
   merged_from:
   - RULE-log-BE-13-020
   sources:
@@ -1069,24 +899,19 @@ rules:
     lines: 193-271
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY: recorded verbatim as found; likely a copy/paste-and-forget artifact rather than an intentional
-    inner class.'
+  notes: 'DISCREPANCY: recorded verbatim as found; likely a copy/paste-and-forget artifact rather than an intentional inner class.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-025
   name: UUID-in-path anonymization is display-only, not applied to route aggregation stats
   category: data-validation
   type: workflow
   status: AMBIGUOUS
   verify: false
-  description: 'cud_uuid replaces any path segment that parses as a valid UUID (version 4) with the literal string
-    ''id'', generalizing dynamic-resource routes for readability. This normalization is applied ONLY in the log-list
-    table''s path column ({{ obj.path|cud_uuid|truncatechars:40 }}); it is NOT applied when computing the ''most
-    accessed routes'' (qtd_paths) or ''problematic routes'' (bad_paths) aggregate counts in the view, which group
-    by the raw, un-normalized path string. As a result, requests to what a human would consider ''the same route''
-    with different embedded UUIDs are counted as distinct paths in both dashboard charts.
+  description: 'cud_uuid replaces any path segment that parses as a valid UUID (version 4) with the literal string ''id'', generalizing dynamic-resource routes for readability. This normalization is applied ONLY in the log-list table''s path column ({{ obj.path|cud_uuid|truncatechars:40 }}); it is NOT applied when computing the ''most accessed routes'' (qtd_paths) or ''problematic routes'' (bad_paths) aggregate counts in the view, which group by the raw, un-normalized path string. As a result, requests to what a human would consider ''the same route'' with different embedded UUIDs are counted as distinct paths in both dashboard charts.
 
     '
   inputs:
@@ -1097,12 +922,8 @@ rules:
   - name: normalized_path
     type: string
     unit: n/a
-  logic: "def cud_uuid(value):\n    buff = []\n    for path in value.split(\"/\"):\n        try:\n            uuid.UUID(path,\
-    \ version=4); buff.append(\"id\")\n        except ValueError:\n            buff.append(path)\n    return \"\
-    /\".join(buff)\n# used only in log.html's table row; qtd_paths/bad_paths (log/views/log.py) group by raw `path`\n"
-  edge_cases: A route pattern like /assistidos/<uuid>/observacoes/ visited for 1000 distinct assisted-persons would
-    appear as up to 1000 separate rows in the raw path aggregation, likely never surfacing in the top-4 'most accessed
-    routes' chart even though the underlying route pattern is extremely hot.
+  logic: "def cud_uuid(value):\n    buff = []\n    for path in value.split(\"/\"):\n        try:\n            uuid.UUID(path, version=4); buff.append(\"id\")\n        except ValueError:\n            buff.append(path)\n    return \"/\".join(buff)\n# used only in log.html's table row; qtd_paths/bad_paths (log/views/log.py) group by raw `path`\n"
+  edge_cases: A route pattern like /assistidos/<uuid>/observacoes/ visited for 1000 distinct assisted-persons would appear as up to 1000 separate rows in the raw path aggregation, likely never surfacing in the top-4 'most accessed routes' chart even though the underlying route pattern is extremely hot.
   confidence: medium
   related:
   - RULE-AUDITORIA-LOGS-007
@@ -1115,23 +936,19 @@ rules:
     lines: 50-60
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: could be an intentional scope limitation (display-only normalization) or an oversight where
-    the stats should have used the normalized path too; cross-referenced against log/views/log.py lines 132-155
-    for the aggregation side.'
+  notes: 'AMBIGUOUS: could be an intentional scope limitation (display-only normalization) or an oversight where the stats should have used the normalized path too; cross-referenced against log/views/log.py lines 132-155 for the aggregation side.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-026
   name: LogModel *_tag() HTML-table helper methods are dead code
   category: data-validation
   type: workflow
   status: DISCREPANCY
   verify: false
-  description: 'LogModel defines headers_tag(), meta_tag(), request_body_tag(), and response_body_tag(), each building
-    an HTML <table> (via utils.html_template. table_template) of the corresponding JSON field''s key/value pairs.
-    None of these methods are referenced anywhere in the repository (no admin.py registers list_display/readonly_fields
-    using them, no template calls them) — the log app has no admin.py at all in this partition.
+  description: 'LogModel defines headers_tag(), meta_tag(), request_body_tag(), and response_body_tag(), each building an HTML <table> (via utils.html_template. table_template) of the corresponding JSON field''s key/value pairs. None of these methods are referenced anywhere in the repository (no admin.py registers list_display/readonly_fields using them, no template calls them) — the log app has no admin.py at all in this partition.
 
     '
   inputs: []
@@ -1154,9 +971,7 @@ rules:
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-019
-  divergence: headers_tag()/meta_tag()/request_body_tag()/response_body_tag() build HTML <table> markup but have
-    zero call sites repo-wide (no admin.py exists for the log app in this snapshot) -- dead code, likely intended
-    for a Django admin change-list/detail display that was never wired up. Recorded verbatim.
+  divergence: headers_tag()/meta_tag()/request_body_tag()/response_body_tag() build HTML <table> markup but have zero call sites repo-wide (no admin.py exists for the log app in this snapshot) -- dead code, likely intended for a Django admin change-list/detail display that was never wired up. Recorded verbatim.
   merged_from:
   - RULE-log-BE-13-035
   sources:
@@ -1165,21 +980,19 @@ rules:
     lines: 49-59
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (dead code): likely intended for a Django admin change-list/detail display that was never
-    wired up (no log/admin.py exists in this repo snapshot).'
+  notes: 'DISCREPANCY (dead code): likely intended for a Django admin change-list/detail display that was never wired up (no log/admin.py exists in this repo snapshot).'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-027
   name: request.META sanitization for log storage
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: 'Before storing request.META as the log''s ''meta'' JSON field, three WSGI-internal keys are dropped,
-    and only values of type bytes/list/tuple/bool/dict/str are kept; bytes values are utf-8 decoded. Any other value
-    type (e.g. file-like objects, callables) is silently discarded from ''meta''.
+  description: 'Before storing request.META as the log''s ''meta'' JSON field, three WSGI-internal keys are dropped, and only values of type bytes/list/tuple/bool/dict/str are kept; bytes values are utf-8 decoded. Any other value type (e.g. file-like objects, callables) is silently discarded from ''meta''.
 
     '
   inputs:
@@ -1191,12 +1004,8 @@ rules:
   - name: meta
     type: dict
     unit: n/a
-  logic: "buff = dict(request.META)\nbuff.pop(\"werkzeug.request\", None); buff.pop(\"wsgi.input\", None)\nbuff.pop(\"\
-    wsgi.errors\", None); buff.pop(\"wsgi.file_wrapper\", None)\nfor key, value in buff.items():\n    if isinstance(value,\
-    \ bytes): meta[key] = value.decode(\"utf-8\")\n    elif isinstance(value, (list, tuple, bool, dict, str)): meta[key]\
-    \ = value\n    # else: silently dropped\n# on any exception: meta = {\"meta_log_err\": repr(e)}\n"
-  edge_cases: If decoding meta entirely fails, the whole meta dict is replaced by a single error marker key, losing
-    all META data for that request.
+  logic: "buff = dict(request.META)\nbuff.pop(\"werkzeug.request\", None); buff.pop(\"wsgi.input\", None)\nbuff.pop(\"wsgi.errors\", None); buff.pop(\"wsgi.file_wrapper\", None)\nfor key, value in buff.items():\n    if isinstance(value, bytes): meta[key] = value.decode(\"utf-8\")\n    elif isinstance(value, (list, tuple, bool, dict, str)): meta[key] = value\n    # else: silently dropped\n# on any exception: meta = {\"meta_log_err\": repr(e)}\n"
+  edge_cases: If decoding meta entirely fails, the whole meta dict is replaced by a single error marker key, losing all META data for that request.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -1212,16 +1021,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-028
   name: Authenticated-user attribution on log entries
   category: data-validation
   type: validation
   status: AMBIGUOUS
   verify: false
-  description: 'The log''s ''user'' FK value and ''nome'' display name are only populated when the request is authenticated
-    as a core.Usuario instance; otherwise ''nome'' is an empty string and ''user'' is coerced to the empty string
-    "" (not None/null).
+  description: 'The log''s ''user'' FK value and ''nome'' display name are only populated when the request is authenticated as a core.Usuario instance; otherwise ''nome'' is an empty string and ''user'' is coerced to the empty string "" (not None/null).
 
     '
   inputs:
@@ -1240,11 +1048,7 @@ rules:
     payload_log["nome"] = request.user.nome if isinstance(request.user, Usuario) else ""
 
     '
-  edge_cases: 'For anonymous requests, ''user'' is the literal string '''' rather than None, even though LogModel.user
-    is a nullable ForeignKey. Whether DRF''s LogSerializer (PrimaryKeyRelatedField, fields=''__all__'') accepts
-    '''' and maps it to NULL, or raises a validation error that would fail the whole task (see RULE-011), could
-    not be confirmed from the code alone (depends on DRF version''s empty-value handling for FK fields with blank=True/null=True)
-    — best interpretation: intent was ''no user'' but the literal value produced is not the FK''s null value.'
+  edge_cases: 'For anonymous requests, ''user'' is the literal string '''' rather than None, even though LogModel.user is a nullable ForeignKey. Whether DRF''s LogSerializer (PrimaryKeyRelatedField, fields=''__all__'') accepts '''' and maps it to NULL, or raises a validation error that would fail the whole task (see RULE-011), could not be confirmed from the code alone (depends on DRF version''s empty-value handling for FK fields with blank=True/null=True) — best interpretation: intent was ''no user'' but the literal value produced is not the FK''s null value.'
   confidence: medium
   related:
   - RULE-AUDITORIA-LOGS-016
@@ -1257,21 +1061,19 @@ rules:
     lines: 35-48
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: recorded verbatim; downstream serializer behavior for the '''' sentinel on an unauthenticated
-    request was not verifiable statically.'
+  notes: 'AMBIGUOUS: recorded verbatim; downstream serializer behavior for the '''' sentinel on an unauthenticated request was not verifiable statically.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-029
   name: Log persistence validation gate
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: 'The assembled payload is validated through LogSerializer before saving; an invalid payload raises
-    (raise_exception=True), meaning a malformed log entry is never partially/silently saved — the whole task fails
-    instead.
+  description: 'The assembled payload is validated through LogSerializer before saving; an invalid payload raises (raise_exception=True), meaning a malformed log entry is never partially/silently saved — the whole task fails instead.
 
     '
   inputs:
@@ -1291,8 +1093,7 @@ rules:
     return LogSimpleSerializer(instance=log_instance).data
 
     '
-  edge_cases: A single malformed field (e.g. an unexpected type for response_status_code) discards the entire log
-    entry for that request/response, with no retry/dead-letter handling visible in this code.
+  edge_cases: A single malformed field (e.g. an unexpected type for response_status_code) discards the entire log entry for that request/response, with no retry/dead-letter handling visible in this code.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-028
@@ -1309,17 +1110,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-030
   name: Allowed log-list filter fields whitelist
   category: data-validation
   type: validation
   status: DISCREPANCY
   verify: false
-  description: 'Only whitelisted GET parameters with a truthy value are turned into ORM filter kwargs for LogModel.objects.filter(**filtros);
-    everything else is silently ignored. The whitelist includes ''origem'' and ''cpf'', but LogModel has no such
-    fields, and no UI control ever emits them (both are commented out in the template and in the surrounding view
-    code).
+  description: 'Only whitelisted GET parameters with a truthy value are turned into ORM filter kwargs for LogModel.objects.filter(**filtros); everything else is silently ignored. The whitelist includes ''origem'' and ''cpf'', but LogModel has no such fields, and no UI control ever emits them (both are commented out in the template and in the surrounding view code).
 
     '
   inputs:
@@ -1330,22 +1129,13 @@ rules:
   - name: filtros
     type: dict
     unit: n/a
-  logic: "filtros_permitidos = [\"nome\",\"origem\",\"cpf\",\"response_status_code\",\"method\",\"dispositivo\"\
-    ,\n                       \"geolocalizacao__country_name\",\"geolocalizacao__region\",\"geolocalizacao__city\"\
-    ,\n                       \"criado_em__gte\",\"criado_em__lte\",\"path\"]\nfiltros = {}\nfor chave, valor in\
-    \ request.GET.items():\n    if valor and chave in filtros_permitidos:\n        # date-specific handling, see\
-    \ RULE-018\n        filtros[chave] = valor\nlogs = LogModel.objects.filter(**filtros)\n"
-  edge_cases: If a client ever sends ?origem=x or ?cpf=y directly (bypassing the UI, which has no such inputs),
-    filtros would include a key with no matching model field, and LogModel.objects.filter(**filtros) would raise
-    a Django FieldError (500 error) since 'origem' and 'cpf' are not attributes of LogModel.
+  logic: "filtros_permitidos = [\"nome\",\"origem\",\"cpf\",\"response_status_code\",\"method\",\"dispositivo\",\n                       \"geolocalizacao__country_name\",\"geolocalizacao__region\",\"geolocalizacao__city\",\n                       \"criado_em__gte\",\"criado_em__lte\",\"path\"]\nfiltros = {}\nfor chave, valor in request.GET.items():\n    if valor and chave in filtros_permitidos:\n        # date-specific handling, see RULE-018\n        filtros[chave] = valor\nlogs = LogModel.objects.filter(**filtros)\n"
+  edge_cases: If a client ever sends ?origem=x or ?cpf=y directly (bypassing the UI, which has no such inputs), filtros would include a key with no matching model field, and LogModel.objects.filter(**filtros) would raise a Django FieldError (500 error) since 'origem' and 'cpf' are not attributes of LogModel.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-031
   - RULE-AUDITORIA-LOGS-001
-  divergence: filtros_permitidos includes 'origem' and 'cpf', but LogModel has no such fields and no UI control
-    ever emits them (both commented out in log.html and in the view's commented qs_origem block). If either param
-    is ever supplied directly via query string, LogModel.objects.filter(**filtros) raises a Django FieldError (500).
-    Single backend implementation, recorded verbatim.
+  divergence: filtros_permitidos includes 'origem' and 'cpf', but LogModel has no such fields and no UI control ever emits them (both commented out in log.html and in the view's commented qs_origem block). If either param is ever supplied directly via query string, LogModel.objects.filter(**filtros) raises a Django FieldError (500). Single backend implementation, recorded verbatim.
   merged_from:
   - RULE-log-BE-13-017
   sources:
@@ -1354,24 +1144,19 @@ rules:
     lines: 25-46
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY recorded verbatim: ''origem''/''cpf'' are dead whitelist entries (commented out in log.html
-    at lines 170/335-336/362 and in the view''s commented qs_origem block at lines 96-101) that would crash the
-    view if ever supplied as query params. Left exactly as coded.'
+  notes: 'DISCREPANCY recorded verbatim: ''origem''/''cpf'' are dead whitelist entries (commented out in log.html at lines 170/335-336/362 and in the view''s commented qs_origem block at lines 96-101) that would crash the view if ever supplied as query params. Left exactly as coded.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-031
   name: Geo cascade endpoints use a narrower filter whitelist than the main list (missing 'path')
   category: data-validation
   type: validation
   status: DISCREPANCY
   verify: false
-  description: 'EstadoLogView (region-by-country) and CityLogView (city-by-region) each define their own filtros_permitidos
-    list, identical to LogView''s except that ''path'' is omitted. The client JS forwards the full current query
-    string (including any selected ''path''/route filter) to these endpoints, but the server silently drops the
-    ''path'' param since it is not in these views'' whitelist — so the region/city suggestion lists never actually
-    reflect a currently-applied route filter, even though the country/status/method/device/date filters do apply.
+  description: 'EstadoLogView (region-by-country) and CityLogView (city-by-region) each define their own filtros_permitidos list, identical to LogView''s except that ''path'' is omitted. The client JS forwards the full current query string (including any selected ''path''/route filter) to these endpoints, but the server silently drops the ''path'' param since it is not in these views'' whitelist — so the region/city suggestion lists never actually reflect a currently-applied route filter, even though the country/status/method/device/date filters do apply.
 
     '
   inputs:
@@ -1382,19 +1167,13 @@ rules:
   - name: filtros
     type: dict
     unit: n/a
-  logic: "# EstadoLogView / CityLogView filtros_permitidos (both instances):\n[\"nome\",\"origem\",\"cpf\",\"response_status_code\"\
-    ,\"method\",\"dispositivo\",\n \"geolocalizacao__country_name\",\"geolocalizacao__region\",\"geolocalizacao__city\"\
-    ,\n \"criado_em__gte\",\"criado_em__lte\"]   # <-- no \"path\", unlike LogView's list (line 37)\n"
+  logic: "# EstadoLogView / CityLogView filtros_permitidos (both instances):\n[\"nome\",\"origem\",\"cpf\",\"response_status_code\",\"method\",\"dispositivo\",\n \"geolocalizacao__country_name\",\"geolocalizacao__region\",\"geolocalizacao__city\",\n \"criado_em__gte\",\"criado_em__lte\"]   # <-- no \"path\", unlike LogView's list (line 37)\n"
   edge_cases: n/a
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-030
   - RULE-AUDITORIA-LOGS-001
-  divergence: LogView's filtros_permitidos includes 'path'; EstadoLogView's and CityLogView's own copies of the
-    same list omit 'path'. The client JS forwards the full current query string (including any 'path' filter) to
-    these endpoints regardless, but the server silently drops it since it's not in the whitelist -- so region/city
-    suggestion lists never reflect a currently-applied route filter, unlike the country/status/method/device/date
-    filters which do apply. Inconsistency across three sibling endpoints in a single backend, recorded verbatim.
+  divergence: LogView's filtros_permitidos includes 'path'; EstadoLogView's and CityLogView's own copies of the same list omit 'path'. The client JS forwards the full current query string (including any 'path' filter) to these endpoints regardless, but the server silently drops it since it's not in the whitelist -- so region/city suggestion lists never reflect a currently-applied route filter, unlike the country/status/method/device/date filters which do apply. Inconsistency across three sibling endpoints in a single backend, recorded verbatim.
   merged_from:
   - RULE-log-BE-13-019
   sources:
@@ -1407,16 +1186,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-032
   name: is_html heuristic (broad false-positive risk)
   category: data-validation
   type: validation
   status: AMBIGUOUS
   verify: false
-  description: 'A string value is treated as ''HTML'' for display purposes (routed to an iframe, see RULE-031) if
-    it contains the literal substring ''<html'', OR if it simply contains BOTH a ''<'' and a ''>'' character anywhere
-    in the string — a broad heuristic that is not real HTML detection.
+  description: 'A string value is treated as ''HTML'' for display purposes (routed to an iframe, see RULE-031) if it contains the literal substring ''<html'', OR if it simply contains BOTH a ''<'' and a ''>'' character anywhere in the string — a broad heuristic that is not real HTML detection.
 
     '
   inputs:
@@ -1427,11 +1205,8 @@ rules:
   - name: is_html
     type: boolean
     unit: n/a
-  logic: "def is_html(val):\n    if isinstance(val, str):\n        return \"<html\" in val or bool(\"<\" in val\
-    \ and \">\" in val)\n    return False\n"
-  edge_cases: A plain-text log value that happens to contain both '<' and '>' characters (e.g. a mathematical comparison
-    string, an email header like 'Name <addr>', or a code snippet) would be misclassified as HTML and rendered inside
-    an <iframe srcdoc> rather than as plain text.
+  logic: "def is_html(val):\n    if isinstance(val, str):\n        return \"<html\" in val or bool(\"<\" in val and \">\" in val)\n    return False\n"
+  edge_cases: A plain-text log value that happens to contain both '<' and '>' characters (e.g. a mathematical comparison string, an email header like 'Name <addr>', or a code snippet) would be misclassified as HTML and rendered inside an <iframe srcdoc> rather than as plain text.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-015
@@ -1443,23 +1218,19 @@ rules:
     lines: 34-38
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS rather than DISCREPANCY: this may be an intentionally loose heuristic for a low-stakes internal
-    admin tool rather than a bug; recorded as-is.'
+  notes: 'AMBIGUOUS rather than DISCREPANCY: this may be an intentionally loose heuristic for a low-stakes internal admin tool rather than a bug; recorded as-is.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-033
   name: Log field-exposure scoping (LogSimpleSerializer vs LogSerializer)
   category: billing-administrative
   type: validation
   status: OK
   verify: false
-  description: 'Two serializers expose different subsets of a log record. LogSimpleSerializer (used as the Celery
-    task''s return payload) exposes only: user, path, method, response_status_code, user_agent, dispositivo, error_request_log,
-    error_response_log, ip, ip_publico, geolocalizacao, error_geolocalizacao — explicitly excluding meta, headers,
-    request_body, and response_body. LogSerializer (fields=''__all__'', used for validation/save in salvar_log and
-    for the detail-page context) exposes every field including the full request/response bodies and headers.
+  description: 'Two serializers expose different subsets of a log record. LogSimpleSerializer (used as the Celery task''s return payload) exposes only: user, path, method, response_status_code, user_agent, dispositivo, error_request_log, error_response_log, ip, ip_publico, geolocalizacao, error_geolocalizacao — explicitly excluding meta, headers, request_body, and response_body. LogSerializer (fields=''__all__'', used for validation/save in salvar_log and for the detail-page context) exposes every field including the full request/response bodies and headers.
 
     '
   inputs:
@@ -1470,13 +1241,8 @@ rules:
   - name: serialized_data
     type: dict
     unit: n/a
-  logic: "class LogSimpleSerializer(ModelSerializer):\n    user = UsuarioSerializer(read_only=True)\n    fields\
-    \ = ['user','path','method','response_status_code','user_agent','dispositivo',\n              'error_request_log','error_response_log','ip','ip_publico',\n\
-    \              'geolocalizacao','error_geolocalizacao']\nclass LogSerializer(ModelSerializer):\n    fields =\
-    \ '__all__'\n"
-  edge_cases: Anywhere LogSimpleSerializer's output is consumed downstream (e.g. by a Celery result backend/consumer),
-    request/response bodies and raw headers are never exposed there — only the detail-page path (LogSerializer,
-    gated by RULE-014's access control) surfaces the full bodies/headers.
+  logic: "class LogSimpleSerializer(ModelSerializer):\n    user = UsuarioSerializer(read_only=True)\n    fields = ['user','path','method','response_status_code','user_agent','dispositivo',\n              'error_request_log','error_response_log','ip','ip_publico',\n              'geolocalizacao','error_geolocalizacao']\nclass LogSerializer(ModelSerializer):\n    fields = '__all__'\n"
+  edge_cases: Anywhere LogSimpleSerializer's output is consumed downstream (e.g. by a Celery result backend/consumer), request/response bodies and raw headers are never exposed there — only the detail-page path (LogSerializer, gated by RULE-014's access control) surfaces the full bodies/headers.
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-029
@@ -1493,16 +1259,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-034
   name: Country -> region -> city cascading filter (city not re-scoped by country)
   category: data-validation
   type: validation
   status: AMBIGUOUS
   verify: false
-  description: 'The geolocation filter dropdowns cascade: regions are looked up filtered by an exact (case-insensitive)
-    country name match; cities are looked up filtered ONLY by an exact (case-insensitive) region name match — with
-    no additional country constraint — relying on the assumption that region names are globally unique across countries.
+  description: 'The geolocation filter dropdowns cascade: regions are looked up filtered by an exact (case-insensitive) country name match; cities are looked up filtered ONLY by an exact (case-insensitive) region name match — with no additional country constraint — relying on the assumption that region names are globally unique across countries.
 
     '
   inputs:
@@ -1519,14 +1284,8 @@ rules:
   - name: cidades
     type: list[string]
     unit: n/a
-  logic: "# EstadoLogView.get(pais):\nregioes = logs.distinct(\"geolocalizacao__region\").order_by(\"geolocalizacao__region\"\
-    )\n              .filter(geolocalizacao__country_name__iexact=pais).exclude(geolocalizacao__region=None)\n#\
-    \ CityLogView.get(estado):\ncidades = LogModel.objects.distinct(\"geolocalizacao__city\").order_by(\"geolocalizacao__city\"\
-    )\n              .filter(geolocalizacao__region__iexact=estado).exclude(geolocalizacao__city=None)\n       \
-    \       # note: no geolocalizacao__country_name filter here\n"
-  edge_cases: If two different countries in the GeoIP data happen to share an identically-named region/state (a
-    real possibility, e.g. common region names), the city dropdown would show cities from both countries merged
-    together for that region name.
+  logic: "# EstadoLogView.get(pais):\nregioes = logs.distinct(\"geolocalizacao__region\").order_by(\"geolocalizacao__region\")\n              .filter(geolocalizacao__country_name__iexact=pais).exclude(geolocalizacao__region=None)\n# CityLogView.get(estado):\ncidades = LogModel.objects.distinct(\"geolocalizacao__city\").order_by(\"geolocalizacao__city\")\n              .filter(geolocalizacao__region__iexact=estado).exclude(geolocalizacao__city=None)\n              # note: no geolocalizacao__country_name filter here\n"
+  edge_cases: If two different countries in the GeoIP data happen to share an identically-named region/state (a real possibility, e.g. common region names), the city dropdown would show cities from both countries merged together for that region name.
   confidence: medium
   related:
   - RULE-AUDITORIA-LOGS-020
@@ -1539,21 +1298,19 @@ rules:
     lines: 233-271, 292-331
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: plausible by design (simplicity) for a mostly-domestic user base, but not verified against
-    actual data distribution.'
+  notes: 'AMBIGUOUS: plausible by design (simplicity) for a mostly-domestic user base, but not verified against actual data distribution.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-035
   name: geolocalizacao field defaults to empty dict, never null in practice
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: 'LogModel.geolocalizacao is a JSONField with default=dict, so newly created log rows always have
-    a dict value ({} at minimum) rather than None/null, which is what allows LogDetailView to safely call log.geolocalizacao.get(''latitude'')
-    / .get(''longitude'') without a null-check.
+  description: 'LogModel.geolocalizacao is a JSONField with default=dict, so newly created log rows always have a dict value ({} at minimum) rather than None/null, which is what allows LogDetailView to safely call log.geolocalizacao.get(''latitude'') / .get(''longitude'') without a null-check.
 
     '
   inputs: []
@@ -1566,10 +1323,7 @@ rules:
     # LogDetailView: if log.geolocalizacao.get("latitude") and log.geolocalizacao.get("longitude"): ...
 
     '
-  edge_cases: The field is still nullable at the DB level (null=True); if a row were ever explicitly saved with
-    geolocalizacao=None (bypassing the default), the .get() call in LogDetailView would raise AttributeError. In
-    the normal log_handler/salvar_log flow this cannot happen because salvar_log always sets payload_log['geolocalizacao']
-    to at least {} (RULE-010).
+  edge_cases: The field is still nullable at the DB level (null=True); if a row were ever explicitly saved with geolocalizacao=None (bypassing the default), the .get() call in LogDetailView would raise AttributeError. In the normal log_handler/salvar_log flow this cannot happen because salvar_log always sets payload_log['geolocalizacao'] to at least {} (RULE-010).
   confidence: high
   related:
   - RULE-AUDITORIA-LOGS-019
@@ -1586,16 +1340,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-AUDITORIA-LOGS-036
   name: History-skip on non-substantive field changes
   category: billing-administrative
   type: workflow
   status: OK
   verify: false
-  description: 'When saving an automatic trilha record, no history/audit snapshot is created if the only changed
-    (dirty) fields are within a whitelist of non-substantive fields; any change touching a field outside that set
-    records history normally.
+  description: 'When saving an automatic trilha record, no history/audit snapshot is created if the only changed (dirty) fields are within a whitelist of non-substantive fields; any change touching a field outside that set records history normally.
 
     '
   inputs:
@@ -1607,12 +1360,8 @@ rules:
   - name: skip_history_when_saving
     type: boolean
     unit: null
-  logic: "fields_exclude_historico = {\"dt_atualizacao\", \"assistido\", \"assistido_por\", \"assistido_em\", \"\
-    dt_referencia\"}\nif len(set(dirty_fields) - fields_exclude_historico) == 0:\n    self.skip_history_when_saving\
-    \ = True     # -> no history record\nsuper().save(...)\n"
-  edge_cases: 'Uses django-dirtyfields get_dirty_fields(). If a pre-existing skip_history_when_saving attr is present
-    it is deleted first. When some dirty field is outside the whitelist, history is recorded even if whitelist fields
-    also changed.
+  logic: "fields_exclude_historico = {\"dt_atualizacao\", \"assistido\", \"assistido_por\", \"assistido_em\", \"dt_referencia\"}\nif len(set(dirty_fields) - fields_exclude_historico) == 0:\n    self.skip_history_when_saving = True     # -> no history record\nsuper().save(...)\n"
+  edge_cases: 'Uses django-dirtyfields get_dirty_fields(). If a pre-existing skip_history_when_saving attr is present it is deleted first. When some dirty field is outside the whitelist, history is recorded even if whitelist fields also changed.
 
     '
   confidence: medium
@@ -1625,14 +1374,14 @@ rules:
     lines: 70-87
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'The consumer of skip_history_when_saving (django-simple-history or similar) is outside this partition;
-    effect inferred from the flag name and whitelist. get_version() is hardcoded "v2".
+  notes: 'The consumer of skip_history_when_saving (django-simple-history or similar) is outside this partition; effect inferred from the flag name and whitelist. get_version() is hardcoded "v2".
 
     '
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 integrated_misroutes:
 - id: RULE-audit-BE-02-007
   disposition: appended:RULE-AUDITORIA-LOGS-036

@@ -8,9 +8,7 @@ rules:
   type: scoring
   status: OK
   verify: true
-  description: 'Graded respiratory-rate sub-score for the clinical-deterioration ("piora clinica") track-and-trigger
-    scale. Returns a signed grade string ("+" = high deviation, "-" = low deviation) used both to sum the aggregate
-    score and to fire per-criterion alerts.
+  description: 'Graded respiratory-rate sub-score for the clinical-deterioration ("piora clinica") track-and-trigger scale. Returns a signed grade string ("+" = high deviation, "-" = low deviation) used both to sum the aggregate score and to fire per-criterion alerts.
 
     '
   inputs:
@@ -21,11 +19,8 @@ rules:
   - name: criterio_1
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nfr = sinais_vitais.frequencia_respiratoria\nif fr:\n    if   19 <= fr <= 22: pontuacao\
-    \ = \"1+\"\n    elif  9 <= fr <= 11: pontuacao = \"1-\"\n    elif       fr <  9 : pontuacao = \"3-\"\n    elif\
-    \       fr > 22 : pontuacao = \"3+\"\nreturn pontuacao\n"
-  edge_cases: 'fr in 12..18 -> "0" (normal). fr == 0 is falsy -> "0". No 2+/2- band exists for FR (magnitude jumps
-    1 -> 3). Boundaries inclusive at 19,22 and 9,11.
+  logic: "pontuacao = \"0\"\nfr = sinais_vitais.frequencia_respiratoria\nif fr:\n    if   19 <= fr <= 22: pontuacao = \"1+\"\n    elif  9 <= fr <= 11: pontuacao = \"1-\"\n    elif       fr <  9 : pontuacao = \"3-\"\n    elif       fr > 22 : pontuacao = \"3+\"\nreturn pontuacao\n"
+  edge_cases: 'fr in 12..18 -> "0" (normal). fr == 0 is falsy -> "0". No 2+/2- band exists for FR (magnitude jumps 1 -> 3). Boundaries inclusive at 19,22 and 9,11.
 
     '
   confidence: high
@@ -40,27 +35,16 @@ rules:
     lines: 83-95
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Grade magnitude (1/3) feeds the soma in RULE-PIORA-CLINICA-010; sign (+/-) feeds the per-criterion color
-    trigger. Facade RULE-PIORA-CLINICA-011 only labels the 3+ (taquipneia grave) and 3- (bradipneia) outcomes for
-    this criterion.
+  notes: 'Grade magnitude (1/3) feeds the soma in RULE-PIORA-CLINICA-010; sign (+/-) feeds the per-criterion color trigger. Facade RULE-PIORA-CLINICA-011 only labels the 3+ (taquipneia grave) and 3- (bradipneia) outcomes for this criterion.
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: 'Royal College of Physicians. National Early Warning Score (NEWS) 2 — respiratory-rate sub-score
-        (RR/min): <=8=3, 9-11=1, 12-20=0, 21-24=2, >=25=3. (2017 update.)'
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch1.yaml
-    test_vectors: 3/4 match
-    summary: 'Proprietary composite; no authoritative source dictates these exact bands, so cutoffs are flagged
-      for internal review, not treated as wrong. Directional monotonicity is sound (both high and low RR escalate).
-      Low-RR side aligns well with NEWS2 (9-11 = grade 1, <9 = grade 3). High-RR side diverges: RR 19-22 scores
-      1+ where NEWS2 rates 19-20 as 0 and 21-24 as 2, and the scale has NO 2+ band for RR (magnitude jumps 1->3
-      at fr>22), so RR 23-24 scores 3+ (severe) vs NEWS2''s 2. No internal coverage defect. fr==0 falsy -> "0".
+    reference: 'Royal College of Physicians. National Early Warning Score (NEWS) 2 (2017). Respiratory-rate band is the closest published track-and-trigger anchor; piora-clinica is a distinct proprietary instrument with its own cutoffs.
 
       '
+    detail_file: piora-clinica-batch1.yaml
 - id: RULE-PIORA-CLINICA-002
   name: Piora Clinica criterio_2 - Temperatura axilar (graded sub-score)
   category: clinical-scoring
@@ -76,12 +60,8 @@ rules:
   - name: criterio_2
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\ntemperatura = sinais_vitais.temperatura\nif temperatura:\n    if   37.6 <= temperatura\
-    \ <= 37.9: pontuacao = \"1+\"\n    elif 38   <= temperatura <= 38.2: pontuacao = \"2+\"\n    elif         temperatura\
-    \ >  38.2: pontuacao = \"3+\"\n    elif 35   <= temperatura <= 35.4: pontuacao = \"1-\"\n    elif         temperatura\
-    \ <  35  : pontuacao = \"3-\"\nreturn pontuacao\n"
-  edge_cases: 'Gap 35.5..37.5 -> "0". DISCREPANCY: half-open boundary gap 37.9 < t < 38.0 (e.g. 37.95) falls between
-    the 1+ and 2+ bands and scores "0". No 2- band. temperatura == 0 falsy -> "0".
+  logic: "pontuacao = \"0\"\ntemperatura = sinais_vitais.temperatura\nif temperatura:\n    if   37.6 <= temperatura <= 37.9: pontuacao = \"1+\"\n    elif 38   <= temperatura <= 38.2: pontuacao = \"2+\"\n    elif         temperatura >  38.2: pontuacao = \"3+\"\n    elif 35   <= temperatura <= 35.4: pontuacao = \"1-\"\n    elif         temperatura <  35  : pontuacao = \"3-\"\nreturn pontuacao\n"
+  edge_cases: 'Gap 35.5..37.5 -> "0". DISCREPANCY: half-open boundary gap 37.9 < t < 38.0 (e.g. 37.95) falls between the 1+ and 2+ bands and scores "0". No 2- band. temperatura == 0 falsy -> "0".
 
     '
   confidence: high
@@ -97,29 +77,16 @@ rules:
     lines: 97-111
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY is a coverage bug internal to the predicate (discontinuity in (37.9, 38.0)), not a cross-copy
-    divergence. Facade label thresholds match this code: 2+ "TAX 38 - 38,2C", 3+ "TAX >38,2C", 3- "TAX<35C" (RULE-PIORA-CLINICA-011).
+  notes: 'DISCREPANCY is a coverage bug internal to the predicate (discontinuity in (37.9, 38.0)), not a cross-copy divergence. Facade label thresholds match this code: 2+ "TAX 38 - 38,2C", 3+ "TAX >38,2C", 3- "TAX<35C" (RULE-PIORA-CLINICA-011).
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: low
-    reference:
-      citation: 'Royal College of Physicians. NEWS2 — temperature sub-score (degC): <=35.0=3, 35.1-36.0=1, 36.1-38.0=0,
-        38.1-39.0=1, >=39.1=2. (2017 update.)'
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch1.yaml
-    test_vectors: 3/4 match
-    summary: 'Confirms the extraction-flagged DISCREPANCY: a real internal coverage discontinuity. The 1+ band ends
-      at t<=37.9 and the 2+ band begins at t>=38.0, so 37.9 < t < 38.0 (e.g. 37.95) drops to "0". This is a defect
-      relative to the scale''s OWN contiguous fever intent (should score 1+ or 2+). Clinical impact LOW: (a) axillary
-      thermometers typically report 0.1 degC steps so 37.95 is a rare reading; (b) against the published NEWS2 reference
-      37.95 legitimately scores 0 anyway (36.1-38.0=0), so the under-scoring is small (1-2 sub-score points) and
-      only matters within this scale''s internal banding. No unit error. temperatura==0 falsy -> "0". Note the scale
-      also escalates to 3+ at t>38.2, far more sensitive than NEWS2 (which reaches only grade 2 at >=39.1) — a proprietary
-      design choice.
+    reference: 'Royal College of Physicians NEWS2 (2017) temperature band as family anchor. The verdict here targets an INTERNAL coverage discontinuity independent of any external reference.
 
       '
+    detail_file: piora-clinica-batch1.yaml
 - id: RULE-PIORA-CLINICA-003
   name: Piora Clinica criterio_3 - Pressao arterial sistolica (PAS) (graded sub-score)
   category: clinical-scoring
@@ -135,22 +102,15 @@ rules:
   - name: criterio_3
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\npas = sinais_vitais.pas\nif pas:\n    if   131 <= pas <= 149: pontuacao = \"1+\"\n\
-    \    elif 150 <= pas <= 189: pontuacao = \"2+\"\n    elif        pas >  189: pontuacao = \"3+\"\n    elif 100\
-    \ <= pas <= 109: pontuacao = \"1-\"\n    elif  81 <= pas <=  99: pontuacao = \"2-\"\n    elif        pas <=\
-    \  80: pontuacao = \"3-\"\nreturn pontuacao\n"
-  edge_cases: 'Gap 110..130 -> "0". pas == 0 falsy -> "0". Boundaries inclusive as shown; pas == 80 -> "3-" (predicate
-    uses <= 80).
+  logic: "pontuacao = \"0\"\npas = sinais_vitais.pas\nif pas:\n    if   131 <= pas <= 149: pontuacao = \"1+\"\n    elif 150 <= pas <= 189: pontuacao = \"2+\"\n    elif        pas >  189: pontuacao = \"3+\"\n    elif 100 <= pas <= 109: pontuacao = \"1-\"\n    elif  81 <= pas <=  99: pontuacao = \"2-\"\n    elif        pas <=  80: pontuacao = \"3-\"\nreturn pontuacao\n"
+  edge_cases: 'Gap 110..130 -> "0". pas == 0 falsy -> "0". Boundaries inclusive as shown; pas == 80 -> "3-" (predicate uses <= 80).
 
     '
   confidence: high
   related:
   - RULE-PIORA-CLINICA-010
   - RULE-PIORA-CLINICA-011
-  divergence: 'Label-vs-code boundary mismatch at PAS = 80. Facade RULE-PIORA-CLINICA-011 describes the 3- (hipotensao
-    grave) band as "PAS <80 mmHg", whereas this predicate uses `pas <= 80`. So PAS = 80 scores 3- in code but is
-    described as excluded by the facade label text. Code is authoritative (the label is a non-executable descriptive
-    string); recorded as an AMBIGUOUS label imprecision on the facade rule, this predicate stays OK.
+  divergence: 'Label-vs-code boundary mismatch at PAS = 80. Facade RULE-PIORA-CLINICA-011 describes the 3- (hipotensao grave) band as "PAS <80 mmHg", whereas this predicate uses `pas <= 80`. So PAS = 80 scores 3- in code but is described as excluded by the facade label text. Code is authoritative (the label is a non-executable descriptive string); recorded as an AMBIGUOUS label imprecision on the facade rule, this predicate stays OK.
 
     '
   merged_from:
@@ -161,28 +121,16 @@ rules:
     lines: 113-129
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Other facade thresholds match this code exactly: 2- "PAS 81-99mmHg", 2+ "PAS 150-189 mmHg", 3+ "PAS >189
-    mmHg". Only the 3- lower-bound description (<80 vs <=80) diverges.
+  notes: 'Other facade thresholds match this code exactly: 2- "PAS 81-99mmHg", 2+ "PAS 150-189 mmHg", 3+ "PAS >189 mmHg". Only the 3- lower-bound description (<80 vs <=80) diverges.
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: 'Royal College of Physicians. NEWS2 — systolic BP sub-score (mmHg): <=90=3, 91-100=2, 101-110=1,
-        111-219=0, >=220=3. Cross-check MEWS (Subbe 2001): <70=3, 70-80=2, 81-100=1, 101-199=0, >=200=2.'
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch1.yaml
-    test_vectors: 2/4 match
-    summary: 'Only criterion with all six signed bands; directionally coherent and monotone. Cutoffs are the vendor''s
-      own (no authoritative source dictates them) -> flagged for internal review, not wrong. Two observations for
-      reviewers: (1) hypotension detection is ~10 mmHg less sensitive than NEWS2 (SBP 85 scores moderate 2- here
-      vs severe 3 in NEWS2; SBP <=80 needed for 3-), a safety-relevant but design-level choice; (2) the scale grades
-      HYPERTENSION (150-189=2+, >189=3+), which NEWS2/MEWS do not score at all. The facade-label vs code boundary
-      at PAS=80 (''<80'' label vs ''pas<=80'' code) is a non-executing documentation imprecision (impact none);
-      executable code is authoritative and stays OK. pas==0 falsy -> "0".
+    reference: 'Royal College of Physicians NEWS2 (2017) systolic-BP band as family anchor. Piora-clinica PAS bands are a distinct proprietary scale (it scores hypertension, which NEWS2 does not until >=220).
 
       '
+    detail_file: piora-clinica-batch1.yaml
 - id: RULE-PIORA-CLINICA-004
   name: Piora Clinica criterio_4 - Frequencia cardiaca (FC) (graded sub-score)
   category: clinical-scoring
@@ -198,12 +146,8 @@ rules:
   - name: criterio_4
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nfc = sinais_vitais.frequencia_cardiaca\nif fc:\n    if   101 <= fc <= 120: pontuacao\
-    \ = \"1+\"\n    elif 121 <= fc <= 130: pontuacao = \"2+\"\n    elif        fc >  130: pontuacao = \"3+\"\n \
-    \   elif  50 <= fc <=  59: pontuacao = \"1-\"\n    # elif 81 <= fc <= 99: pontuacao = \"2-\"   # commented out\
-    \ / disabled in source\n    elif        fc <=  50: pontuacao = \"3-\"\nreturn pontuacao\n"
-  edge_cases: 'Gap 60..100 -> "0". fc == 0 falsy -> "0". fc == 50 matches "50 <= fc <= 59" (1-) first, so 50 ->
-    "1-" (never "3-") due to branch order.
+  logic: "pontuacao = \"0\"\nfc = sinais_vitais.frequencia_cardiaca\nif fc:\n    if   101 <= fc <= 120: pontuacao = \"1+\"\n    elif 121 <= fc <= 130: pontuacao = \"2+\"\n    elif        fc >  130: pontuacao = \"3+\"\n    elif  50 <= fc <=  59: pontuacao = \"1-\"\n    # elif 81 <= fc <= 99: pontuacao = \"2-\"   # commented out / disabled in source\n    elif        fc <=  50: pontuacao = \"3-\"\nreturn pontuacao\n"
+  edge_cases: 'Gap 60..100 -> "0". fc == 0 falsy -> "0". fc == 50 matches "50 <= fc <= 59" (1-) first, so 50 -> "1-" (never "3-") due to branch order.
 
     '
   confidence: high
@@ -219,31 +163,16 @@ rules:
     lines: 131-147
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (internal, preserved verbatim): the low "2-" band (81 <= fc <= 99) is commented out in source,
-    so mild bradycardia / normal-low HR never scores 2-; and fc == 50 resolves to "1-" not "3-" due to branch order.
-    Facade RULE-PIORA-CLINICA-011 labels only 2+ (taquicardia moderada), 3+ (taquicardia grave), 3- (bradicardia),
-    with empty recomendacoes/intervencoes.
+  notes: 'DISCREPANCY (internal, preserved verbatim): the low "2-" band (81 <= fc <= 99) is commented out in source, so mild bradycardia / normal-low HR never scores 2-; and fc == 50 resolves to "1-" not "3-" due to branch order. Facade RULE-PIORA-CLINICA-011 labels only 2+ (taquicardia moderada), 3+ (taquicardia grave), 3- (bradicardia), with empty recomendacoes/intervencoes.
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: low
-    reference:
-      citation: 'Royal College of Physicians. NEWS2 — heart-rate sub-score (bpm): <=40=3, 41-50=1, 51-90=0, 91-110=1,
-        111-130=2, >=131=3. Cross-check MEWS: <40=3, 41-50=1, 51-100=0, 101-110=1, 111-130=2, >130=3.'
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch1.yaml
-    test_vectors: 3/4 match
-    summary: 'Confirms extraction-flagged DISCREPANCY (two internal defects), characterized against NEWS2/MEWS.
-      (1) The commented-out ''2-'' band (81<=fc<=99) would have labelled a NORMAL/high-normal HR (81-99 bpm, NEWS2/MEWS
-      grade 0) as a LOW-deviation bradycardia score — clinically WRONG; its removal is therefore defensible and
-      causes no under-detection (gap 60-100 -> 0 is correct, matches NEWS2 51-90=0). Test vectors fc=85/90 confirm
-      no harm. (2) fc==50 resolves to ''1-'' (mild) not ''3-'' due to branch order — this AGREES with NEWS2 (41-50
-      = grade 1), so it is not a clinical error. The one genuine divergence from the reference is that fc 41-49
-      -> ''3-'' (severe) where NEWS2 rates 41-50 as grade 1 (mild): the scale over-escalates mild bradycardia, a
-      conservative (safe-direction) proprietary cutoff. Net clinical impact LOW. fc==0 falsy -> "0".
+    reference: 'Royal College of Physicians NEWS2 (2017) pulse band as family anchor. The verdict targets INTERNAL defects (disabled 2- band and branch-order shadowing) independent of the external reference.
 
       '
+    detail_file: piora-clinica-batch1.yaml
 - id: RULE-PIORA-CLINICA-005
   name: Piora Clinica criterio_5 - Nivel de consciencia (graded sub-score)
   category: clinical-scoring
@@ -260,11 +189,7 @@ rules:
   - name: criterio_5
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nconsciencia = sinais_vitais.nv_consciencia\nif consciencia:\n    if   consciencia ==\
-    \ \"reage_verbal\": pontuacao = \"1+\"\n    elif consciencia == \"reage_tatil\" : pontuacao = \"2+\"\n    elif\
-    \ consciencia == \"coma\"        : pontuacao = \"3+\"\n    elif consciencia == \"sonolencia\"  : pontuacao =\
-    \ \"1-\"\n    elif consciencia == \"agitacao\"    : pontuacao = \"2-\"\n    elif consciencia == \"convulsao\"\
-    \   : pontuacao = \"3-\"\nreturn pontuacao\n"
+  logic: "pontuacao = \"0\"\nconsciencia = sinais_vitais.nv_consciencia\nif consciencia:\n    if   consciencia == \"reage_verbal\": pontuacao = \"1+\"\n    elif consciencia == \"reage_tatil\" : pontuacao = \"2+\"\n    elif consciencia == \"coma\"        : pontuacao = \"3+\"\n    elif consciencia == \"sonolencia\"  : pontuacao = \"1-\"\n    elif consciencia == \"agitacao\"    : pontuacao = \"2-\"\n    elif consciencia == \"convulsao\"   : pontuacao = \"3-\"\nreturn pontuacao\n"
   edge_cases: The value "acordado" (alert) and any unmapped value yield "0".
   confidence: high
   related:
@@ -279,28 +204,16 @@ rules:
     lines: 149-165
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Uses BalancoChoices.consciencia() enum values. Facade RULE-PIORA-CLINICA-011 labels: 2+ "Reage/responde
-    ao estimulo tatil", 2- "Agitacao ou confusao", 3- "convulsao", 3+ "nao responde/reage".
+  notes: 'Uses BalancoChoices.consciencia() enum values. Facade RULE-PIORA-CLINICA-011 labels: 2+ "Reage/responde ao estimulo tatil", 2- "Agitacao ou confusao", 3- "convulsao", 3+ "nao responde/reage".
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: 'AVPU / ACVPU consciousness scale as used in NEWS2 (Alert=0, else=3) and AVPU-graded MEWS (Subbe
-        2001): Alert=0, responds to Voice=+1, responds to Pain=+2, Unresponsive=+3.'
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch1.yaml
-    test_vectors: 5/5 match
-    summary: 'The ''+'' (high) side maps cleanly onto the AVPU-graded MEWS ladder: acordado->0 (Alert), reage_verbal->1+
-      (Voice), reage_tatil->2+ (Pain), coma->3+ (Unresponsive) — strong alignment with the published anchor, no
-      directional error. The ''-'' states (sonolencia->1-, agitacao->2-, convulsao->3-) have no AVPU/ACVPU equivalent
-      and are proprietary but clinically monotone (drowsy < agitation/confusion < seizure) — so the mapping as a
-      whole is UNVERIFIABLE against a single authoritative source and is flagged for internal review, not treated
-      as wrong. ''acordado'' and any unmapped value default to "0", consistent with AVPU ''Alert = 0''. No internal
-      defect.
+    reference: 'Royal College of Physicians NEWS2 (2017) consciousness assessment (ACVPU: Alert / new Confusion / Voice / Pain / Unresponsive). Piora-clinica uses a proprietary consciousness enum mapped to a graded +/- sub-score rather than the NEWS2 binary (Alert=0, any CVPU=3).
 
       '
+    detail_file: piora-clinica-batch1.yaml
 - id: RULE-PIORA-CLINICA-006
   name: Piora Clinica criterio_6 - Dor (escala numerica 0-10) (graded sub-score)
   category: clinical-scoring
@@ -317,11 +230,8 @@ rules:
   - name: criterio_6
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\ndor = sinais_vitais.escala_dor\nif dor:\n    if   2 <= dor <= 3 : pontuacao = \"1+\"\
-    \n    elif 4 <= dor <= 6 : pontuacao = \"2+\"\n    elif 7 <= dor >  10: pontuacao = \"3+\"     # buggy compound\
-    \ comparison, verbatim\nreturn pontuacao\n"
-  edge_cases: '`7 <= dor > 10` evaluates as (7 <= dor) AND (dor > 10). Since escala_dor is validator-capped at 10,
-    dor > 10 is impossible, so "3+" is UNREACHABLE and severe pain 7,8,9,10 all score "0". dor == 0/1 -> "0".
+  logic: "pontuacao = \"0\"\ndor = sinais_vitais.escala_dor\nif dor:\n    if   2 <= dor <= 3 : pontuacao = \"1+\"\n    elif 4 <= dor <= 6 : pontuacao = \"2+\"\n    elif 7 <= dor >  10: pontuacao = \"3+\"     # buggy compound comparison, verbatim\nreturn pontuacao\n"
+  edge_cases: '`7 <= dor > 10` evaluates as (7 <= dor) AND (dor > 10). Since escala_dor is validator-capped at 10, dor > 10 is impossible, so "3+" is UNREACHABLE and severe pain 7,8,9,10 all score "0". dor == 0/1 -> "0".
 
     '
   confidence: high
@@ -337,32 +247,14 @@ rules:
     lines: 167-177
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (internal, preserved verbatim): intended threshold was almost certainly `7 <= dor <= 10 ->
-    3+`; as written the severe-pain band never fires. Input validator that caps escala_dor at 10 lives in a separate
-    cluster (captured there as the pain-scale validator RULE-pain-BE-06-001). Facade RULE-PIORA-CLINICA-011 labels
-    2+ "dor moderada", 3+ "dor intensa".
+  notes: 'DISCREPANCY (internal, preserved verbatim): intended threshold was almost certainly `7 <= dor <= 10 -> 3+`; as written the severe-pain band never fires. Input validator that caps escala_dor at 10 lives in a separate cluster (captured there as the pain-scale validator RULE-pain-BE-06-001). Facade RULE-PIORA-CLINICA-011 labels 2+ "dor moderada", 3+ "dor intensa".
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: high
-    reference:
-      citation: 'Numeric Rating Scale (NRS 0-10) for pain intensity. Common/traditional cut-offs: mild 1-4 (or 1-3),
-        moderate 5-6, severe 7-10; higher score = worse pain and severe pain is the band that must drive intervention.
-        Boonstra AM et al., "Cut-Off Points for Mild, Moderate, and Severe Pain on the NRS," Front Psychol 2016.
-
-        '
-      url: https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2016.01466/full
-    evidence: piora-clinica-batch2.yaml
-    test_vectors: 2/4 match
-    summary: 'Confirms the extraction DISCREPANCY. The severe-pain band `if 7 <= dor > 10` parses as (7 <= dor)
-      AND (dor > 10); since escala_dor is capped at 10, dor > 10 is impossible, so severe pain (NRS 7-10) always
-      scores "0" and never contributes a grade-3 (VERMELHO) trigger. Intended code was clearly `7 <= dor <= 10 ->
-      3+`. High impact: the single most clinically actionable pain band (severe) is silently suppressed, so severe
-      pain never escalates via criterio_6. (Minor secondary note: reference "mild" starts at 1 whereas legacy starts
-      the 1+ band at 2, so NRS=1 scores 0 — low impact.)
-
-      '
+    reference: 'Numeric Rating Scale (NRS 0-10) for pain intensity. Standard cut-offs: mild 1-3/1-4, moderate 5-6, severe 7-10; higher = worse and severe is the band that must drive intervention. Boonstra AM et al., "Cut-Off Points for Mild, Moderate, and Severe Pain on the NRS for Pain in Patients with Chronic Musculoskeletal Pain," Front Psychol 2016;7:1466.'
+    detail_file: piora-clinica-batch2.yaml
 - id: RULE-PIORA-CLINICA-007
   name: Piora Clinica criterio_7 - Dor (escala comportamental 3-12) (graded sub-score)
   category: clinical-scoring
@@ -379,11 +271,8 @@ rules:
   - name: criterio_7
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nsinais = sinais_vitais.sinais_dor\nif sinais:\n    if   5  <= sinais <= 6 : pontuacao\
-    \ = \"1+\"\n    elif 7  <= sinais <= 9 : pontuacao = \"2+\"\n    elif 10 <= sinais >  12: pontuacao = \"3+\"\
-    \   # buggy compound comparison, verbatim\nreturn pontuacao\n"
-  edge_cases: '`10 <= sinais > 12` == (10 <= sinais) AND (sinais > 12). sinais_dor is validator-capped at 12, so
-    sinais > 12 is impossible and "3+" is UNREACHABLE; sinais 10,11,12 score "0". sinais 3,4 -> "0".
+  logic: "pontuacao = \"0\"\nsinais = sinais_vitais.sinais_dor\nif sinais:\n    if   5  <= sinais <= 6 : pontuacao = \"1+\"\n    elif 7  <= sinais <= 9 : pontuacao = \"2+\"\n    elif 10 <= sinais >  12: pontuacao = \"3+\"   # buggy compound comparison, verbatim\nreturn pontuacao\n"
+  edge_cases: '`10 <= sinais > 12` == (10 <= sinais) AND (sinais > 12). sinais_dor is validator-capped at 12, so sinais > 12 is impossible and "3+" is UNREACHABLE; sinais 10,11,12 score "0". sinais 3,4 -> "0".
 
     '
   confidence: high
@@ -399,31 +288,14 @@ rules:
     lines: 179-189
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (internal, preserved verbatim): intended `10 <= sinais <= 12 -> 3+`; as written the highest
-    behavioral-pain band never fires. Validator capping sinais_dor at 12 lives in a separate cluster (pain-scale
-    validator RULE-pain-BE-06-002). Facade RULE-PIORA-CLINICA-011 labels 2+ "dor moderada", 3+ "dor intensa" (identical
-    strings to criterio_6).
+  notes: 'DISCREPANCY (internal, preserved verbatim): intended `10 <= sinais <= 12 -> 3+`; as written the highest behavioral-pain band never fires. Validator capping sinais_dor at 12 lives in a separate cluster (pain-scale validator RULE-pain-BE-06-002). Facade RULE-PIORA-CLINICA-011 labels 2+ "dor moderada", 3+ "dor intensa" (identical strings to criterio_6).
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: high
-    reference:
-      citation: 'Behavioral Pain Scale (BPS), Payen JF et al., Crit Care Med 2001. Three domains (facial expression,
-        upper-limb movement, ventilator compliance), each 1-4, total range 3-12; 3 = no pain, 12 = maximal pain,
-        higher = worse. Cut-off for significant/unacceptable pain commonly BPS >5 (>=6).
-
-        '
-      url: https://www.medicalalgorithms.com/payen-behavioral-pain-scale
-    evidence: piora-clinica-batch2.yaml
-    test_vectors: 2/4 match
-    summary: 'Confirms the extraction DISCREPANCY, identical bug pattern to criterio_6. `if 10 <= sinais > 12` parses
-      as (10 <= sinais) AND (sinais > 12); sinais_dor is capped at 12 so sinais > 12 is impossible and the severe
-      band (BPS 10-12) always scores "0". Intended `10 <= sinais <= 12 -> 3+`. High impact: for a non-communicative/sedated
-      patient (the exact population BPS exists for), maximal behavioral pain never fires a grade-3 (VERMELHO) trigger
-      via criterio_7.
-
-      '
+    reference: Behavioral Pain Scale (BPS), Payen JF et al., Crit Care Med 2001;29(12):2258-63. Three domains (facial expression, upper-limb movement, ventilator compliance), each 1-4, total range 3 (no pain) to 12 (maximal pain), higher = worse; score >5 (>=6) commonly indicates significant/unacceptable pain requiring analgesia.
+    detail_file: piora-clinica-batch2.yaml
 - id: RULE-PIORA-CLINICA-008
   name: Piora Clinica criterio_8 - SatO2 (paciente regular / nao-DPOC) (graded sub-score)
   category: clinical-scoring
@@ -439,11 +311,8 @@ rules:
   - name: criterio_8
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nsato2 = sinais_vitais.saturacao_o2\nif sato2:\n    if   sato2 >  96      : pontuacao\
-    \ = \"2+\"\n    elif 91 <= sato2 <= 93: pontuacao = \"1-\"\n    elif 88 <= sato2 <= 90: pontuacao = \"2-\"\n\
-    \    elif      sato2 <= 88 : pontuacao = \"3-\"\nreturn pontuacao\n"
-  edge_cases: 'Gap 94..96 -> "0". sato2 == 88 resolves to "2-" (matches 88 <= sato2 <= 90 before sato2 <= 88). sato2
-    == 0 falsy -> "0".
+  logic: "pontuacao = \"0\"\nsato2 = sinais_vitais.saturacao_o2\nif sato2:\n    if   sato2 >  96      : pontuacao = \"2+\"\n    elif 91 <= sato2 <= 93: pontuacao = \"1-\"\n    elif 88 <= sato2 <= 90: pontuacao = \"2-\"\n    elif      sato2 <= 88 : pontuacao = \"3-\"\nreturn pontuacao\n"
+  edge_cases: 'Gap 94..96 -> "0". sato2 == 88 resolves to "2-" (matches 88 <= sato2 <= 90 before sato2 <= 88). sato2 == 0 falsy -> "0".
 
     '
   confidence: medium
@@ -460,43 +329,21 @@ rules:
     lines: 191-203
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (internal, preserved verbatim): sato2 > 96 (a normal/high saturation) yields a positive deterioration
-    score "2+", clinically inverted for a regular patient. Structurally coupled to RULE-PIORA-CLINICA-009: BOTH
-    read the SAME saturacao_o2 field and are BOTH summed into the aggregate with no mutual exclusivity between regular/DPOC
-    pathways, effectively double-weighting SpO2. Facade RULE-PIORA-CLINICA-011 labels 2+ "hiperoxia", 2- "dessaturacao
-    moderada", 3- "dessaturacao grave" (all prefixed "Alto risco" - see 011 note).
+  notes: 'DISCREPANCY (internal, preserved verbatim): sato2 > 96 (a normal/high saturation) yields a positive deterioration score "2+", clinically inverted for a regular patient. Structurally coupled to RULE-PIORA-CLINICA-009: BOTH read the SAME saturacao_o2 field and are BOTH summed into the aggregate with no mutual exclusivity between regular/DPOC pathways, effectively double-weighting SpO2. Facade RULE-PIORA-CLINICA-011 labels 2+ "hiperoxia", 2- "dessaturacao moderada", 3- "dessaturacao grave" (all prefixed "Alto risco" - see 011 note).
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: moderate
-    reference:
-      citation: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 1 (default, non-hypercapnic patients): SpO2
-        >=96% = 0, 94-95% = 1, 92-93% = 2, <=91% = 3. High saturation is NOT penalized on Scale 1; points accrue
-        only for hypoxaemia. Being on supplemental oxygen scores separately (+2), not the saturation value itself.
-
-        '
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch2.yaml
-    test_vectors: 1/5 match
-    summary: 'Confirms the extraction DISCREPANCY. Two problems vs NEWS2 Scale 1: (1) sign inversion - a normal
-      non-COPD saturation >96% yields a POSITIVE deterioration sub-score "2+" (labelled "hiperoxia"), firing a false
-      AMARELO on a healthy room-air patient (alarm-fatigue / false-positive); NEWS2 Scale 1 scores >=96% as 0. (2)
-      The 94-96% window scores "0" whereas NEWS2 gives 1 point at 94-95% (mild-hypoxaemia under-detection). Low
-      bands are directionally correct but magnitudes differ from NEWS2. Additionally criterio_8 and criterio_9 both
-      read the SAME saturacao_o2 and are BOTH summed into the aggregate with no regular/COPD mutual exclusivity,
-      double-weighting SpO2 (see rule 010). Moderate impact: false-positive alerts plus under-detection of mild
-      hypoxaemia; the severe-desat bands still fire, so life-threatening hypoxaemia is not missed.
-
-      '
+    reference: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 1 (default, non-hypercapnic patients): >=96% = 0, 94-95% = 1, 92-93% = 2, <=91% = 3. High saturation is NOT penalized on Scale 1; points accrue only for hypoxaemia (supplemental O2 scores separately +2, not the saturation value itself).'
+    detail_file: piora-clinica-batch2.yaml
 - id: RULE-PIORA-CLINICA-009
   name: Piora Clinica criterio_9 - SatO2 (paciente DPOC/COPD) (graded sub-score)
   category: clinical-scoring
   type: scoring
   status: OK
   verify: true
-  description: Graded oxygen-saturation sub-score for a COPD (DPOC) patient, where high SpO2 is penalized (over-oxygenation
-    risk).
+  description: Graded oxygen-saturation sub-score for a COPD (DPOC) patient, where high SpO2 is penalized (over-oxygenation risk).
   inputs:
   - name: sinais_vitais.saturacao_o2
     type: float
@@ -505,11 +352,8 @@ rules:
   - name: criterio_9
     type: enum
     unit: null
-  logic: "pontuacao = \"0\"\nsato2 = sinais_vitais.saturacao_o2\nif sato2:\n    if   sato2 == 94     : pontuacao\
-    \ = \"1+\"\n    elif sato2 >  94     : pontuacao = \"3+\"\n    elif 91 <= sato2 <= 93: pontuacao = \"1-\"\n\
-    \    elif 88 <= sato2 <= 90: pontuacao = \"2-\"\n    elif      sato2 <= 80 : pontuacao = \"3-\"\nreturn pontuacao\n"
-  edge_cases: 'Gap 81..87 -> "0". sato2 == 94 -> "1+", >94 -> "3+". sato2 == 88 -> "2-". <=80 -> "3-". sato2 ==
-    0 falsy -> "0".
+  logic: "pontuacao = \"0\"\nsato2 = sinais_vitais.saturacao_o2\nif sato2:\n    if   sato2 == 94     : pontuacao = \"1+\"\n    elif sato2 >  94     : pontuacao = \"3+\"\n    elif 91 <= sato2 <= 93: pontuacao = \"1-\"\n    elif 88 <= sato2 <= 90: pontuacao = \"2-\"\n    elif      sato2 <= 80 : pontuacao = \"3-\"\nreturn pontuacao\n"
+  edge_cases: 'Gap 81..87 -> "0". sato2 == 94 -> "1+", >94 -> "3+". sato2 == 88 -> "2-". <=80 -> "3-". sato2 == 0 falsy -> "0".
 
     '
   confidence: high
@@ -526,45 +370,21 @@ rules:
     lines: 205-219
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Penalizing high SpO2 (>94 -> 3+) is intentional for COPD. Gap 81-87 scores 0. Shares saturacao_o2 with
-    criterio_8 (both summed together; see RULE-PIORA-CLINICA-008). Facade RULE-PIORA-CLINICA-011 labels 3+ "hiperoxia",
-    2- "dessaturacao moderada", 3- "dessaturacao grave".
+  notes: 'Penalizing high SpO2 (>94 -> 3+) is intentional for COPD. Gap 81-87 scores 0. Shares saturacao_o2 with criterio_8 (both summed together; see RULE-PIORA-CLINICA-008). Facade RULE-PIORA-CLINICA-011 labels 3+ "hiperoxia", 2- "dessaturacao moderada", 3- "dessaturacao grave".
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: moderate
-    reference:
-      citation: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 2, for hypercapnic (type 2) respiratory failure
-        / COPD with target 88-92%: <=83% = 3, 84-85% = 2, 86-87% = 1, 88-92% on air (or >=93% on air) = 0, 93-94%
-        on oxygen = 1, 95-96% on oxygen = 2, >=97% on oxygen = 3. Rationale: high saturation in these patients signals
-        dangerous over-oxygenation, so high SpO2 IS penalized.
-
-        '
-      url: https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/
-    evidence: piora-clinica-batch2.yaml
-    test_vectors: 3/5 match
-    summary: 'Extraction status was OK (the design INTENT - penalizing high SpO2 in COPD, ==94 -> 1+, >94 -> 3+
-      "hiperoxia" - is verified against NEWS2 Scale 2 rationale). Against the reference the specific bands still
-      diverge in two clinically relevant ways: (1) the 81-87% window is uncovered and scores "0", so a COPD patient
-      desaturating to 82-87% receives NO sub-score (NEWS2 Scale 2 assigns 1-2 points at 84-87 and 3 at <=83) - a
-      false-negative coverage gap; (2) 88-90% scores "2-" (moderate desaturation) even though 88-92% is the guideline
-      TARGET range that NEWS2 scores as 0 - an over-flag of in-target saturation. Moderate impact: the high-SpO2
-      penalization (the safety-critical COPD feature) works, but a real desaturation into the low-80s can score
-      0. Exact band numbers are otherwise a proprietary scale choice; only the coverage gap and target-range over-flag
-      are characterized as discrepant.
-
-      '
+    reference: 'NEWS2 (Royal College of Physicians, 2017) SpO2 Scale 2, for hypercapnic (type 2) respiratory failure / COPD, target 88-92%: <=83% = 3, 84-85% = 2, 86-87% = 1, 88-92% (or >=93% on air) = 0, 93-94% on oxygen = 1, 95-96% on oxygen = 2, >=97% on oxygen = 3. High saturation IS penalized (over-oxygenation is dangerous in these patients).'
+    detail_file: piora-clinica-batch2.yaml
 - id: RULE-PIORA-CLINICA-010
   name: Piora Clinica - Calculo do alerta (soma agregada + gatilho por criterio)
   category: alert-threshold
   type: decision-tree
   status: DISCREPANCY
   verify: true
-  description: 'Aggregates the 9 graded sub-scores (criterio_1..9) into a color alert. This is a MEWS/NEWS-style
-    track-and-trigger: any single criterion at grade 2 (+/-) sets AMARELO and any at grade 3 (+/-) sets VERMELHO
-    (message names the criterion); only if NO criterion reached grade 2/3 does a total-sum banding apply (0-7 NEUTRO,
-    8-14 AMARELO, 15-21 VERMELHO).
+  description: 'Aggregates the 9 graded sub-scores (criterio_1..9) into a color alert. This is a MEWS/NEWS-style track-and-trigger: any single criterion at grade 2 (+/-) sets AMARELO and any at grade 3 (+/-) sets VERMELHO (message names the criterion); only if NO criterion reached grade 2/3 does a total-sum banding apply (0-7 NEUTRO, 8-14 AMARELO, 15-21 VERMELHO).
 
     '
   inputs:
@@ -578,21 +398,8 @@ rules:
   - name: mensagem
     type: string
     unit: null
-  logic: "soma = 0\npayload = {}\nfor c in range(1, 10):\n    criterio = getattr(self, f\"criterio_{c}\")   # e.g.\
-    \ \"0\",\"1+\",\"2-\",\"3+\"\n    soma += int(criterio[0])                     # magnitude only; sign discarded\
-    \ (\"3-\" and \"3+\" both add 3)\n    if criterio in [\"2-\", \"2+\"]:\n        payload[\"mensagem\"] = f\"\
-    Moderado risco de piora clinica – {nome_criterio(f'criterio_{c}')}\"\n        payload[\"alerta\"]  = \"AMARELO\"\
-    \n    elif criterio in [\"3-\", \"3+\"]:\n        payload[\"mensagem\"] = f\"Alto risco de piora clinica – {nome_criterio(f'criterio_{c}')}\"\
-    \n        payload[\"alerta\"]  = \"VERMELHO\"\nif not payload:\n    if   0  <= soma <=  7: alerta=\"NEUTRO\"\
-    ,   mensagem=\"Baixo risco de piora clinica\"\n    elif 8  <= soma <= 14: alerta=\"AMARELO\",  mensagem=\"Moderado\
-    \ risco de piora clinica\"\n    elif 15 <= soma <= 21: alerta=\"VERMELHO\", mensagem=\"Alto risco de piora clinica\"\
-    \n"
-  edge_cases: 'int(criterio[0]) reads only the first char, so grade SIGN is discarded when summing. The per-criterion
-    payload is OVERWRITTEN each loop iteration, so the LAST (highest-index) criterion at grade 2 or 3 determines
-    the final alerta/mensagem - a later grade-2 criterion can DOWNGRADE an earlier grade-3 one (VERMELHO -> AMARELO).
-    The soma-banding branch runs only when NO criterion reached grade 2/3 (all sub-scores in {0,1+,1-}); then soma
-    <= 9, so the 15-21 band is dead and only soma 8-9 can reach AMARELO. criterio must be non-null (guaranteed after
-    save()); calling on an unsaved instance with None criterio raises on criterio[0].
+  logic: "soma = 0\npayload = {}\nfor c in range(1, 10):\n    criterio = getattr(self, f\"criterio_{c}\")   # e.g. \"0\",\"1+\",\"2-\",\"3+\"\n    soma += int(criterio[0])                     # magnitude only; sign discarded (\"3-\" and \"3+\" both add 3)\n    if criterio in [\"2-\", \"2+\"]:\n        payload[\"mensagem\"] = f\"Moderado risco de piora clinica – {nome_criterio(f'criterio_{c}')}\"\n        payload[\"alerta\"]  = \"AMARELO\"\n    elif criterio in [\"3-\", \"3+\"]:\n        payload[\"mensagem\"] = f\"Alto risco de piora clinica – {nome_criterio(f'criterio_{c}')}\"\n        payload[\"alerta\"]  = \"VERMELHO\"\nif not payload:\n    if   0  <= soma <=  7: alerta=\"NEUTRO\",   mensagem=\"Baixo risco de piora clinica\"\n    elif 8  <= soma <= 14: alerta=\"AMARELO\",  mensagem=\"Moderado risco de piora clinica\"\n    elif 15 <= soma <= 21: alerta=\"VERMELHO\", mensagem=\"Alto risco de piora clinica\"\n"
+  edge_cases: 'int(criterio[0]) reads only the first char, so grade SIGN is discarded when summing. The per-criterion payload is OVERWRITTEN each loop iteration, so the LAST (highest-index) criterion at grade 2 or 3 determines the final alerta/mensagem - a later grade-2 criterion can DOWNGRADE an earlier grade-3 one (VERMELHO -> AMARELO). The soma-banding branch runs only when NO criterion reached grade 2/3 (all sub-scores in {0,1+,1-}); then soma <= 9, so the 15-21 band is dead and only soma 8-9 can reach AMARELO. criterio must be non-null (guaranteed after save()); calling on an unsaved instance with None criterio raises on criterio[0].
 
     '
   confidence: high
@@ -616,51 +423,21 @@ rules:
     lines: 236-262
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY (three internal defects, preserved verbatim): (1) last-writer-wins overwrite lets a lower-severity
-    later criterion mask a higher-severity earlier one; (2) soma ignores +/- direction (magnitude only); (3) the
-    15-21 (and most of 8-14) sum band is unreachable because it only runs when every criterion is grade <=1. nome_criterio()
-    map at lines 221-234. save() (lines 70-81) recomputes criterio_1..9 then sets alerta. get_detalhe() only surfaces
-    criterio_1..3 (range(1,4)) via payload_piora_clinica_homecare (facade RULE-PIORA-CLINICA-011). verify=true:
-    aggregate track-and-trigger banding has a plausible published anchor (MEWS/NEWS-style early-warning score).
+  notes: 'DISCREPANCY (three internal defects, preserved verbatim): (1) last-writer-wins overwrite lets a lower-severity later criterion mask a higher-severity earlier one; (2) soma ignores +/- direction (magnitude only); (3) the 15-21 (and most of 8-14) sum band is unreachable because it only runs when every criterion is grade <=1. nome_criterio() map at lines 221-234. save() (lines 70-81) recomputes criterio_1..9 then sets alerta. get_detalhe() only surfaces criterio_1..3 (range(1,4)) via payload_piora_clinica_homecare (facade RULE-PIORA-CLINICA-011). verify=true: aggregate track-and-trigger banding has a plausible published anchor (MEWS/NEWS-style early-warning score).
 
     '
   verification:
     verdict: DISCREPANCY
     clinical_impact: high
-    reference:
-      citation: 'NEWS2 / MEWS track-and-trigger escalation logic (Royal College of Physicians NEWS2, 2017; NICE
-        MIB205). Two-tier trigger: (a) ANY single parameter scoring 3 ("red score") mandates urgent escalation regardless
-        of the aggregate; (b) aggregate bands drive graded response (NEWS2: 0-4 low, 5-6 medium, >=7 high). A high-severity
-        single parameter must never be downgraded by other parameters, and every abnormal parameter contributes
-        to the aggregate.
-
-        '
-      url: https://www.nice.org.uk/advice/mib205/chapter/The-technology
-    evidence: piora-clinica-batch2.yaml
-    test_vectors: 1/4 match
-    summary: 'Confirms the extraction DISCREPANCY (three defects, all reproduced against reference). (1) Last-writer-wins:
-      payload["alerta"]/["mensagem"] are reassigned every loop iteration, so the HIGHEST-INDEX grade-2/3 criterion
-      wins; a later grade-2 (AMARELO) criterion overwrites an earlier grade-3 (VERMELHO) one, DOWNGRADING a red
-      alert to yellow - a direct violation of the NEWS2/MEWS single-red-parameter rule and the core high-impact
-      safety defect (a critically deteriorating patient can be under-triaged). (2) `soma += int(criterio[0])` reads
-      only the first char, discarding +/- direction, so a low and a high deviation of equal magnitude are indistinguishable
-      in the aggregate. (3) The aggregate soma-banding branch runs only when NO criterion reached grade 2/3 (i.e.
-      all sub-scores in {0,1+,1-}), capping reachable soma at 9, so the 15-21 (VERMELHO) band and most of the 8-14
-      band are dead code. The two-tier trigger concept is a valid NEWS2/MEWS anchor, but the implementation both
-      masks red flags and leaves the aggregate escalation largely non-functional.
-
-      '
+    reference: 'NEWS2 / MEWS track-and-trigger escalation logic (Royal College of Physicians NEWS2, 2017; NICE MIB205). Two-tier trigger: (a) ANY single parameter scoring 3 ("red score") mandates urgent escalation regardless of aggregate; (b) aggregate bands drive graded response (NEWS2: 0-4 low, 5-6 medium, >=7 high). A high-severity single parameter must never be downgraded by other parameters, and every abnormal parameter contributes to the aggregate.'
+    detail_file: piora-clinica-batch2.yaml
 - id: RULE-PIORA-CLINICA-011
   name: Piora Clinica - Payload de alertas/recomendacoes/intervencoes por (criterio, codigo de severidade)
   category: alert-threshold
   type: workflow
   status: AMBIGUOUS
   verify: true
-  description: 'Facade payload (payload_trilha_piora_clinica) mapping each (criterio_1..9, severity-code) pair to
-    a UI alert label, clinical recomendacoes, and clinical intervencoes. Severity codes: "2" = moderate (AMARELO),
-    "3" = high/alto (VERMELHO); trailing "+" = high-value deviation, "-" = low-value deviation. Several labels embed
-    explicit vital-sign thresholds (temperature, blood pressure) and the interventions carry the actionable clinical
-    protocol (fluid challenge, antipyretic route, sepsis-protocol trigger).
+  description: 'Facade payload (payload_trilha_piora_clinica) mapping each (criterio_1..9, severity-code) pair to a UI alert label, clinical recomendacoes, and clinical intervencoes. Severity codes: "2" = moderate (AMARELO), "3" = high/alto (VERMELHO); trailing "+" = high-value deviation, "-" = low-value deviation. Several labels embed explicit vital-sign thresholds (temperature, blood pressure) and the interventions carry the actionable clinical protocol (fluid challenge, antipyretic route, sepsis-protocol trigger).
 
     '
   inputs:
@@ -682,28 +459,9 @@ rules:
   - name: intervencoes
     type: list[string]
     unit: null
-  logic: "# payload_trilha_piora_clinica[criterio_key][severity_code] -> {alerta, recomendacoes, intervencoes}\n\
-    criterio_1 (freq. respiratoria): 3+ = \"taquipneia grave\" (ALTO); 3- = \"bradipneia\" (ALTO).\ncriterio_2 (temperatura):\
-    \        2+ = \"febre baixa\"  TAX 38 - 38,2C (MODERADO);\n                                 3+ = \"febre alta\"\
-    \   TAX >38,2C     (ALTO);\n                                 3- = \"hipotermia\"   TAX <35C       (ALTO).\n\
-    criterio_3 (pressao arterial):   2- = \"hipotensao\"          PAS 81-99 mmHg  (MODERADO);\n                \
-    \                 2+ = \"hipertensao moderada\" PAS 150-189 mmHg (MODERADO);\n                             \
-    \    3- = \"hipotensao grave\"    PAS <80 mmHg    (ALTO);   # code uses pas<=80\n                          \
-    \       3+ = \"hipertensao grave\"   PAS >189 mmHg   (ALTO).\ncriterio_4 (freq. cardiaca):     2+ taquicardia\
-    \ moderada; 3+ taquicardia grave; 3- bradicardia.\ncriterio_5 (consciencia):        2+ reage/responde ao estimulo\
-    \ tatil; 2- agitacao/confusao;\n                                 3- convulsao; 3+ nao responde/reage.\ncriterio_6\
-    \ (dor - escala numerica):     2+ dor moderada; 3+ dor intensa.\ncriterio_7 (dor - escala comportamental): 2+\
-    \ dor moderada; 3+ dor intensa.\ncriterio_8 (saturacao, regular): 2- dessaturacao moderada; 2+ hiperoxia; 3-\
-    \ dessaturacao grave.\ncriterio_9 (saturacao, DPOC):    2- dessaturacao moderada; 3+ hiperoxia; 3- dessaturacao\
-    \ grave.\n# Only criterio_1..3 carry non-empty recomendacoes/intervencoes; criterio_4..9 are label-only.\n#\
-    \ Interventions include: escalate to Pronto Atendimento on new motor deficit / pupillary change\n# / chest pain;\
-    \ fluid challenge Ringer Lactato 500ml (PAS 81-99) or 1000ml (PAS<80); antipyretic\n# enteral (VO/SNE/GTT) for\
-    \ febre baixa, IV antipyretic for febre alta; open SEPSE protocol on\n# organ dysfunction; enteral antihypertensive\
-    \ reassessed at 1h.\n"
-  edge_cases: 'criterio_4 through criterio_9 have EMPTY recomendacoes and intervencoes (label only). AMBIGUOUS labelling:
-    criterio_8/criterio_9 saturation sub-levels use "Alto risco" wording even for the grade-2 codes (2-/2+), which
-    are nominally "Moderado" - reproduced verbatim, treat labels as authoritative. criterio_1 3+ (taquipneia grave)
-    intervencoes text erroneously says "causa base da bradipnea" (copy-paste from the 3- bradipneia entry) - verbatim.
+  logic: "# payload_trilha_piora_clinica[criterio_key][severity_code] -> {alerta, recomendacoes, intervencoes}\ncriterio_1 (freq. respiratoria): 3+ = \"taquipneia grave\" (ALTO); 3- = \"bradipneia\" (ALTO).\ncriterio_2 (temperatura):        2+ = \"febre baixa\"  TAX 38 - 38,2C (MODERADO);\n                                 3+ = \"febre alta\"   TAX >38,2C     (ALTO);\n                                 3- = \"hipotermia\"   TAX <35C       (ALTO).\ncriterio_3 (pressao arterial):   2- = \"hipotensao\"          PAS 81-99 mmHg  (MODERADO);\n                                 2+ = \"hipertensao moderada\" PAS 150-189 mmHg (MODERADO);\n                                 3- = \"hipotensao grave\"    PAS <80 mmHg    (ALTO);   # code uses pas<=80\n                                 3+ = \"hipertensao grave\"   PAS >189 mmHg   (ALTO).\ncriterio_4 (freq. cardiaca):     2+ taquicardia moderada; 3+ taquicardia grave; 3- bradicardia.\ncriterio_5 (consciencia):        2+ reage/responde ao estimulo tatil; 2- agitacao/confusao;\n\
+    \                                 3- convulsao; 3+ nao responde/reage.\ncriterio_6 (dor - escala numerica):     2+ dor moderada; 3+ dor intensa.\ncriterio_7 (dor - escala comportamental): 2+ dor moderada; 3+ dor intensa.\ncriterio_8 (saturacao, regular): 2- dessaturacao moderada; 2+ hiperoxia; 3- dessaturacao grave.\ncriterio_9 (saturacao, DPOC):    2- dessaturacao moderada; 3+ hiperoxia; 3- dessaturacao grave.\n# Only criterio_1..3 carry non-empty recomendacoes/intervencoes; criterio_4..9 are label-only.\n# Interventions include: escalate to Pronto Atendimento on new motor deficit / pupillary change\n# / chest pain; fluid challenge Ringer Lactato 500ml (PAS 81-99) or 1000ml (PAS<80); antipyretic\n# enteral (VO/SNE/GTT) for febre baixa, IV antipyretic for febre alta; open SEPSE protocol on\n# organ dysfunction; enteral antihypertensive reassessed at 1h.\n"
+  edge_cases: 'criterio_4 through criterio_9 have EMPTY recomendacoes and intervencoes (label only). AMBIGUOUS labelling: criterio_8/criterio_9 saturation sub-levels use "Alto risco" wording even for the grade-2 codes (2-/2+), which are nominally "Moderado" - reproduced verbatim, treat labels as authoritative. criterio_1 3+ (taquipneia grave) intervencoes text erroneously says "causa base da bradipnea" (copy-paste from the 3- bradipneia entry) - verbatim.
 
     '
   confidence: high
@@ -718,11 +476,7 @@ rules:
   - RULE-PIORA-CLINICA-008
   - RULE-PIORA-CLINICA-009
   - RULE-PIORA-CLINICA-010
-  divergence: 'Facade-label vs predicate-code divergence for criterio_3 grade 3-: the label reads "hipotenso (PAS
-    <80 mmHg)" but the scoring predicate RULE-PIORA-CLINICA-003 uses `pas <= 80`, so PAS = 80 scores 3- in code
-    but is described as excluded by the label. Boundary-only, documentation-level (the label string does not execute);
-    code is authoritative. All other embedded thresholds match the predicates (TAX 38-38.2 / >38.2 / <35; PAS 81-99
-    / 150-189 / >189).
+  divergence: 'Facade-label vs predicate-code divergence for criterio_3 grade 3-: the label reads "hipotenso (PAS <80 mmHg)" but the scoring predicate RULE-PIORA-CLINICA-003 uses `pas <= 80`, so PAS = 80 scores 3- in code but is described as excluded by the label. Boundary-only, documentation-level (the label string does not execute); code is authoritative. All other embedded thresholds match the predicates (TAX 38-38.2 / >38.2 / <35; PAS 81-99 / 150-189 / >189).
 
     '
   merged_from:
@@ -738,60 +492,23 @@ rules:
     lines: 1-3
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: duplicate
-  notes: 'Phase-1 typed this "scoring"; reclassified to type=workflow because it is the action/label payload layer
-    (recommendations + interventions), not a computation. Status upgraded OK -> AMBIGUOUS for the saturation "Alto
-    risco"/grade-2 wording inconsistency plus the PAS <80 label imprecision. trilha_homecare/facade/piora_clinica.py
-    exposes the SAME object via `payload_piora_clinica_homecare = payload_trilha_piora_clinica` (alias, byte-identical,
-    no divergence). Consumed by trilha_homecare/models/piora_clinica.py get_detalhe(), which surfaces only criterio_1..3.
-    verify=true: embedded vital-sign thresholds plus interventions (Ringer fluid-resuscitation volumes, SEPSE-protocol
-    trigger on organ dysfunction) have plausible published clinical anchors (Surviving Sepsis Campaign / early-warning
-    escalation).
+  notes: 'Phase-1 typed this "scoring"; reclassified to type=workflow because it is the action/label payload layer (recommendations + interventions), not a computation. Status upgraded OK -> AMBIGUOUS for the saturation "Alto risco"/grade-2 wording inconsistency plus the PAS <80 label imprecision. trilha_homecare/facade/piora_clinica.py exposes the SAME object via `payload_piora_clinica_homecare = payload_trilha_piora_clinica` (alias, byte-identical, no divergence). Consumed by trilha_homecare/models/piora_clinica.py get_detalhe(), which surfaces only criterio_1..3. verify=true: embedded vital-sign thresholds plus interventions (Ringer fluid-resuscitation volumes, SEPSE-protocol trigger on organ dysfunction) have plausible published clinical anchors (Surviving Sepsis Campaign / early-warning escalation).
 
     '
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: 'Composite anchors (no single authoritative source governs the exact payload text). (1) Evans L,
-        et al. Surviving Sepsis Campaign: International Guidelines for Management of Sepsis and Septic Shock 2021.
-        Crit Care Med 2021;49(11):e1063-e1143 — >=30 mL/kg IV crystalloid within first 3h for sepsis-induced hypoperfusion
-        (weak rec), balanced crystalloid preferred, open sepsis pathway on organ dysfunction (Sepsis-3). (2) Standard
-        fluid-challenge practice: ~500 mL crystalloid bolus triggered by hypotension (LITFL / Messina et al. Ann
-        Intensive Care systematic review 2022).
-
-        '
-      url: https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021
-    evidence: piora-clinica-batch3.yaml
-    test_vectors: 1/3 match
-    summary: 'RULE-011 is a proprietary internal clinical-protocol payload (payload_trilha_piora_clinica): per-(criterio,
-      severity-code) UI alert labels + recomendacoes + intervencoes. No authoritative published calculator or guideline
-      defines this exact mapping, label wording, recommendation lists, or the specific 500/1000 mL Ringer-Lactato
-      tiering to specific PAS bands, so the payload as a whole is UNVERIFIABLE (flag for internal clinical review,
-      NOT wrong). Where the embedded clinical actions CAN be anchored they are directionally sound: 500 mL crystalloid
-      = the standard hypotension-triggered fluid challenge; Ringer Lactato = balanced crystalloid preferred by SSC
-      2021; escalation to 1000 mL for PAS<80 vs 500 mL for PAS 81-99 is reasonable severity tiering; "abertura do
-      Protocolo de SEPSE se disfuncao organica" aligns with Sepsis-3 (organ dysfunction defines sepsis) and SSC
-      2021 bundle. Embedded numeric thresholds (TAX 38-38.2/>38.2/<35 C; PAS 81-99/150-189/>189 mmHg) match the
-      scoring predicates (RULE-002/003) exactly. Two internal defects confirmed verbatim in source (these justify
-      the AMBIGUOUS extraction status): (1) criterio_8 "2-"/"2+" and criterio_9 "2-" alerta strings use "Alto risco"
-      though severity code 2 is nominally Moderado/AMARELO (lines 230,235,247) — cosmetic label inconsistency, no
-      effect on the computed alerta which is set by RULE-010, so clinical impact of THIS string is none; (2) criterio_1
-      "3+" (taquipneia grave) intervencoes says "causa base da bradipnea" (line 16), copy-paste from the 3- bradipneia
-      entry — misleading free-text, no effect on computed output. Also documentation-level: criterio_3 "3-" label
-      "PAS <80 mmHg" vs predicate pas<=80 (boundary at PAS=80; see RULE-PIORA-CLINICA-003 divergence). criterio_4..9
-      carry empty recomendacoes/intervencoes (label-only). Only criterio_1..3 are surfaced by get_detalhe(). Because
-      these are non-executable descriptive strings, none of the discrepancies change any computed score, alert,
-      or intervention trigger — hence overall clinical_impact n/a for the audit''s scoring-correctness purpose.
+    reference: 'Composite anchors (no single authoritative source governs the exact payload text). (1) Evans L, et al. Surviving Sepsis Campaign: International Guidelines for Management of Sepsis and Septic Shock 2021. Crit Care Med 2021;49(11):e1063-e1143 — >=30 mL/kg IV crystalloid within first 3h for sepsis-induced hypoperfusion (weak rec), balanced crystalloid preferred, open sepsis pathway on organ dysfunction (Sepsis-3). (2) Standard fluid-challenge practice: ~500 mL crystalloid bolus triggered by hypotension (LITFL / Messina et al. Ann Intensive Care systematic review 2022).
 
       '
+    detail_file: piora-clinica-batch3.yaml
 - id: RULE-PIORA-CLINICA-012
   name: Vital signs entry auto-creates clinical-worsening (PioraClinica) record
   category: care-pathway
   type: workflow
   status: OK
   verify: false
-  description: 'Every time a SinaisVitais (vital signs) record is created, the system automatically creates a linked
-    PioraClinica ("clinical worsening") record for the same encounter, unconditionally.
+  description: 'Every time a SinaisVitais (vital signs) record is created, the system automatically creates a linked PioraClinica ("clinical worsening") record for the same encounter, unconditionally.
 
     '
   inputs:
@@ -807,11 +524,8 @@ rules:
   - name: PioraClinica record
     type: object
     unit: null
-  logic: "PioraClinica.objects.create(\n    sinais_vitais=self.sinais_vitais,\n    nr_atendimento=self.sinais_vitais.balanco.nr_atendimento,\n\
-    )\n"
-  edge_cases: 'Triggered unconditionally on every vital-signs creation, regardless of the actual vital sign values
-    — the clinical-worsening evaluation logic itself (if any threshold exists) lives in the PioraClinica model,
-    out of this partition''s scope.
+  logic: "PioraClinica.objects.create(\n    sinais_vitais=self.sinais_vitais,\n    nr_atendimento=self.sinais_vitais.balanco.nr_atendimento,\n)\n"
+  edge_cases: 'Triggered unconditionally on every vital-signs creation, regardless of the actual vital sign values — the clinical-worsening evaluation logic itself (if any threshold exists) lives in the PioraClinica model, out of this partition''s scope.
 
     '
   confidence: high
@@ -827,7 +541,8 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 integrated_misroutes:
 - id: RULE-sepse-BE-07-001
   disposition: appended:RULE-PIORA-CLINICA-012

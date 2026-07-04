@@ -8,13 +8,7 @@ rules:
   type: formula
   status: DISCREPANCY
   verify: true
-  description: 'Cross-implementation copy of the same ''round a timestamp to a whole hour'' rule: the backend (get_hora_cheia,
-    used to label homecare balanco-hidrico/sinais-vitais records with an ''hora_cheia'' field) and the frontend
-    (justOclock, a standalone utility with no confirmed call site in this checkout) both round minute>30 up to the
-    next hour and otherwise truncate down, formatting the result as ''H:00''. The two thresholds are written differently
-    (BE: minute>=31 rounds up; FE: minute>30 rounds up) but are mathematically identical over integer minutes (both
-    select exactly minutes 31-59) — reconciliation found NO behavioral divergence between the two sides on the rounding
-    threshold itself.'
+  description: 'Cross-implementation copy of the same ''round a timestamp to a whole hour'' rule: the backend (get_hora_cheia, used to label homecare balanco-hidrico/sinais-vitais records with an ''hora_cheia'' field) and the frontend (justOclock, a standalone utility with no confirmed call site in this checkout) both round minute>30 up to the next hour and otherwise truncate down, formatting the result as ''H:00''. The two thresholds are written differently (BE: minute>=31 rounds up; FE: minute>30 rounds up) but are mathematically identical over integer minutes (both select exactly minutes 31-59) — reconciliation found NO behavioral divergence between the two sides on the rounding threshold itself.'
   inputs:
   - name: data (BE) / time (FE)
     type: datetime | string | moment.Moment
@@ -24,28 +18,12 @@ rules:
   - name: hora_cheia (BE) / hourString (FE)
     type: string
     unit: H:00 / HH:mm
-  logic: "# BE: core/utils.py get_hora_cheia(data)\ndata = data.astimezone()             # convert to server local\
-    \ tz\nif data.minute >= 31:\n    hora_cheia = data.hour + 1\nelse:\n    hora_cheia = data.hour\nreturn f\"{hora_cheia}:00\"\
-    \n\n# FE: src/utils/justOclock.ts justOclock(time)\nhour   = moment(time).format(\"HH\")     # \"00\"..\"23\"\
-    \nminute = moment(time).format(\"mm\")     # \"00\"..\"59\"\nif (+minute > 30):\n    return moment(`${(+hour)\
-    \ + 1}:00`, \"HH:mm\").format(\"HH:mm\")\nelse:\n    return moment(`${hour}:00`, \"HH:mm\").format(\"HH:mm\"\
-    )"
-  edge_cases: 'Both sides share the SAME unguarded overflow bug at the top of the day: when hour==23 and minute
-    is in the rounds-up range, the computed hour becomes 24. BE returns the literal invalid string "24:00" (no day
-    rollover / no modulo 24). FE constructs "24:00" via string interpolation then re-parses it with moment("24:00","HH:mm"),
-    which moment parses leniently and rolls over to "00:00", silently dropping the date instead of raising or carrying
-    the day forward. So the two sides even DIVERGE in how the shared bug manifests (BE: invalid string "24:00";
-    FE: silently wrong "00:00") even though the rounding threshold itself is identical. BE additionally applies
-    data.astimezone() (server local tz) before rounding; FE has no explicit tz conversion and assumes the Moment
-    is already in local time. No confirmed call site for justOclock exists anywhere in the frontend checkout (grep
-    found only its own definition), so the FE side may be dead/unused code carried over from an earlier feature.'
+  logic: "# BE: core/utils.py get_hora_cheia(data)\ndata = data.astimezone()             # convert to server local tz\nif data.minute >= 31:\n    hora_cheia = data.hour + 1\nelse:\n    hora_cheia = data.hour\nreturn f\"{hora_cheia}:00\"\n\n# FE: src/utils/justOclock.ts justOclock(time)\nhour   = moment(time).format(\"HH\")     # \"00\"..\"23\"\nminute = moment(time).format(\"mm\")     # \"00\"..\"59\"\nif (+minute > 30):\n    return moment(`${(+hour) + 1}:00`, \"HH:mm\").format(\"HH:mm\")\nelse:\n    return moment(`${hour}:00`, \"HH:mm\").format(\"HH:mm\")"
+  edge_cases: 'Both sides share the SAME unguarded overflow bug at the top of the day: when hour==23 and minute is in the rounds-up range, the computed hour becomes 24. BE returns the literal invalid string "24:00" (no day rollover / no modulo 24). FE constructs "24:00" via string interpolation then re-parses it with moment("24:00","HH:mm"), which moment parses leniently and rolls over to "00:00", silently dropping the date instead of raising or carrying the day forward. So the two sides even DIVERGE in how the shared bug manifests (BE: invalid string "24:00"; FE: silently wrong "00:00") even though the rounding threshold itself is identical. BE additionally applies data.astimezone() (server local tz) before rounding; FE has no explicit tz conversion and assumes the Moment is already in local time. No confirmed call site for justOclock exists anywhere in the frontend checkout (grep found only its own definition), so the FE side may be dead/unused code carried over from an earlier feature.'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-009
-  divergence: 'Both sides implement the same round-to-whole-hour rule with an equivalent minute>30/minute>=31 threshold
-    (no behavioral difference there). However the shared 23:xx overflow bug resolves DIFFERENTLY per side: BE emits
-    the literal out-of-range string "24:00"; FE''s re-parse of the same string silently rolls over to "00:00" (day
-    dropped). Neither side guards against the overflow.'
+  divergence: 'Both sides implement the same round-to-whole-hour rule with an equivalent minute>30/minute>=31 threshold (no behavioral difference there). However the shared 23:xx overflow bug resolves DIFFERENTLY per side: BE emits the literal out-of-range string "24:00"; FE''s re-parse of the same string silently rolls over to "00:00" (day dropped). Neither side guards against the overflow.'
   merged_from:
   - RULE-SCHED-BE-12-012
   - RULE-scheduling-FE-02-002
@@ -60,46 +38,24 @@ rules:
     lines: 3-11
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: frontend-copy
-  notes: 'MERGED: backend/frontend copies of the same ''round to whole hour'' utility (Phase-1 IDs RULE-SCHED-BE-12-012
-    + RULE-scheduling-FE-02-002). BE notes (verbatim): DISCREPANCY - "24:00" overflow at 23:31-23:59 and non-standard
-    :31 threshold (half-hour would round at :30).
+  notes: 'MERGED: backend/frontend copies of the same ''round to whole hour'' utility (Phase-1 IDs RULE-SCHED-BE-12-012 + RULE-scheduling-FE-02-002). BE notes (verbatim): DISCREPANCY - "24:00" overflow at 23:31-23:59 and non-standard :31 threshold (half-hour would round at :30).
 
-    FE notes (verbatim): Marked DISCREPANCY for two verbatim behaviors a reimplementer must preserve or consciously
-    fix: (1) :30 rounds down (not standard "round half up"), (2) the 23:31-23:59 -> "24:00" -> "00:00" wraparound
-    that silently drops the date.
+    FE notes (verbatim): Marked DISCREPANCY for two verbatim behaviors a reimplementer must preserve or consciously fix: (1) :30 rounds down (not standard "round half up"), (2) the 23:31-23:59 -> "24:00" -> "00:00" wraparound that silently drops the date.
 
 
-    Status DISCREPANCY is preserved (never downgraded) because each side independently carries an unguarded 23:xx-hour
-    overflow; reconciliation additionally found the two sides'' overflow OUTCOMES differ (see divergence field)
-    even though the rounding threshold does not.'
+    Status DISCREPANCY is preserved (never downgraded) because each side independently carries an unguarded 23:xx-hour overflow; reconciliation additionally found the two sides'' overflow OUTCOMES differ (see divergence field) even though the rounding threshold does not.'
   verification:
     verdict: DISCREPANCY
     clinical_impact: low
-    reference:
-      citation: ISO 8601-1:2019 time-of-day representation (hour range 00-23; 24:00 permitted ONLY as an end-of-day
-        midnight marker, never as a labeled hour-of-day). Cross-checked against standard 'round half up' arithmetic
-        convention (IEEE 754 roundTiesToAway / common commercial rounding).
-      url: https://www.iso.org/iso-8601-date-and-time-format.html
-    evidence: operacional-infra-batch1.yaml
-    test_vectors: 2/4 match
-    summary: 'Confirms extraction status DISCREPANCY against ISO 8601. Two distinct deviations. (1) Half-tie: :30
-      rounds DOWN not up - this is a convention choice, no clinical standard mandates a direction, impact none on
-      its own. (2) Real defect: the 23:31-23:59 overflow produces hour 24, outside the valid 0-23 hour-of-day domain.
-      BE emits the out-of-range literal "24:00"; FE''s re-parse silently collapses it to "00:00", dropping the date.
-      The two sides diverge in how the same shared bug manifests. Clinical impact is LOW because the value is only
-      a coarse hour-of-day LABEL (hora_cheia) on homecare balanco-hidrico / sinais-vitais records, the affected
-      window is 29 minutes/day at the day boundary, and no dosing/scoring depends on it - but a "24:00" label can
-      break downstream time parsing/sorting and the FE variant can mis-attribute a late-night reading to the start
-      of the day. FE justOclock has no confirmed call site (possibly dead code).'
+    reference: ISO 8601-1:2019 time-of-day representation (hour range 00-23; 24:00 permitted ONLY as an end-of-day midnight marker, never as a labeled hour-of-day). Cross-checked against standard 'round half up' arithmetic convention (IEEE 754 roundTiesToAway / common commercial rounding).
+    detail_file: operacional-infra-batch1.yaml
 - id: RULE-OPERACIONAL-INFRA-002
   name: Patient name abbreviation with connective handling (nome_abreviado_paciente)
   category: data-validation
   type: formula
   status: DISCREPANCY
   verify: true
-  description: Produces a shortened display name - keeps the first two words in full, and if the second word is
-    a Portuguese connective (da/de/do/das/dos) keeps the first three words in full, abbreviating every remaining
-    word to its initial letter.
+  description: Produces a shortened display name - keeps the first two words in full, and if the second word is a Portuguese connective (da/de/do/das/dos) keeps the first three words in full, abbreviating every remaining word to its initial letter.
   inputs:
   - name: nome_completo
     type: string
@@ -109,14 +65,8 @@ rules:
   - name: iniciais_nome
     type: string
     unit: '-'
-  logic: "lista_conectivos = [\"da\", \"de\", \"do\", \"das\", \"dos\"]\nnome_fracionado = nome_completo.split(\"\
-    \ \")\niniciais_nome = \"\"\nfor i, parte in enumerate(nome_fracionado):\n    if (i < 3 and nome_fracionado[1].lower()\
-    \ in lista_conectivos) or (i < 2):\n        iniciais_nome += f' {parte}'        # keep full word\n    else:\n\
-    \        iniciais_nome += f' {parte[0]}'     # keep initial only\nreturn iniciais_nome                     \
-    \   # leading space; each token space-prefixed"
-  edge_cases: Always keeps first 2 tokens full (i<2); keeps a 3rd full only if token index 1 is a connective. Result
-    has a leading space. A name with fewer than 2 words raises IndexError on nome_fracionado[1]. A word that is
-    an empty string (double space) raises IndexError on parte[0] in the else branch.
+  logic: "lista_conectivos = [\"da\", \"de\", \"do\", \"das\", \"dos\"]\nnome_fracionado = nome_completo.split(\" \")\niniciais_nome = \"\"\nfor i, parte in enumerate(nome_fracionado):\n    if (i < 3 and nome_fracionado[1].lower() in lista_conectivos) or (i < 2):\n        iniciais_nome += f' {parte}'        # keep full word\n    else:\n        iniciais_nome += f' {parte[0]}'     # keep initial only\nreturn iniciais_nome                        # leading space; each token space-prefixed"
+  edge_cases: Always keeps first 2 tokens full (i<2); keeps a 3rd full only if token index 1 is a connective. Result has a leading space. A name with fewer than 2 words raises IndexError on nome_fracionado[1]. A word that is an empty string (double space) raises IndexError on parte[0] in the else branch.
   confidence: medium
   merged_from:
   - RULE-ADMIN-BE-12-024
@@ -126,34 +76,19 @@ rules:
     lines: 34-48
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: DISCREPANCY - unguarded nome_fracionado[1] access crashes on single-word names. Purpose is patient-identity
-    display/ partial-anonymization. Sibling helper fraciona_nome_paciente (core/utils.py:26-31; trilha_automatica/utils.py:16-21)
-    returns concatenated initials of every word (not recorded separately - trivial transform).
+  notes: DISCREPANCY - unguarded nome_fracionado[1] access crashes on single-word names. Purpose is patient-identity display/ partial-anonymization. Sibling helper fraciona_nome_paciente (core/utils.py:26-31; trilha_automatica/utils.py:16-21) returns concatenated initials of every word (not recorded separately - trivial transform).
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published reference exists. Portuguese display-name abbreviation with connective
-        (da/de/do/das/dos) handling is a proprietary UI/partial-anonymization business rule, not governed by any
-        clinical guideline or standard calculator.
-      url: n/a
-    evidence: operacional-infra-batch1.yaml
-    test_vectors: 3/3 match
-    summary: Legacy source (core/utils.py:34-48) verified verbatim against the rule logic. This is an internal display/partial-anonymization
-      helper with no authoritative external reference; flag for internal review, do NOT treat as wrong. The extraction
-      DISCREPANCY (unguarded nome_fracionado[1] crash on single-word names, and parte[0] crash on empty tokens from
-      double spaces) is a real robustness defect but is a code-quality/internal-consistency matter, not a deviation
-      from any published standard. Preserving the exact behavior (including the leading space and the connective
-      list) is required for a faithful rebuild.
+    reference: No authoritative published reference exists. Portuguese display-name abbreviation with connective (da/de/do/das/dos) handling is a proprietary UI/partial-anonymization business rule, not governed by any clinical guideline or standard calculator.
+    detail_file: operacional-infra-batch1.yaml
 - id: RULE-OPERACIONAL-INFRA-003
   name: Offline prescriptions grouped by day, keyed by patient atendimento number
   category: care-pathway
   type: formula
   status: OK
   verify: true
-  description: PrescricoesOfflineSerializer.get_prescricoes looks up the bed's prescriptions from a context-supplied
-    dict (keyed by nr_atendimento, pre-filtered/pre-windowed by the view - see RULE-offline-BE-05-007) and groups
-    them by calendar day (obj.dia) into a payload dict keyed by day-string.
+  description: PrescricoesOfflineSerializer.get_prescricoes looks up the bed's prescriptions from a context-supplied dict (keyed by nr_atendimento, pre-filtered/pre-windowed by the view - see RULE-offline-BE-05-007) and groups them by calendar day (obj.dia) into a payload dict keyed by day-string.
   inputs:
   - name: context.prescricoes[instance.nr_atendimento]
     type: array of PrescricaoContinua
@@ -162,12 +97,8 @@ rules:
   - name: prescricoes
     type: object (day-string -> array)
     unit: null
-  logic: "prescricoes = context.get(\"prescricoes\", {}).get(instance.nr_atendimento, [])\npayload = {}\nfor dia,\
-    \ objs in groupby(prescricoes, key=lambda o: str(o.dia)):\n    payload[dia] = PrescricaoContinuaOfflineSerializer(list(objs),\
-    \ many=True, context=context).data\nreturn payload"
-  edge_cases: 'Like RULE-reacao-BE-05-003, this uses itertools.groupby which only merges CONSECUTIVE same-key items
-    - correctness depends on the upstream queryset already being ordered by ''dia'' (confirmed in RULE-offline-BE-05-007:
-    the source queryset IS ordered by ''-dia'' first, so this usage is safe, unlike the reacao case).'
+  logic: "prescricoes = context.get(\"prescricoes\", {}).get(instance.nr_atendimento, [])\npayload = {}\nfor dia, objs in groupby(prescricoes, key=lambda o: str(o.dia)):\n    payload[dia] = PrescricaoContinuaOfflineSerializer(list(objs), many=True, context=context).data\nreturn payload"
+  edge_cases: 'Like RULE-reacao-BE-05-003, this uses itertools.groupby which only merges CONSECUTIVE same-key items - correctness depends on the upstream queryset already being ordered by ''dia'' (confirmed in RULE-offline-BE-05-007: the source queryset IS ordered by ''-dia'' first, so this usage is safe, unlike the reacao case).'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-005
@@ -179,33 +110,19 @@ rules:
     lines: 31-60
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Docstring claims 'últimos 3 dias' (last 3 days) - this matches the view-side window of today minus PrescricaoOfflineEnum.QTD_DIAS=2
-    days inclusive (RULE-offline-BE-05-007), confirmed consistent, not a discrepancy.
+  notes: Docstring claims 'últimos 3 dias' (last 3 days) - this matches the view-side window of today minus PrescricaoOfflineEnum.QTD_DIAS=2 days inclusive (RULE-offline-BE-05-007), confirmed consistent, not a discrepancy.
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: 'No authoritative clinical reference. This is offline-sync data-shaping (group prescriptions by
-        calendar day). The only external correctness contract is Python''s itertools.groupby semantics: it groups
-        only CONSECUTIVE equal keys, so input must be pre-sorted by the grouping key.'
-      url: https://docs.python.org/3/library/itertools.html#itertools.groupby
-    evidence: operacional-infra-batch1.yaml
-    test_vectors: 3/3 match
-    summary: Legacy source (serializers/dados_offline.py:31-60) verified verbatim; docstring 'ultimos 3 dias' matches
-      the view-side QTD_DIAS window (RULE-005). No authoritative clinical reference; internal data-shaping only.
-      Against the applicable external contract (itertools.groupby requires sorted input) the usage is CORRECT because
-      the source queryset is ordered by '-dia' first. Flag for internal review only as confirmation of the ordering
-      dependency; no defect found relative to that contract.
+    reference: 'No authoritative clinical reference. This is offline-sync data-shaping (group prescriptions by calendar day). The only external correctness contract is Python''s itertools.groupby semantics: it groups only CONSECUTIVE equal keys, so input must be pre-sorted by the grouping key.'
+    detail_file: operacional-infra-batch1.yaml
 - id: RULE-OPERACIONAL-INFRA-004
   name: Continuous prescription 'real day' rolls over at 07:00 (shift boundary)
   category: scheduling-operational
   type: formula
   status: OK
   verify: true
-  description: 'For offline prescription schedule display, each scheduled administration time (horario) is bucketed
-    into a ''dia_real'' (real/effective day): times at or after 07:00 belong to the prescription''s own recorded
-    day; times before 07:00 belong to the NEXT calendar day (the prescription day + 1). This reflects a clinical
-    shift boundary at 07:00.'
+  description: 'For offline prescription schedule display, each scheduled administration time (horario) is bucketed into a ''dia_real'' (real/effective day): times at or after 07:00 belong to the prescription''s own recorded day; times before 07:00 belong to the NEXT calendar day (the prescription day + 1). This reflects a clinical shift boundary at 07:00.'
   inputs:
   - name: horario
     type: time
@@ -217,11 +134,8 @@ rules:
   - name: dia_real
     type: date
     unit: null
-  logic: "dia_real = Case(\n    When(horario__gte=\"07:00\", then=F(\"prescricao_continua__dia\")),\n    When(horario__lt=\"\
-    07:00\", then=F(\"prescricao_continua__dia\") + timedelta(days=1)),\n    output_field=DateField(),\n)\n# ordered\
-    \ by (dia_real, horario)"
-  edge_cases: Boundary is inclusive on the >=07:00 side (exactly 07:00:00 stays on the same day); exactly one tick
-    before is the < branch, rolling to the next day.
+  logic: "dia_real = Case(\n    When(horario__gte=\"07:00\", then=F(\"prescricao_continua__dia\")),\n    When(horario__lt=\"07:00\", then=F(\"prescricao_continua__dia\") + timedelta(days=1)),\n    output_field=DateField(),\n)\n# ordered by (dia_real, horario)"
+  edge_cases: Boundary is inclusive on the >=07:00 side (exactly 07:00:00 stays on the same day); exactly one tick before is the < branch, rolling to the next day.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-034
@@ -238,29 +152,15 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No universal published standard fixes the shift boundary at 07:00. A ~07:00 day-shift change is
-        a common Brazilian/institutional nursing-shift convention, but the specific cutoff is a proprietary operational
-        business rule. Only the Django Case/When boundary logic (inclusive at 07:00) is externally checkable.
-      url: n/a
-    evidence: operacional-infra-batch1.yaml
-    test_vectors: 3/3 match
-    summary: Legacy source (views/dados_offline.py:118-142) verified verbatim - the two When branches split at horario__gte='07:00'
-      (own day) vs horario__lt='07:00' (dia+1), ordered by (dia_real, horario). The 07:00 shift-boundary value itself
-      has no authoritative published reference (institutional convention); flag for internal review. The boundary
-      IMPLEMENTATION is internally consistent and correctly inclusive at exactly 07:00:00 as described. No defect
-      relative to the stated intent.
+    reference: No universal published standard fixes the shift boundary at 07:00. A ~07:00 day-shift change is a common Brazilian/institutional nursing-shift convention, but the specific cutoff is a proprietary operational business rule. Only the Django Case/When boundary logic (inclusive at 07:00) is externally checkable.
+    detail_file: operacional-infra-batch1.yaml
 - id: RULE-OPERACIONAL-INFRA-005
   name: Offline prescriptions windowed to the last 3 days, ordered by day then item-type priority
   category: scheduling-operational
   type: formula
   status: OK
   verify: true
-  description: '_get_prescricoes restricts PrescricaoContinua rows to those whose ''dia'' is on or after (today
-    - PrescricaoOfflineEnum.QTD_DIAS) - i.e. QTD_DIAS=2, giving an inclusive 3-day window (today, yesterday, day-before).
-    Results are ordered by day descending, then by a computed ''prioridade'' reflecting prescription item type:
-    DIETA=1, MEDICAMENTO_SOLUÇÃO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5 (any other DS_TIPO_ITEM_PRESCR
-    value gets no case match, i.e. a NULL/None priority).'
+  description: '_get_prescricoes restricts PrescricaoContinua rows to those whose ''dia'' is on or after (today - PrescricaoOfflineEnum.QTD_DIAS) - i.e. QTD_DIAS=2, giving an inclusive 3-day window (today, yesterday, day-before). Results are ordered by day descending, then by a computed ''prioridade'' reflecting prescription item type: DIETA=1, MEDICAMENTO_SOLUÇÃO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5 (any other DS_TIPO_ITEM_PRESCR value gets no case match, i.e. a NULL/None priority).'
   inputs:
   - name: prescricao.DS_TIPO_ITEM_PRESCR
     type: string enum
@@ -273,16 +173,8 @@ rules:
   - name: prioridade
     type: integer | null
     unit: null
-  logic: "QTD_DIAS = 2   # PrescricaoOfflineEnum.QTD_DIAS\nqs = PrescricaoContinua.objects.filter(\n    prescricao__NR_ATENDIMENTO__in=leitos.nr_atendimento,\n\
-    \    dia__gte=today() - timedelta(days=QTD_DIAS),\n).annotate(\n    prioridade=Case(\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"\
-    DIETA\", then=1),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"MEDICAMENTO_SOLUÇÃO\", then=2),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"\
-    SN_ACM\", then=3),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"RECOMENDACAO_ENFERMAGEM\", then=4),\n   \
-    \     When(prescricao__DS_TIPO_ITEM_PRESCR=\"RECOMENDACAO\", then=5),\n        output_field=IntegerField(),\n\
-    \    )\n).order_by(\"-dia\", \"prioridade\")"
-  edge_cases: dia__gte uses a closed lower bound with no upper bound - future-dated 'dia' values (if any exist)
-    would also be included, not just past/present days. Item types outside the 5 named ones get a NULL 'prioridade',
-    and NULLs sort per the database's NULL-ordering convention within the ascending 'prioridade' secondary sort
-    (typically last in PostgreSQL ascending order).
+  logic: "QTD_DIAS = 2   # PrescricaoOfflineEnum.QTD_DIAS\nqs = PrescricaoContinua.objects.filter(\n    prescricao__NR_ATENDIMENTO__in=leitos.nr_atendimento,\n    dia__gte=today() - timedelta(days=QTD_DIAS),\n).annotate(\n    prioridade=Case(\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"DIETA\", then=1),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"MEDICAMENTO_SOLUÇÃO\", then=2),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"SN_ACM\", then=3),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"RECOMENDACAO_ENFERMAGEM\", then=4),\n        When(prescricao__DS_TIPO_ITEM_PRESCR=\"RECOMENDACAO\", then=5),\n        output_field=IntegerField(),\n    )\n).order_by(\"-dia\", \"prioridade\")"
+  edge_cases: dia__gte uses a closed lower bound with no upper bound - future-dated 'dia' values (if any exist) would also be included, not just past/present days. Item types outside the 5 named ones get a NULL 'prioridade', and NULLs sort per the database's NULL-ordering convention within the ascending 'prioridade' secondary sort (typically last in PostgreSQL ascending order).
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-003
@@ -294,25 +186,12 @@ rules:
     lines: 144-172
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: PrescricaoOfflineEnum.QTD_DIAS=2 is defined in core/enum.py, out of this partition's scope, but its value
-    was confirmed by inspection and is required to reproduce this rule precisely.
+  notes: PrescricaoOfflineEnum.QTD_DIAS=2 is defined in core/enum.py, out of this partition's scope, but its value was confirmed by inspection and is required to reproduce this rule precisely.
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative clinical reference. The 3-day retention window (QTD_DIAS=2, inclusive) and the
-        item-type priority ordering (DIETA=1, MEDICAMENTO_SOLUCAO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5)
-        are proprietary offline-sync display business rules. Only the window arithmetic and NULL-ordering are externally
-        checkable (Python/Django date math; PostgreSQL default ASC NULLS LAST).
-      url: https://www.postgresql.org/docs/current/queries-order.html
-    evidence: operacional-infra-batch1.yaml
-    test_vectors: 4/4 match
-    summary: 'Legacy source (views/dados_offline.py:144-172) verified verbatim; QTD_DIAS=2 confirmed in core/enum.py:2.
-      Window arithmetic yields the documented inclusive 3-day window and the priority map exactly matches the code.
-      The retention window and the DIETA>MEDICAMENTO>SN_ACM>... priority hierarchy are proprietary product decisions
-      with no authoritative external reference; flag for internal review. No defect found relative to the stated
-      intent. Note (already flagged): closed lower bound with no upper bound would admit any future-dated ''dia''
-      rows.'
+    reference: No authoritative clinical reference. The 3-day retention window (QTD_DIAS=2, inclusive) and the item-type priority ordering (DIETA=1, MEDICAMENTO_SOLUCAO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5) are proprietary offline-sync display business rules. Only the window arithmetic and NULL-ordering are externally checkable (Python/Django date math; PostgreSQL default ASC NULLS LAST).
+    detail_file: operacional-infra-batch1.yaml
 - id: RULE-OPERACIONAL-INFRA-006
   name: Length of stay (TEMPO_PERMANENCIA) computed property
   category: scheduling-operational
@@ -346,26 +225,15 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published clinical reference. 'Length of stay' is a standard operational metric
-        but its exact computation (calendar-date difference in whole days vs elapsed 24h periods) is an internal
-        definitional choice with no governing paper/guideline/calculator.
-      url: n/a
-    evidence: operacional-infra-batch2.yaml
-    test_vectors: 3/3 match
-    summary: 'Legacy confirmed at trilha_automatica/models/microindicadores.py:46-48 -> handlers.diferenca_dias
-      (utils/handlers.py:63-65): dias = timezone.now().date() - entrada; return dias.days. Internally consistent.
-      Flag for internal review: no null guard (TypeError if DT_ENTRADA None) and no non-negative guard (future admission
-      -> negative LOS). Uses .date() so a patient admitted 23:59 and measured 00:01 next day counts as 1 day. Not
-      a clinical-scale error; flag for product/internal review.'
+    reference: No authoritative published clinical reference. 'Length of stay' is a standard operational metric but its exact computation (calendar-date difference in whole days vs elapsed 24h periods) is an internal definitional choice with no governing paper/guideline/calculator.
+    detail_file: operacional-infra-batch2.yaml
 - id: RULE-OPERACIONAL-INFRA-007
   name: Pagination page-count and default page size
   category: scheduling-operational
   type: formula
   status: OK
   verify: true
-  description: Page model computes total page count as ceil(count/page_size); default list requests use offset 0
-    and limit (page size) 20.
+  description: Page model computes total page count as ceil(count/page_size); default list requests use offset 0 and limit (page size) 20.
   inputs:
   - name: count
     type: number
@@ -398,16 +266,8 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published reference. ceil(count/page_size) is standard pagination arithmetic; default
-        page size 20 is an arbitrary internal UI constant.
-      url: n/a
-    evidence: operacional-infra-batch2.yaml
-    test_vectors: 3/3 match
-    summary: Legacy confirmed at src/utils/Page.ts:16-20 (getter returns Math.ceil(count/page_size), else 0) and
-      default limit=20 in src/utils/initialPaginator.ts. Pure UI pagination, no clinical content. Math is correct;
-      the falsy-guard means page_size=0 yields 0 rather than a divide error. Nothing to flag beyond it being an
-      internal rule.
+    reference: No authoritative published reference. ceil(count/page_size) is standard pagination arithmetic; default page size 20 is an arbitrary internal UI constant.
+    detail_file: operacional-infra-batch2.yaml
 - id: RULE-OPERACIONAL-INFRA-008
   name: Minutes elapsed between two dates
   category: scheduling-operational
@@ -435,8 +295,7 @@ rules:
     diffMins = Math.floor(diffMs / 1000 / 60)
 
     return diffMins'
-  edge_cases: Sign convention is date1-date2 (negative if date1 earlier). Uses Math.floor, so negative differences
-    round toward -Infinity (e.g. -0.5 min -> -1). No null/NaN guard; invalid date -> NaN result.
+  edge_cases: Sign convention is date1-date2 (negative if date1 earlier). Uses Math.floor, so negative differences round toward -Infinity (e.g. -0.5 min -> -1). No null/NaN guard; invalid date -> NaN result.
   confidence: medium
   merged_from:
   - RULE-scheduling-FE-02-003
@@ -446,29 +305,19 @@ rules:
     lines: 1-9
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Reusable time-window primitive (likely used for medication/observation timing). Sign and floor convention
-    are load-bearing.
+  notes: Reusable time-window primitive (likely used for medication/observation timing). Sign and floor convention are load-bearing.
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published reference. Whole-minutes-between-two-instants via floored millisecond
-        difference is a generic time primitive.
-      url: n/a
-    evidence: operacional-infra-batch2.yaml
-    test_vectors: 3/3 match
-    summary: 'Legacy confirmed at src/utils/minutesBetweenDates.ts:1-9. Sign convention (date1 minus date2) and
-      Math.floor (toward -Infinity) are load-bearing: for negative intervals a sub-minute gap floors to -1, and
-      positive sub-minute gaps floor to 0. Flag for internal review only insofar as a caller expecting symmetric
-      rounding or absolute elapsed time must account for the floor/sign; no clinical scale is implicated.'
+    reference: No authoritative published reference. Whole-minutes-between-two-instants via floored millisecond difference is a generic time primitive.
+    detail_file: operacional-infra-batch2.yaml
 - id: RULE-OPERACIONAL-INFRA-009
   name: format_horario — normalize hour-only strings to HH:MM
   category: data-validation
   type: formula
   status: OK
   verify: true
-  description: Given a time-of-day string, strips whitespace and, if it contains no ':' character, appends ':00'
-    (treats the input as an hour-only value and pads to HH:00).
+  description: Given a time-of-day string, strips whitespace and, if it contains no ':' character, appends ':00' (treats the input as an hour-only value and pads to HH:00).
   inputs:
   - name: horario
     type: string
@@ -480,8 +329,7 @@ rules:
   logic: 'horario = horario.strip()
 
     RETURN horario + ":00" IF horario.find(":") == -1 ELSE horario'
-  edge_cases: Any presence of ':' anywhere in the string (not just as an HH:MM separator) is treated as 'already
-    formatted' and left untouched.
+  edge_cases: Any presence of ':' anywhere in the string (not just as an HH:MM separator) is treated as 'already formatted' and left untouched.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-001
@@ -497,26 +345,15 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published reference. Hour-only-to-HH:MM padding is an internal string-normalization
-        helper.
-      url: n/a
-    evidence: operacional-infra-batch2.yaml
-    test_vectors: 3/3 match
-    summary: 'Legacy confirmed at utils/handlers.py:221-223: horario.strip(); return (horario + '':00'') if horario.find('':'')
-      == -1 else horario. Internally consistent. Edge behavior (any '':'' -> treated as formatted; does not validate
-      HH:MM shape, does not zero-pad the hour) is documented and matches source. Internal utility; no clinical reference
-      exists.'
+    reference: No authoritative published reference. Hour-only-to-HH:MM padding is an internal string-normalization helper.
+    detail_file: operacional-infra-batch2.yaml
 - id: RULE-OPERACIONAL-INFRA-010
   name: parse_date_to_iso — multi-format date string parser with fixed precedence
   category: data-validation
   type: formula
   status: OK
   verify: true
-  description: 'Parses a date string into a datetime by checking, IN ORDER, the count of ''/'' and ''-'' separators:
-    exactly one ''/'' -> month/year (MM/YYYY); exactly one ''-'' -> year-month (YYYY-MM); exactly two ''/'' -> day/month/year
-    (DD/MM/YYYY); exactly two ''-'' -> year-month-day (YYYY-MM-DD); otherwise falls back to dateutil.parser.parse
-    for any other format.'
+  description: 'Parses a date string into a datetime by checking, IN ORDER, the count of ''/'' and ''-'' separators: exactly one ''/'' -> month/year (MM/YYYY); exactly one ''-'' -> year-month (YYYY-MM); exactly two ''/'' -> day/month/year (DD/MM/YYYY); exactly two ''-'' -> year-month-day (YYYY-MM-DD); otherwise falls back to dateutil.parser.parse for any other format.'
   inputs:
   - name: date
     type: string
@@ -534,10 +371,7 @@ rules:
     ELIF date.count("-") == 2: RETURN strptime(date, "%Y-%m-%d")
 
     ELSE: RETURN dateutil.parser.parse(date)'
-  edge_cases: Checks are mutually exclusive on separator TYPE and COUNT only, evaluated in this fixed order ('/'
-    checked before '-'); a string containing exactly one '/' AND some number of '-' would match the first '/' branch
-    and attempt %m/%Y regardless of the '-' characters present, potentially raising a strptime ValueError instead
-    of falling through to dateutil.
+  edge_cases: Checks are mutually exclusive on separator TYPE and COUNT only, evaluated in this fixed order ('/' checked before '-'); a string containing exactly one '/' AND some number of '-' would match the first '/' branch and attempt %m/%Y regardless of the '-' characters present, potentially raising a strptime ValueError instead of falling through to dateutil.
   confidence: high
   merged_from:
   - RULE-util-BE-11-041
@@ -551,17 +385,8 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published reference. Multi-format date parsing with a fixed separator-count precedence
-        is an internal parsing helper (Python datetime.strptime + dateutil.parser fallback).
-      url: n/a
-    evidence: operacional-infra-batch2.yaml
-    test_vectors: 4/4 match
-    summary: Legacy confirmed at utils/handlers.py:48-60. Note the DD/MM ordering (%d/%m/%Y, day-first) is a locale
-      choice (Brazilian pt-BR), correct for this codebase but would mis-parse US MM/DD/YYYY input silently for ambiguous
-      days (e.g. '03/04/2026' -> April 3, not March 4). Separator-count precedence ('/' before '-') means mixed
-      strings can raise ValueError rather than reaching the dateutil fallback. Flag for internal review of upstream
-      callers' expected locale; not a clinical-scale error.
+    reference: No authoritative published reference. Multi-format date parsing with a fixed separator-count precedence is an internal parsing helper (Python datetime.strptime + dateutil.parser fallback).
+    detail_file: operacional-infra-batch2.yaml
 - id: RULE-OPERACIONAL-INFRA-011
   name: get_number — safe numeric coercion with zero default
   category: data-validation
@@ -596,25 +421,15 @@ rules:
   verification:
     verdict: UNVERIFIABLE
     clinical_impact: n/a
-    reference:
-      citation: No authoritative published clinical reference. get_number is a generic Python float-coercion helper
-        (utils/handlers.py:68-73) that returns 0 on ValueError/TypeError. Not a clinical scale, equation, or guideline-derived
-        rule.
-      url: n/a
-    evidence: operacional-infra-batch3.yaml
-    test_vectors: 3/3 match
-    summary: 'Internal utility rule with no external authoritative source. Behavior confirmed verbatim against utils/handlers.py:68-73.
-      Flag for internal review only: the silent coerce-to-0 fallback could mask a missing/invalid clinical value
-      as a real 0 if get_number is ever applied to a clinical numeric field, but that is a design concern, not a
-      reference discrepancy. No correction made.'
+    reference: No authoritative published clinical reference. get_number is a generic Python float-coercion helper (utils/handlers.py:68-73) that returns 0 on ValueError/TypeError. Not a clinical scale, equation, or guideline-derived rule.
+    detail_file: operacional-infra-batch3.yaml
 - id: RULE-OPERACIONAL-INFRA-012
   name: popular_banco RASS enum values (synthetic data)
   category: clinical-scoring
   type: scoring
   status: OK
   verify: true
-  description: The synthetic test-data generator draws a random RASS (Richmond Agitation-Sedation Scale) value from
-    the fixed set of 10 standard RASS levels, -5 through +4.
+  description: The synthetic test-data generator draws a random RASS (Richmond Agitation-Sedation Scale) value from the fixed set of 10 standard RASS levels, -5 through +4.
   inputs: []
   outputs:
   - name: rass
@@ -637,32 +452,19 @@ rules:
     lines: 71, 134
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Sourced from a developer test-data generator, not from an authoritative model field/serializer choices=
-    in this partition (the actual model with choices likely lives in trilha_manual, out of BE-11 scope). Included
-    as provisional evidence that the system's RASS domain is the standard 10-point -5..+4 scale.
+  notes: Sourced from a developer test-data generator, not from an authoritative model field/serializer choices= in this partition (the actual model with choices likely lives in trilha_manual, out of BE-11 scope). Included as provisional evidence that the system's RASS domain is the standard 10-point -5..+4 scale.
   verification:
     verdict: VERIFIED
     clinical_impact: none
-    reference:
-      citation: 'Sessler CN, Gosnell MS, Grap MJ, et al. The Richmond Agitation-Sedation Scale: validity and reliability
-        in adult intensive care unit patients. Am J Respir Crit Care Med. 2002;166(10):1338-1344. Also Ely EW et
-        al. JAMA 2003;289(22):2983-2991. Standard RASS is a 10-point ordinal scale from -5 (unarousable) through
-        0 (alert and calm) to +4 (combative).'
-      url: https://doi.org/10.1164/rccm.2107138
-    evidence: operacional-infra-batch3.yaml
-    test_vectors: 3/3 match
-    summary: 'Legacy source utils/popular_banco.py:71,134 confirmed: rass = [''-5'',''-4'',''-3'',''-2'',''-1'',
-      ''0'',''+1'',''+2'',''+3'',''+4'']; index drawn via randint(0,9) covers all 10 levels exactly. Full RASS domain
-      reproduced with no gaps or spurious levels. This is a synthetic test-data generator, not a production validator,
-      but its RASS domain matches the authoritative Richmond scale exactly.'
+    reference: 'Sessler CN, Gosnell MS, Grap MJ, et al. The Richmond Agitation-Sedation Scale: validity and reliability in adult intensive care unit patients. Am J Respir Crit Care Med. 2002;166(10):1338-1344. Also Ely EW et al. JAMA 2003;289(22):2983-2991. Standard RASS is a 10-point ordinal scale from -5 (unarousable) through 0 (alert and calm) to +4 (combative).'
+    detail_file: operacional-infra-batch3.yaml
 - id: RULE-OPERACIONAL-INFRA-013
   name: popular_banco SDRA (ARDS) severity enum (synthetic data)
   category: triage-eligibility
   type: scoring
   status: OK
   verify: true
-  description: 'The synthetic test-data generator draws a random ARDS/SDRA (Síndrome do Desconforto Respiratório
-    Agudo) severity classification from 3 categories: mild, moderate, severe.'
+  description: 'The synthetic test-data generator draws a random ARDS/SDRA (Síndrome do Desconforto Respiratório Agudo) severity classification from 3 categories: mild, moderate, severe.'
   inputs: []
   outputs:
   - name: sdra
@@ -685,35 +487,19 @@ rules:
     lines: 72, 135
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Same provenance caveat as RULE-seed-BE-11-032: sourced from the test-data generator, not the authoritative
-    model definition (out of BE-11 scope). Matches the standard 3-tier Berlin-definition-style ARDS severity naming
-    (mild/moderate/severe), used verbatim here without correction.'
+  notes: 'Same provenance caveat as RULE-seed-BE-11-032: sourced from the test-data generator, not the authoritative model definition (out of BE-11 scope). Matches the standard 3-tier Berlin-definition-style ARDS severity naming (mild/moderate/severe), used verbatim here without correction.'
   verification:
     verdict: VERIFIED
     clinical_impact: none
-    reference:
-      citation: 'ARDS Definition Task Force; Ranieri VM, Rubenfeld GD, Thompson BT, et al. Acute respiratory distress
-        syndrome: the Berlin Definition. JAMA. 2012;307(23):2526-2533. Berlin stratifies ARDS into three mutually
-        exclusive severity categories by PaO2/FiO2 (on PEEP/CPAP >=5 cmH2O): mild (200 < P/F <= 300), moderate (100
-        < P/F <= 200), severe (P/F <= 100).'
-      url: https://doi.org/10.1001/jama.2012.5669
-    evidence: operacional-infra-batch3.yaml
-    test_vectors: 3/3 match
-    summary: 'Legacy source utils/popular_banco.py:72,135 confirmed: sdra = [''leve'',''moderada'',''grave'']; index
-      via randint(0,2) covers all three. Matches the Berlin Definition 3-tier severity naming verbatim (the older
-      AECC ''ALI'' tier was retired by Berlin — correctly absent here). Synthetic seed generator only; category
-      labels align with the authoritative reference.'
+    reference: 'ARDS Definition Task Force; Ranieri VM, Rubenfeld GD, Thompson BT, et al. Acute respiratory distress syndrome: the Berlin Definition. JAMA. 2012;307(23):2526-2533. Berlin stratifies ARDS into three mutually exclusive severity categories by PaO2/FiO2 (on PEEP/CPAP >=5 cmH2O): mild (200 < P/F <= 300), moderate (100 < P/F <= 200), severe (P/F <= 100).'
+    detail_file: operacional-infra-batch3.yaml
 - id: RULE-OPERACIONAL-INFRA-014
   name: Android TWA Digital Asset Links restricted to a single homol package
   category: scheduling-operational
   type: eligibility
   status: DISCREPANCY
   verify: false
-  description: 'public/.well-known/assetlinks.json grants "delegate_permission/common.handle_all_urls" (full-URL
-    App Links / Trusted Web Activity verification, enabling a chromeless installed Android app experience) to exactly
-    one Android package: "co.omnisaude.trilhas.homol.twa", identified by a single SHA256 cert fingerprint. No entries
-    exist for a "prod" or "demo" TWA package, even though package.json/ecosystem.config.js define three parallel
-    deploy targets (prod/homol/demo) that appear to share this same public/ directory and codebase.'
+  description: 'public/.well-known/assetlinks.json grants "delegate_permission/common.handle_all_urls" (full-URL App Links / Trusted Web Activity verification, enabling a chromeless installed Android app experience) to exactly one Android package: "co.omnisaude.trilhas.homol.twa", identified by a single SHA256 cert fingerprint. No entries exist for a "prod" or "demo" TWA package, even though package.json/ecosystem.config.js define three parallel deploy targets (prod/homol/demo) that appear to share this same public/ directory and codebase.'
   inputs:
   - name: android_package_name
     type: string
@@ -727,14 +513,8 @@ rules:
   - name: url_handling_delegated
     type: boolean
     unit: n/a
-  logic: "IF requesting_android_package == \"co.omnisaude.trilhas.homol.twa\"\n   AND cert_fingerprint == \"A8:27:34:65:C8:23:B3:F5:30:7B:9B:18:FD:96:21:BF:F0:F8:E1:00:9A:4E:0B:ED:F9:D8:E8:88:E1:A1:24:A9\"\
-    :\n  DELEGATE handle_all_urls permission (verified App Link / full TWA mode)\nELSE:\n  deny (link opens in regular\
-    \ browser, not the installed TWA app)"
-  edge_cases: 'DISCREPANCY (verbatim, not corrected): if a prod or demo Android TWA app exists, it would not be
-    App-Link-verified under this assetlinks.json content — either each deploy target must serve its own distinct
-    public/.well-known/assetlinks.json (not evidenced anywhere in this partition, which contains only one such file)
-    or only the homol/staging Android app is actually verified, and any production/demo Android TWA would fall back
-    to ordinary browser-chrome behavior rather than a full native-feeling app experience.'
+  logic: "IF requesting_android_package == \"co.omnisaude.trilhas.homol.twa\"\n   AND cert_fingerprint == \"A8:27:34:65:C8:23:B3:F5:30:7B:9B:18:FD:96:21:BF:F0:F8:E1:00:9A:4E:0B:ED:F9:D8:E8:88:E1:A1:24:A9\":\n  DELEGATE handle_all_urls permission (verified App Link / full TWA mode)\nELSE:\n  deny (link opens in regular browser, not the installed TWA app)"
+  edge_cases: 'DISCREPANCY (verbatim, not corrected): if a prod or demo Android TWA app exists, it would not be App-Link-verified under this assetlinks.json content — either each deploy target must serve its own distinct public/.well-known/assetlinks.json (not evidenced anywhere in this partition, which contains only one such file) or only the homol/staging Android app is actually verified, and any production/demo Android TWA would fall back to ordinary browser-chrome behavior rather than a full native-feeling app experience.'
   confidence: medium
   related:
   - RULE-OPERACIONAL-INFRA-039
@@ -747,20 +527,19 @@ rules:
     lines: 1-13
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Only one assetlinks.json exists in this checkout; cannot confirm whether prod/demo branches/servers substitute
-    a different file at deploy time.
+  notes: Only one assetlinks.json exists in this checkout; cannot confirm whether prod/demo branches/servers substitute a different file at deploy time.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-015
   name: Exclude entities already in a given access group
   category: billing-administrative
   type: eligibility
   status: OK
   verify: false
-  description: Sector and user list filters support a `grupo` parameter that EXCLUDES records already belonging
-    to that access group (i.e. surfaces candidates available to add).
+  description: Sector and user list filters support a `grupo` parameter that EXCLUDES records already belonging to that access group (i.e. surfaces candidates available to add).
   inputs:
   - name: grupo (id)
     type: string
@@ -792,7 +571,8 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-016
   name: Evolution (Formulario) full-day date-range filter
   category: scheduling-operational
@@ -838,18 +618,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-017
   name: ParanoiaMixin.delete/restore — admin-path hard delete vs cascading soft delete
   category: data-validation
   type: decision-tree
   status: AMBIGUOUS
   verify: false
-  description: 'delete(): if the instance has a `request` attribute AND request.path starts with ''/admin/'' AND
-    the caller did not pass soft_delete=True, OR the caller passed force_delete=True, performs a REAL (hard, cascading
-    via Django''s normal delete) deletion. Otherwise, it soft-deletes: recursively soft-deletes all related_objects()
-    (cascade=True) inside one DB transaction, then sets deletado_em=datetime.now() on self and saves. restore()
-    mirrors this: cascades restore to related objects, then clears deletado_em on self.'
+  description: 'delete(): if the instance has a `request` attribute AND request.path starts with ''/admin/'' AND the caller did not pass soft_delete=True, OR the caller passed force_delete=True, performs a REAL (hard, cascading via Django''s normal delete) deletion. Otherwise, it soft-deletes: recursively soft-deletes all related_objects() (cascade=True) inside one DB transaction, then sets deletado_em=datetime.now() on self and saves. restore() mirrors this: cascades restore to related objects, then clears deletado_em on self.'
   inputs:
   - name: kwargs.soft_delete
     type: boolean
@@ -864,15 +641,8 @@ rules:
   - name: deletion outcome
     type: hard delete OR soft-delete cascade
     unit: null
-  logic: "delete(**kwargs):\n  IF (hasattr(self,\"request\") AND self.request.path.startswith(\"/admin/\") AND NOT\
-    \ kwargs.get(\"soft_delete\", False))\n     OR kwargs.pop(\"force_delete\", False):\n    super().delete(**kwargs)\
-    \      # HARD delete\n  ELSE:\n    WITH transaction.atomic():\n      FOR related IN self.related_objects():\
-    \ related.delete(cascade=True, **kwargs)\n    self.deletado_em = datetime.now(); self.save()\nrestore(**kwargs):\n\
-    \  WITH transaction.atomic():\n    FOR related IN self.related_objects(): related.restore(cascade=True)\n  self.deletado_em\
-    \ = None; self.save()"
-  edge_cases: Deletes performed through the Django admin UI (path starting '/admin/') default to a REAL hard delete
-    unless soft_delete=True is explicitly passed — the inverse of what a 'safety-first' soft-delete convention would
-    suggest for admin/staff-driven actions vs API-driven ones.
+  logic: "delete(**kwargs):\n  IF (hasattr(self,\"request\") AND self.request.path.startswith(\"/admin/\") AND NOT kwargs.get(\"soft_delete\", False))\n     OR kwargs.pop(\"force_delete\", False):\n    super().delete(**kwargs)      # HARD delete\n  ELSE:\n    WITH transaction.atomic():\n      FOR related IN self.related_objects(): related.delete(cascade=True, **kwargs)\n    self.deletado_em = datetime.now(); self.save()\nrestore(**kwargs):\n  WITH transaction.atomic():\n    FOR related IN self.related_objects(): related.restore(cascade=True)\n  self.deletado_em = None; self.save()"
+  edge_cases: Deletes performed through the Django admin UI (path starting '/admin/') default to a REAL hard delete unless soft_delete=True is explicitly passed — the inverse of what a 'safety-first' soft-delete convention would suggest for admin/staff-driven actions vs API-driven ones.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-018
@@ -884,26 +654,19 @@ rules:
     lines: 193-243
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: flagged because the admin-path branch''s default-to-hard-delete behavior is surprising and
-    risk-relevant for a clinical records system; needs product/security sign-off during rebuild. Also see RULE-model-BE-11-058:
-    SetUpModel, which most concrete models appear to inherit from, entirely overrides this delete() method with
-    different (simpler) semantics.'
+  notes: 'AMBIGUOUS: flagged because the admin-path branch''s default-to-hard-delete behavior is surprising and risk-relevant for a clinical records system; needs product/security sign-off during rebuild. Also see RULE-model-BE-11-058: SetUpModel, which most concrete models appear to inherit from, entirely overrides this delete() method with different (simpler) semantics.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-018
-  name: SetUpModel.delete — overrides ParanoiaMixin.delete with simpler soft-delete-only semantics (no cascade,
-    no admin-path check)
+  name: SetUpModel.delete — overrides ParanoiaMixin.delete with simpler soft-delete-only semantics (no cascade, no admin-path check)
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'SetUpModel (which combines TimeManagerMixin, ParanoiaMixin, UUIDPkFieldMixin, UniqueTogetherManagerMixin,
-    UniqueManagerMixin) defines its OWN delete() method directly, which takes precedence over the inherited ParanoiaMixin.delete()
-    in Python''s MRO. SetUpModel.delete(): if force_delete=True, performs a real hard delete via super(SetUpModel,
-    self).delete(); otherwise sets deletado_em=timezone.now() and saves — with NO cascade to related_objects() and
-    NO admin-request-path branch.'
+  description: 'SetUpModel (which combines TimeManagerMixin, ParanoiaMixin, UUIDPkFieldMixin, UniqueTogetherManagerMixin, UniqueManagerMixin) defines its OWN delete() method directly, which takes precedence over the inherited ParanoiaMixin.delete() in Python''s MRO. SetUpModel.delete(): if force_delete=True, performs a real hard delete via super(SetUpModel, self).delete(); otherwise sets deletado_em=timezone.now() and saves — with NO cascade to related_objects() and NO admin-request-path branch.'
   inputs:
   - name: kwargs.force_delete
     type: boolean
@@ -912,13 +675,8 @@ rules:
   - name: deletion outcome
     type: hard delete OR simple (non-cascading) soft-delete
     unit: null
-  logic: "SetUpModel.delete(self, *args, **kwargs):\n  IF kwargs.get(\"force_delete\", False):\n    RETURN super(SetUpModel,\
-    \ self).delete(*args, **kwargs)   # HARD delete, no cascade logic here\n  ELSE:\n    self.deletado_em = timezone.now()\n\
-    \    self.save()"
-  edge_cases: Because SetUpModel defines delete() directly on the class, ParanoiaMixin's cascade-to-related-objects
-    and the admin-request-path hard-delete branch (RULE-model-BE-11-057) are effectively DEAD CODE for any model
-    built on SetUpModel (the common base class convention in this codebase) — they would only apply to a model using
-    ParanoiaMixin WITHOUT also using/overriding via SetUpModel.
+  logic: "SetUpModel.delete(self, *args, **kwargs):\n  IF kwargs.get(\"force_delete\", False):\n    RETURN super(SetUpModel, self).delete(*args, **kwargs)   # HARD delete, no cascade logic here\n  ELSE:\n    self.deletado_em = timezone.now()\n    self.save()"
+  edge_cases: Because SetUpModel defines delete() directly on the class, ParanoiaMixin's cascade-to-related-objects and the admin-request-path hard-delete branch (RULE-model-BE-11-057) are effectively DEAD CODE for any model built on SetUpModel (the common base class convention in this codebase) — they would only apply to a model using ParanoiaMixin WITHOUT also using/overriding via SetUpModel.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-017
@@ -930,24 +688,19 @@ rules:
     lines: 245-261
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY: two different delete-semantics coexist in the same MRO chain (ParanoiaMixin.delete vs SetUpModel.delete)
-    and only one is ever reachable depending on which class a given model instantiates from. Verifier should check
-    which concrete app models (out of this partition''s scope) inherit SetUpModel vs ParanoiaMixin directly to know
-    which delete behavior actually applies where.'
+  notes: 'DISCREPANCY: two different delete-semantics coexist in the same MRO chain (ParanoiaMixin.delete vs SetUpModel.delete) and only one is ever reachable depending on which class a given model instantiates from. Verifier should check which concrete app models (out of this partition''s scope) inherit SetUpModel vs ParanoiaMixin directly to know which delete behavior actually applies where.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-019
   name: Offline water balance shows the last 2 records for an occupied bed; a QTD attribute is defined but unused
   category: care-pathway
   type: threshold
   status: DISCREPANCY
   verify: false
-  description: BalancoHidricoOfflineSerializer.get_balanco_hidrico fetches only the 2 most recent (order_by('-dia')[:2])
-    BalancoHidrico (fluid balance) records for the bed, requiring leito__ocupado=True. A class attribute _QT_DIAS=5
-    is declared but never referenced anywhere in the method body - the actual limit is the hardcoded slice [:2],
-    not _QT_DIAS.
+  description: BalancoHidricoOfflineSerializer.get_balanco_hidrico fetches only the 2 most recent (order_by('-dia')[:2]) BalancoHidrico (fluid balance) records for the bed, requiring leito__ocupado=True. A class attribute _QT_DIAS=5 is declared but never referenced anywhere in the method body - the actual limit is the hardcoded slice [:2], not _QT_DIAS.
   inputs:
   - name: instance
     type: Leito
@@ -957,12 +710,8 @@ rules:
   - name: balanco_hidrico
     type: object (day-string -> object)
     unit: null
-  logic: "_QT_DIAS = 5   # declared, never used\npayload = {}\nfor bh in BalancoHidrico.objects.prefetch_related(\"\
-    entradas\",\"saidas\",\"sinais_vitais\").filter(\n        leito=instance, nr_atendimento=instance.nr_atendimento,\
-    \ leito__ocupado=True\n    ).order_by(\"-dia\")[:2]:\n    payload[str(bh.dia)] = BalancoHidricoCompletoSerializer(bh,\
-    \ context=context).data\nreturn payload"
-  edge_cases: If the bed is currently unoccupied (leito__ocupado=False), the queryset returns nothing at all, even
-    if historical balance records exist for a previous nr_atendimento.
+  logic: "_QT_DIAS = 5   # declared, never used\npayload = {}\nfor bh in BalancoHidrico.objects.prefetch_related(\"entradas\",\"saidas\",\"sinais_vitais\").filter(\n        leito=instance, nr_atendimento=instance.nr_atendimento, leito__ocupado=True\n    ).order_by(\"-dia\")[:2]:\n    payload[str(bh.dia)] = BalancoHidricoCompletoSerializer(bh, context=context).data\nreturn payload"
+  edge_cases: If the bed is currently unoccupied (leito__ocupado=False), the queryset returns nothing at all, even if historical balance records exist for a previous nr_atendimento.
   confidence: high
   merged_from:
   - RULE-offline-BE-05-002
@@ -972,24 +721,19 @@ rules:
     lines: 63-97
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: The docstring ('Pegar os últimos 2 balanços hídricos') matches the actual [:2] slice, so behavior is internally
-    consistent - the discrepancy is specifically the dead/unused _QT_DIAS=5 class attribute, which a verifier might
-    mistake for the actual controlling parameter.
+  notes: The docstring ('Pegar os últimos 2 balanços hídricos') matches the actual [:2] slice, so behavior is internally consistent - the discrepancy is specifically the dead/unused _QT_DIAS=5 class attribute, which a verifier might mistake for the actual controlling parameter.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-020
   name: Offline evolution forms visible if authored by the requesting user OR marked 'liberado'
   category: data-validation
   type: eligibility
   status: OK
   verify: false
-  description: EvolucoesOfflineSerializer.get_evolucoes, for each professional-role form type (medico, tecnico_enfermagem,
-    enfermagem, fisioterapeuta, musicoterapeuta, nutricionista, psicologo, fonoaudiologo, farmaceutico, intercorrencia),
-    returns the most recent qualifying Formulario ('anterior_indicadores') plus up to 2 most recent as 'historico'.
-    A form qualifies for a given bed/atendimento if the requesting user authored it (preenchido_por=user) OR it
-    has been released (status='liberado') - draft forms authored by OTHER users are invisible to this user.
+  description: EvolucoesOfflineSerializer.get_evolucoes, for each professional-role form type (medico, tecnico_enfermagem, enfermagem, fisioterapeuta, musicoterapeuta, nutricionista, psicologo, fonoaudiologo, farmaceutico, intercorrencia), returns the most recent qualifying Formulario ('anterior_indicadores') plus up to 2 most recent as 'historico'. A form qualifies for a given bed/atendimento if the requesting user authored it (preenchido_por=user) OR it has been released (status='liberado') - draft forms authored by OTHER users are invisible to this user.
   inputs:
   - name: request.user
     type: object
@@ -1004,14 +748,8 @@ rules:
   - name: evolucoes[tipo].historico
     type: array (max 2)
     unit: null
-  logic: "for tipo, Serializer in tipo_serializer_map.items():\n    formularios = Formulario.objects.filter(\n \
-    \       Q(leito=instance, tipo=tipo, nr_atendimento=instance.nr_atendimento),\n        (Q(preenchido_por=user)\
-    \ | Q(status=\"liberado\"))\n    ).order_by(\"-modificado_em\")\n    formulario_anterior = formularios.first()\n\
-    \    payload[tipo] = {\n        \"anterior_indicadores\": Serializer(formulario_anterior, context=context).data\
-    \ if formulario_anterior else None,\n        \"historico\": Serializer(formularios[:2], many=True, context=context).data,\n\
-    \    }"
-  edge_cases: '''historico'' can include the same record as ''anterior_indicadores'' (formularios[:2] re-slices
-    the same ordered queryset from the top, does not exclude the first record).'
+  logic: "for tipo, Serializer in tipo_serializer_map.items():\n    formularios = Formulario.objects.filter(\n        Q(leito=instance, tipo=tipo, nr_atendimento=instance.nr_atendimento),\n        (Q(preenchido_por=user) | Q(status=\"liberado\"))\n    ).order_by(\"-modificado_em\")\n    formulario_anterior = formularios.first()\n    payload[tipo] = {\n        \"anterior_indicadores\": Serializer(formulario_anterior, context=context).data if formulario_anterior else None,\n        \"historico\": Serializer(formularios[:2], many=True, context=context).data,\n    }"
+  edge_cases: '''historico'' can include the same record as ''anterior_indicadores'' (formularios[:2] re-slices the same ordered queryset from the top, does not exclude the first record).'
   confidence: high
   merged_from:
   - RULE-offline-BE-05-003
@@ -1025,26 +763,22 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-021
   name: Offline endpoints hardcode empresa lookup to whitelabel='homecare'
   category: data-validation
   type: threshold
   status: DISCREPANCY
   verify: false
-  description: All four offline sync views (DadosOfflineView, EvolucoesOfflineView, PrescricoesOfflineView, BalancoHidricoOfflineView)
-    set request.empresa by looking up Empresa.objects.get(whitelabel='homecare') unconditionally - regardless of
-    which company the authenticated user actually belongs to. This means these offline endpoints are effectively
-    hardcoded to a single company (the one whose whitelabel field equals the literal string 'homecare').
+  description: All four offline sync views (DadosOfflineView, EvolucoesOfflineView, PrescricoesOfflineView, BalancoHidricoOfflineView) set request.empresa by looking up Empresa.objects.get(whitelabel='homecare') unconditionally - regardless of which company the authenticated user actually belongs to. This means these offline endpoints are effectively hardcoded to a single company (the one whose whitelabel field equals the literal string 'homecare').
   inputs: []
   outputs:
   - name: request.empresa
     type: object
     unit: null
   logic: setattr(request, "empresa", Empresa.objects.get(whitelabel="homecare"))
-  edge_cases: Empresa.objects.get() will raise DoesNotExist (uncaught, -> 500) if no Empresa row has whitelabel='homecare',
-    or MultipleObjectsReturned if more than one does. No scoping by request.user's own company membership occurs
-    anywhere in these four views.
+  edge_cases: Empresa.objects.get() will raise DoesNotExist (uncaught, -> 500) if no Empresa row has whitelabel='homecare', or MultipleObjectsReturned if more than one does. No scoping by request.user's own company membership occurs anywhere in these four views.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-022
@@ -1057,23 +791,19 @@ rules:
     lines: 67, 97, 182, 214
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Flagged as a likely single-tenant hardcoding left over from a homecare-specific deployment/pilot, rather
-    than a general multi-tenant offline-sync feature - a verifier should confirm whether this repo instance is in
-    fact only ever deployed for a single homecare customer.
+  notes: Flagged as a likely single-tenant hardcoding left over from a homecare-specific deployment/pilot, rather than a general multi-tenant offline-sync feature - a verifier should confirm whether this repo instance is in fact only ever deployed for a single homecare customer.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-022
   name: Offline bed access requires user membership at every level of the ownership chain
   category: data-validation
   type: eligibility
   status: OK
   verify: false
-  description: 'DadosOfflineView.get requires the requesting user to be linked simultaneously at every level: the
-    patient (via usuarios_setores_pacientes), the sector (setor__usuarios), the establishment (setor__estabelecimento__usuarios),
-    and the company (setor__estabelecimento__empresa__usuarios) - all four relationships must independently include
-    the user for a bed to appear in the offline payload.'
+  description: 'DadosOfflineView.get requires the requesting user to be linked simultaneously at every level: the patient (via usuarios_setores_pacientes), the sector (setor__usuarios), the establishment (setor__estabelecimento__usuarios), and the company (setor__estabelecimento__empresa__usuarios) - all four relationships must independently include the user for a bed to appear in the offline payload.'
   inputs:
   - name: request.user
     type: object
@@ -1082,11 +812,8 @@ rules:
   - name: leitos
     type: queryset of Leito
     unit: null
-  logic: "leitos = Leito.objects.filter(\n    paciente__usuarios_setores_pacientes__usuario=request.user,\n    setor__usuarios=usuario,\n\
-    \    setor__estabelecimento__usuarios=usuario,\n    setor__estabelecimento__empresa__usuarios=usuario,\n).order_by(\"\
-    paciente__nome\")"
-  edge_cases: This is a stricter (AND-of-four) access rule than most other views in this partition, which typically
-    only check setor__usuarios=user.
+  logic: "leitos = Leito.objects.filter(\n    paciente__usuarios_setores_pacientes__usuario=request.user,\n    setor__usuarios=usuario,\n    setor__estabelecimento__usuarios=usuario,\n    setor__estabelecimento__empresa__usuarios=usuario,\n).order_by(\"paciente__nome\")"
+  edge_cases: This is a stricter (AND-of-four) access rule than most other views in this partition, which typically only check setor__usuarios=user.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-023
@@ -1103,16 +830,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-023
   name: Prescription/balance offline endpoints only include currently-occupied homecare beds
   category: data-validation
   type: threshold
   status: OK
   verify: false
-  description: Both PrescricoesOfflineView.get and BalancoHidricoOfflineView.get restrict the candidate leitos to
-    ocupado=True AND tipo='homecare' (in addition to the user-link filter), before building their respective offline
-    payloads.
+  description: Both PrescricoesOfflineView.get and BalancoHidricoOfflineView.get restrict the candidate leitos to ocupado=True AND tipo='homecare' (in addition to the user-link filter), before building their respective offline payloads.
   inputs:
   - name: request.user
     type: object
@@ -1121,10 +847,8 @@ rules:
   - name: leitos
     type: queryset of Leito
     unit: null
-  logic: "leitos = Leito.objects.filter(\n    paciente__usuarios_setores_pacientes__usuario=request.user, ocupado=True,\
-    \ tipo=\"homecare\")"
-  edge_cases: Unlike DadosOfflineView (RULE-offline-BE-05-005), this filter does NOT require setor/estabelecimento/empresa
-    user-membership - only the patient-link (usuarios_setores_pacientes) and the ocupado+tipo constraints.
+  logic: "leitos = Leito.objects.filter(\n    paciente__usuarios_setores_pacientes__usuario=request.user, ocupado=True, tipo=\"homecare\")"
+  edge_cases: Unlike DadosOfflineView (RULE-offline-BE-05-005), this filter does NOT require setor/estabelecimento/empresa user-membership - only the patient-link (usuarios_setores_pacientes) and the ocupado+tipo constraints.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-022
@@ -1141,15 +865,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-024
   name: Offline horario-prescricao deletion capability is permission-gated
   category: data-validation
   type: threshold
   status: OK
   verify: false
-  description: PrescricoesOfflineView exposes a 'can_delete_horario' context flag to the serializer, computed from
-    whether the user's company-level permission set includes 'can_delete_horario_prescricao'.
+  description: PrescricoesOfflineView exposes a 'can_delete_horario' context flag to the serializer, computed from whether the user's company-level permission set includes 'can_delete_horario_prescricao'.
   inputs:
   - name: request.user
     type: object
@@ -1176,29 +900,22 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-025
   name: Per-queue Celery worker concurrency assignment (serialize pathway-mutating queues)
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: 'Across demo/homol/prod uwsgi configs, the following queues are consistently run with worker concurrency
-    forced to 1 (-c 1): atualizar_trilhas, executar_trilhas, estabelecimento_setor_leito, prescricoes, prescricao_continua,
-    etl_dados_brutos, callprocedure. The remaining queues (log, mensagens, etl, notificacoes, amhdocs) run with
-    default (unrestricted) concurrency.'
+  description: 'Across demo/homol/prod uwsgi configs, the following queues are consistently run with worker concurrency forced to 1 (-c 1): atualizar_trilhas, executar_trilhas, estabelecimento_setor_leito, prescricoes, prescricao_continua, etl_dados_brutos, callprocedure. The remaining queues (log, mensagens, etl, notificacoes, amhdocs) run with default (unrestricted) concurrency.'
   inputs: []
   outputs:
   - name: worker concurrency per queue
     type: 1 (serialized) or default
     unit: null
-  logic: "concurrency_1_queues = {atualizar_trilhas, executar_trilhas, estabelecimento_setor_leito,\n          \
-    \               prescricoes, prescricao_continua, etl_dados_brutos, callprocedure}\nFOR queue IN all_queues:\n\
-    \  IF queue IN concurrency_1_queues:\n    attach-daemon = \"celery -A trilhas worker -n <env>-trilhas@<queue>\
-    \ -c 1 -E -Q <env>.trilhas.<queue>\"\n  ELSE:\n    attach-daemon = \"celery -A trilhas worker -n <env>-trilhas@<queue>\
-    \ -E -Q <env>.trilhas.<queue>\"   # no -c"
-  edge_cases: Consistent across uwsgi-demo.ini, uwsgi-homol.ini, and uwsgi-prod.ini (uwsgi-old.ini has all celery
-    lines commented out and is not an active config).
+  logic: "concurrency_1_queues = {atualizar_trilhas, executar_trilhas, estabelecimento_setor_leito,\n                         prescricoes, prescricao_continua, etl_dados_brutos, callprocedure}\nFOR queue IN all_queues:\n  IF queue IN concurrency_1_queues:\n    attach-daemon = \"celery -A trilhas worker -n <env>-trilhas@<queue> -c 1 -E -Q <env>.trilhas.<queue>\"\n  ELSE:\n    attach-daemon = \"celery -A trilhas worker -n <env>-trilhas@<queue> -E -Q <env>.trilhas.<queue>\"   # no -c"
+  edge_cases: Consistent across uwsgi-demo.ini, uwsgi-homol.ini, and uwsgi-prod.ini (uwsgi-old.ini has all celery lines commented out and is not an active config).
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-046
@@ -1212,23 +929,19 @@ rules:
     lines: uwsgi-demo.ini:21-32; uwsgi-homol.ini:19-30; uwsgi-prod.ini:20-33
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Serializing these specific queues (all of which mutate shared Trilha/Leito rows) suggests an intentional
-    avoidance of race conditions on pathway-state updates; recorded as an operational business rule for the rebuild's
-    task-queue design.
+  notes: Serializing these specific queues (all of which mutate shared Trilha/Leito rows) suggests an intentional avoidance of race conditions on pathway-state updates; recorded as an operational business rule for the rebuild's task-queue design.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-026
   name: start.sh production branch references a uwsgi ini file absent from the repository
   category: scheduling-operational
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'start.sh selects the uwsgi config to launch based on the ENVIRONMENT variable: any value other than
-    ''production'' launches `uwsgi/uwsgi-homol.ini`; ENVIRONMENT==''production'' launches `uwsgi/uwsgi.ini`. No
-    file named `uwsgi/uwsgi.ini` is tracked in this repository (only uwsgi-demo.ini, uwsgi-homol.ini, uwsgi-homol-old.ini,
-    uwsgi-old.ini, and uwsgi-prod.ini exist).'
+  description: 'start.sh selects the uwsgi config to launch based on the ENVIRONMENT variable: any value other than ''production'' launches `uwsgi/uwsgi-homol.ini`; ENVIRONMENT==''production'' launches `uwsgi/uwsgi.ini`. No file named `uwsgi/uwsgi.ini` is tracked in this repository (only uwsgi-demo.ini, uwsgi-homol.ini, uwsgi-homol-old.ini, uwsgi-old.ini, and uwsgi-prod.ini exist).'
   inputs:
   - name: ENVIRONMENT
     type: string
@@ -1237,11 +950,8 @@ rules:
   - name: uwsgi ini file launched
     type: string
     unit: null
-  logic: "IF os.environ[\"ENVIRONMENT\"] != \"production\":\n  RUN \"uwsgi --ini uwsgi/uwsgi-homol.ini\"\nELSE:\n\
-    \  RUN \"uwsgi --ini uwsgi/uwsgi.ini\"     # file not present in repo; uwsgi-prod.ini exists instead"
-  edge_cases: As committed, launching this container with ENVIRONMENT=production would fail at the uwsgi startup
-    step (file not found) unless a file literally named uwsgi.ini is created/copied at deploy time by a process
-    not visible in this repository.
+  logic: "IF os.environ[\"ENVIRONMENT\"] != \"production\":\n  RUN \"uwsgi --ini uwsgi/uwsgi-homol.ini\"\nELSE:\n  RUN \"uwsgi --ini uwsgi/uwsgi.ini\"     # file not present in repo; uwsgi-prod.ini exists instead"
+  edge_cases: As committed, launching this container with ENVIRONMENT=production would fail at the uwsgi startup step (file not found) unless a file literally named uwsgi.ini is created/copied at deploy time by a process not visible in this repository.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-046
@@ -1255,21 +965,19 @@ rules:
     lines: 10-16
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Recorded verbatim; either the deployment pipeline renames/symlinks uwsgi-prod.ini to uwsgi.ini outside
-    this repo, or this is a latent break in the startup script. Flag for verifier to check the actual deploy pipeline/CI
-    config (out of this partition's scope).
+  notes: Recorded verbatim; either the deployment pipeline renames/symlinks uwsgi-prod.ini to uwsgi.ini outside this repo, or this is a latent break in the startup script. Flag for verifier to check the actual deploy pipeline/CI config (out of this partition's scope).
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-027
   name: Environment classification from base URL
   category: scheduling-operational
   type: decision-tree
   status: OK
   verify: false
-  description: 'Derives the runtime environment label from the API base URL: if the base URL contains the substring
-    "homol" the environment is homologation/staging ("homol"), otherwise production ("prod").'
+  description: 'Derives the runtime environment label from the API base URL: if the base URL contains the substring "homol" the environment is homologation/staging ("homol"), otherwise production ("prod").'
   inputs:
   - name: baseURL
     type: string
@@ -1280,8 +988,7 @@ rules:
     type: string
     unit: null
   logic: 'urlEnv = baseURL.includes("homol") ? "homol" : "prod"'
-  edge_cases: 'Substring match anywhere in the URL. Any URL without "homol" is treated as production (default).
-    Also defines JWT auth-header scheme in axios.ts: Authorization = "JWT <token>".'
+  edge_cases: 'Substring match anywhere in the URL. Any URL without "homol" is treated as production (default). Also defines JWT auth-header scheme in axios.ts: Authorization = "JWT <token>".'
   confidence: medium
   merged_from:
   - RULE-ops-FE-02-001
@@ -1295,15 +1002,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-028
   name: Pagination control disabled when everything fits on one page
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: The shared footer pagination control is disabled whenever the total record count is less than or
-    equal to the current page size, since there would be no additional pages to page through.
+  description: The shared footer pagination control is disabled whenever the total record count is less than or equal to the current page size, since there would be no additional pages to page through.
   inputs:
   - name: page.count (total records)
     type: number
@@ -1315,8 +1022,7 @@ rules:
   logic: 'disabled = page.count <= paginator.limit
 
     onChange(page, limit): paginate({ limit, offset: (page-1)*limit }); setCurrentPage(page)'
-  edge_cases: Uses "<=" so a result set exactly equal to one page's worth of records also disables the control (correct,
-    since a second page would be empty); does not account for limit being 0 or negative.
+  edge_cases: Uses "<=" so a result set exactly equal to one page's worth of records also disables the control (correct, since a second page would be empty); does not account for limit being 0 or negative.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-007
@@ -1332,18 +1038,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-029
   name: Shift-day (turno) calendar-date assignment
   category: scheduling-operational
   type: decision-tree
   status: OK
   verify: false
-  description: Given a timestamp and a work-shift defined by a start hour and end hour, returns the same timestamp
-    shifted to the calendar day the shift belongs to. Handles overnight shifts (end <= start means the shift crosses
-    midnight, so the end is on the next day). If the timestamp's time-of-day is inside the shift window it is left
-    unchanged; if it is before the shift start it is moved back one day; if after the shift end it is moved forward
-    one day.
+  description: Given a timestamp and a work-shift defined by a start hour and end hour, returns the same timestamp shifted to the calendar day the shift belongs to. Handles overnight shifts (end <= start means the shift crosses midnight, so the end is on the next day). If the timestamp's time-of-day is inside the shift window it is left unchanged; if it is before the shift start it is moved back one day; if after the shift end it is moved forward one day.
   inputs:
   - name: currentMoment
     type: moment.Moment
@@ -1361,17 +1064,8 @@ rules:
   - name: adjustedMoment
     type: moment.Moment
     unit: null
-  logic: "start = moment(startHour, \"HH:mm\")\nend   = moment(endHour, \"HH:mm\")\nif end.isBefore(start) OR end.isSame(start):\n\
-    \    end = end.add(1 day)                      # overnight or full-24h shift\ncurrentHour = moment(currentMoment.format(\"\
-    HH:mm\"), \"HH:mm\")   # today's date @ current time-of-day\nif currentHour.isBetween(start, end):         #\
-    \ moment isBetween is EXCLUSIVE of both bounds\n    return currentMoment                       # unchanged\n\
-    elif currentHour.isBefore(start):\n    return currentMoment.subtract(1 day)\nelif currentHour.isAfter(end):\n\
-    \    return currentMoment.add(1 day)\nelse:\n    return currentMoment"
-  edge_cases: 'isBetween is exclusive: a time exactly equal to start or end is NOT "between" and falls to the else
-    branch (returned unchanged) since it is neither strictly before start nor strictly after end. When end<=start
-    the end is pushed to +1 day, so "isAfter(end)" can essentially never trigger for an overnight shift (end is
-    tomorrow), meaning only same-day / previous-day mapping occurs. Mutates currentMoment in place (moment .add/.subtract
-    are mutating).'
+  logic: "start = moment(startHour, \"HH:mm\")\nend   = moment(endHour, \"HH:mm\")\nif end.isBefore(start) OR end.isSame(start):\n    end = end.add(1 day)                      # overnight or full-24h shift\ncurrentHour = moment(currentMoment.format(\"HH:mm\"), \"HH:mm\")   # today's date @ current time-of-day\nif currentHour.isBetween(start, end):         # moment isBetween is EXCLUSIVE of both bounds\n    return currentMoment                       # unchanged\nelif currentHour.isBefore(start):\n    return currentMoment.subtract(1 day)\nelif currentHour.isAfter(end):\n    return currentMoment.add(1 day)\nelse:\n    return currentMoment"
+  edge_cases: 'isBetween is exclusive: a time exactly equal to start or end is NOT "between" and falls to the else branch (returned unchanged) since it is neither strictly before start nor strictly after end. When end<=start the end is pushed to +1 day, so "isAfter(end)" can essentially never trigger for an overnight shift (end is tomorrow), meaning only same-day / previous-day mapping occurs. Mutates currentMoment in place (moment .add/.subtract are mutating).'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-035
@@ -1385,30 +1079,23 @@ rules:
     lines: 3-25
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: 'Core shift/turno logic used to bucket clinical records into the correct shift day. Boundary semantics
-    (exclusive isBetween) are non-obvious; reproduce exactly.
+  notes: 'Core shift/turno logic used to bucket clinical records into the correct shift day. Boundary semantics (exclusive isBetween) are non-obvious; reproduce exactly.
 
 
 
-    RECONCILIATION FINDING (no divergence, no merge performed — distinct call sites preserved): traced the generic
-    dateTurn(currentMoment,startHour,endHour) utility against the backend''s data_7_as_7 (RULE-OPERACIONAL-INFRA-035)
-    for the specific case startHour=endHour="7:00" used at RULE-OPERACIONAL-INFRA-034/049. Both independently resolve
-    to: hour>=07:00 -> current calendar day; hour<07:00 -> previous calendar day. No behavioral difference was found
-    between the BE simple-threshold implementation and the FE moment.isBetween-based implementation for this boundary
-    case.'
+    RECONCILIATION FINDING (no divergence, no merge performed — distinct call sites preserved): traced the generic dateTurn(currentMoment,startHour,endHour) utility against the backend''s data_7_as_7 (RULE-OPERACIONAL-INFRA-035) for the specific case startHour=endHour="7:00" used at RULE-OPERACIONAL-INFRA-034/049. Both independently resolve to: hour>=07:00 -> current calendar day; hour<07:00 -> previous calendar day. No behavioral difference was found between the BE simple-threshold implementation and the FE moment.isBetween-based implementation for this boundary case.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-030
   name: Shared default search-result limit and debounce interval
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: The three reusable search-input widget factories (autocomplete, single-select search, multi-tag search)
-    each default to fetching a maximum of 5 results per request and debounce the user's keystroke-triggered search
-    request by 700 milliseconds before firing it.
+  description: The three reusable search-input widget factories (autocomplete, single-select search, multi-tag search) each default to fetching a maximum of 5 results per request and debounce the user's keystroke-triggered search request by 700 milliseconds before firing it.
   inputs:
   - name: limit (prop, optional)
     type: number
@@ -1425,9 +1112,7 @@ rules:
   logic: 'limit = props.limit ?? 5   // default across CreateAutoComplete, CreateSearchInput, CreateSearchTags
 
     onSearchThrottle = debounce((key) => _request(key), 700)   // 700ms fixed debounce, all three widgets'
-  edge_cases: The debounce function is re-created on every render (`debounce(...)` called inline, not memoized),
-    meaning the debounce timer's internal closure is a new instance each render — potentially causing multiple pending
-    timers rather than one continuously-reset timer, across all three widgets identically.
+  edge_cases: The debounce function is re-created on every render (`debounce(...)` called inline, not memoized), meaning the debounce timer's internal closure is a new instance each render — potentially causing multiple pending timers rather than one continuously-reset timer, across all three widgets identically.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-031
@@ -1439,21 +1124,19 @@ rules:
     lines: 16-16,63-63
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Same pattern duplicated at src/hooks/Search/CreateSearchInput.tsx lines 16,61 and src/hooks/Search/CreateSearchTags.tsx
-    lines 19,68. Debounce/limit counted as an API-layer request-transformation rule per scope instructions.
+  notes: Same pattern duplicated at src/hooks/Search/CreateSearchInput.tsx lines 16,61 and src/hooks/Search/CreateSearchTags.tsx lines 19,68. Debounce/limit counted as an API-layer request-transformation rule per scope instructions.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-031
   name: CreateSearchInput overrides configured limit to 5 on empty keyword
   category: scheduling-operational
   type: threshold
   status: DISCREPANCY
   verify: false
-  description: Unlike its sibling widgets (CreateAutoComplete, CreateSearchTags), CreateSearchInput always requests
-    exactly 5 results when the search keyword is empty (e.g. on initial focus/load), regardless of a caller-configured
-    `limit` prop, and only honors the configured `limit` once the keyword is non-empty.
+  description: Unlike its sibling widgets (CreateAutoComplete, CreateSearchTags), CreateSearchInput always requests exactly 5 results when the search keyword is empty (e.g. on initial focus/load), regardless of a caller-configured `limit` prop, and only honors the configured `limit` once the keyword is non-empty.
   inputs:
   - name: keyword
     type: string
@@ -1474,9 +1157,7 @@ rules:
     // CreateAutoComplete and CreateSearchTags, by contrast, always use `limit` unconditionally:
 
     effective_limit = limit   // (these two do NOT special-case empty keyword)'
-  edge_cases: A caller who configures CreateSearchInput with limit=20 would still only receive 5 initial options
-    on focus (before typing), then up to 20 once a keyword is entered — an inconsistency with the other two search
-    widgets that would return 20 initial options in the same scenario.
+  edge_cases: A caller who configures CreateSearchInput with limit=20 would still only receive 5 initial options on focus (before typing), then up to 20 once a keyword is entered — an inconsistency with the other two search widgets that would return 20 initial options in the same scenario.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-030
@@ -1488,46 +1169,30 @@ rules:
     lines: 43-59
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Compare src/hooks/Search/CreateAutoComplete.tsx lines 45-61 and src/hooks/Search/CreateSearchTags.tsx lines
-    51-66, neither of which conditions the limit on keyword length.
+  notes: Compare src/hooks/Search/CreateAutoComplete.tsx lines 45-61 and src/hooks/Search/CreateSearchTags.tsx lines 51-66, neither of which conditions the limit on keyword length.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-032
-  name: popular_banco valores_maximos_atributos — vital-sign reference ranges for synthetic data, PEEP mismatch
-    vs validators.py
+  name: popular_banco valores_maximos_atributos — vital-sign reference ranges for synthetic data, PEEP mismatch vs validators.py
   category: data-validation
   type: threshold
   status: DISCREPANCY
   verify: true
-  description: Test/seed-data generator (popular_banco) defines a table of (min,max) reference ranges per vital-sign/lab
-    attribute used to produce random plausible values for synthetic ICU records. For every attribute EXCEPT peep,
-    these ranges are numerically identical to the corresponding validators in utils/validators.py. For peep, this
-    table uses an upper bound of 41, while PeepValidator (RULE-vitais-BE-11-009) enforces an upper bound of 40 —
-    a synthetic record generated with peep=41 would fail real validation.
+  description: Test/seed-data generator (popular_banco) defines a table of (min,max) reference ranges per vital-sign/lab attribute used to produce random plausible values for synthetic ICU records. For every attribute EXCEPT peep, these ranges are numerically identical to the corresponding validators in utils/validators.py. For peep, this table uses an upper bound of 41, while PeepValidator (RULE-vitais-BE-11-009) enforces an upper bound of 40 — a synthetic record generated with peep=41 would fail real validation.
   inputs:
   - name: atributo
     type: string
     unit: null
-    range: 'one of: peep, po2, tec, fr, lactato_arterial, volume_corrente, pas, pad, pam, debito_urinario_24h, bilirrubinas,
-      temperatura, paco2, creatinina, leucocitos, frequencia_cardiaca, plaquetas, dobutamina'
+    range: 'one of: peep, po2, tec, fr, lactato_arterial, volume_corrente, pas, pad, pam, debito_urinario_24h, bilirrubinas, temperatura, paco2, creatinina, leucocitos, frequencia_cardiaca, plaquetas, dobutamina'
   outputs:
   - name: valor_sorteado
     type: random integer in (min,max) via randint(a,b)
     unit: null
-  logic: "valores_maximos_atributos = {\n  \"peep\": (0, 41),                 # PeepValidator uses (0, 40) -- MISMATCH\n\
-    \  \"po2\": (0, 500),\n  \"tec\": (3, 20),\n  \"fr\": (0, 50),\n  \"lactato_arterial\": (0, 20),\n  \"volume_corrente\"\
-    : (0, 1500),\n  \"pas\": (50, 250),\n  \"pad\": (0, 150),\n  \"pam\": (0, 200),\n  \"debito_urinario_24h\":\
-    \ (0, 10000),\n  \"bilirrubinas\": (0, 30),\n  \"temperatura\": (20, 43),\n  \"paco2\": (0, 150),\n  \"creatinina\"\
-    : (0, 20),\n  \"leucocitos\": (0, 40000),\n  \"frequencia_cardiaca\": (0, 200),\n  \"plaquetas\": (0, 700000),\n\
-    \  \"dobutamina\": (0, 30),\n}\nsorteia_dados(dados_prontuario):\n  _atributo = atributos[randint(0, 16)]  \
-    \   # atributos has 18 items, indices 0-17\n  a, b = valores_maximos_atributos[_atributo]\n  dados_prontuario[_atributo]\
-    \ = randint(a, b)"
-  edge_cases: atributos list has 18 entries (index 0-17), but randint(0,16) can only select indices 0 through 16
-    — index 17, 'dobutamina', can NEVER be chosen by sorteia_dados, so the 'dobutamina' key is never populated into
-    dados_prontuario by this random-selection mechanism (dead/unreachable branch for that attribute in the seed
-    generator).
+  logic: "valores_maximos_atributos = {\n  \"peep\": (0, 41),                 # PeepValidator uses (0, 40) -- MISMATCH\n  \"po2\": (0, 500),\n  \"tec\": (3, 20),\n  \"fr\": (0, 50),\n  \"lactato_arterial\": (0, 20),\n  \"volume_corrente\": (0, 1500),\n  \"pas\": (50, 250),\n  \"pad\": (0, 150),\n  \"pam\": (0, 200),\n  \"debito_urinario_24h\": (0, 10000),\n  \"bilirrubinas\": (0, 30),\n  \"temperatura\": (20, 43),\n  \"paco2\": (0, 150),\n  \"creatinina\": (0, 20),\n  \"leucocitos\": (0, 40000),\n  \"frequencia_cardiaca\": (0, 200),\n  \"plaquetas\": (0, 700000),\n  \"dobutamina\": (0, 30),\n}\nsorteia_dados(dados_prontuario):\n  _atributo = atributos[randint(0, 16)]     # atributos has 18 items, indices 0-17\n  a, b = valores_maximos_atributos[_atributo]\n  dados_prontuario[_atributo] = randint(a, b)"
+  edge_cases: atributos list has 18 entries (index 0-17), but randint(0,16) can only select indices 0 through 16 — index 17, 'dobutamina', can NEVER be chosen by sorteia_dados, so the 'dobutamina' key is never populated into dados_prontuario by this random-selection mechanism (dead/unreachable branch for that attribute in the seed generator).
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-012
@@ -1541,40 +1206,19 @@ rules:
     lines: 38-62
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY #1: peep upper bound 41 here vs 40 in PeepValidator (RULE-vitais-BE-11-009) — recorded verbatim
-    from both files, not reconciled. DISCREPANCY #2 (bug, not a data-range issue): dobutamina is statistically unreachable
-    via sorteia_dados due to the randint(0,16) bound against an 18-item list. This is a test-data script, not an
-    enforced validator, so it does not itself gate real user input — but it is documented here because it encodes
-    the same reference ranges as the production validators and reveals the one place they diverge.'
+  notes: 'DISCREPANCY #1: peep upper bound 41 here vs 40 in PeepValidator (RULE-vitais-BE-11-009) — recorded verbatim from both files, not reconciled. DISCREPANCY #2 (bug, not a data-range issue): dobutamina is statistically unreachable via sorteia_dados due to the randint(0,16) bound against an 18-item list. This is a test-data script, not an enforced validator, so it does not itself gate real user input — but it is documented here because it encodes the same reference ranges as the production validators and reveals the one place they diverge.'
   verification:
     verdict: DISCREPANCY
     clinical_impact: none
-    reference:
-      citation: No external authoritative published reference defines a numeric data-entry cap for PEEP; PEEP (cmH2O)
-        is a set ventilator parameter, not a validated scale/equation. The only governing authority is the internal
-        production validator PeepValidator (utils/validators.py:73-81, RULE-vitais-BE-11-009), which enforces 0
-        <= peep <= 40. Clinically, applied PEEP is typically 5-15 cmH2O and rarely exceeds ~24 (up to ~30 in severe
-        ARDS), so both 40 and 41 are non-physiologic sanity ceilings well above real use (cf. ARDSNet/Berlin high-PEEP
-        tables).
-      url: https://doi.org/10.1001/jama.2012.5669
-    evidence: operacional-infra-batch3.yaml
-    test_vectors: 2/3 match
-    summary: 'Confirmed verbatim: utils/popular_banco.py:39 peep=(0,41) vs utils/validators.py:76 PeepValidator
-      enforcing 0<=peep<=40. Internal inconsistency (off-by-one upper bound) is real and reproducible — randint(0,41)
-      can emit peep=41 which the production validator rejects. No external authoritative source governs a PEEP data
-      cap, so the discrepancy is internal (seed-vs-validator), not seed-vs-guideline. Clinical impact none: this
-      is a test/seed-data generator that does not gate real user input; both caps sit far above physiologic PEEP.
-      Secondary confirmed bug (not a range issue): sorteia_dados uses randint(0,16) against an 18-item atributos
-      list, so index 17 ''dobutamina'' is unreachable and never populated. Rule status DISCREPANCY preserved and
-      characterized, not downgraded.'
+    reference: No external authoritative published reference defines a numeric data-entry cap for PEEP; PEEP (cmH2O) is a set ventilator parameter, not a validated scale/equation. The only governing authority is the internal production validator PeepValidator (utils/validators.py:73-81, RULE-vitais-BE-11-009), which enforces 0 <= peep <= 40. Clinically, applied PEEP is typically 5-15 cmH2O and rarely exceeds ~24 (up to ~30 in severe ARDS), so both 40 and 41 are non-physiologic sanity ceilings well above real use (cf. ARDSNet/Berlin high-PEEP tables).
+    detail_file: operacional-infra-batch3.yaml
 - id: RULE-OPERACIONAL-INFRA-033
   name: TEMPO_ATUALIZACAO_TRILHAS — automatic pathway recalculation cadence
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: Defines (via environment variable, default 7200) the cadence in seconds at which automatic care pathways
-    (trilhas) are expected to be recalculated/refreshed — i.e. a default 2-hour update interval.
+  description: Defines (via environment variable, default 7200) the cadence in seconds at which automatic care pathways (trilhas) are expected to be recalculated/refreshed — i.e. a default 2-hour update interval.
   inputs: []
   outputs:
   - name: TEMPO_ATUALIZACAO_TRILHAS
@@ -1582,10 +1226,7 @@ rules:
     unit: seconds
     range: default 7200 (2 hours), overridable via env var
   logic: TEMPO_ATUALIZACAO_TRILHAS = os.environ.get("TEMPO_ATUALIZACAO_TRILHAS", 7200)
-  edge_cases: When read from the environment, the value is a STRING (os.environ.get returns str), not cast to int
-    here — any consumer must cast it; when the env var is unset, the Python int literal 7200 is used instead (a
-    type-inconsistency between the default and the overridden path, though not necessarily a bug if the consumer
-    always casts).
+  edge_cases: When read from the environment, the value is a STRING (os.environ.get returns str), not cast to int here — any consumer must cast it; when the env var is unset, the Python int literal 7200 is used instead (a type-inconsistency between the default and the overridden path, though not necessarily a bug if the consumer always casts).
   confidence: medium
   merged_from:
   - RULE-settings-BE-11-065
@@ -1595,21 +1236,19 @@ rules:
     lines: '183'
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: The actual consumer of this setting (presumably a periodic task in trilha_automatica, out of BE-11 scope)
-    is not visible in this partition; recorded here as the cadence DEFINITION only.
+  notes: The actual consumer of this setting (presumably a periodic task in trilha_automatica, out of BE-11 scope) is not visible in this partition; recorded here as the cadence DEFINITION only.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-034
   name: Shift-turnover (virada de turno) cutoff for date navigation
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: The generic date picker used across record-navigation screens disables selecting or advancing to
-    any date beyond the current clinical shift-turnover boundary, computed via the shared dateTurn(now, "7:00",
-    "7:00") utility (out of partition), effectively pinning the latest navigable "day" to the current shift.
+  description: The generic date picker used across record-navigation screens disables selecting or advancing to any date beyond the current clinical shift-turnover boundary, computed via the shared dateTurn(now, "7:00", "7:00") utility (out of partition), effectively pinning the latest navigable "day" to the current shift.
   inputs:
   - name: current (candidate date in the picker)
     type: moment.Moment
@@ -1628,14 +1267,8 @@ rules:
     type: boolean
   - name: disabled (next-day Button)
     type: boolean
-  logic: "cutoff = dateTurn(moment(), \"7:00\", \"7:00\")          // external util, out of partition\nDatePicker.disabledDate(current)\
-    \ = current > cutoff\nnextButton.disabled =\n     !date\n  OR date.isSame( dateTurnProps ? cutoff : moment(),\
-    \ \"day\" )\nbackButton.disabled = !date\nonBack:  onBack(date - 1 day);  setDate(date - 1 day)\nonNext:  onNext(date\
-    \ + 1 day);  setDate(date + 1 day)"
-  edge_cases: If dateTurnProps is not supplied, the "next" button's same-day check compares against plain moment()
-    (now) instead of the shift-cutoff moment, so behavior differs depending on whether the caller passes dateTurnProps.
-    No date is selected (date falsy) disables both back and next or renders the DatePicker unusable via allowClear={false}
-    (no clearing once a date is chosen).
+  logic: "cutoff = dateTurn(moment(), \"7:00\", \"7:00\")          // external util, out of partition\nDatePicker.disabledDate(current) = current > cutoff\nnextButton.disabled =\n     !date\n  OR date.isSame( dateTurnProps ? cutoff : moment(), \"day\" )\nbackButton.disabled = !date\nonBack:  onBack(date - 1 day);  setDate(date - 1 day)\nonNext:  onNext(date + 1 day);  setDate(date + 1 day)"
+  edge_cases: If dateTurnProps is not supplied, the "next" button's same-day check compares against plain moment() (now) instead of the shift-cutoff moment, so behavior differs depending on whether the caller passes dateTurnProps. No date is selected (date falsy) disables both back and next or renders the DatePicker unusable via allowClear={false} (no clearing once a date is chosen).
   confidence: medium
   related:
   - RULE-OPERACIONAL-INFRA-029
@@ -1649,32 +1282,26 @@ rules:
     lines: 20-65
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: dateTurn() itself is defined in src/utils/dateTurn.ts (out of this partition's scope), so the exact cutoff-time
-    semantics (e.g. how "7:00","7:00" args resolve to a Moment) could not be verified here; behavior is inferred
-    purely from this call site. Cross-reference for a verifier auditing utils/dateTurn.ts.
+  notes: dateTurn() itself is defined in src/utils/dateTurn.ts (out of this partition's scope), so the exact cutoff-time semantics (e.g. how "7:00","7:00" args resolve to a Moment) could not be verified here; behavior is inferred purely from this call site. Cross-reference for a verifier auditing utils/dateTurn.ts.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-035
   name: data_7_as_7 — 7am-to-7am shift/reporting-day boundary
   category: scheduling-operational
   type: threshold
   status: OK
   verify: false
-  description: 'Computes the ''reporting day'' used for shift-based aggregation: if the current local hour is 7
-    (07:00) or later, the reporting day is today''s date; otherwise (before 07:00) it is yesterday''s date.'
+  description: 'Computes the ''reporting day'' used for shift-based aggregation: if the current local hour is 7 (07:00) or later, the reporting day is today''s date; otherwise (before 07:00) it is yesterday''s date.'
   inputs: []
   outputs:
   - name: data
     type: date
     unit: null
-  logic: "now = datetime.now().astimezone()\nIF now.hour >= 7:\n  RETURN now.date()\nELSE:\n  RETURN now.date()\
-    \ - 1 day"
-  edge_cases: Uses the server/process local timezone via astimezone() with no explicit timezone parameter passed;
-    Django project TIME_ZONE is 'America/Sao_Paulo' (trilhas/settings.py) but this function does not explicitly
-    use Django's timezone-aware `django.utils.timezone.now()`, it uses the stdlib `datetime.now().astimezone()`
-    — potential source of discrepancy if the OS/process timezone differs from the configured Django TIME_ZONE.
+  logic: "now = datetime.now().astimezone()\nIF now.hour >= 7:\n  RETURN now.date()\nELSE:\n  RETURN now.date() - 1 day"
+  edge_cases: Uses the server/process local timezone via astimezone() with no explicit timezone parameter passed; Django project TIME_ZONE is 'America/Sao_Paulo' (trilhas/settings.py) but this function does not explicitly use Django's timezone-aware `django.utils.timezone.now()`, it uses the stdlib `datetime.now().astimezone()` — potential source of discrepancy if the OS/process timezone differs from the configured Django TIME_ZONE.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-029
@@ -1688,30 +1315,22 @@ rules:
     lines: 226-229
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Encodes a 7am-to-7am ICU shift/reporting-day convention, common in hospital operations (e.g. daily census
-    counted at a fixed cutover hour rather than midnight).
+  notes: 'Encodes a 7am-to-7am ICU shift/reporting-day convention, common in hospital operations (e.g. daily census counted at a fixed cutover hour rather than midnight).
 
 
-    See RULE-OPERACIONAL-INFRA-029 for the cross-implementation (BE vs FE) reconciliation of this exact 7am-to-7am
-    boundary: confirmed behaviorally equivalent, no divergence found.'
+    See RULE-OPERACIONAL-INFRA-029 for the cross-implementation (BE vs FE) reconciliation of this exact 7am-to-7am boundary: confirmed behaviorally equivalent, no divergence found.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-036
-  name: custom_exception_handler / flatten_errors — DRF error envelope mapping with a Python 3.10+ incompatible
-    collections reference
+  name: custom_exception_handler / flatten_errors — DRF error envelope mapping with a Python 3.10+ incompatible collections reference
   category: data-validation
   type: decision-tree
   status: DISCREPANCY
   verify: false
-  description: 'Maps Django/DRF exceptions to a standard response envelope: Http404 -> NotFound, PermissionDenied
-    -> PermissionDenied, IntegrityError -> ValidationError(''Erro de integridade! Verifique os dados enviados.'').
-    Any resulting APIException response is rewrapped into {errors: <flattened>, status: <code>, exception: str(exc)}.
-    flatten_errors recursively flattens one level of nested mapping values using `isinstance(v, collections.MutableMapping)`
-    — this attribute was removed from the `collections` module in Python 3.10 (moved to collections.abc in 3.3,
-    removed from `collections` entirely in 3.10), so this line raises AttributeError on Python 3.10+ despite functioning
-    under the project''s pinned Python 3.9 (per Dockerfile: python:3.9-slim-bullseye).'
+  description: 'Maps Django/DRF exceptions to a standard response envelope: Http404 -> NotFound, PermissionDenied -> PermissionDenied, IntegrityError -> ValidationError(''Erro de integridade! Verifique os dados enviados.''). Any resulting APIException response is rewrapped into {errors: <flattened>, status: <code>, exception: str(exc)}. flatten_errors recursively flattens one level of nested mapping values using `isinstance(v, collections.MutableMapping)` — this attribute was removed from the `collections` module in Python 3.10 (moved to collections.abc in 3.3, removed from `collections` entirely in 3.10), so this line raises AttributeError on Python 3.10+ despite functioning under the project''s pinned Python 3.9 (per Dockerfile: python:3.9-slim-bullseye).'
   inputs:
   - name: exc
     type: Exception instance
@@ -1723,18 +1342,8 @@ rules:
   - name: response
     type: DRF Response with {errors, status, exception} or None (falls through to 500)
     unit: null
-  logic: "IF isinstance(exc, Http404): exc = exceptions.NotFound()\nELIF isinstance(exc, PermissionDenied): exc\
-    \ = exceptions.PermissionDenied()\nELIF isinstance(exc, IntegrityError): exc = exceptions.ValidationError(\"\
-    Erro de integridade! Verifique os dados enviados.\")\nIF isinstance(exc, exceptions.APIException):\n  set_rollback()\
-    \  # rolls back atomic DB transactions if in one\n  response = Response(data, status=exc.status_code, headers=...)\n\
-    response2 = custom_exception_handler(exc, context) wraps response.data into:\n  {\"errors\": flatten_errors(data),\
-    \ \"status\": response.status_code, \"exception\": str(exc)}\nflatten_errors(d, key=\"\"):\n  FOR k, v IN d.items():\n\
-    \    IF isinstance(v, collections.MutableMapping): items.extend(flatten_errors(v, k).items())   # AttributeError\
-    \ on Python >= 3.10\n    ELSE: items.append((k, v))\n  RETURN dict(items)"
-  edge_cases: flatten_errors only flattens ONE level of recursion correctly for dict values that are themselves
-    plain dicts wrapped via the recursive call, but keys from nested dicts are not prefixed/namespaced — a naming
-    collision between a nested key and a top-level key would silently overwrite one entry in the final flat dict
-    (Python dict() from a list of tuples keeps the LAST occurrence of a repeated key).
+  logic: "IF isinstance(exc, Http404): exc = exceptions.NotFound()\nELIF isinstance(exc, PermissionDenied): exc = exceptions.PermissionDenied()\nELIF isinstance(exc, IntegrityError): exc = exceptions.ValidationError(\"Erro de integridade! Verifique os dados enviados.\")\nIF isinstance(exc, exceptions.APIException):\n  set_rollback()  # rolls back atomic DB transactions if in one\n  response = Response(data, status=exc.status_code, headers=...)\nresponse2 = custom_exception_handler(exc, context) wraps response.data into:\n  {\"errors\": flatten_errors(data), \"status\": response.status_code, \"exception\": str(exc)}\nflatten_errors(d, key=\"\"):\n  FOR k, v IN d.items():\n    IF isinstance(v, collections.MutableMapping): items.extend(flatten_errors(v, k).items())   # AttributeError on Python >= 3.10\n    ELSE: items.append((k, v))\n  RETURN dict(items)"
+  edge_cases: flatten_errors only flattens ONE level of recursion correctly for dict values that are themselves plain dicts wrapped via the recursive call, but keys from nested dicts are not prefixed/namespaced — a naming collision between a nested key and a top-level key would silently overwrite one entry in the final flat dict (Python dict() from a list of tuples keeps the LAST occurrence of a repeated key).
   confidence: high
   merged_from:
   - RULE-err-BE-11-070
@@ -1744,22 +1353,19 @@ rules:
     lines: 17-83
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'DISCREPANCY/technical-debt flag for the rebuild: `collections.MutableMapping` must become `collections.abc.MutableMapping`
-    (or an isinstance check against dict) on any Python >= 3.10 runtime, otherwise every API error response containing
-    nested validation errors will 500 instead of returning the intended flattened error body.'
+  notes: 'DISCREPANCY/technical-debt flag for the rebuild: `collections.MutableMapping` must become `collections.abc.MutableMapping` (or an isinstance check against dict) on any Python >= 3.10 runtime, otherwise every API error response containing nested validation errors will 500 instead of returning the intended flattened error body.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-037
   name: ListChoiceField.to_representation — context-dependent representation switch
   category: data-validation
   type: decision-tree
   status: AMBIGUOUS
   verify: false
-  description: 'A DRF ChoiceField subclass whose representation behavior depends on whether the serializer was instantiated
-    WITH a context: if there is NO context, values are mapped through the choices dict directly (handling both list-of-values
-    and single-value cases); if there IS a context, it defers entirely to the standard DRF ChoiceField.to_representation.'
+  description: 'A DRF ChoiceField subclass whose representation behavior depends on whether the serializer was instantiated WITH a context: if there is NO context, values are mapped through the choices dict directly (handling both list-of-values and single-value cases); if there IS a context, it defers entirely to the standard DRF ChoiceField.to_representation.'
   inputs:
   - name: obj
     type: value or list of values
@@ -1768,11 +1374,8 @@ rules:
   - name: representation
     type: mapped label(s) or standard DRF representation
     unit: null
-  logic: "to_representation(obj):\n  IF NOT self.context:\n    IF obj:\n      IF isinstance(obj, list):\n      \
-    \  RETURN [self.choices.get(v) FOR v IN obj]\n      ELSE:\n        RETURN self.choices.get(obj)\n    # implicit:\
-    \ returns None if obj is falsy and there's no context\n  ELSE:\n    RETURN super().to_representation(obj)"
-  edge_cases: If context is falsy AND obj is falsy, the function implicitly returns None (no explicit return statement
-    executed).
+  logic: "to_representation(obj):\n  IF NOT self.context:\n    IF obj:\n      IF isinstance(obj, list):\n        RETURN [self.choices.get(v) FOR v IN obj]\n      ELSE:\n        RETURN self.choices.get(obj)\n    # implicit: returns None if obj is falsy and there's no context\n  ELSE:\n    RETURN super().to_representation(obj)"
+  edge_cases: If context is falsy AND obj is falsy, the function implicitly returns None (no explicit return statement executed).
   confidence: medium
   merged_from:
   - RULE-ser-BE-11-071
@@ -1782,25 +1385,19 @@ rules:
     lines: 4-16
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'AMBIGUOUS: the intent of switching representation strictly on context PRESENCE (not on any specific context
-    key/value) is not evident from this file alone; likely used to render human-readable labels in one serialization
-    path (e.g. admin/read views without request context) vs raw values in another (e.g. API responses with request
-    context). Flag for verifier with visibility into call sites (out of BE-11 scope).'
+  notes: 'AMBIGUOUS: the intent of switching representation strictly on context PRESENCE (not on any specific context key/value) is not evident from this file alone; likely used to render human-readable labels in one serialization path (e.g. admin/read views without request context) vs raw values in another (e.g. API responses with request context). Flag for verifier with visibility into call sites (out of BE-11 scope).'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-038
   name: PWA service-worker generation disabled only in local development
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: 'next.config.js wraps the Next config with `withPwa({ dest: "public", disable: process.env.NODE_ENV
-    === "development" })`. The generated service worker (public/sw.js) and workbox chunks (public/workbox-*.js)
-    are explicitly gitignored, confirming they are build-time artifacts produced by next-pwa and are expected to
-    be absent from source control and regenerated on every non-development build (demo/homol/prod, all of which
-    set NODE_ENV=production per RULE-DEPLOY-FE-09-001).'
+  description: 'next.config.js wraps the Next config with `withPwa({ dest: "public", disable: process.env.NODE_ENV === "development" })`. The generated service worker (public/sw.js) and workbox chunks (public/workbox-*.js) are explicitly gitignored, confirming they are build-time artifacts produced by next-pwa and are expected to be absent from source control and regenerated on every non-development build (demo/homol/prod, all of which set NODE_ENV=production per RULE-DEPLOY-FE-09-001).'
   inputs:
   - name: NODE_ENV
     type: string
@@ -1810,11 +1407,8 @@ rules:
   - name: service_worker_generation_enabled
     type: boolean
     unit: n/a
-  logic: "pwa.disable = (NODE_ENV == \"development\") ? true : false\nIF NOT disable:\n  generate public/sw.js and\
-    \ public/workbox-*.js at build time"
-  edge_cases: Because all three PM2 environments (demo/homol/prod) set NODE_ENV="production", the PWA/service-worker
-    is generated and active in all deployed environments, including demo/homol — there is no separate "staging"
-    behavior for PWA caching.
+  logic: "pwa.disable = (NODE_ENV == \"development\") ? true : false\nIF NOT disable:\n  generate public/sw.js and public/workbox-*.js at build time"
+  edge_cases: Because all three PM2 environments (demo/homol/prod) set NODE_ENV="production", the PWA/service-worker is generated and active in all deployed environments, including demo/homol — there is no separate "staging" behavior for PWA caching.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-039
@@ -1831,18 +1425,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-039
   name: PM2 multi-environment process configuration
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: 'ecosystem.config.js defines three named PM2 applications, one per deploy target: trilhas-demo (PORT
-    3002), trilhas-prod (PORT 3001), and trilhas-homol (PORT 3000). Each runs `yarn start` (i.e. a pre-built `next
-    start`), uses `watch: true` (PM2 restarts the process whenever a file in the working directory changes), NODE_ENV
-    is hardcoded to "production" for all three environment blocks (env_demo/env_prod/env_homol), and the shell interpreter
-    is selected based on host platform (cmd.exe on win32, else sh).'
+  description: 'ecosystem.config.js defines three named PM2 applications, one per deploy target: trilhas-demo (PORT 3002), trilhas-prod (PORT 3001), and trilhas-homol (PORT 3000). Each runs `yarn start` (i.e. a pre-built `next start`), uses `watch: true` (PM2 restarts the process whenever a file in the working directory changes), NODE_ENV is hardcoded to "production" for all three environment blocks (env_demo/env_prod/env_homol), and the shell interpreter is selected based on host platform (cmd.exe on win32, else sh).'
   inputs:
   - name: app_name
     type: string
@@ -1856,15 +1447,8 @@ rules:
   - name: running_pm2_process
     type: process
     unit: n/a
-  logic: "FOR EACH env IN [demo(port=3002), prod(port=3001), homol(port=3000)]:\n  pm2_app = {\n    name: \"trilhas-\"\
-    \ + env,\n    script: \"yarn\",\n    args: \"start\",\n    watch: true,               # auto-restart on filesystem\
-    \ change\n    interpreter: (platform == \"win32\") ? \"cmd.exe\" : \"sh\",\n    env_<env>: { PORT: port, NODE_ENV:\
-    \ \"production\" }\n  }"
-  edge_cases: 'All three environments set NODE_ENV=production even for demo/homol, so any app code branching on
-    NODE_ENV cannot distinguish staging/demo from real production at runtime — only the PORT and the externally-supplied
-    --env flag (see RULE-DEPLOY-FE-09-002) differ. `watch: true` in a production-style deployment means any incidental
-    file write to the working directory (e.g. log files written under the project root) could trigger an unplanned
-    process restart.'
+  logic: "FOR EACH env IN [demo(port=3002), prod(port=3001), homol(port=3000)]:\n  pm2_app = {\n    name: \"trilhas-\" + env,\n    script: \"yarn\",\n    args: \"start\",\n    watch: true,               # auto-restart on filesystem change\n    interpreter: (platform == \"win32\") ? \"cmd.exe\" : \"sh\",\n    env_<env>: { PORT: port, NODE_ENV: \"production\" }\n  }"
+  edge_cases: 'All three environments set NODE_ENV=production even for demo/homol, so any app code branching on NODE_ENV cannot distinguish staging/demo from real production at runtime — only the PORT and the externally-supplied --env flag (see RULE-DEPLOY-FE-09-002) differ. `watch: true` in a production-style deployment means any incidental file write to the working directory (e.g. log files written under the project root) could trigger an unplanned process restart.'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-040
@@ -1882,19 +1466,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-040
   name: Per-environment deploy script workflow with asymmetric env-file loading
   category: scheduling-operational
   type: workflow
   status: AMBIGUOUS
   verify: false
-  description: package.json defines paired "init-deploy:<env>" (first deploy, `pm2 start`) and "deploy:<env>" (redeploy,
-    `pm2 restart ... --update-env`) scripts for prod/homol/demo. All variants do `git pull && yarn install` then
-    build and then start/restart via `ecosystem.config.js --only trilhas-<env> --env <env>`. However, only the homol
-    and demo variants wrap the `next build` (and `next dev`) command with `env-cmd -f ./.homol.env` / `env-cmd -f
-    ./.demo.env` to inject environment variables; the prod variants call `next build`/`next dev` directly with no
-    env-cmd wrapper.
+  description: package.json defines paired "init-deploy:<env>" (first deploy, `pm2 start`) and "deploy:<env>" (redeploy, `pm2 restart ... --update-env`) scripts for prod/homol/demo. All variants do `git pull && yarn install` then build and then start/restart via `ecosystem.config.js --only trilhas-<env> --env <env>`. However, only the homol and demo variants wrap the `next build` (and `next dev`) command with `env-cmd -f ./.homol.env` / `env-cmd -f ./.demo.env` to inject environment variables; the prod variants call `next build`/`next dev` directly with no env-cmd wrapper.
   inputs:
   - name: target_env
     type: string
@@ -1910,31 +1490,20 @@ rules:
     unit: n/a
   logic: '# first-time deploy
 
-    init-deploy:prod  = git pull && yarn install && next build && pm2 start ecosystem.config.js --only trilhas-prod  --env
-    prod
+    init-deploy:prod  = git pull && yarn install && next build && pm2 start ecosystem.config.js --only trilhas-prod  --env prod
 
-    init-deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 start ecosystem.config.js
-    --only trilhas-homol --env homol
+    init-deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 start ecosystem.config.js --only trilhas-homol --env homol
 
-    init-deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 start ecosystem.config.js
-    --only trilhas-demo  --env demo
+    init-deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 start ecosystem.config.js --only trilhas-demo  --env demo
 
     # redeploy (adds --update-env, uses pm2 restart instead of start)
 
-    deploy:prod  = git pull && yarn install && next build && pm2 restart ecosystem.config.js --only trilhas-prod  --env
-    prod  --update-env
+    deploy:prod  = git pull && yarn install && next build && pm2 restart ecosystem.config.js --only trilhas-prod  --env prod  --update-env
 
-    deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 restart ecosystem.config.js
-    --only trilhas-homol --env homol --update-env
+    deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 restart ecosystem.config.js --only trilhas-homol --env homol --update-env
 
-    deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 restart ecosystem.config.js
-    --only trilhas-demo  --env demo  --update-env'
-  edge_cases: 'AMBIGUOUS: it is unclear from this partition whether prod relies on Next.js''s own automatic loading
-    of a `.env.production` file (which Next supports natively, unlike the non-standard "homol"/"demo" suffixes which
-    require the explicit `env-cmd` wrapper), or whether this is a genuine gap where prod could build with stale/missing
-    environment variables if no `.env.production` file is present on the deploy host. `.gitignore` only lists `.env.local`,
-    `.homol.env`, `.demo.env`, and the three `.env.<stage>.local` variants — it does NOT list `.env.production`,
-    so it is not clear a `.env.production` file is even expected to exist locally.'
+    deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 restart ecosystem.config.js --only trilhas-demo  --env demo  --update-env'
+  edge_cases: 'AMBIGUOUS: it is unclear from this partition whether prod relies on Next.js''s own automatic loading of a `.env.production` file (which Next supports natively, unlike the non-standard "homol"/"demo" suffixes which require the explicit `env-cmd` wrapper), or whether this is a genuine gap where prod could build with stale/missing environment variables if no `.env.production` file is present on the deploy host. `.gitignore` only lists `.env.local`, `.homol.env`, `.demo.env`, and the three `.env.<stage>.local` variants — it does NOT list `.env.production`, so it is not clear a `.env.production` file is even expected to exist locally.'
   confidence: medium
   related:
   - RULE-OPERACIONAL-INFRA-039
@@ -1951,18 +1520,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-041
   name: Environment secret files excluded from version control per deploy target
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: .gitignore excludes .env.local, .homol.env, .demo.env, .env.development.local, .env.test.local, and
-    .env.production.local from the repository. Cross-referenced with package.json (RULE-DEPLOY-FE-09-002), the homol
-    and demo deploy scripts explicitly load .homol.env / .demo.env via env-cmd — meaning each deploy target's secrets
-    file must be provisioned directly on that target's server/host out-of-band, since it is never committed to git
-    and would not arrive via `git pull`.
+  description: .gitignore excludes .env.local, .homol.env, .demo.env, .env.development.local, .env.test.local, and .env.production.local from the repository. Cross-referenced with package.json (RULE-DEPLOY-FE-09-002), the homol and demo deploy scripts explicitly load .homol.env / .demo.env via env-cmd — meaning each deploy target's secrets file must be provisioned directly on that target's server/host out-of-band, since it is never committed to git and would not arrive via `git pull`.
   inputs:
   - name: env_filename
     type: string
@@ -1973,13 +1539,8 @@ rules:
     type: boolean
     unit: n/a
     range: 'false'
-  logic: "GITIGNORED = [\".env.local\", \".homol.env\", \".demo.env\",\n              \".env.development.local\"\
-    , \".env.test.local\", \".env.production.local\"]\nFOR file IN GITIGNORED: file NOT tracked by git\n=> deploy\
-    \ scripts referencing these files (env-cmd -f ./.homol.env, ./.demo.env)\n   require the file to pre-exist on\
-    \ the deploy host already; `git pull`\n   alone cannot supply it."
-  edge_cases: If a fresh server is provisioned without the corresponding .homol.env/ .demo.env already present,
-    `init-deploy:homol`/`init-deploy:demo` (which run `env-cmd -f ./.<env>.env next build`) would fail at build
-    time for missing the file.
+  logic: "GITIGNORED = [\".env.local\", \".homol.env\", \".demo.env\",\n              \".env.development.local\", \".env.test.local\", \".env.production.local\"]\nFOR file IN GITIGNORED: file NOT tracked by git\n=> deploy scripts referencing these files (env-cmd -f ./.homol.env, ./.demo.env)\n   require the file to pre-exist on the deploy host already; `git pull`\n   alone cannot supply it."
+  edge_cases: If a fresh server is provisioned without the corresponding .homol.env/ .demo.env already present, `init-deploy:homol`/`init-deploy:demo` (which run `env-cmd -f ./.<env>.env next build`) would fail at build time for missing the file.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-040
@@ -1995,17 +1556,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-042
   name: PWA app identity and installed-app display behavior
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: 'public/manifest.json declares the installable web-app identity for the product: short_name/name
-    = "teleUTI" (i.e. the product''s actual name is "teleUTI" — a tele-ICU product), start_url "/", scope "/", display
-    mode "standalone" (launches without browser chrome), background_color #FFFFFF, theme_color #000000, and an icon
-    set spanning 36x36 through 512x512 plus a 192x192 "maskable" icon for adaptive Android icons.'
+  description: 'public/manifest.json declares the installable web-app identity for the product: short_name/name = "teleUTI" (i.e. the product''s actual name is "teleUTI" — a tele-ICU product), start_url "/", scope "/", display mode "standalone" (launches without browser chrome), background_color #FFFFFF, theme_color #000000, and an icon set spanning 36x36 through 512x512 plus a 192x192 "maskable" icon for adaptive Android icons.'
   inputs: []
   outputs:
   - name: installed_app_name
@@ -2016,11 +1575,8 @@ rules:
     type: string
     unit: n/a
     range: standalone
-  logic: "manifest = {\n  name: \"teleUTI\", short_name: \"teleUTI\",\n  start_url: \"/\", scope: \"/\",\n  display:\
-    \ \"standalone\",\n  background_color: \"#FFFFFF\", theme_color: \"#000000\",\n  icons: [36,48,72,96,144,192,512\
-    \ px PNGs + 192px maskable],\n  shortcuts: []\n}"
-  edge_cases: '"shortcuts": [] means no PWA app-shortcuts (e.g. quick actions from a long-press on the home-screen
-    icon) are configured despite the field being present.'
+  logic: "manifest = {\n  name: \"teleUTI\", short_name: \"teleUTI\",\n  start_url: \"/\", scope: \"/\",\n  display: \"standalone\",\n  background_color: \"#FFFFFF\", theme_color: \"#000000\",\n  icons: [36,48,72,96,144,192,512 px PNGs + 192px maskable],\n  shortcuts: []\n}"
+  edge_cases: '"shortcuts": [] means no PWA app-shortcuts (e.g. quick actions from a long-press on the home-screen icon) are configured despite the field being present.'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-038
@@ -2036,16 +1592,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-043
   name: Breadcrumb hides UUID-shaped route segments
   category: data-validation
   type: workflow
   status: OK
   verify: false
-  description: When building the breadcrumb trail from the current route path, any path segment whose string length
-    is exactly 36 characters (the length of a canonical UUID) is dropped from the displayed trail, so entity IDs
-    embedded in the URL never appear as breadcrumb labels.
+  description: When building the breadcrumb trail from the current route path, any path segment whose string length is exactly 36 characters (the length of a canonical UUID) is dropped from the displayed trail, so entity IDs embedded in the URL never appear as breadcrumb labels.
   inputs:
   - name: router.asPath segments
     type: string[]
@@ -2054,13 +1609,8 @@ rules:
   outputs:
   - name: breadcrumbs
     type: '{ breadcrumbName: string; path: string }[]'
-  logic: "linkPath = router.asPath.split(\"/\"); linkPath.shift()   // drop leading empty segment\nfor each (path,\
-    \ i) in linkPath:\n  if path.length !== 36:\n    emit { breadcrumbName: capitalize(path), path: \"/\" + linkPath.slice(0,i).join(\"\
-    /\") }\n  else:\n    emit undefined   // filtered out at render time (falsy Bread entries are skipped)"
-  edge_cases: Uses a raw length check (===36) rather than a UUID regex, so any non-UUID path segment that happens
-    to be exactly 36 characters long would also be hidden, and a UUID rendered without dashes or with different
-    formatting would not be hidden. Breadcrumbs accumulate onto previous state across router changes ([...prevState,
-    ...pathArray]) rather than being replaced, relying on route decomposition being consistent.
+  logic: "linkPath = router.asPath.split(\"/\"); linkPath.shift()   // drop leading empty segment\nfor each (path, i) in linkPath:\n  if path.length !== 36:\n    emit { breadcrumbName: capitalize(path), path: \"/\" + linkPath.slice(0,i).join(\"/\") }\n  else:\n    emit undefined   // filtered out at render time (falsy Bread entries are skipped)"
+  edge_cases: Uses a raw length check (===36) rather than a UUID regex, so any non-UUID path segment that happens to be exactly 36 characters long would also be hidden, and a UUID rendered without dashes or with different formatting would not be hidden. Breadcrumbs accumulate onto previous state across router changes ([...prevState, ...pathArray]) rather than being replaced, relying on route decomposition being consistent.
   confidence: medium
   merged_from:
   - RULE-breadcrumb-FE-05-001
@@ -2070,20 +1620,19 @@ rules:
     lines: 20-35
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Minor routing-convention rule; included because it encodes an assumption about the URL structure (bare
-    UUIDs as path segments) that a rebuild must preserve to avoid breadcrumbs showing raw entity IDs.
+  notes: Minor routing-convention rule; included because it encodes an assumption about the URL structure (bare UUIDs as path segments) that a rebuild must preserve to avoid breadcrumbs showing raw entity IDs.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-044
   name: Assistido flag reset - 1-minute update window
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: Celery task that clears the "assistido" (attended) flag on automatic trilhas that were updated in
-    the last minute but not themselves assisted in the last minute.
+  description: Celery task that clears the "assistido" (attended) flag on automatic trilhas that were updated in the last minute but not themselves assisted in the last minute.
   inputs:
   - name: dt_atualizacao
     type: datetime
@@ -2097,12 +1646,8 @@ rules:
   - name: assistido / assistido_por / assistido_em reset
     type: fields
     unit: null
-  logic: "now = datetime.now().astimezone()\nFor each trilha in Leito.get_trilhas_automaticas_v2():\n  rows = trilha.objects\n\
-    \    .exclude(assistido_em__gte = now - 1 minute)\n    .filter(dt_atualizacao__gte = now - 1 minute, dt_atualizacao__lte\
-    \ = now)\n  rows.update(assistido=False, assistido_por=None, assistido_em=None)\nlimpar_todos_os_assistidos():\
-    \ over Leito.get_trilhas_automaticas() (v1 set) resets ALL rows\n  unconditionally."
-  edge_cases: Window is exactly timedelta(minutes=1), timezone-aware (astimezone()). Boundary uses >= for lower
-    bound and <= for upper. Uses v2 trilha set for the windowed reset but the v1 set for the full wipe.
+  logic: "now = datetime.now().astimezone()\nFor each trilha in Leito.get_trilhas_automaticas_v2():\n  rows = trilha.objects\n    .exclude(assistido_em__gte = now - 1 minute)\n    .filter(dt_atualizacao__gte = now - 1 minute, dt_atualizacao__lte = now)\n  rows.update(assistido=False, assistido_por=None, assistido_em=None)\nlimpar_todos_os_assistidos(): over Leito.get_trilhas_automaticas() (v1 set) resets ALL rows\n  unconditionally."
+  edge_cases: Window is exactly timedelta(minutes=1), timezone-aware (astimezone()). Boundary uses >= for lower bound and <= for upper. Uses v2 trilha set for the windowed reset but the v1 set for the full wipe.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-045
@@ -2118,15 +1663,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-045
   name: Interactive sepsis - overdue item auto-check and alert message
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: Celery task scanning interactive sepsis trilhas for overdue checklist items and emitting a delay
-    observation message from the system user.
+  description: Celery task scanning interactive sepsis trilhas for overdue checklist items and emitting a delay observation message from the system user.
   inputs:
   - name: trilha.leito.ocupado
     type: bool
@@ -2144,14 +1689,8 @@ rules:
   - name: observacao message
     type: string
     unit: null
-  logic: "For each TrilhaInterativaSpese WHERE trilha.leito.ocupado = True\n    AND finalizado = False AND aceito\
-    \ = True:\n  For each item in itens_trilha_interativa:\n    checagem_envio_automatico(item)   # out-of-scope:\
-    \ computes atraso flag\n    IF item.atraso_item_interativa:\n      message = f\"A checagem do item {item.nome_item}\
-    \ esta atrasada\"\n      enviar_observacao_trilha_interativa(message, tipo_trilha=\"sepse\",\n        trilha_interativa=item.trilha_interativa,\n\
-    \        responsavel=Usuario(username=\"sistema\").get_pk)"
-  edge_cases: Only occupied beds and accepted, non-finalized interactive trilhas are scanned. The overdue predicate
-    itself (atraso_item_interativa / checagem_envio_automatico) is computed in core.utils (out of scope). tipo_trilha
-    hard-coded to "sepse".
+  logic: "For each TrilhaInterativaSpese WHERE trilha.leito.ocupado = True\n    AND finalizado = False AND aceito = True:\n  For each item in itens_trilha_interativa:\n    checagem_envio_automatico(item)   # out-of-scope: computes atraso flag\n    IF item.atraso_item_interativa:\n      message = f\"A checagem do item {item.nome_item} esta atrasada\"\n      enviar_observacao_trilha_interativa(message, tipo_trilha=\"sepse\",\n        trilha_interativa=item.trilha_interativa,\n        responsavel=Usuario(username=\"sistema\").get_pk)"
+  edge_cases: Only occupied beds and accepted, non-finalized interactive trilhas are scanned. The overdue predicate itself (atraso_item_interativa / checagem_envio_automatico) is computed in core.utils (out of scope). tipo_trilha hard-coded to "sepse".
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-044
@@ -2167,17 +1706,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-046
   name: Celery queue naming convention — environment-namespaced routing keys
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: 'Every Celery queue/routing-key in the project is namespaced by the ENVIRONMENT variable (e.g. ''prod.trilhas.amhdocs'',
-    ''demo.trilhas.etl''), so the same RabbitMQ broker can host isolated queues per deployment environment (demo/homol/prod)
-    without collision. 12 queues are declared: atualizar_trilhas, log, mensagens, etl, executar_trilhas, estabelecimento_setor_leito,
-    etl_dados_brutos, prescricoes, prescricao_continua, notificacoes, callprocedure, amhdocs.'
+  description: 'Every Celery queue/routing-key in the project is namespaced by the ENVIRONMENT variable (e.g. ''prod.trilhas.amhdocs'', ''demo.trilhas.etl''), so the same RabbitMQ broker can host isolated queues per deployment environment (demo/homol/prod) without collision. 12 queues are declared: atualizar_trilhas, log, mensagens, etl, executar_trilhas, estabelecimento_setor_leito, etl_dados_brutos, prescricoes, prescricao_continua, notificacoes, callprocedure, amhdocs.'
   inputs:
   - name: ENVIRONMENT
     type: string
@@ -2187,13 +1724,8 @@ rules:
   - name: Queue/routing_key
     type: string
     unit: null
-  logic: "FOR queue_name IN [atualizar_trilhas, log, mensagens, etl, executar_trilhas,\n                   estabelecimento_setor_leito,\
-    \ etl_dados_brutos, prescricoes,\n                   prescricao_continua, notificacoes, callprocedure, amhdocs]:\n\
-    \  Queue(\n    name = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n    routing_key = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\"\
-    ,\n  )\ntask_default_exchange = \"trilhas\"; task_default_exchange_type = \"direct\"; task_default_queue = \"\
-    default\""
-  edge_cases: If ENVIRONMENT is unset, queue names begin with a leading '.' (e.g. '.trilhas.log') since the empty-string
-    default is still concatenated with the '.' separator.
+  logic: "FOR queue_name IN [atualizar_trilhas, log, mensagens, etl, executar_trilhas,\n                   estabelecimento_setor_leito, etl_dados_brutos, prescricoes,\n                   prescricao_continua, notificacoes, callprocedure, amhdocs]:\n  Queue(\n    name = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n    routing_key = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n  )\ntask_default_exchange = \"trilhas\"; task_default_exchange_type = \"direct\"; task_default_queue = \"default\""
+  edge_cases: If ENVIRONMENT is unset, queue names begin with a leading '.' (e.g. '.trilhas.log') since the empty-string default is still concatenated with the '.' separator.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-025
@@ -2206,26 +1738,19 @@ rules:
     lines: 21-71
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Matches the -Q flags seen in the uwsgi ini attach-daemon lines (RULE-ops-BE-11-067) and the routing_key
-    in utils/integracoes.py's enviar_arquivo_amhdocs task.
+  notes: Matches the -Q flags seen in the uwsgi ini attach-daemon lines (RULE-ops-BE-11-067) and the routing_key in utils/integracoes.py's enviar_arquivo_amhdocs task.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-047
   name: Celery beat scheduler — DatabaseScheduler, with a duplicate-beat-daemon discrepancy in demo/legacy configs
   category: scheduling-operational
   type: workflow
   status: DISCREPANCY
   verify: false
-  description: All active uwsgi configs run `celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler`
-    as a standalone daemon, meaning periodic task schedules are stored in the Django DB (via django_celery_beat
-    / admin) rather than in code (no in-code CELERYBEAT_SCHEDULE was found anywhere in this partition). However,
-    uwsgi-demo.ini and uwsgi-homol-old.ini ALSO attach the embedded-beat flag (-B) to the 'atualizar_trilhas' worker
-    line IN ADDITION TO the standalone beat daemon, meaning TWO beat schedulers would run concurrently against the
-    same database-backed schedule in those environments — a known source of duplicate/double-fired periodic tasks.
-    uwsgi-homol.ini and uwsgi-prod.ini (the current, non-'-old'/non-demo configs) do NOT have the -B flag on that
-    worker line, keeping only the single standalone beat daemon.
+  description: All active uwsgi configs run `celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler` as a standalone daemon, meaning periodic task schedules are stored in the Django DB (via django_celery_beat / admin) rather than in code (no in-code CELERYBEAT_SCHEDULE was found anywhere in this partition). However, uwsgi-demo.ini and uwsgi-homol-old.ini ALSO attach the embedded-beat flag (-B) to the 'atualizar_trilhas' worker line IN ADDITION TO the standalone beat daemon, meaning TWO beat schedulers would run concurrently against the same database-backed schedule in those environments — a known source of duplicate/double-fired periodic tasks. uwsgi-homol.ini and uwsgi-prod.ini (the current, non-'-old'/non-demo configs) do NOT have the -B flag on that worker line, keeping only the single standalone beat daemon.
   inputs: []
   outputs:
   - name: active beat scheduler count per environment
@@ -2236,15 +1761,13 @@ rules:
 
     attach-daemon = celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
-    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas
-    -B
+    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas -B
 
     # homol.ini / prod.ini (CORRECT, single beat):
 
     attach-daemon = celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
-    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas   #
-    no -B'
+    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas   # no -B'
   edge_cases: null
   confidence: high
   related:
@@ -2258,23 +1781,19 @@ rules:
     lines: uwsgi-demo.ini:20-21; uwsgi-homol-old.ini:21-22; uwsgi-homol.ini:18-19; uwsgi-prod.ini:20-21
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: DISCREPANCY flagged for the demo environment specifically since uwsgi-demo.ini (unlike the '-old' homol
-    file) does not carry an 'old'/deprecated naming signal and may still be an actively-used config; verify whether
-    the demo environment is currently double-scheduling periodic tasks.
+  notes: DISCREPANCY flagged for the demo environment specifically since uwsgi-demo.ini (unlike the '-old' homol file) does not carry an 'old'/deprecated naming signal and may still be an actively-used config; verify whether the demo environment is currently double-scheduling periodic tasks.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-048
   name: Backend CI gate covers only trilha_manual tests
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: Continuous integration for the backend runs on pushes to master and homologacao, provisions Python
-    3.8 + Postgres 10 + RabbitMQ, runs makemigrations+migrate, and then executes ONLY the trilha_manual test suite.
-    No other app (core, trilha_automatica, trilha_homecare, log) is tested in CI; migration generation happens at
-    CI time rather than being committed.
+  description: Continuous integration for the backend runs on pushes to master and homologacao, provisions Python 3.8 + Postgres 10 + RabbitMQ, runs makemigrations+migrate, and then executes ONLY the trilha_manual test suite. No other app (core, trilha_automatica, trilha_homecare, log) is tested in CI; migration generation happens at CI time rather than being committed.
   inputs:
   - name: push event branch
     type: string
@@ -2284,12 +1803,8 @@ rules:
   - name: CI pass/fail
     type: boolean
     unit: null
-  logic: "on push to [master, homologacao]:\n  setup python 3.8, postgres:10 (db 'dev-trilhas'), rabbitmq\n  pip\
-    \ install -r requirements.txt + psycopg2-binary\n  python manage.py makemigrations && python manage.py migrate\n\
-    \  python manage.py test trilha_manual        # ONLY this app"
-  edge_cases: makemigrations at CI time can generate migrations that differ from any committed state; a hardcoded
-    Postgres password ('DA-amh-2019') is embedded in the workflow file (security observation for the escalation
-    report, not a functional rule).
+  logic: "on push to [master, homologacao]:\n  setup python 3.8, postgres:10 (db 'dev-trilhas'), rabbitmq\n  pip install -r requirements.txt + psycopg2-binary\n  python manage.py makemigrations && python manage.py migrate\n  python manage.py test trilha_manual        # ONLY this app"
+  edge_cases: makemigrations at CI time can generate migrations that differ from any committed state; a hardcoded Postgres password ('DA-amh-2019') is embedded in the workflow file (security observation for the escalation report, not a functional rule).
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-056
@@ -2301,22 +1816,19 @@ rules:
     lines: 1-63
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Clinical-risk relevance: the automated ICU pathway engine (trilha_automatica) and homecare scoring engines
-    (trilha_homecare) have NO CI test gate; only the manual-pathway app is regression-tested. Cross-reference BE-10
-    (trilha_manual tests encode parameter-range rules).'
+  notes: 'Clinical-risk relevance: the automated ICU pathway engine (trilha_automatica) and homecare scoring engines (trilha_homecare) have NO CI test gate; only the manual-pathway app is regression-tested. Cross-reference BE-10 (trilha_manual tests encode parameter-range rules).'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-049
   name: Nursing-shift day window 07:00-07:00
   category: scheduling-operational
   type: workflow
   status: OK
   verify: false
-  description: 'The prescription screen operates on a nursing shift running 07:00 to 07:00 (24h window starting
-    at 7am). The selected "day" of prescriptions is derived by mapping the current moment into the shift-day: times
-    before 07:00 belong to the previous calendar day. The UI label reads "Turno vigente: 7:00 as 7:00".'
+  description: 'The prescription screen operates on a nursing shift running 07:00 to 07:00 (24h window starting at 7am). The selected "day" of prescriptions is derived by mapping the current moment into the shift-day: times before 07:00 belong to the previous calendar day. The UI label reads "Turno vigente: 7:00 as 7:00".'
   inputs:
   - name: currentMoment
     type: moment (now)
@@ -2334,16 +1846,8 @@ rules:
   - name: shiftDay
     type: moment (date used as dia=YYYY-MM-DD filter)
     unit: null
-  logic: "date = dateTurn(moment(), \"7:00\", \"7:00\")   # start == end\ndateTurn(currentMoment, startHour, endHour):\n\
-    \  start = moment(startHour,\"HH:mm\"); end = moment(endHour,\"HH:mm\")\n  if (end.isBefore(start) || end.isSame(start))\
-    \ end.add(1,\"day\")   # 7:00==7:00 -> end pushed +1 day\n  currentHour = moment(now.format(\"HH:mm\"),\"HH:mm\"\
-    )\n  if (currentHour.isBetween(start,end)) return currentMoment\n  else if (currentHour.isBefore(start))  return\
-    \ currentMoment.subtract(1,\"day\")\n  else if (currentHour.isAfter(end))     return currentMoment.add(1,\"\
-    day\")\n  else return currentMoment\n# Prescriptions fetched with { dia: date.format(\"YYYY-MM-DD\") }."
-  edge_cases: 'Because start==end=="7:00", end is bumped to next day so the window is [07:00, 07:00+1d]. isBetween
-    is exclusive of endpoints: exactly 07:00 is neither before start nor between, and not after end (end is 07:00
-    next day), so the final else returns currentMoment unchanged. Comparisons use HH:mm only (date component stripped
-    for the hour test).'
+  logic: "date = dateTurn(moment(), \"7:00\", \"7:00\")   # start == end\ndateTurn(currentMoment, startHour, endHour):\n  start = moment(startHour,\"HH:mm\"); end = moment(endHour,\"HH:mm\")\n  if (end.isBefore(start) || end.isSame(start)) end.add(1,\"day\")   # 7:00==7:00 -> end pushed +1 day\n  currentHour = moment(now.format(\"HH:mm\"),\"HH:mm\")\n  if (currentHour.isBetween(start,end)) return currentMoment\n  else if (currentHour.isBefore(start))  return currentMoment.subtract(1,\"day\")\n  else if (currentHour.isAfter(end))     return currentMoment.add(1,\"day\")\n  else return currentMoment\n# Prescriptions fetched with { dia: date.format(\"YYYY-MM-DD\") }."
+  edge_cases: 'Because start==end=="7:00", end is bumped to next day so the window is [07:00, 07:00+1d]. isBetween is exclusive of endpoints: exactly 07:00 is neither before start nor between, and not after end (end is 07:00 next day), so the final else returns currentMoment unchanged. Comparisons use HH:mm only (date component stripped for the hour test).'
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-029
@@ -2357,21 +1861,19 @@ rules:
     lines: 49-49
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: dateTurn algorithm defined in src/utils/dateTurn.ts (cross-partition). Also passed to CustomDatePicker
-    dateTurnProps {start:"7:00", end:"7:00"} (lines 282-285). Label at line 287-289.
+  notes: dateTurn algorithm defined in src/utils/dateTurn.ts (cross-partition). Also passed to CustomDatePicker dateTurnProps {start:"7:00", end:"7:00"} (lines 282-285). Label at line 287-289.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-050
   name: next/image remote image domain whitelist
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: next.config.js restricts Next.js's built-in Image Optimization (`next/image`) to only fetch/optimize
-    remote images whose host is "firebasestorage.googleapis.com" or "omni-pub-bkt.s3.amazonaws.com". Any other remote
-    image domain is rejected by the framework at request time.
+  description: next.config.js restricts Next.js's built-in Image Optimization (`next/image`) to only fetch/optimize remote images whose host is "firebasestorage.googleapis.com" or "omni-pub-bkt.s3.amazonaws.com". Any other remote image domain is rejected by the framework at request time.
   inputs:
   - name: image_src_hostname
     type: string
@@ -2381,12 +1883,8 @@ rules:
   - name: image_optimization_allowed
     type: boolean
     unit: n/a
-  logic: "ALLOWED_DOMAINS = [\"firebasestorage.googleapis.com\", \"omni-pub-bkt.s3.amazonaws.com\"]\nIF request.image_hostname\
-    \ NOT IN ALLOWED_DOMAINS:\n  REJECT (next/image throws/blocks optimization)"
-  edge_cases: Any future image source (e.g. a new CDN or a different S3 bucket) must be added to this list or images
-    from it will fail to render via next/image. This is a security/allow-list control (mitigates SSRF-style abuse
-    of the image-proxy) as well as a functional dependency on exactly two storage backends (Firebase Storage and
-    an "omni-pub-bkt" S3 bucket), consistent with the `firebase` dependency in package.json.
+  logic: "ALLOWED_DOMAINS = [\"firebasestorage.googleapis.com\", \"omni-pub-bkt.s3.amazonaws.com\"]\nIF request.image_hostname NOT IN ALLOWED_DOMAINS:\n  REJECT (next/image throws/blocks optimization)"
+  edge_cases: Any future image source (e.g. a new CDN or a different S3 bucket) must be added to this list or images from it will fail to render via next/image. This is a security/allow-list control (mitigates SSRF-style abuse of the image-proxy) as well as a functional dependency on exactly two storage backends (Firebase Storage and an "omni-pub-bkt" S3 bucket), consistent with the `firebase` dependency in package.json.
   confidence: high
   merged_from:
   - RULE-DATA-FE-09-004
@@ -2400,15 +1898,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-051
   name: Uniqueness constraints across org hierarchy
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: Composite uniqueness rules that structure the company > establishment > sector > bed hierarchy and
-    identity fields.
+  description: Composite uniqueness rules that structure the company > establishment > sector > bed hierarchy and identity fields.
   inputs:
   - name: hierarchy identifiers
     type: mixed
@@ -2453,21 +1951,19 @@ rules:
     lines: 56-58
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: 'Aggregated constraint rule. Individual sources: estabelecimento.py:29, setor.py:26, leito.py:58, empresa.py:14,
-    usuario.py:53/18-29, usuario_empresa.py:14, usuario_estabelecimento.py:15, usuario_setor.py:15, usuario_grupo_acesso.py:13,
-    usuario_notificacao.py:13, usuario_setor_paciente.py:15, reacao.py:19, glossario.py:6.'
+  notes: 'Aggregated constraint rule. Individual sources: estabelecimento.py:29, setor.py:26, leito.py:58, empresa.py:14, usuario.py:53/18-29, usuario_empresa.py:14, usuario_estabelecimento.py:15, usuario_setor.py:15, usuario_grupo_acesso.py:13, usuario_notificacao.py:13, usuario_setor_paciente.py:15, reacao.py:19, glossario.py:6.'
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-052
   name: Observation-by-bed includes replies to that bed
   category: scheduling-operational
   type: validation
   status: OK
   verify: false
-  description: Filtering observations by leito returns observations on that bed OR replies whose parent observation
-    is on that bed.
+  description: Filtering observations by leito returns observations on that bed OR replies whose parent observation is on that bed.
   inputs:
   - name: leito (id)
     type: string
@@ -2495,19 +1991,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-053
   name: UniqueTogetherManagerMixin.save — composite uniqueness excluding soft-deleted rows
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: Before saving, for each unique-together field-combo declared in a model's `UniqueTogether.value`
-    (which may be a single flat tuple of field names, or a tuple of such tuples for multiple constraints — depth-detected),
-    builds a Q-filter requiring ALL present (truthy) field values to match, excludes the current row (by pk) and
-    soft-deleted rows (deletado_em__isnull=True); if an `except_has` condition (key or key/value pair) matches the
-    current instance, the check is bypassed entirely for that combo. If a matching non-deleted row exists for a
-    combo where every field produced a truthy filter value, raises ValidationError with a default or custom message.
+  description: Before saving, for each unique-together field-combo declared in a model's `UniqueTogether.value` (which may be a single flat tuple of field names, or a tuple of such tuples for multiple constraints — depth-detected), builds a Q-filter requiring ALL present (truthy) field values to match, excludes the current row (by pk) and soft-deleted rows (deletado_em__isnull=True); if an `except_has` condition (key or key/value pair) matches the current instance, the check is bypassed entirely for that combo. If a matching non-deleted row exists for a combo where every field produced a truthy filter value, raises ValidationError with a default or custom message.
   inputs:
   - name: self.UniqueTogether.value
     type: tuple of field names, or tuple of tuples
@@ -2519,16 +2011,8 @@ rules:
   - name: validity
     type: raises ValidationError otherwise
     unit: null
-  logic: "FOR unique IN (UniqueTogether.value if nested else [UniqueTogether.value]):\n  args_to_check = []\n  FOR\
-    \ param IN unique:\n    value = getattr(self, param, None)\n    IF value: args_to_check.append(Q(**{param: value}))\n\
-    \  IF len(unique) == len(args_to_check):    # every field in the combo had a truthy value\n    qs = Klass.objects.filter(~Q(pk=self.get_pk),\
-    \ Q(deletado_em__isnull=True), *args_to_check)\n    FOR except_param IN except_has:\n      (key, value) = except_param\
-    \ if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given): qs = Klass.objects.none();\
-    \ BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"Os campos <unique> devem ser únicos\"\
-    )"
-  edge_cases: If ANY field in a combo is falsy (None/empty) on self, that field is omitted from the filter and,
-    because len(unique) != len(args_to_check), the ENTIRE combo check is skipped — a unique-together constraint
-    with any blank component is not enforced at all for that row.
+  logic: "FOR unique IN (UniqueTogether.value if nested else [UniqueTogether.value]):\n  args_to_check = []\n  FOR param IN unique:\n    value = getattr(self, param, None)\n    IF value: args_to_check.append(Q(**{param: value}))\n  IF len(unique) == len(args_to_check):    # every field in the combo had a truthy value\n    qs = Klass.objects.filter(~Q(pk=self.get_pk), Q(deletado_em__isnull=True), *args_to_check)\n    FOR except_param IN except_has:\n      (key, value) = except_param if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given): qs = Klass.objects.none(); BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"Os campos <unique> devem ser únicos\")"
+  edge_cases: If ANY field in a combo is falsy (None/empty) on self, that field is omitted from the filter and, because len(unique) != len(args_to_check), the ENTIRE combo check is skipped — a unique-together constraint with any blank component is not enforced at all for that row.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-054
@@ -2540,22 +2024,19 @@ rules:
     lines: 46-113
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Soft-deleted rows (deletado_em not null) are always excluded from the uniqueness check, i.e. a soft-deleted
-    record does not block re-creating a 'duplicate'. Compare RULE-model-BE-11-058 (SetUpModel) which overrides delete()
-    but this mixin's own save() logic is shared by any model class combining it.
+  notes: Soft-deleted rows (deletado_em not null) are always excluded from the uniqueness check, i.e. a soft-deleted record does not block re-creating a 'duplicate'. Compare RULE-model-BE-11-058 (SetUpModel) which overrides delete() but this mixin's own save() logic is shared by any model class combining it.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-054
   name: UniqueManagerMixin.save — single-field uniqueness excluding soft-deleted rows
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: Before saving, for each field name in a model's `Unique.value`, checks independently (not combined)
-    whether another non-deleted row has the same value for that field (excluding self by pk); raises ValidationError
-    if so, unless an `except_has` bypass condition matches.
+  description: Before saving, for each field name in a model's `Unique.value`, checks independently (not combined) whether another non-deleted row has the same value for that field (excluding self by pk); raises ValidationError if so, unless an `except_has` bypass condition matches.
   inputs:
   - name: self.Unique.value
     type: tuple of field names, each checked independently
@@ -2567,14 +2048,8 @@ rules:
   - name: validity
     type: raises ValidationError otherwise
     unit: null
-  logic: "FOR param IN self.Unique.value:\n  value = getattr(self, param, None)\n  IF value:\n    qs = Klass.objects.filter(~Q(pk=self.get_pk),\
-    \ Q(deletado_em__isnull=True), Q(**{param: value}))\n    FOR except_param IN except_has:\n      (key, value)\
-    \ = except_param if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given):\
-    \ qs = Klass.objects.none(); BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"O campo <param>\
-    \ deve ser único\")"
-  edge_cases: A falsy field value (None/empty) is simply never checked for uniqueness (silently skipped), unlike
-    UniqueTogetherManagerMixin where a falsy field skips the WHOLE combo — here each field is independent so only
-    that one field's check is skipped.
+  logic: "FOR param IN self.Unique.value:\n  value = getattr(self, param, None)\n  IF value:\n    qs = Klass.objects.filter(~Q(pk=self.get_pk), Q(deletado_em__isnull=True), Q(**{param: value}))\n    FOR except_param IN except_has:\n      (key, value) = except_param if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given): qs = Klass.objects.none(); BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"O campo <param> deve ser único\")"
+  edge_cases: A falsy field value (None/empty) is simply never checked for uniqueness (silently skipped), unlike UniqueTogetherManagerMixin where a falsy field skips the WHOLE combo — here each field is independent so only that one field's check is skipped.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-053
@@ -2590,15 +2065,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-055
   name: popular_banco gender enum (synthetic data)
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: 'The synthetic test-data generator draws a random patient gender code from 4 categories: M (male),
-    F (female), O (other), N (not informed).'
+  description: 'The synthetic test-data generator draws a random patient gender code from 4 categories: M (male), F (female), O (other), N (not informed).'
   inputs: []
   outputs:
   - name: genero
@@ -2621,23 +2096,19 @@ rules:
     lines: 73, 129
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Same provenance caveat as RULE-seed-BE-11-032/033. Meaning of 'O' and 'N' inferred (Other / Não informado)
-    from context, not stated explicitly in code.
+  notes: Same provenance caveat as RULE-seed-BE-11-032/033. Meaning of 'O' and 'N' inferred (Other / Não informado) from context, not stated explicitly in code.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-056
   name: Diagnosis-list checks are non-functional (vars().fromkeys misuse)
   category: data-validation
   type: validation
   status: DISCREPANCY
   verify: false
-  description: Every criterion that tries to test whether a diagnosis string is present/absent in diagnostico_1..4
-    or diag_inter_1..5 builds the candidate set with vars(ultima_evolucao).fromkeys((...field names...)). dict.fromkeys(iterable)
-    returns a NEW dict whose KEYS are the field-name strings (e.g. "diagnostico_1") and whose VALUES are all None;
-    it does NOT read the object's actual field values. Consequently the membership/startswith tests operate on the
-    literal field-name strings (or on all-None .values()), never on real diagnoses.
+  description: Every criterion that tries to test whether a diagnosis string is present/absent in diagnostico_1..4 or diag_inter_1..5 builds the candidate set with vars(ultima_evolucao).fromkeys((...field names...)). dict.fromkeys(iterable) returns a NEW dict whose KEYS are the field-name strings (e.g. "diagnostico_1") and whose VALUES are all None; it does NOT read the object's actual field values. Consequently the membership/startswith tests operate on the literal field-name strings (or on all-None .values()), never on real diagnoses.
   inputs:
   - name: ultima_evolucao diagnostico_1..4 / diag_inter_1..5
     type: string fields on DadosBrutosEvolucao
@@ -2658,8 +2129,7 @@ rules:
     "SCA - ..." in candidate.fromkeys(...).values()                 # values() all None -> always False
 
     # => "presence" tests are always False; "not <presence>" (absence) tests are always True.'
-  edge_cases: Systemic; makes presence-of-diagnosis gates unsatisfiable and absence-of-diagnosis gates vacuously
-    satisfied.
+  edge_cases: Systemic; makes presence-of-diagnosis gates unsatisfiable and absence-of-diagnosis gates vacuously satisfied.
   confidence: high
   related:
   - RULE-OPERACIONAL-INFRA-048
@@ -2671,24 +2141,19 @@ rules:
     lines: 593-605, 654-666, 722-734
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Same defect recurs in trilha_estabilidade.py c13 (I64 startswith, lines 692-704), trilha_eficiencia.py
-    c3/c4/c5/c6/c7 (SCA/I64/antecedentes, lines 456-487, 521-552, 588-607, 698-713, 770-785), trilha_profilaxia.py
-    c1 (diagnosticos_intern, lines 259-271), and trilha_sepse.py c8/c9/c10. Flagged individually in each affected
-    criterion rule.
+  notes: Same defect recurs in trilha_estabilidade.py c13 (I64 startswith, lines 692-704), trilha_eficiencia.py c3/c4/c5/c6/c7 (SCA/I64/antecedentes, lines 456-487, 521-552, 588-607, 698-713, 770-785), trilha_profilaxia.py c1 (diagnosticos_intern, lines 259-271), and trilha_sepse.py c8/c9/c10. Flagged individually in each affected criterion rule.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-057
   name: upload_to — model-type-based storage folder convention
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: 'Determines the storage sub-folder prefix for an uploaded file based on the type of the owning model
-    instance: Usuario -> ''usuario'', ObservacaoArquivo -> ''observacao'', Empresa -> ''empresa'', Formulario ->
-    ''formulario-<instance.tipo>''. If the instance type matches none of these, raises a ValidationError instructing
-    that a prefix must be set.'
+  description: 'Determines the storage sub-folder prefix for an uploaded file based on the type of the owning model instance: Usuario -> ''usuario'', ObservacaoArquivo -> ''observacao'', Empresa -> ''empresa'', Formulario -> ''formulario-<instance.tipo>''. If the instance type matches none of these, raises a ValidationError instructing that a prefix must be set.'
   inputs:
   - name: instance
     type: Django model instance (Usuario | ObservacaoArquivo | Empresa | Formulario | other)
@@ -2708,15 +2173,12 @@ rules:
 
     ELIF isinstance(instance, Empresa): prefix = "empresa"
 
-    IF isinstance(instance, Formulario): prefix = "formulario-" + instance.tipo   # note: independent `if`, not
-    `elif`
+    IF isinstance(instance, Formulario): prefix = "formulario-" + instance.tipo   # note: independent `if`, not `elif`
 
     IF NOT prefix: RAISE ValidationError({"file": "Não foi possível fazer upload, coloque um prefixo para pasta."})
 
     RETURN "{prefix}/{instance.pk}-{filename}"'
-  edge_cases: The Formulario check is a separate `if`, not chained via `elif` to the preceding Usuario/ObservacaoArquivo/Empresa
-    checks — harmless in practice since the four types are mutually exclusive classes, but notable as the only branch
-    NOT part of the elif chain.
+  edge_cases: The Formulario check is a separate `if`, not chained via `elif` to the preceding Usuario/ObservacaoArquivo/Empresa checks — harmless in practice since the four types are mutually exclusive classes, but notable as the only branch NOT part of the elif chain.
   confidence: high
   merged_from:
   - RULE-util-BE-11-043
@@ -2730,15 +2192,15 @@ rules:
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-058
   name: verificar_setor_da_empresa — tenant-hierarchy consistency check
   category: data-validation
   type: validation
   status: OK
   verify: false
-  description: For each Setor whose pk is in a given list, validates that its estabelecimento's empresa matches
-    the given empresa; raises a ValidationError naming the offending setor if not.
+  description: For each Setor whose pk is in a given list, validates that its estabelecimento's empresa matches the given empresa; raises a ValidationError naming the offending setor if not.
   inputs:
   - name: setores
     type: list of Setor pks
@@ -2750,8 +2212,7 @@ rules:
   - name: validity
     type: raises ValidationError otherwise
     unit: null
-  logic: "FOR setor IN Setor.objects.filter(pk__in=setores):\n  IF setor.estabelecimento.empresa != empresa:\n \
-    \   RAISE ValidationError({\"setores\": f\"O setor {setor.nome} não pertence a empresa {empresa.nome}.\"})"
+  logic: "FOR setor IN Setor.objects.filter(pk__in=setores):\n  IF setor.estabelecimento.empresa != empresa:\n    RAISE ValidationError({\"setores\": f\"O setor {setor.nome} não pertence a empresa {empresa.nome}.\"})"
   edge_cases: null
   confidence: high
   related:
@@ -2764,22 +2225,19 @@ rules:
     lines: 99-106
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
-  notes: Conceptually duplicates the tenant-hierarchy checks performed at the HTTP-request level by EstabelecimentoMiddleware/SetorMiddleware
-    (RULE-mw-BE-11-060, 061) — same business rule enforced in two different layers (explicit call-site validation
-    vs URL-path middleware).
+  notes: Conceptually duplicates the tenant-hierarchy checks performed at the HTTP-request level by EstabelecimentoMiddleware/SetorMiddleware (RULE-mw-BE-11-060, 061) — same business rule enforced in two different layers (explicit call-site validation vs URL-path middleware).
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 - id: RULE-OPERACIONAL-INFRA-059
   name: Per-company auto-refresh interval field
   category: scheduling-operational
   type: threshold
   status: AMBIGUOUS
   verify: false
-  description: Each company (Usuario.Empresa) carries a numeric "tempo_atualizacao" (update time/interval) field,
-    presumably configuring how often the UI should auto-refresh/poll for that company's data, but its unit (seconds
-    vs milliseconds) and the code that actually applies it are not present in this partition.
+  description: Each company (Usuario.Empresa) carries a numeric "tempo_atualizacao" (update time/interval) field, presumably configuring how often the UI should auto-refresh/poll for that company's data, but its unit (seconds vs milliseconds) and the code that actually applies it are not present in this partition.
   inputs:
   - name: tempo_atualizacao
     type: number
@@ -2789,12 +2247,10 @@ rules:
   - name: tempo_atualizacao
     type: number
     unit: unknown
-  logic: 'Usuario.Empresa.tempo_atualizacao: number   // consumed by an auto-reload mechanism out of this partition''s
-    scope
+  logic: 'Usuario.Empresa.tempo_atualizacao: number   // consumed by an auto-reload mechanism out of this partition''s scope
 
     '
-  edge_cases: Not applied anywhere within this partition's files (AutoReloadContext in this partition only exposes
-    a generic update/setUpdate boolean toggle with no interval/timer logic of its own).
+  edge_cases: Not applied anywhere within this partition's files (AutoReloadContext in this partition only exposes a generic update/setUpdate boolean toggle with no interval/timer logic of its own).
   confidence: low
   merged_from:
   - RULE-usuario-FE-07-003
@@ -2804,17 +2260,15 @@ rules:
     lines: 34-34
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
-  notes: Field name suggests a polling interval per the scope instructions' explicit callout of "polling intervals";
-    the consuming logic likely lives in a component/page file outside this hooks/contexts/@types partition.
+  notes: Field name suggests a polling interval per the scope instructions' explicit callout of "polling intervals"; the consuming logic likely lives in a component/page file outside this hooks/contexts/@types partition.
   verification:
     verdict: NOT_APPLICABLE
     clinical_impact: null
-    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+    reference: null
+    detail_file: null
 dropped:
 - id: RULE-settings-BE-11-064
-  reason: misrouted:auth-usuarios — JWT access/refresh token expiration policy (JWT_AUTH settings block) is an authentication/session-security
-    rule, not build/deploy/scheduling/data-plumbing infra; belongs with the auth-usuarios cluster's token/session
-    rules.
+  reason: misrouted:auth-usuarios — JWT access/refresh token expiration policy (JWT_AUTH settings block) is an authentication/session-security rule, not build/deploy/scheduling/data-plumbing infra; belongs with the auth-usuarios cluster's token/session rules.
 integrated_misroutes:
 - id: RULE-usuario-FE-07-003
   disposition: appended:RULE-OPERACIONAL-INFRA-059

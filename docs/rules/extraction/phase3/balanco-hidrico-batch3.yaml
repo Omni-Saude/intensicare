@@ -1,0 +1,224 @@
+- rule_id: RULE-BALANCO-HIDRICO-011
+  reference:
+    citation: >-
+      No authoritative published clinical reference governs a "max capillary
+      glucose over the 07:00-07:00 nursing day" aggregation helper — this is an
+      internal data-rollup rule. Only the externally-referenced dimension (unit)
+      is checkable: HGT (hemoglicoteste / point-of-care capillary blood glucose)
+      is recorded in mg/dL in Brazilian ICUs. Reddy et al., "Accuracy of
+      point-of-care capillary blood sugar measurements in critically ill
+      patients" (POC glucose reported in mg/dL).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC11245140/
+  checks:
+    equation: n/a  # raw MAX aggregation, not a clinical formula/scale
+    coefficients: n/a
+    units: ok  # SinaisVitais.hgt stored/returned in mg/dL, no unit conversion applied; consistent with Brazilian POC glucose convention
+    ranges: n/a  # no valid-range gating in helper
+    rounding: n/a  # returns stored value unrounded
+    cutoffs: n/a  # returns a raw maximum, no score-band cutoffs
+  test_vectors:
+    # Traced against the rule's OWN documented 07:00->07:00 window intent (no external reference exists).
+    - inputs: {horario_ref: "2026-07-03 10:00 (hour>=7)", readings: "07-02 08:00 hgt=180; 07-03 03:00 hgt=250"}
+      expected_reference: 250  # both readings fall in intended nursing-day window [07-02 07:00, 07-03 07:00]
+      actual_legacy: 180  # qs1(day==2,hour>=7)=180; qs2(criado_em==ref AND hour<7)=unsatisfiable/empty -> the 03:00 peak of 250 is silently dropped
+      match: false
+    - inputs: {horario_ref: "2026-07-03 10:00", readings: "06-02 08:00 hgt=300 (previous month, day-of-month 2)"}
+      expected_reference: "None/no reading (June 2 is outside the July nursing-day window)"
+      actual_legacy: 300  # criado_em__day matches day-of-month regardless of month -> stale June reading contaminates the max
+      match: false
+    - inputs: {horario_ref: "2026-07-03 03:00 (hour<7)", readings: "07-01 08:00 hgt=190; 07-02 06:00 hgt=210"}
+      expected_reference: 210
+      actual_legacy: 210  # qs1(day==1,hour>=7)=190; qs2(day==2,hour<=7)=210; max=210 — in-month, non-cross-boundary branch traces correctly
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    Extraction-flagged DISCREPANCY confirmed, but it is a TEMPORAL-WINDOW code
+    defect, not a unit/coefficient/clinical-formula error. Two defects: (1)
+    criado_em__day matches day-of-month only, so cross-month readings contaminate
+    the max; (2) in the hour>=7 branch qs2's predicate `criado_em==horario_ref AND
+    hour<7` is unsatisfiable, so the current day's 00:00-07:00 segment of the
+    nursing day is silently dropped. Unit dimension (mg/dL, no conversion) is
+    correct — no mg/dL-vs-mmol/L mismatch. Clinical impact rated LOW: this is a
+    display/indicator rollup and clinicians still see the raw HGT readings; a
+    missed or stale peak-glucose indicator is unlikely on its own to drive
+    management. There is NO published reference for the 07:00-07:00 window shape
+    itself (internal nursing-day convention) — flag the window construction for
+    internal engineering review.
+
+- rule_id: RULE-BALANCO-HIDRICO-012
+  reference:
+    citation: >-
+      Standard nursing/ICU fluid-balance definition: Fluid Balance = total
+      intake - total output, where output includes urine, stool, emesis, blood
+      loss, and wound/chest-tube drainage; positive balance = intake exceeds
+      output. Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".
+    url: https://nurseslabs.com/monitoring-fluid-intake-and-output-io/
+  checks:
+    equation: diff  # the two documented candidate formulas disagree with each other and (the commented one) with the textbook output definition
+    coefficients: n/a
+    units: ok  # mL for volumes, degC for temp, mg/dL for HGT — consistent
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    # Traced against the COMMENTED/superseded inline formula documented in the rule:
+    #   balanco_24h = (ganhos or 0) - ((diurese or 0) + (vomitos or 0))  or None
+    # (active path delegates to balanco_24h_evo in utils = RULE-BALANCO-HIDRICO-006, outside this partition)
+    - inputs: {ganhos: 2000, diurese: 1500, vomito: 0, other_output_stool_drainage: 500}
+      expected_reference: 0  # textbook: 2000 - (1500 + 0 + 500) = 0
+      actual_legacy: 500  # commented formula counts only diuresis+vomit as output: 2000 - (1500+0) = +500 (ignores 500 mL stool/drainage)
+      match: false
+    - inputs: {ganhos: 1000, diurese: 1200, vomito: 300, other_output: 0}
+      expected_reference: -500  # textbook: 1000 - (1200 + 300) = -500
+      actual_legacy: -500  # commented formula: 1000 - (1200+300) = -500 — coincides when the only outputs are urine + vomit
+      match: true
+    - inputs: {ganhos: 0, diurese: 0, vomito: 0}
+      expected_reference: 0  # textbook net balance = 0
+      actual_legacy: "None"  # commented formula: (0)-(0) then `or None` coerces the falsy 0 to None
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    AMBIGUOUS from extraction, and UNVERIFIABLE here because the ACTIVE 24h
+    fluid-balance computation delegates to trilha_homecare.utils
+    (balanco_24h_evo / ganhos_24h_evo / diureses_24h_evo / temperatura_24h_evo /
+    hgt_24h_evo / evacuacoes_24h_evo) — OUTSIDE this rule's partition — so the
+    exact live formula cannot be confirmed from the sources cited here. Two
+    divergent candidates exist: (a) the ACTIVE delegate balanco_24h_evo
+    (RULE-BALANCO-HIDRICO-006) computes entradas - ALL saidas, which is
+    directionally consistent with the textbook all-ins-minus-all-outs definition
+    but carries the shared 07:00-07:00 window defect; (b) the COMMENTED/superseded
+    inline formula subtracts only diuresis + vomit/tube-return, which UNDERcounts
+    output (omits stool, wound/chest-tube drainage, blood loss) and therefore
+    overestimates a positive balance. Flag for internal review: confirm which
+    formula is live and whether omitting non-urine/non-vomit outputs is intended.
+
+- rule_id: RULE-BALANCO-HIDRICO-013
+  reference:
+    citation: >-
+      No authoritative published clinical reference governs a 2-hour
+      time-bucketing display grid for a fluid-balance overview — this is an
+      internal presentation/aggregation algorithm. The only externally-anchored
+      concept is the 24h I&O charting window (Nurseslabs I&O), which the grid is
+      meant to partition; the bucketing math itself is proprietary.
+    url: https://nurseslabs.com/monitoring-fluid-intake-and-output-io/
+  checks:
+    equation: diff  # bucket-membership predicate is defective (see below)
+    coefficients: n/a
+    units: ok  # mL summed per bucket; TruncTime -> America/Sao_Paulo local time
+    ranges: diff  # horario__range inclusive on BOTH edges -> boundary timestamps double-counted; [22,00] edge inverted
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    # Confirmed against legacy utils.py get_visao_geral (lines 288-358): ref bucket [22,00] -> time(22,0,0)..time(0,0,0); horario__range inclusive both ends.
+    - inputs: {nome: "Soro", quantidade: 100, criado_em_local: "23:00"}
+      expected_reference: "100 mL in the 22:00 slot"
+      actual_legacy: "0 mL in the 22:00 slot"  # filter range [22:00:00, 00:00:00] is an inverted SQL BETWEEN -> empty -> 22:00-00:00 data always lost
+      match: false
+    - inputs: {nome: "Soro", quantidade: 50, criado_em_local: "10:00:00 (exact bucket boundary)"}
+      expected_reference: "50 mL counted once (in a single slot)"
+      actual_legacy: "50 mL in the 08:00 slot AND 50 mL in the 10:00 slot"  # inclusive [08,10] and [10,12] both match 10:00:00 -> double-counted
+      match: false
+    - inputs: {nome: "Soro", quantidade: 75, criado_em_local: "09:00 (bucket interior)"}
+      expected_reference: "75 mL in the 08:00 slot"
+      actual_legacy: "75 mL in the 08:00 slot"  # interior, non-boundary, non-22:00 value buckets correctly
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Extraction-flagged DISCREPANCY confirmed against the legacy source. Two
+    defects: (1) the [22, 00] bucket becomes SQL BETWEEN 22:00:00 AND 00:00:00
+    (inverted range), so the 22:00-00:00 slot ALWAYS aggregates to 0 and any
+    fluid intake/output charted in that 2-hour window is silently dropped from the
+    overview grid; (2) horario__range is inclusive on both edges, so a record at
+    an exact 2-hour boundary (e.g. 10:00:00) is double-counted into two adjacent
+    slots. No external clinical reference dictates the bucket algorithm, so this
+    is a code-correctness defect vs the grid's own stated intent. Clinical impact
+    rated MODERATE: silently losing all late-evening (22:00-00:00) fluid entries
+    and double-counting boundary entries can materially distort the visual
+    fluid-balance overview that feeds the balanco PDF
+    (cria_payload_de_envio_ahmdocs -> pdf_balanco_hidrico*.html); note the running
+    24h numeric total (balanco_24h, RULE-014/015) is maintained separately and is
+    unaffected by this grid bug. Flag for internal engineering review.
+
+- rule_id: RULE-BALANCO-HIDRICO-014
+  reference:
+    citation: >-
+      Standard nursing/ICU fluid-balance sign convention: Fluid Balance = total
+      intake - total output; intake (oral, IV, tube feeds, TPN, flushes)
+      INCREASES the balance, and when intake exceeds output the balance is
+      POSITIVE (net gain). Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".
+    url: https://nurseslabs.com/monitoring-fluid-intake-and-output-io/
+  checks:
+    equation: ok  # balanco_24h += quantidade — intake adds to the running balance (correct direction/sign)
+    coefficients: ok  # unit coefficient 1 (mL added as mL)
+    units: ok  # mL added to mL running total
+    ranges: n/a
+    rounding: n/a  # no rounding; raw addition
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {balanco_24h_before: 0, entrada_quantidade: 500}
+      expected_reference: 500  # +500 mL intake => +500 mL net balance
+      actual_legacy: 500  # 0 + 500
+      match: true
+    - inputs: {balanco_24h_before: 300, entrada_quantidade: 200}
+      expected_reference: 500  # positive balance grows with additional intake
+      actual_legacy: 500  # 300 + 200
+      match: true
+    - inputs: {balanco_24h_before: -400, entrada_quantidade: 400}
+      expected_reference: 0  # intake offsets a prior net-negative balance toward zero
+      actual_legacy: 0  # -400 + 400
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    The accrual direction/sign matches the textbook fluid-balance definition:
+    intake increments the running 24h balance (positive = net fluid gain), units
+    are mL added to mL. VERIFIED on all checkable dimensions. One data-integrity
+    caveat (documented in the rule's edge_cases, NOT a formula discrepancy): the
+    accumulator is incremental, so EntradaSerializer.update() does not re-adjust
+    balanco_24h when quantidade is edited and there is no decrement on delete —
+    editing/deleting an intake after creation leaves the running total stale. This
+    is an update-consistency gap, not a wrong equation; flag for internal review
+    if edit/delete of intake records is a supported workflow.
+
+- rule_id: RULE-BALANCO-HIDRICO-015
+  reference:
+    citation: >-
+      Standard nursing/ICU fluid-balance sign convention: Fluid Balance = total
+      intake - total output; output (urine, stool, emesis, drainage, blood loss)
+      DECREASES the balance, and when output exceeds intake the balance is
+      NEGATIVE (net loss). Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".
+    url: https://nurseslabs.com/monitoring-fluid-intake-and-output-io/
+  checks:
+    equation: ok  # balanco_24h -= quantidade — output subtracts from the running balance (correct direction/sign)
+    coefficients: ok  # unit coefficient 1 (mL subtracted as mL)
+    units: ok  # mL subtracted from mL running total
+    ranges: n/a
+    rounding: n/a  # no rounding; raw subtraction
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {balanco_24h_before: 500, saida_quantidade: 200}
+      expected_reference: 300  # intake 500 - output 200 = +300 mL net
+      actual_legacy: 300  # 500 - 200
+      match: true
+    - inputs: {balanco_24h_before: 0, saida_quantidade: 400}
+      expected_reference: -400  # output with no offsetting intake => net-negative balance
+      actual_legacy: -400  # 0 - 400
+      match: true
+    - inputs: {balanco_24h_before: 200, saida_quantidade: 200}
+      expected_reference: 0  # equal intake and output => zero balance
+      actual_legacy: 0  # 200 - 200
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    Mirror of RULE-BALANCO-HIDRICO-014. The accrual direction/sign matches the
+    textbook fluid-balance definition: output decrements the running 24h balance
+    (negative = net fluid loss), units are mL subtracted from mL. VERIFIED on all
+    checkable dimensions. Same incremental-accumulator caveat (documented, not a
+    formula discrepancy): SaidaSerializer.update() does not re-adjust balanco_24h
+    when a saida's quantidade is edited, and no increment-back on delete is
+    visible — editing/deleting an output after creation leaves the running total
+    stale. Update-consistency gap, not a wrong equation; flag for internal review.

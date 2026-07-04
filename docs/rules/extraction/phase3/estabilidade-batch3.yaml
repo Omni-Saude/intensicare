@@ -1,0 +1,206 @@
+- rule_id: RULE-ESTABILIDADE-011
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021;49:e1063-e1143):
+      "suggest against using sodium bicarbonate therapy to improve hemodynamics or reduce
+      vasopressor requirements in patients with hypoperfusion-induced lactic acidemia and
+      pH >= 7.15"; suggest bicarbonate for severe metabolic acidemia (pH <= 7.2) WITH AKIN 2-3
+      (BICAR-ICU, Jaber et al., Lancet 2018).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: ok  # boolean AND of two lab thresholds; inverse ("flag inappropriate use") framing
+    coefficients: ok
+    units: ok  # bicarbonate mEq/L, pH unitless -- both correct
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff  # code pH>7.2; SSC + its own facade text (RULE-015) use pH<7.15 boundary
+  test_vectors:
+    - inputs: {diurna_bicabornato: 20, diurna_ph: 7.30}
+      expected_reference: "bicarbonate NOT indicated (pH>7.15) -> flag inappropriate use = fire"
+      actual_legacy: "20>16 True AND 7.30>7.2 True -> criterio_11 = True (fires)"
+      match: true
+    - inputs: {diurna_bicabornato: 14, diurna_ph: 7.10}
+      expected_reference: "severe acidemia pH<=7.15 (+AKI) may warrant bicarbonate -> do NOT flag"
+      actual_legacy: "14>16 False -> criterio_11 = False (does not fire)"
+      match: true
+    - inputs: {diurna_bicabornato: 17, diurna_ph: 7.18}
+      expected_reference: "pH 7.18 > 7.15 -> bicarbonate not indicated -> should flag inappropriate use"
+      actual_legacy: "17>16 True AND 7.18>7.2 False -> criterio_11 = False (does NOT flag)"
+      match: false
+    - inputs: {diurna_bicabornato: 16, diurna_ph: 7.25}
+      expected_reference: "BIC exactly 16, pH>7.15 -> bicarbonate not indicated -> should flag"
+      actual_legacy: "16>16 False (strict >) -> criterio_11 = False"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Concept (flag bicarbonate when acidosis not severe) is guideline-concordant. Cutoff diverges:
+    code uses pH>7.2 whereas SSC-2021 (and the paired facade text RULE-015 criterio_11) use pH 7.15
+    as the "bicarbonate not indicated" boundary, so the code fails to flag inappropriate bicarbonate
+    in the narrow 7.15<pH<=7.2 band, and never fires at BIC exactly 16 (strict >). Additionally the
+    code comment "falta prescricao de bicarbonato" confirms the bicarbonate-PRESCRIPTION precondition
+    is unimplemented, so the flag cannot actually confirm bicarbonate "use". Impact low: advisory-only,
+    unwired criterion, narrow pH band, conservative (under-flags) direction.
+
+- rule_id: RULE-ESTABILIDADE-015
+  reference:
+    citation: >
+      Sepsis-3 (Singer et al., JAMA 2016;315:801) hyperlactatemia >2 mmol/L; Surviving Sepsis
+      Campaign 2021 fluid resuscitation 30 ml/kg; EGDT ScvO2 target >=70% (Rivers et al., NEJM
+      2001;345:1368; incorporated into SSC); venous-arterial deltaPCO2 >6 mmHg as marker of
+      inadequate flow (Vallee et al., Intensive Care Med 2008); SSC-2021 bicarbonate pH 7.15.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: n/a  # text/recommendation catalog, not a computed equation
+    coefficients: ok  # every displayed numeric anchor matches published literature
+    units: ok  # lactato mmol/L, ScVO2 %, deltaPCO2 mmHg, BH ml, BIC mEq/L -- all correct in text
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff  # text cutoffs are guideline-correct BUT are NOT the cutoffs the v3 predicates test
+  test_vectors:
+    - inputs: {lactato: 2.0}
+      expected_reference: "Sepsis-3 hyperlactatemia >2 mmol/L; facade text criterio_1 says >2 -> not yet triggered"
+      actual_legacy: "facade text asserts lactato>2; BUT paired v3 criterio_1 (RULE-003) fires on lactate>=2 (inclusive) -> text/predicate disagree at 2.0"
+      match: false
+    - inputs: {ScVO2: 68, deltaPCO2: 7}
+      expected_reference: "ScVO2<70% and deltaPCO2>6 mmHg both indicate inadequate perfusion (guideline-concordant) -> criterio_1 advice applies"
+      actual_legacy: "facade text lists ScVO2<70 / deltaPCO2>6 branches, but v3 criterio_1 predicate has NO ScVO2 or deltaPCO2 test -> displayed condition never verified by trigger"
+      match: false
+    - inputs: {balanco_hidrico_acumulado: -2500}
+      expected_reference: "text criterio_5 'BH negativo >2000ml' -> fluid-responsive, fire"
+      actual_legacy: "v3 criterio_5 (RULE-001) compares cumulative ganhos-perdas < 2000 (POSITIVE, unwindowed) -> fires for almost any BHA below +2000ml; sign/window bug vs the displayed text"
+      match: false
+    - inputs: {pH: 7.18, BIC: 15}
+      expected_reference: "text criterio_11 bicarbonate indicated only if pH<7.15 AND BIC<16 -> here pH>=7.15 so NOT indicated"
+      actual_legacy: "text states pH<7.15 (matches SSC 7.15); paired v3 criterio_11 (RULE-011) uses pH>7.2 -> inverse framing + different cutoff"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    The displayed alert-text thresholds are each individually VERIFIED against published references
+    (lactate>2 Sepsis-3, ScVO2<70% EGDT, deltaPCO2>6 mmHg, 30 ml/kg SSC fluid, bicarbonate pH 7.15).
+    The DISCREPANCY is cross-implementation, not a reference error: get_payload text asserts thresholds
+    the paired v3 predicates never test (ScVO2/deltaPCO2 branches absent; lactate>2 text vs >=2 code;
+    criterio_5 negative-BH text vs positive-<2000 code sign bug). Clinician sees guideline-concordant
+    conditions the trigger did not actually verify -> moderate impact (misleading, but the guidance
+    text itself is clinically sound; criteria are unwired in calcular_criterios).
+
+- rule_id: RULE-ESTABILIDADE-016
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin usually
+      when norepinephrine 0.25-0.5 mcg/kg/min; IV hydrocortisone 200 mg/d when norepinephrine or
+      epinephrine >= 0.25 mcg/kg/min for >= 4h; epinephrine as second-line vasopressor in refractory
+      shock. Tachycardia (FC>130 bpm) impairs LV filling/CO (physiology of inotrope-induced
+      tachyarrhythmia).
+    url: https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021
+  checks:
+    equation: n/a  # dosing/escalation recommendation catalog
+    coefficients: diff  # text thresholds 0.5/1.5 mcg/kg/min plausible but the paired predicates use ml/h
+    units: diff  # CRITICAL: text = mcg/kg/min; paired v3 predicates trigger on qt_vol_nora in ml/h
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff  # criterio_9 text keys on FC>130 bpm; predicate RULE-009 never checks FC
+  test_vectors:
+    - inputs: {nora_text_threshold: "0.5 mcg/kg/min", nora_predicate_threshold: "20 ml/h (RULE-007)"}
+      expected_reference: "SSC adds vasopressin/hydrocortisone ~0.25-0.5 mcg/kg/min -> 0.5 is guideline-plausible"
+      actual_legacy: "predicate fires at qt_vol_nora>20 ml/h; e.g. 4mg/250ml (16 mcg/ml) at 20 ml/h = 5.3 mcg/min = ~0.076 mcg/kg/min for 70kg -> ~6-7x BELOW the 0.5 mcg/kg/min the text displays"
+      match: false
+    - inputs: {nora_text_threshold: "1.5 mcg/kg/min", nora_predicate_threshold: "70 ml/h + vaso>5 ml/h (RULE-008)"}
+      expected_reference: "very-high-dose refractory shock -> add epinephrine (reasonable)"
+      actual_legacy: "predicate uses ml/h volumes not convertible to mcg/kg/min without concentration/weight -> displayed dose unverifiable against trigger"
+      match: false
+    - inputs: {FC: 140}
+      expected_reference: "text criterio_9: FC>130 bpm -> consider stopping dobutamine (physiologically sound)"
+      actual_legacy: "v3 criterio_9 (RULE-009) tests only nora>50 ml/h AND dobuta>10 ml/h; FC is never read -> alert about FC>130 fires (or not) independent of actual heart rate"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    The mcg/kg/min doses in the displayed text are individually plausible against SSC-2021 (0.5 is at
+    the upper end of the 0.25-0.5 vasopressin/hydrocortisone window). The DISCREPANCY is a UNIT
+    MISMATCH between the text (noradrenaline mcg/kg/min) and the paired v3 predicates (qt_vol_nora in
+    ml/h): ml/h -> mcg/kg/min is not convertible without drug concentration and patient weight, and
+    for common dilutions the ml/h trigger fires far below the mcg/kg/min the text asserts. criterio_9
+    text centres on FC>130 bpm that the predicate never evaluates. This is exactly the mcg/kg/min-vs-
+    ml/h class of defect the audit targets -> high impact (clinician may act on a dose threshold the
+    trigger never measured, or receive corticosteroid/vasopressin prompts at a much lower actual dose).
+
+- rule_id: RULE-ESTABILIDADE-017
+  reference:
+    citation: >
+      ANDROMEDA-SHOCK (Hernandez et al., JAMA 2019;321:654) and Surviving Sepsis Campaign
+      perfusion-targeted resuscitation: capillary refill time (CRT) > 3 seconds is the validated
+      abnormal/hypoperfusion threshold in septic shock (measured on distal phalanx, 10 s pressure).
+    url: https://pubmed.ncbi.nlm.nih.gov/24811942/
+  checks:
+    equation: ok  # boolean: tec>5 AND persisted noradrenaline
+    coefficients: diff  # CRT cutoff 5 s vs reference 3 s
+    units: ok  # seconds
+    ranges: ok  # tec model range 0 or 3-20 s
+    rounding: n/a
+    cutoffs: diff  # strict tec>5 s vs ANDROMEDA-SHOCK abnormal >3 s
+  test_vectors:
+    - inputs: {tec: 4, noradrenalina_exists: true}
+      expected_reference: "CRT 4s > 3s = abnormal hypoperfusion on vasopressor -> should flag"
+      actual_legacy: "4 > 5 False -> criterio_1 = False (does NOT flag)"
+      match: false
+    - inputs: {tec: 6, noradrenalina_exists: true}
+      expected_reference: "CRT 6s > 3s = abnormal -> flag"
+      actual_legacy: "6 > 5 True AND noradrenaline persisted True -> criterio_1 = True"
+      match: true
+    - inputs: {tec: 5, noradrenalina_exists: true}
+      expected_reference: "CRT 5s > 3s = abnormal -> should flag"
+      actual_legacy: "5 > 5 False (strict >) -> criterio_1 = False (does NOT flag)"
+      match: false
+    - inputs: {tec: 3, noradrenalina_exists: true}
+      expected_reference: "CRT exactly 3s = upper limit of normal (ANDROMEDA >3 abnormal) -> do not flag"
+      actual_legacy: "3 > 5 False -> criterio_1 = False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Manual C1 uses CRT strict > 5 s, whereas the validated septic-shock reference (ANDROMEDA-SHOCK)
+    defines abnormal peripheral perfusion as CRT > 3 s (the v3 counterpart RULE-003 correctly uses >3).
+    The 3-5 s abnormal band (patients with genuine hypoperfusion on noradrenaline) is missed -> reduced
+    sensitivity/delayed escalation. Impact moderate: under-detection of hypoperfusion in a patient
+    already on vasopressor; direction is conservative (fewer alerts) but clinically under-sensitive.
+
+- rule_id: RULE-ESTABILIDADE-019
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin (usually at
+      norepinephrine 0.25-0.5 mcg/kg/min) and IV hydrocortisone (norepinephrine/epinephrine >= 0.25
+      mcg/kg/min for >= 4h) as adjuncts in ongoing/high-dose vasopressor requirement.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: ok  # nora dose > 21 AND (no vasopressin OR no hydrocortisone)
+    coefficients: diff  # threshold 21 (ml) has no published anchor; code >21 vs internal _REGRAS >=21
+    units: diff  # noradrenalina.quantidade in "ml" -- not the SSC mcg/kg/min adjunct dose; not convertible
+    ranges: ok  # noradrenalina quantidade 0-200 (ml)
+    rounding: n/a
+    cutoffs: diff  # strict >21 vs _REGRAS spec ">= 21ml mcg" (inclusive)
+  test_vectors:
+    - inputs: {quantidade: 22, vasopressina: false, hidrocortisona: true}
+      expected_reference: "high vasopressor lacking vasopressin adjunct -> flag need for adjunct (concept SSC-concordant)"
+      actual_legacy: "22>21 True AND any([not False=True, not True=False]) = True -> criterio_3 = True"
+      match: true
+    - inputs: {quantidade: 21, vasopressina: false, hidrocortisona: false}
+      expected_reference: "_REGRAS spec text says >= 21 -> should flag at exactly 21"
+      actual_legacy: "21>21 False (strict >) -> criterio_3 = False (does NOT flag at boundary)"
+      match: false
+    - inputs: {quantidade: 30, vasopressina: true, hidrocortisona: true}
+      expected_reference: "both adjuncts already present -> no flag"
+      actual_legacy: "30>21 True AND any([not True=False, not True=False]) = False -> criterio_3 = False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The clinical CONCEPT (high-dose noradrenaline without vasopressin OR hydrocortisone adjunct) is
+    guideline-concordant with SSC-2021. Two divergences: (1) extraction-flagged code >21 vs internal
+    _REGRAS spec ">=21" -- affects only the exact boundary dose 21, negligible; (2) the numeric anchor
+    "21 ml" (noradrenalina.quantidade in ml, likely infusion volume) has NO published reference and its
+    unit (ml) is not convertible to the SSC adjunct trigger dose in mcg/kg/min without concentration/
+    weight -- so the numeric threshold itself is unverifiable against the guideline (same ml-vs-
+    mcg/kg/min theme as RULE-016). Verdict DISCREPANCY (honors carried status + boundary diff); impact
+    low because the boundary affects a single value and the adjunct concept matches the reference.

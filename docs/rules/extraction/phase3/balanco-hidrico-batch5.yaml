@@ -1,0 +1,96 @@
+- rule_id: RULE-BALANCO-HIDRICO-021
+  reference:
+    citation: "No authoritative published source. Internal business default: when a spontaneous output (presenca_espontanea=='presente') is recorded without measurement, volume is hard-coded to 200 mL. Arbitrary institutional estimate, not derived from any clinical guideline or validated calculator."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: "n/a (200 mL is an internal constant, not a published coefficient)"
+    units: "mL assumed (not explicit in code); internally consistent"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "presenca_espontanea == 'presente' (exact string) triggers the default"
+  test_vectors:
+    - {inputs: {presenca_espontanea: "presente", quantidade: 350}, expected_reference: "n/a (no published source); rule's own intent = 200 (overwrites client value)", actual_legacy: "quantidade=200 (overwrites the supplied 350)", match: true}
+    - {inputs: {presenca_espontanea: "ausente", quantidade: 120}, expected_reference: "no override -> 120", actual_legacy: "quantidade unchanged = 120", match: true}
+    - {inputs: {presenca_espontanea: null, quantidade: null}, expected_reference: "no override -> falls to generic 0 fallback", actual_legacy: "not set here; later `if not quantidade: quantidade=0` -> 0", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal default-volume business rule (saidas.py:94-95). Confirmed against legacy source: `if validated_data.get('presenca_espontanea')=='presente': validated_data['quantidade']=200`. It unconditionally overwrites any client-supplied quantidade (edge case worth internal review), but there is no external clinical reference against which 200 mL can be validated. Flag for internal/institutional review, not a clinical error."
+
+- rule_id: RULE-BALANCO-HIDRICO-022
+  reference:
+    citation: "No authoritative published source for the presente+/++/+++ -> 100/200/300 mL volume mapping (arbitrary institutional semiquantitative estimate). The extraction-flagged defect is an internal code-vs-intent operator-precedence issue, verifiable by hand-tracing the Python logic itself."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: "n/a (100/200/300 mL are internal constants, no published basis)"
+    units: "mL assumed; internally consistent"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "Guard `if presenca and tipo=='evacuacao' or tipo=='vomito_retorno_sonda'` parses (Python: `and` binds tighter than `or`) as `(presenca and tipo=='evacuacao') or (tipo=='vomito_retorno_sonda')` — confirmed against legacy saidas.py:96-103"
+  test_vectors:
+    - {inputs: {tipo: "evacuacao", presenca: "presente++"}, expected_reference: "intended `presenca and (tipo in {evacuacao,vomito})` -> enter -> 200", actual_legacy: "(truthy and True) or False = True -> enter -> quantidade=200", match: true}
+    - {inputs: {tipo: "evacuacao", presenca: null}, expected_reference: "intended: (falsy) -> skip -> no volume set", actual_legacy: "(None and True) or False = falsy -> skip -> no volume set", match: true}
+    - {inputs: {tipo: "vomito_retorno_sonda", presenca: null}, expected_reference: "intended: null and (...) = falsy -> skip", actual_legacy: "(null and False) or True = True -> ENTERS block, but no elif matches (presenca null) -> quantidade UNCHANGED", match: true}
+    - {inputs: {tipo: "vomito_retorno_sonda", presenca: "presente+++"}, expected_reference: "intended -> enter -> 300", actual_legacy: "(falsy) or True = True -> enter -> quantidade=300", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: "Extraction status DISCREPANCY confirmed as a genuine operator-precedence defect in the guard expression (characterized, not dismissed, per instructions). HOWEVER hand-tracing every branch shows the defect is BENIGN for the computed volume: quantidade is only ever assigned inside the `elif presenca=='presente+/++/+++'` branches, which require presenca to be truthy; entering the outer block spuriously (a vomito_retorno_sonda with falsy presenca) matches no elif and changes nothing. Thus in every input case the emitted volume is identical to the evident-intent parse `presenca and (tipo=='evacuacao' or tipo=='vomito_retorno_sonda')`. Latent/cosmetic code smell, no observed output divergence -> clinical impact none. Separately, the 100/200/300 mL constants themselves have no authoritative clinical source (institutional semiquantitative estimate) and are UNVERIFIABLE clinically."
+
+- rule_id: RULE-BALANCO-HIDRICO-023
+  reference:
+    citation: "Nursing 07:00-to-07:00 (day/night 12h shift) clinical-day convention. This is a widely used institutional/operational nursing-shift convention (7-to-7), not a published clinical guideline with a mandated cutoff; the exact boundary is facility-configurable and not fixed by any authoritative standard."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "hour (0-23), local/aware time"
+    ranges: "now.hour in [0,23]"
+    rounding: n/a
+    cutoffs: "now.hour >= 7 -> today; else -> yesterday (boundary inclusive at hour==7) — confirmed against balanco_hidrico.py:32-37"
+  test_vectors:
+    - {inputs: {now_hour: 7}, expected_reference: "07:00 belongs to the new clinical day -> today (7-to-7 convention, inclusive)", actual_legacy: "7>=7 -> dia_param = today", match: true}
+    - {inputs: {now_hour: 6}, expected_reference: "pre-07:00 -> previous clinical day -> yesterday", actual_legacy: "6<7 -> dia_param = today - 1 day", match: true}
+    - {inputs: {now_hour: 23}, expected_reference: "after 07:00 -> today", actual_legacy: "23>=7 -> today", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Operational clinical-day boundary (07:00). Internally consistent with the same 7-to-7 window used across all balanco 24h aggregations. No authoritative published source fixes 07:00 as THE boundary (it is a nursing-shift convention; other sites use 06:00/08:00/midnight). Flag for internal review; not a clinical error. Uses system-default tz via astimezone() with no explicit tz (worth internal note)."
+
+- rule_id: RULE-BALANCO-HIDRICO-024
+  reference:
+    citation: "Same 07:00-to-07:00 nursing-shift 'turno' convention as RULE-023, applied on the frontend (fixed start/end '7:00'). Institutional/operational convention, no authoritative published clinical standard mandating this exact window."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "clock time HH:MM"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "Fixed dateTurnProps {start:'7:00', end:'7:00'}; UI label 'Turno vigente: 7:00 as 7:00' — confirmed against balanco/index.tsx:67-69,321-335"
+  test_vectors:
+    - {inputs: {now: "any time"}, expected_reference: "window pinned to 07:00-07:00 (convention)", actual_legacy: "initialDate = dateTurn(moment(),'7:00','7:00')", match: true}
+    - {inputs: {picker_config: "start/end"}, expected_reference: "non-configurable, both ends '7:00'", actual_legacy: "identical '7:00' strings passed for start and end", match: true}
+    - {inputs: {alignment: "consistency with backend 07:00 cutoff (RULE-023)"}, expected_reference: "frontend window should match backend 7-to-7", actual_legacy: "matches (both 07:00-07:00)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Frontend display convention mirroring RULE-023's backend 07:00 boundary; the two surfaces are mutually consistent. No external clinical reference to validate the exact 07:00-07:00 turno (facility convention). dateTurn implementation is out of the cited partition (utils/dateTurn) — internally consistent as written. Flag for internal review; not clinically wrong."
+
+- rule_id: RULE-BALANCO-HIDRICO-028
+  reference:
+    citation: "No authoritative published source. Pure PDF-template presentation/gating logic for the medical-evolution report; the underlying 24h indicator VALUES trace to utils.py helpers (RULE-...-006..011) which are the clinically-relevant computations, not this row-visibility rule."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "mixed (mL / degrees C / mg-dL) — display only"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "Row shown when formulario_data.sinais_vitais.<field> is truthy, but printed value read from formulario_data.indicadores_24h.<field> (different namespace) — confirmed against pdf_medico.html:469-501; PA row requires BOTH pas AND pad"
+  test_vectors:
+    - {inputs: {"sinais_vitais.diurese_24h": 1200, "indicadores_24h.diurese_24h": 1200}, expected_reference: "namespaces agree -> row shown with 1200 (correct)", actual_legacy: "gate truthy -> prints indicadores_24h=1200", match: true}
+    - {inputs: {"sinais_vitais.ganhos_24h": null, "indicadores_24h.ganhos_24h": 2500}, expected_reference: "value exists (2500) -> row should show", actual_legacy: "gate (sinais_vitais.ganhos_24h) falsy -> ROW HIDDEN despite indicadores_24h=2500", match: false}
+    - {inputs: {"sinais_vitais.balanco_24h": 0, "indicadores_24h.balanco_24h": -800}, expected_reference: "genuine net-negative balance (-800) should display", actual_legacy: "gate 0 falsy -> ROW HIDDEN (data suppressed)", match: false}
+    - {inputs: {pas: 120, pad: null}, expected_reference: "PA display convention", actual_legacy: "requires BOTH pas AND pad -> PA row hidden (only one present)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Extraction status AMBIGUOUS. Characterized: the gate/value namespace mismatch (gate on sinais_vitais.*, value from indicadores_24h.*) is a real template defect that can hide a row when the gating field is falsy while the indicator value exists (test vectors 2 and 3 diverge), or vice-versa. This is display/presentation logic with NO authoritative published clinical reference; the serializer that populates both namespaces is in api/ (out of the cited partition), so intent cannot be confirmed here. Flag for internal review (confirm whether sinais_vitais.* and indicadores_24h.* are guaranteed to co-populate). Not a clinical-formula error; impact on the underlying computed values is n/a (this rule only governs row visibility on a PDF)."

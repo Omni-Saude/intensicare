@@ -1,0 +1,240 @@
+- rule_id: RULE-EFICIENCIA-002
+  name: criterio_3 - unjustified RBC transfusion at Hb>=7 (AMARELO, wired)
+  reference:
+    citation: 'Carson JL, Guyatt G, Heddle NM, et al. Clinical Practice Guidelines From the AABB: Red Blood Cell Transfusion Thresholds and Storage. JAMA. 2016;316(19):2025-2035. Restrictive threshold - transfusion not indicated until Hb <7 g/dL for hemodynamically stable hospitalized adults incl. critically ill; explicit exceptions for acute coronary syndrome. Origin: Hebert PC, et al. TRICC trial, NEJM 1999;340:409-417.
+
+      '
+    url: https://transfusionontario.org/wp-content/uploads/2020/06/AABB_RBC_Carson_JAMA_2016.pdf
+  checks:
+    equation: diff
+    coefficients: ok
+    units: ok
+    ranges: diff
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+  - inputs:
+      diurna_hemoglobina: 6.5
+      concentrado_hemacias: 1_unit
+      aspecto: normal
+      SCA: absent
+    expected_reference: criterio_3 FALSE (Hb 6.5 <7 -> transfusion appropriate, do not flag)
+    actual_legacy: TRUE - `Hb or (0>=7)` evaluates truthiness of 6.5 -> True; flags
+    match: false
+  - inputs:
+      diurna_hemoglobina: 9.0
+      concentrado_hemacias: 1_unit
+      aspecto: normal
+      SCA: absent
+    expected_reference: criterio_3 TRUE (Hb 9 >=7, no bleeding/ACS -> transfusion not indicated, flag)
+    actual_legacy: TRUE (Hb truthy) -> flags
+    match: true
+  - inputs:
+      diurna_hemoglobina: 8.0
+      concentrado_hemacias: 1_unit
+      diag_inter_1: SCA - Sindrome coronariana aguda
+    expected_reference: criterio_3 FALSE (ACS is an explicit AABB exception -> do not flag)
+    actual_legacy: TRUE - SCA exclusion inert (fromkeys() yields None-valued dict) -> flags
+    match: false
+  - inputs:
+      diurna_hemoglobina: 7.0
+      concentrado_hemacias: 1_unit
+      aspecto: Melena
+    expected_reference: criterio_3 FALSE (active GI bleeding -> transfusion appropriate)
+    actual_legacy: FALSE - Melena exclusion works (this arm is functional)
+    match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'Intended threshold matches AABB 2016/TRICC. Two implemented defects vs reference: (1) operator-precedence bug `diurna_hemoglobina or 0 >= 7` parses as `diurna_hemoglobina or (0>=7)`, so the Hb>=7 gate is never applied - it fires on ANY non-zero Hb plus an RBC order, generating false-positive "reassess transfusion" AMARELO alerts on patients appropriately transfused below 7; (2) the ACS and AVC-ischemic (I64) exclusions - the exact guideline carve-outs - are inert because vars().fromkeys() builds a dict with all None values, so alerts are NOT suppressed for ACS/acute-brain-injury patients. Melena/Enterorragia exclusion is functional. Advisory alert (not an order) -> moderate, not high.
+
+    '
+- rule_id: RULE-EFICIENCIA-003
+  name: criterio_4 - RBC transfusion at Hb 6-7, >=2 units (defined, unwired)
+  reference:
+    citation: 'Carson JL, et al. AABB RBC Transfusion Thresholds, JAMA 2016;316(19):2025-2035 (restrictive threshold, single-unit transfusion / reassess-after-each-unit practice). Single-unit policy reinforced by ISBT Patient Blood Management (Red Cell Restrictive Transfusion Thresholds and Single-Unit Transfusion).
+
+      '
+    url: https://www.isbtweb.org/isbt-working-parties/clinical-transfusion/resources/patient-blood-management-resources/4-red-cell-transfusion-tresholds.html
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+  - inputs:
+      diurna_hemoglobina: 6.5
+      concentrado_hemacias: 2
+      aspecto: normal
+      SCA: absent
+    expected_reference: criterio_4 TRUE (single-unit strategy -> reassess 2nd unit, flag)
+    actual_legacy: TRUE - 6<6.5<7 and units>=2 and exclusions pass
+    match: true
+  - inputs:
+      diurna_hemoglobina: 6.5
+      concentrado_hemacias: 1
+    expected_reference: criterio_4 FALSE (single unit already appropriate)
+    actual_legacy: FALSE - units 1 >= 2 is False
+    match: true
+  - inputs:
+      diurna_hemoglobina: 7.0
+      concentrado_hemacias: 2
+    expected_reference: FALSE for this rule (Hb 7 handled by criterio_3 domain, strict <7)
+    actual_legacy: FALSE - 6<7<7 is False
+    match: true
+  - inputs:
+      diurna_hemoglobina: 6.5
+      concentrado_hemacias: 2
+      diag_inter_1: SCA - Sindrome coronariana aguda
+    expected_reference: FALSE (ACS exception -> do not flag)
+    actual_legacy: TRUE - SCA exclusion inert (fromkeys None-values) -> flags
+    match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: 'Core threshold dimensions (Hb open-interval 6-7, >=2 units) match the reference correctly - the Hb gate is properly parenthesized here. Only defect vs reference is the inert SCA/AVC(I64) diagnosis exclusion (same fromkeys None-values bug as criterio_3). Impact low because the rule is UNWIRED (calcular_criterio_4 commented out of calcular_criterios) so it never fires in production, and the defect only affects the ACS/AVC carve-out, not the primary threshold.
+
+    '
+- rule_id: RULE-EFICIENCIA-004
+  name: criterio_5 - platelet transfusion at Plt>25000 (VERMELHO, wired)
+  reference:
+    citation: 'Kaufman RM, Djulbegovic B, Gernsheimer T, et al. Platelet Transfusion: A Clinical Practice Guideline From the AABB. Ann Intern Med. 2015;162(3):205-213. Prophylactic threshold 10x10^9/L (10,000/uL) for therapy-induced hypoproliferative thrombocytopenia; transfuse for elective CVC placement at <20,000/uL; no prophylactic indication above these thresholds absent procedure or active bleeding.
+
+      '
+    url: https://www.acpjournals.org/doi/10.7326/M14-1589
+  checks:
+    equation: diff
+    coefficients: ok
+    units: ok
+    ranges: diff
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+  - inputs:
+      platelets: 50000
+      concentrado_plaquetas: prescribed_last6h
+      bleeding: none
+      CVC: none
+    expected_reference: criterio_5 TRUE (Plt 50k >> 10k/20k, no procedure/bleeding -> prophylactic transfusion not indicated, VERMELHO)
+    actual_legacy: FALSE - reads ultima_cpoe.diurna_plaquetas (field absent on CPOE model) -> default 0 -> 0>25000 False
+    match: false
+  - inputs:
+      platelets: 8000
+      concentrado_plaquetas: prescribed
+    expected_reference: criterio_5 FALSE (Plt 8k <10k -> transfusion indicated, do not flag)
+    actual_legacy: FALSE (0>25000) -> not flagged
+    match: true
+  - inputs:
+      platelets: 30000
+      concentrado_plaquetas: prescribed
+      CVC: ordered_within_4h
+    expected_reference: FALSE (CVC placement -> transfusion may be indicated; exclusion should suppress)
+    actual_legacy: FALSE (0>25000). Also cpoe_4hrs window is coded as 6h not 4h
+    match: true
+  - inputs:
+      platelets: 25000
+      concentrado_plaquetas: prescribed
+    expected_reference: FALSE at boundary (strict >25000)
+    actual_legacy: FALSE (0>25000)
+    match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'The 25,000/uL operational cutoff itself is reasonable and consistent with AABB 2015 (well above the 10k prophylactic and 20k pre-CVC thresholds). The DISCREPANCY is implementation: the platelet value is read from ultima_cpoe.diurna_plaquetas, a field that does not exist on the CPOE model (it lives on evolucao), so getattr returns 0 and `0 > 25000` is permanently False. This is the SOLE wired VERMELHO trigger in the efficiency track (per RULE-EFICIENCIA-001), so the entire red/high-priority alert tier never fires - a silent missed-alert for genuinely unjustified prophylactic platelet transfusions. Secondary defects: the intended 4h CVC/dialysis-catheter exclusion window is copy-pasted as 6h; the AVC (I64) exclusion is inert (fromkeys None-values). Missed advisory alert rather than a wrong order -> moderate.
+
+    '
+- rule_id: RULE-EFICIENCIA-005
+  name: criterio_9 - coma without sedation, suspected brain death (defined, unwired)
+  reference:
+    citation: 'Clinical triggers for organ-donation referral - ventilated patient with severe neurological injury and GCS <=5 (or GCS <=4 not explained by sedation) prompts referral to the organ procurement organization / brain-death evaluation. NICE CG135 Organ donation for transplantation (clinical trigger: GCS <=4 not explained by sedation, or intention to test brainstem death). GCS: Teasdale & Jennett, Lancet 1974;2:81-84 (range 3-15).
+
+      '
+    url: https://www.ncbi.nlm.nih.gov/books/NBK550813/
+  checks:
+    equation: diff
+    coefficients: diff
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+  - inputs:
+      diurna_glasgow: 4
+      sedatives: none_running
+    expected_reference: criterio_9 TRUE (GCS<=5, no sedation -> suspect brain death, refer)
+    actual_legacy: TRUE - 4<13 and no sedative record -> absence clause True -> flags
+    match: true
+  - inputs:
+      diurna_glasgow: 10
+      sedatives: none_running
+    expected_reference: criterio_9 FALSE (GCS 10 > 5 -> not deep coma, do not flag)
+    actual_legacy: TRUE - 10<13 -> flags
+    match: false
+  - inputs:
+      diurna_glasgow: 4
+      sedatives: propofol_only (qt_vol_pro>0)
+    expected_reference: criterio_9 FALSE (low GCS explained by sedation -> do not flag)
+    actual_legacy: TRUE - AND-filter requires ALL five infusions >0 simultaneously; single agent not detected -> absence clause True -> flags a sedated patient
+    match: false
+  - inputs:
+      diurna_glasgow: 3
+      sedatives: cet+dex+pro+tiop+mid all >0
+    expected_reference: FALSE (deeply sedated -> do not flag)
+    actual_legacy: FALSE - all five >0 -> filter exists -> not(...) False
+    match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'Intended docstring GCS<6 (GCS<=5) matches the published OPO/NICE clinical-trigger literature. Code diverges on two dimensions: (1) threshold is GCS<13, far broader than GCS<=5, so it would label many merely obtunded patients as brain-death suspects; (2) the sedative-absence clause uses a single .filter() with comma-separated (logical AND) conditions, so it only detects sedation when ALL FIVE infusion sedatives (and, in the adep arm, BOTH fenitoina and fenobarbital) are simultaneously >0 - so a patient on a single agent (e.g. propofol alone) is wrongly treated as unsedated. Intent was OR/any sedative. Directionally dangerous (initiating donor-potential maintenance on a merely sedated/obtunded patient), but the rule is UNWIRED (calcular_criterio_9 commented out), so no live production impact -> moderate (would be high if enabled).
+
+    '
+- rule_id: RULE-EFICIENCIA-006
+  name: criterio_10 - mechanical restraint without agitation (AMARELO, wired)
+  reference:
+    citation: 'Devlin JW, Skrobik Y, Gelinas C, et al. PADIS Guidelines (SCCM) for Prevention and Management of Pain, Agitation/sedation, Delirium, Immobility, and Sleep Disruption in Adult ICU Patients. Crit Care Med 2018;46(9):e825-e873 (minimize physical restraint; treat underlying delirium/agitation rather than restrain). Sessler CN, et al. Richmond Agitation-Sedation Scale (RASS), Am J Respir Crit Care Med 2002;166:1338-1344 (scale -5..+4; +1 = restless, >=+2 = agitated).
+
+      '
+    url: https://www.mdcalc.com/calc/1872/richmond-agitation-sedation-scale-rass
+  checks:
+    equation: diff
+    coefficients: ok
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+  - inputs:
+      contencao_mecanica: true
+      diurna_glasgow: 15
+      diurna_delirium: absent(0)
+      rass: 0
+    expected_reference: criterio_10 TRUE (calm, non-delirious, restrained -> reassess restraint per intent/PADIS)
+    actual_legacy: FALSE - delirium clause get_number(0) is falsy -> all([]) False; the exact target population is NOT flagged
+    match: false
+  - inputs:
+      contencao_mecanica: true
+      diurna_glasgow: 15
+      diurna_delirium: present(1)
+      rass: 0
+    expected_reference: FALSE per intent (delirium present -> restraint may be justified, do not flag)
+    actual_legacy: TRUE - delirium truthy, not(0>1)=True -> flags
+    match: false
+  - inputs:
+      contencao_mecanica: true
+      diurna_glasgow: 15
+      diurna_delirium: present(1)
+      rass: 3
+    expected_reference: FALSE (RASS +3 agitated, >+1 -> restraint justified)
+    actual_legacy: FALSE - not(3>1) = not True = False
+    match: true
+  - inputs:
+      contencao_mecanica: true
+      diurna_glasgow: 10
+      diurna_delirium: absent
+      rass: 0
+    expected_reference: FALSE (GCS<=12 -> restraint-reassessment gate not met)
+    actual_legacy: FALSE - 10>12 is False
+    match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: 'The GCS>12 and RASS<=+1 (not RASS>+1) gates correctly match the documented intent and RASS/PADIS framing of a non-agitated patient. The DISCREPANCY (carried as AMBIGUOUS from extraction, here characterized) is the delirium clause: `get_number(diurna_delirium)` requires delirium to be PRESENT (truthy), the exact opposite of the facade/docstring intent "ausencia de delirium". Consequently the wired AMARELO alert fires for delirious restrained patients (whose restraint is more likely justified) and stays silent for the calm, non-delirious restrained patients who are precisely the intended restraint-reassessment target - inverting the alert population. Additional edge: when rass is stored as 0/falsy the whole criterion short-circuits to False via the `if getattr(...,"rass",False) else False` guard. Advisory nudge -> moderate.
+
+    '

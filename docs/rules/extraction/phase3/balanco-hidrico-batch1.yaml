@@ -1,0 +1,172 @@
+- rule_id: RULE-BALANCO-HIDRICO-001
+  reference:
+    citation: "Malbrain MLNG, Marik PE, Witters I, et al. Fluid overload, de-resuscitation, and outcomes in critically ill or injured patients (ADQI/IFAD). Anaesthesiol Intensive Ther 2014; Bouchard J et al. Kidney Int 2009. Standard definition: (cumulative) fluid balance = total fluid intake - total fluid output; cumulative balance = sum of daily balances since admission."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10133509/"
+  checks:
+    equation: ok        # cumulative balance = sum(intake) - sum(output)
+    coefficients: n/a   # unit-weighted sum, no coefficients
+    units: ok           # all mL; intake/output homogeneous, no conversion
+    ranges: n/a         # no valid-range clamp; volumes unbounded, can be negative
+    rounding: ok        # no rounding; FloatField sum
+    cutoffs: n/a        # pure formula, no score bands
+  test_vectors:
+    - inputs: {day1: {intake: 1000, output: 600}, day2: {intake: 800, output: 900}}
+      expected_reference: 300   # (1000+800)-(600+900)
+      actual_legacy: 300        # entradas=1800, saidas=1500 -> 300
+      match: true
+    - inputs: {day1: {intake: 500, output: 500}}
+      expected_reference: 0
+      actual_legacy: 0
+      match: true
+    - inputs: {day1: {intake: 200, output: 700}}
+      expected_reference: -500  # negative (positive-diuresis) balance permitted
+      actual_legacy: -500
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Core equation (cumulative intake - cumulative output) matches the ADQI/Malbrain standard definition
+    of cumulative fluid balance. The two catalog caveats are code-robustness issues, NOT reference
+    discrepancies: (a) filters on self.leito.nr_atendimento rather than self.nr_atendimento (bed reuse
+    across admissions could mix data - a scoping bug); (b) Sum over an all-null-quantidade queryset
+    returns None and .get('total',0) yields that None -> `entradas += None` TypeError, mitigated only by
+    quantidade defaulting to 0. Neither alters the arithmetic when data is present. Uses ALL non-deleted
+    entradas/saidas (no tipo filter), correct for a gross intake/output balance. Legacy source confirmed
+    at balanco.py:32-59.
+
+- rule_id: RULE-BALANCO-HIDRICO-002
+  reference:
+    citation: "ADQI/Malbrain 2014 fluid-balance framework: daily fluid intake (gains) = sum of all recorded intake volumes over the accounting period. Elementary aggregation."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10133509/"
+  checks:
+    equation: ok        # ganhos = sum(entrada.quantidade)
+    coefficients: n/a
+    units: ok           # mL
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {entradas: [100, 200, 300]}
+      expected_reference: 600
+      actual_legacy: 600
+      match: true
+    - inputs: {entradas: []}
+      expected_reference: 0
+      actual_legacy: 0          # not exists() -> 0; `entradas or 0` -> 0
+      match: true
+    - inputs: {entradas: [250]}
+      expected_reference: 250
+      actual_legacy: 250
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Trivial summation of intake volumes; matches the "total intake" component of fluid balance. The
+    `or 0` idiom correctly coerces a None Sum (all-null quantidade) to 0, so this helper is robust where
+    RULE-001 is not. No unit or coefficient concerns (single homogeneous mL field). Confirmed at
+    balanco.py:61-71.
+
+- rule_id: RULE-BALANCO-HIDRICO-003
+  reference:
+    citation: "ADQI/Malbrain 2014 fluid-balance framework: daily fluid output (losses) = sum of all recorded output volumes over the accounting period. Elementary aggregation."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10133509/"
+  checks:
+    equation: ok        # perdas = sum(saida.quantidade)
+    coefficients: n/a
+    units: ok           # mL
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {saidas: [400, 100]}
+      expected_reference: 500
+      actual_legacy: 500
+      match: true
+    - inputs: {saidas: []}
+      expected_reference: 0
+      actual_legacy: 0
+      match: true
+    - inputs: {saidas: [300]}
+      expected_reference: 300
+      actual_legacy: 300
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Mirror of RULE-002 for outputs; matches the "total output" component of the standard definition.
+    Applies NO tipo filter (all outputs counted), correct for a gross output total. `or 0` handles the
+    empty/None case robustly. Confirmed at balanco.py:73-85.
+
+- rule_id: RULE-BALANCO-HIDRICO-004
+  reference:
+    citation: "No authoritative published clinical reference defines a fluid-balance 'day shift' as 07:00-19:00. Nursing 12h day/night shift boundaries (and the 07:00-07:00 nursing day) are institutional scheduling conventions that vary by facility, not validated clinical cutoffs (contrast Sepsis-3, KDIGO, ASPEN). The underlying arithmetic (intake - output within a window) is the ADQI/Malbrain standard."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10133509/"
+  checks:
+    equation: ok        # windowed (intake - output); arithmetic form standard
+    coefficients: n/a
+    units: ok           # mL
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a        # 07:00/19:00 shift edges are an internal business rule, no published cutoff
+  test_vectors:
+    - inputs: {intake: [{t: "08:00", q: 500}, {t: "12:00", q: 300}], output: [{t: "10:00", q: 200}]}
+      expected_reference: 600   # intra-window intake 800 - output 200 (institutional window assumed)
+      actual_legacy: 600        # criado_em in [07:00,19:00] captures all three -> 800-200
+      match: true
+    - inputs: {intake: [{t: "19:00:00", q: 100}], output: []}
+      expected_reference: 100   # boundary 19:00 inclusive per __range
+      actual_legacy: 100        # __range inclusive on upper edge -> counted as diurno
+      match: true
+    - inputs: {intake: [{t: "06:59", q: 400}], output: []}
+      expected_reference: 0     # before 07:00 -> outside day shift
+      actual_legacy: 0          # excluded by lower edge 07:00
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    The (intake - output) arithmetic within a time window is standard and correct; the specific
+    definition of the day shift as 07:00-19:00 is a hard-coded institutional/nursing convention with no
+    authoritative published source to verify against - flagged for internal review, NOT treated as wrong.
+    Boundary note (verified against source): criado_em__range is inclusive on BOTH ends, so an entry at
+    exactly 19:00:00 counts as day shift; combined with noturno-by-subtraction (RULE-005) this does not
+    double-count. Uses server local tz via .astimezone() with no explicit zone, so results depend on the
+    deployment timezone - an operational consideration, not a reference discrepancy. Confirmed at
+    balanco.py:87-117.
+
+- rule_id: RULE-BALANCO-HIDRICO-005
+  reference:
+    citation: "No authoritative published reference defines a fluid-balance 'night shift' value as (24h balance - day-shift balance). The additive decomposition day+night = 24h is arithmetically valid, but the 07:00-19:00 / 19:00-07:00 shift split is an institutional convention (see RULE-004). Concept traces to ADQI/Malbrain daily fluid-balance accounting."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10133509/"
+  checks:
+    equation: ok        # noturno = balanco_24h - balanco_diurno (consistent decomposition)
+    coefficients: n/a
+    units: ok           # mL
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a        # institutional shift split, no published cutoff
+  test_vectors:
+    - inputs: {balanco_24h: 300, balanco_diurno: 200}
+      expected_reference: 100   # 300 - 200
+      actual_legacy: 100
+      match: true
+    - inputs: {balanco_24h: 0, balanco_diurno: 200}
+      expected_reference: 200   # if true 24h balance were 200, night = 0
+      actual_legacy: -200       # uses persisted balanco_24h=0 (stale/unset) -> 0-200=-200
+      match: false
+    - inputs: {balanco_24h: 500, balanco_diurno: 500}
+      expected_reference: 0
+      actual_legacy: 0
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    The subtraction identity (night = 24h - day) is arithmetically sound and there is no published
+    clinical reference for the 19:00-07:00 night-shift construct, so verdict is UNVERIFIABLE (internal
+    business rule), flagged for internal review. IMPORTANT internal-consistency caveat (documented, not a
+    reference discrepancy): noturno derives from the PERSISTED balanco_24h FloatField (default 0,
+    maintained incrementally by RULE-014/015 accruals), NOT from (ganhos - perdas) nor from a windowed
+    19:00-07:00 recompute. balanco_diurno meanwhile is computed from criado_em__range. These two use
+    DIFFERENT sources, so if balanco_24h is stale, unset (0), or diverges from the window-based diurno,
+    noturno can be wrong or negative - test vector 2 shows an unset balanco_24h yielding noturno = -diurno.
+    Same accumulator-drift surface flagged in RULE-014/015 (no decrement on edit/delete). If internal
+    review scopes balanco_24h reliability out, the arithmetic itself is correct. Confirmed at balanco.py:119-121.

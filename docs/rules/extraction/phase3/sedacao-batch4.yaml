@@ -1,0 +1,154 @@
+- rule_id: RULE-SEDACAO-018
+  reference:
+    citation: >
+      No published guideline defines this exact composite boolean ("sedative present AND
+      (P/F>=200 OR EME OR SHIC OR PCR<24h)"). The only citable embedded anchor is the P/F 200
+      cutoff = Berlin Definition of ARDS boundary (moderate ARDS PaO2/FiO2 100-200; >200 = mild/none).
+      ARDS Definition Task Force, JAMA 2012;307(23):2526-2533.
+    url: https://jamanetwork.com/journals/jama/fullarticle/1160659
+  checks:
+    equation: n/a   # institutional composite care-pathway boolean, no published equation
+    coefficients: n/a
+    units: ok       # P/F is a dimensionless ratio; consistent with reference
+    ranges: ok      # RASS/PCR helpers valid
+    rounding: n/a
+    cutoffs: diff   # code uses >=200 (chained comparison) vs its own _REGRAS text ">200"; Berlin boundary is 200
+  test_vectors:
+    - {inputs: {sedative_present: true, pf: 250, eme: false, shic: false, pcr24: false}, expected_reference: "true (P/F>200, on sedative)", actual_legacy: "true (0<250>=200 -> True)", match: true}
+    - {inputs: {sedative_present: true, pf: 200, eme: false, shic: false, pcr24: false}, expected_reference: "false per _REGRAS text 'P/F>200' (200 not >200)", actual_legacy: "true (0<200>=200 -> 200>=200 True)", match: false}
+    - {inputs: {sedative_present: false, pf: 300, eme: false, shic: false, pcr24: false}, expected_reference: "false (no sedative -> criterion N/A)", actual_legacy: "false (first all() term False)", match: true}
+    - {inputs: {sedative_present: true, pf: null, eme: true, shic: false, pcr24: false}, expected_reference: "true (EME severity marker)", actual_legacy: "true (any([0<False..., eme=True]))", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Proprietary care-pathway composite; flag for internal review, not treated as wrong. The chained
+    comparison `0 < ratio >= 200` makes code effectively P/F>=200, whereas the model's own _REGRAS
+    descriptive text (line 24) says "PO2/FiO2 > 200" — a one-value boundary inconsistency at exactly
+    P/F=200 (this is the extraction-flagged AMBIGUOUS item). If severe-ARDS numeric intent is <200
+    boundary, the >=200 vs >200 divergence affects only the knife-edge P/F=200; clinically low. Embedded
+    P/F 200 anchor itself matches the Berlin moderate-ARDS boundary. relacao==False (no PO2/FiO2) yields
+    0<False -> criterion false via that branch.
+
+- rule_id: RULE-SEDACAO-019
+  reference:
+    citation: >
+      No published guideline defines this exact composite ("P/F<200 AND (RASS>=-2 OR no sedative)").
+      Embedded anchors: P/F<200 = Berlin moderate ARDS (ARDS Definition Task Force, JAMA 2012;307:2526);
+      RASS scale -5..+4 with light-sedation target 0 to -2 (Sessler et al. Am J Respir Crit Care Med
+      2002;166:1338; SCCM PADIS Guidelines, Crit Care Med 2018;46:e825).
+    url: https://jamanetwork.com/journals/jama/fullarticle/1160659
+  checks:
+    equation: n/a   # institutional composite
+    coefficients: n/a
+    units: ok
+    ranges: ok      # RASS light-sedation enum ['-2','-1','0','+1'..'+4'] consistent with Sessler scale
+    rounding: n/a
+    cutoffs: ok     # code <200 matches current _REGRAS text and Berlin moderate-ARDS boundary
+  test_vectors:
+    - {inputs: {pf: 150, rass: "-1", sedative_present: true}, expected_reference: "true (moderate ARDS P/F<200 with light sedation RASS>=-2 = potential undersedation)", actual_legacy: "true (0<150<200 True; rass in light list True)", match: true}
+    - {inputs: {pf: 150, rass: "-4", sedative_present: true}, expected_reference: "false (deep RASS -4, adequately sedated)", actual_legacy: "false (rass not in light list; sedative present so not-absent False)", match: true}
+    - {inputs: {pf: 250, rass: "-1", sedative_present: true}, expected_reference: "false (P/F>=200 not <200)", actual_legacy: "false (0<250<200 False)", match: true}
+    - {inputs: {pf: null, rass: "-1", sedative_present: false}, expected_reference: "false (no valid P/F)", actual_legacy: "false (0<False<200 False)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Proprietary care-pathway composite; embedded numeric anchors are correct — P/F<200 matches Berlin
+    moderate-ARDS boundary, RASS light-sedation enumeration matches the Sessler scale / PADIS light-target
+    band. No code-vs-text discrepancy: both code (line 148) and current _REGRAS (line 26) use "<200"
+    (_ANTIGAS_REGRAS had used <150 historically; superseded). Status OK preserved.
+
+- rule_id: RULE-SEDACAO-020
+  reference:
+    citation: >
+      No published guideline defines this exact composite ("no sedative AND (P/F<200 OR SHIC OR
+      PCR<24h OR EME)"). Embedded anchor: P/F<200 = Berlin moderate ARDS (ARDS Definition Task Force,
+      JAMA 2012;307:2526-2533).
+    url: https://jamanetwork.com/journals/jama/fullarticle/1160659
+  checks:
+    equation: n/a   # institutional composite
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok     # code <200 matches current _REGRAS (ANTIGAS_REGRAS <150 superseded)
+  test_vectors:
+    - {inputs: {sedative_present: false, pf: 150, shic: false, pcr24: false, eme: false}, expected_reference: "true (severity P/F<200 without sedation)", actual_legacy: "true (not-sedative True; 0<150<200 True)", match: true}
+    - {inputs: {sedative_present: true, pf: 150, shic: false, pcr24: false, eme: false}, expected_reference: "false (sedative present)", actual_legacy: "false (first all() term 'not sedative' False)", match: true}
+    - {inputs: {sedative_present: false, pf: 250, shic: false, pcr24: false, eme: false}, expected_reference: "false (P/F>=200, no other severity marker)", actual_legacy: "false (any([0<250<200 False, all others False]))", match: true}
+    - {inputs: {sedative_present: false, pf: null, shic: false, pcr24: false, eme: true}, expected_reference: "true (EME severity marker, no sedation)", actual_legacy: "true (any([...,eme True]))", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Proprietary care-pathway composite; embedded P/F<200 anchor matches Berlin moderate-ARDS boundary.
+    Code (line 165) and current _REGRAS (line 27) both use "<200"; _ANTIGAS_REGRAS text (line 16) said
+    "<150" but is the superseded variant, so current code and current rule text agree. Status OK preserved.
+
+- rule_id: RULE-SEDACAO-024
+  reference:
+    citation: >
+      Composite recommendation catalog whose numeric anchors map to standard published references:
+      (a) NMBA reserved for severe ARDS P/F<150 and benefit questionable otherwise — ACURASYS (Papazian
+      et al. NEJM 2010;363:1107, enrolled P/F<150) and ROSE (Moss et al. NEJM 2019;380:1997, negative with
+      higher PEEP/lighter sedation/less prone); (b) light-sedation RASS target 0 to -2, deep sedation only
+      for specific indications — SCCM PADIS 2018 (Crit Care Med 2018;46:e825) + RASS (Sessler 2002); (c)
+      opioid choice in renal dysfunction: morphine active renal-cleared metabolite (M6G) accumulates ->
+      fentanyl preferred; (d) PRIS surveillance for prolonged/high-dose propofol (CK, triglycerides);
+      (e) tachypnea RR>=22 = qSOFA respiratory criterion (Sepsis-3, Singer et al. JAMA 2016;315:801).
+    url: https://www.nejm.org/doi/full/10.1056/NEJMoa1901686
+  checks:
+    equation: n/a   # text catalog, not a formula
+    coefficients: ok
+    units: ok       # creatinine mg/dl, fentanyl 2 ml/h = 50 mcg/h (25 mcg/ml dilution), FR ipm all internally consistent
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok     # P/F>150 (NMBA), RASS<=-2, creatinina>2,5 mg/dl, propofol>4d, FR>22 all consistent with cited references
+  test_vectors:
+    - {inputs: {criterio: criterio_3, scenario: "P/F>150 on continuous BNM, no prone"}, expected_reference: "consider stopping NMBA (benefit reserved for severe ARDS P/F<150, esp. with prone) - ACURASYS/ROSE", actual_legacy: "text: 'avaliar interrupcao do BNM ... beneficio questionavel se ausencia de PRONA e P/F>150'", match: true}
+    - {inputs: {criterio: criterio_8, scenario: "severe pain, creatinine 3.0 mg/dl"}, expected_reference: "avoid morphine accumulation in renal dysfunction; switch to fentanyl 50 mcg/h", actual_legacy: "text: 'morfina 2mg EV q1h ate max 10mg; se refrataria OU creatinina >2,5 mg/dl -> fentanil 2 ml/h (50 mcg/h)'", match: true}
+    - {inputs: {criterio: criterio_11, scenario: "propofol infusion >4 days"}, expected_reference: "PRIS surveillance: monitor CK, triglycerides, transaminases; consider switch to midazolam/ketamine", actual_legacy: "text: 'Propofol >4 dias risco PRIS -> TG/CK/TGO/TGP 72/72h; suspender ou trocar por midazolam/cetamina'", match: true}
+    - {inputs: {criterio: criterio_12, scenario: "SBT with tachypnea RR>22 ipm"}, expected_reference: "RR>=22 = qSOFA respiratory threshold; address pain/delirium/withdrawal", actual_legacy: "text: 'TRE + taquidispneia FR>22 ipm -> Morfina 2mg EV + Haldol EV ou Dexmedetomidina'", match: true}
+    - {inputs: {criterio: criterio_4, scenario: "high ventilator settings"}, expected_reference: "deep sedation (RASS<=-2) acceptable when clinically indicated (severe ARDS); default light sedation per PADIS", actual_legacy: "text: 'Altos parametros de VM -> alvo RASS <= -2 (iniciar/aprofundar sedacao)'", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All numeric/pharmacologic anchors in the facade text (get_payload_trilha_sedacao, the active v2
+    variant) align with published references: NMBA-for-severe-ARDS P/F<150 threshold (ACURASYS/ROSE),
+    PADIS light-sedation RASS 0 to -2 with justified deep sedation, morphine->fentanyl in renal
+    impairment, propofol PRIS monitoring, qSOFA RR>=22. Units are internally consistent (fentanyl
+    2 ml/h = 50 mcg/h). ONE text typo (not a logic/numeric defect): criterio_9 recommendation body reads
+    "Considerar RASS > 2 apenas para EME..." which contradicts its own alerta line "Sedacao profunda
+    (RASS < -2)" and clinical intent — should read "RASS < -2". Cosmetic text only; documented, not
+    corrected. The module-level payload_trilha_sedacao (v1 variant) carries identical analgesia numbers
+    (label-only differences), so no numeric divergence between variants.
+
+- rule_id: RULE-SEDACAO-025
+  reference:
+    citation: >
+      No authoritative published source prescribes these drug-specific free-text substitution strings
+      (reduce active sedative + combine named alternative agents/adjuncts). It is an internal
+      recommendation-text mapping keyed on DS_SEDATIVO_CRITERIO_1. The general direction (reduce the
+      offending continuous sedative, favor multimodal/adjunct agents) is consistent with SCCM PADIS 2018
+      analgosedation principles but the exact per-drug wording is proprietary/institutional.
+    url: https://journals.lww.com/ccmjournal/fulltext/2018/09000/clinical_practice_guidelines_for_the_prevention.29.aspx
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {DS_SEDATIVO_CRITERIO_1: "Midazolam"}, expected_reference: "reduce midazolam, offer alternative agent + adjuncts (proprietary text)", actual_legacy: "v3 (primary): assigns reduce-Midazolam text with concatenated adjuncts", match: true}
+    - {inputs: {DS_SEDATIVO_CRITERIO_1: "Propofol"}, expected_reference: "reduce propofol, offer midazolam/cetamina + adjuncts", actual_legacy: "v3: correct; v1 variant (trilha1.py:175-204): branch is a bare string literal NOT concatenated -> dead text (bug)", match: true}
+    - {inputs: {DS_SEDATIVO_CRITERIO_1: "Precedex"}, expected_reference: "reduce dexmedetomidine, offer neuroleptics/clonidine/methadone adjuncts", actual_legacy: "v3: correct concatenation; v1: dead text (bug)", match: true}
+    - {inputs: {DS_SEDATIVO_CRITERIO_1: "Fentanil"}, expected_reference: "reduce fentanyl, offer propofol/midazolam/cetamina + adjuncts", actual_legacy: "v3: correct; v1: dead text; note 'Fentanill' spelling in both", match: true}
+    - {inputs: {DS_SEDATIVO_CRITERIO_1: null}, expected_reference: "no recommendation", actual_legacy: "recomendacao = '' (empty)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Proprietary free-text drug-substitution recommendations; no citable equation/cutoff/coefficient to
+    verify — flag for internal review, not treated as wrong. Documented implementation defect for internal
+    attention: the v1 variant (trilha1.py:175-204) only assigns the first (Midazolam) branch; the Propofol/
+    Cetamina/Precedex/Fentanil branches are bare unconcatenated string literals (dead text). The v3 primary
+    source (trilhas_v3/trilha_sedacao.py:209-246) fixes this with parenthesized concatenation. "Fentanill"
+    misspelling present in both variants (cosmetic). Preserved verbatim per audit rules.

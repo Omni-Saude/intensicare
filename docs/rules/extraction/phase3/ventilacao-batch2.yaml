@@ -1,0 +1,133 @@
+- rule_id: RULE-VENTILACAO-006
+  reference:
+    citation: "ARDSNet ARMA trial (NEJM 2000) lower PEEP/FiO2 titration table; LITFL CCC summary of the ARDSNet strategy"
+    url: "https://litfl.com/ardsnet-ventilation-strategy/"
+  checks:
+    equation: n/a
+    coefficients: diff
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {fio2_bucket: "0.3"}, expected_reference: "PEEP 5 (ARDSNet 0.3 -> 5)", actual_legacy: "5", match: true}
+    - {inputs: {fio2_bucket: "0.5"}, expected_reference: "PEEP 8-10 (lower bound 8)", actual_legacy: "8", match: true}
+    - {inputs: {fio2_bucket: "0.9"}, expected_reference: "PEEP 14-18 (lower bound 14)", actual_legacy: "14", match: true}
+    - {inputs: {fio2_bucket: "1.0"}, expected_reference: "PEEP 18-24 (lower bound 18)", actual_legacy: "16", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    peep_old_table is the single-expected-PEEP-per-FiO2 variant and reproduces the ARDSNet lower PEEP/FiO2
+    table's LOWER bound for every bucket 0.3-0.9 (5,5,8,10,10,14,14). Only FiO2 1.0 diverges: table says 16
+    but ARDSNet lower PEEP at FiO2 1.0 is 18-24, so 16 is below the ARDSNet floor. Previous logic flagged
+    "actual PEEP LESS than expected," so at FiO2 1.0 it would under-flag (accept PEEP down to 16 vs ARDSNet
+    >=18). This is confirmed DEAD CODE (defined in criterio_2/criterio_3 but never read), so clinical impact
+    is none. Extraction status AMBIGUOUS; characterized here as a single-point coefficient discrepancy at
+    FiO2 1.0 against ARDSNet lower table.
+
+- rule_id: RULE-VENTILACAO-007
+  reference:
+    citation: "Richmond Agitation-Sedation Scale (Sessler 2002, AJRCCM), range -5..+4; Glasgow Coma Scale (Teasdale 1974), GCS<=8 = coma / airway-protection threshold; MDCalc RASS"
+    url: "https://www.mdcalc.com/calc/1872/richmond-agitation-sedation-scale-rass"
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {rass: "-2", glasgow: null, device_branch: false}, expected_reference: "RASS -2 (light, rousable) -> adequate arousal for weaning consideration -> flag", actual_legacy: "int('-2') >= -2 -> True", match: true}
+    - {inputs: {rass: "-3", glasgow: 8, device_branch: false}, expected_reference: "RASS -3 moderate sedation AND GCS 8 (=airway-protection threshold, not >8) -> not ready -> no flag", actual_legacy: "-3>=-2 False; 8>8 False -> False", match: true}
+    - {inputs: {glasgow: 9, rass: null, device_branch: false}, expected_reference: "GCS 9 (>8) adequate consciousness -> flag", actual_legacy: "9>8 -> True", match: true}
+    - {inputs: {dias_vm: 8, dispositivo: "tot", sedatives: false, relacao_po2_fio2: 300, rass: null, glasgow: null}, expected_reference: "long VM, controlled mode, no sedation, good oxygenation -> intended to flag readiness", actual_legacy: "'tot' == 'PCV'/'VCV' False -> all() False -> no flag (branch unreachable with valid dispositivo enum)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The RASS>=-2 and Glasgow>8 cutoffs are internally consistent with the published RASS (-5..+4) and GCS
+    (3-15, <=8 = coma) scales - no unit or band error. The DISCREPANCY is a code-level enum mismatch (already
+    flagged at extraction): the controlled-mode disjunct compares buscar_dispositivo_ventilacao_mecanica()
+    (VentilacaoMecanica.dispositivo, valid values tot/tqt/dni) against "PCV"/"VCV", which are MODALIDADE
+    values (uppercase) never stored in dispositivo -> that AND-branch is effectively unreachable in production,
+    so C4 reduces to RASS>=-2 OR Glasgow>8. Impact low: the dead branch is OR-combined and its own conditions
+    (no sedation + P/F>250 + >7d controlled) largely overlap the reachable RASS/GCS disjuncts, so few
+    truly-ready patients are missed. Cross-refs RULE-VENTILACAO-025 (enum), RULE-VENTILACAO-002 (dias_vm).
+
+- rule_id: RULE-VENTILACAO-008
+  reference:
+    citation: "Contemporary tracheostomy-timing evidence (post-TracMan reassessment, JALH 2025): reasonable to wait >=10 days to confirm ongoing ventilation need before tracheostomy; RespCare tracheostomy review"
+    url: "https://journals.lww.com/jalh/fulltext/2025/10000/reassessing_the_7_day_paradigm__contemporary.10.aspx"
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {dias_vm: 10, dispositivo: "tot"}, expected_reference: "at exactly 10 days still within the >=10-day observation window -> do not yet trigger tracheostomy consideration", actual_legacy: "10>10 False -> no flag", match: true}
+    - {inputs: {dias_vm: 11, dispositivo: "tot"}, expected_reference: "beyond 10 days on orotracheal tube with ongoing need -> consider tracheostomy", actual_legacy: "11>10 True AND 'tot'=='tot' -> flag", match: true}
+    - {inputs: {dias_vm: 15, dispositivo: "tqt"}, expected_reference: "patient already tracheostomized -> no tracheostomy recommendation", actual_legacy: "'tqt' != 'tot' -> all() False -> no flag", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    C5 flags >10 days of orotracheal-tube (dispositivo=="tot") ventilation as a prompt to consider
+    tracheostomy. The strict >10-day cutoff aligns with contemporary evidence that it is reasonable to wait
+    at least 10 days to confirm ongoing ventilatory need before tracheostomy, and correctly excludes patients
+    already on TQT. dispositivo "tot" is a valid lowercase device enum (unlike C4). Verified verbatim against
+    source and consistent with the reference.
+
+- rule_id: RULE-VENTILACAO-009
+  reference:
+    citation: "AAO-HNS and international multidisciplinary COVID-19 tracheostomy guidelines (2020): defer tracheostomy until >=14 days of intubation (often 2-3 weeks) given aerosol/viral-load risk; systematic review Br J Anaesth / Otolaryngol HNS"
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC7274612/"
+  checks:
+    equation: ok
+    coefficients: diff
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {dias_vm: 11, dispositivo: "tot", covid_19: true}, expected_reference: "COVID guidance defers tracheostomy to >=14 days -> at 11 days do NOT flag", actual_legacy: "'tot' AND 11>10 AND covid -> flag", match: false}
+    - {inputs: {dias_vm: 15, dispositivo: "tot", covid_19: true}, expected_reference: ">=14 days COVID -> tracheostomy consideration appropriate -> flag", actual_legacy: "'tot' AND 15>10 AND covid -> flag", match: true}
+    - {inputs: {dias_vm: 12, dispositivo: "tot", covid_19: false}, expected_reference: "not COVID -> C6 not applicable", actual_legacy: "covid_19 False -> all() False -> no flag", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    C6 uses dias_com_ventilacao_mecanica > 10 for COVID-positive TOT patients, but both the rule's own facade
+    (RULE-VENTILACAO-017 criterio_6) and _ANTIGAS_REGRAS state ">14 dias", matching the COVID-era guideline
+    consensus (AAO-HNS / RCS / international: defer to >=14 days, preferably 2-3 weeks / negative test).
+    The legacy code therefore prompts tracheostomy consideration up to ~4 days EARLIER than the >=14-day
+    COVID recommendation (e.g. flags at 11-13 days). Clinical impact moderate: during COVID, earlier
+    tracheostomy carried elevated aerosol/infectivity risk and lower recovery probability, which is exactly
+    why guidelines advised waiting >=14 days; the criterion also disagrees with its own protocol facade
+    (internal-consistency defect). It is an alert/recommendation, not an order, limiting impact.
+
+- rule_id: RULE-VENTILACAO-010
+  reference:
+    citation: "PROSEVA trial (Guerin et al., NEJM 2013): severe ARDS defined by PaO2/FiO2 < 150 (with FiO2>=0.6, PEEP>=5) as the prone-positioning / severe-hypoxemia indication; Berlin ARDS definition"
+    url: "https://www.nejm.org/doi/full/10.1056/NEJMoa1214103"
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {relacao_po2_fio2: 149, noradrenalina_quantidade: 20, dias_internacao: 8}, expected_reference: "P/F 149 (<150) = severe hypoxemia per PROSEVA/Berlin -> hypoxemia criterion met", actual_legacy: "149<150 True AND 20<25 True AND 8>7 True -> flag", match: true}
+    - {inputs: {relacao_po2_fio2: 150, noradrenalina_quantidade: 20, dias_internacao: 8}, expected_reference: "P/F exactly 150 is NOT <150 (PROSEVA threshold strict <150) -> hypoxemia criterion not met", actual_legacy: "150<150 False -> all() False -> no flag", match: true}
+    - {inputs: {relacao_po2_fio2: 120, noradrenalina_present: false, dias_internacao: 10}, expected_reference: "severe hypoxemia present but norad-quantity clause is an internal parameter", actual_legacy: "norad absent -> its guard yields False -> all() False -> no flag", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    The clinically-anchored dimension - relacao_po2_fio2 < 150 - matches the PROSEVA severe-hypoxemia /
+    prone-positioning threshold and the Berlin moderate-to-severe boundary exactly (strict <150, no unit
+    error; P/F is a dimensionless mmHg ratio). The other two conjuncts (noradrenalina.quantidade < 25 and
+    movimentacao.buscar_dias_internacao > 7) are internal business parameters with no published anchor: the
+    "25" units are ambiguous (code stores quantidade in ml; _REGRAS text says "menos de 25 ml/h") and the
+    _REGRAS wording says "ausencia de noradrenalina" (absence) whereas the code requires noradrenaline
+    PRESENT with quantity<25 - a wording-vs-code divergence flagged internally, not a clinical-reference
+    error. Verifiable component VERIFIED; norad/dias thresholds are internal (treat as internal-review, not
+    wrong). No clinical-impact discrepancy against the reference.
