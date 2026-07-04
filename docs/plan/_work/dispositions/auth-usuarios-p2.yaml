@@ -1,0 +1,375 @@
+shard: auth-usuarios-p2
+cluster: auth-usuarios
+records:
+  - rule_id: RULE-AUTH-USUARIOS-033
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Assigning a user to an establishment auto-creates the parent company membership"
+    disposition: SUPERSEDE
+    justification: "Django FK-save-triggered membership cascade (estabelecimento->empresa) is legacy tenancy wiring; ADR-001 Implicacao 7 mandates inheriting Lake Formation ABAC + IAM Identity Center for access, so the cascade mechanism itself is replaced, not ported."
+    evidence: ["RULE-AUTH-USUARIOS-033", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#tenancy-hierarchy"
+    supersedes_note: {replaced_by: "AWS Lake Formation ABAC tag propagation + IAM Identity Center group hierarchy (ADR-001 Implicacao 7)", lost: "automatic Django-model save/post_delete cascade that auto-creates/cleans parent-level memberships; v2 must replicate equivalent hierarchical membership sync explicitly"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-034
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Assigning a user to a sector auto-creates the parent establishment membership"
+    disposition: SUPERSEDE
+    justification: "Same cascade pattern as RULE-033 one level down (setor->estabelecimento); legacy Django tenancy wiring superseded by ADR-001's inherited Lake Formation ABAC + IAM Identity Center group model."
+    evidence: ["RULE-AUTH-USUARIOS-034", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#tenancy-hierarchy"
+    supersedes_note: {replaced_by: "AWS Lake Formation ABAC tag propagation + IAM Identity Center group hierarchy (ADR-001 Implicacao 7)", lost: "post_delete cascade cleanup of group memberships scoped to setor; v2 must define equivalent cleanup semantics in the new access model"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-035
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the group's Django permission set is fully REPLACED (not merged) with only the permissions"
+    disposition: SUPERSEDE
+    justification: "Django ModelSerializer M2M replace-all permission assignment is legacy plumbing; new platform assigns access via Lake Formation ABAC policies (ADR-001 Implicacao 7), which uses a different attribute-based mechanism, not per-group Django Permission replace-all."
+    evidence: ["RULE-AUTH-USUARIOS-035", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#permission-assignment"
+    supersedes_note: {replaced_by: "Lake Formation ABAC policy assignment (ADR-001 Implicacao 7)", lost: "replace-all-on-truthy-dict semantics, including the quirk that unrecognized codenames are silently dropped"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-036
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "an empty list DOES clear membership (unlike the permissions branch)"
+    disposition: SUPERSEDE
+    justification: "Group membership replace-all-via-.set() with an inconsistent empty-list-clears-vs-empty-dict-does-not-clear asymmetry is a legacy Django serializer quirk that should not be carried into the ABAC-based membership model of the new platform."
+    evidence: ["RULE-AUTH-USUARIOS-036", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#permission-assignment"
+    supersedes_note: {replaced_by: "Lake Formation ABAC group membership management (ADR-001 Implicacao 7)", lost: "asymmetric empty-list-clears-membership behavior; v2 must define one consistent clear-vs-no-op semantic for both membership and permission edits"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-037
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "returns the entire system permission catalog (codename->label) unconditionally to any authenticated user"
+    disposition: RETIRE
+    justification: "Unscoped full-permission-catalog exposure to any authenticated caller is a legacy over-exposure anti-pattern; ADR-001's Lake Formation ABAC model scopes data/action visibility per principal, so this unconditional endpoint has no place in the rebuilt platform."
+    evidence: ["RULE-AUTH-USUARIOS-037", "ADR-001 Implicacao 7"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-038
+    cluster: auth-usuarios
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the user is bulk-linked to every listed setor (UsuarioSetor) and to every distinct parent Estabelecimento"
+    disposition: SUPERSEDE
+    justification: "Bulk tenancy-linking logic on user creation (empresa/setor/estabelecimento bulk_create) is Django-ORM-specific tenancy wiring; the new platform's identity/access provisioning is driven by IAM Identity Center + Lake Formation ABAC per ADR-001, not by application-level bulk FK creation."
+    evidence: ["RULE-AUTH-USUARIOS-038", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#user-provisioning"
+    supersedes_note: {replaced_by: "IAM Identity Center provisioning + Lake Formation ABAC tag assignment on user create (ADR-001 Implicacao 7)", lost: "bulk_create-based sector/establishment auto-linking; v2 must define an equivalent provisioning workflow"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-039
+    cluster: auth-usuarios
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the removal query is additionally scoped to setor__estabelecimento__empresa=request.empresa"
+    disposition: SUPERSEDE
+    justification: "Diff-based setor sync scoped to current empresa is Django-ORM tenancy wiring for a multi-tenant model the new platform will not replicate as-is; ADR-001 mandates ABAC-based scoping via Lake Formation instead of application-level scoped delete/create diffs."
+    evidence: ["RULE-AUTH-USUARIOS-039", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#user-provisioning"
+    supersedes_note: {replaced_by: "Lake Formation ABAC scoped access management (ADR-001 Implicacao 7)", lost: "symmetric-difference sync logic that preserves other-empresa setores unaffected; v2 must reproduce the safety property of never touching out-of-scope memberships"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-040
+    cluster: auth-usuarios
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Deleting a user does not remove the record; it sets is_active=False and returns 204"
+    disposition: ADAPT
+    justification: "Soft-delete-via-flag preserving the record and its FK relations is a sound audit-retention pattern worth keeping for a clinical/regulated system even though the specific Django is_active mechanism will be reimplemented against the new identity/access stack."
+    evidence: ["RULE-AUTH-USUARIOS-040", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#user-deactivation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-041
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the auth token cookie (\"trilhas.token\") is set with a 30-day lifetime"
+    disposition: SUPERSEDE
+    justification: "Custom cookie-based session/token verify-refresh workflow with a 30-day lifetime is legacy app plumbing; ADR-001 Implicacao 7 mandates inheriting IAM Identity Center for SSO, which owns session/token lifecycle instead of an app-managed cookie scheme."
+    evidence: ["RULE-AUTH-USUARIOS-041", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#session-management"
+    supersedes_note: {replaced_by: "IAM Identity Center SSO session management (ADR-001 Implicacao 7)", lost: "bespoke double-cookie (token/permissions) verify-then-refresh flow, including its double-notification failure-path defect; not to be reintroduced"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-042
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "any permission not present in the system catalog is silently excluded from the effective map"
+    disposition: SUPERSEDE
+    justification: "Client-side intersection of allPermissions x userPermissions to compute an effective-permission map is a frontend RBAC workaround; under ADR-001 the authoritative effective-access decision is made server-side via Lake Formation ABAC, not recomputed in the browser."
+    evidence: ["RULE-AUTH-USUARIOS-042", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#effective-permissions"
+    supersedes_note: {replaced_by: "server-side Lake Formation ABAC decision, returned to the client rather than recomputed (ADR-001 Implicacao 7)", lost: "the deny-unknown-permission safety property (unknown codenames never surface as true) should be preserved as an explicit invariant in the new authorization service"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-043
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Refuses to create a new API key when an API key with the same name already exists"
+    disposition: RETIRE
+    justification: "A Django management-command CLI for generating uniquely-named API keys is legacy operational tooling; ADR-001 Implicacao 7 places credential/secret issuance under the inherited IAM Identity Center model, obsoleting this bespoke command."
+    evidence: ["RULE-AUTH-USUARIOS-043", "ADR-001 Implicacao 7"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-044
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "6 extra codenames that have NO corresponding entry in the backend's GrupoAcesso.cargo choices"
+    disposition: ADOPT-CORRECTED
+    justification: "The cargo (job-role) enumeration is a controlled clinical-staffing vocabulary asset worth keeping verbatim in PT-BR, but the frontend's cargosObject superset (medico, terapeuta, tecnico_enfermagem, enfermagem, musicoterapeuta, intercorrencia) is not backend-valid, so v2 must adopt only the backend's canonical 15-value GrupoAcesso.cargo list as the reference-correct form, cited per ESC-P3-188."
+    evidence: ["RULE-AUTH-USUARIOS-044", "ESC-P3-188"]
+    target: "design/screens/clinical-forms.md#cargos"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-188, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-045
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "though no code in either partition mutates/enforces what the 'monitor' access level actually grants"
+    disposition: RATIFY
+    justification: "The 'm' (monitor) access code is defined and labeled on the backend but never mutated or enforced by any in-scope code path, so whether v2 should carry a distinct monitor access level (and what it should grant) cannot be decided from the catalog alone and requires a product/security ratification per ESC-AMBIGUOUS-345."
+    evidence: ["RULE-AUTH-USUARIOS-045", "ESC-AMBIGUOUS-345"]
+    target: "RATIFICATION.md#rat-auth-usuarios-01"
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-345, band: AMBIGUOUS}]
+    ratify_ref: RAT-AUTH-USUARIOS-01
+  - rule_id: RULE-AUTH-USUARIOS-046
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "CRM(medicine), COREN(nursing), CREFITO(physio/OT), CRN(nutrition), CRFA(speech), CRP(psychology), AGMT"
+    disposition: ADOPT
+    justification: "The 7-value professional-council (conselho) codeset plus 27-value estado_conselho enumeration is a controlled clinical-credentialing vocabulary with no functional divergence between backend and frontend (only cosmetic label wording), so it carries forward verbatim as a credentialing form asset."
+    evidence: ["RULE-AUTH-USUARIOS-046"]
+    target: "design/screens/clinical-forms.md#conselho"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-047
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "the owning Permissao model is commented out"
+    disposition: RETIRE
+    justification: "The legacy nivel_acesso (r/rw) and coarse admin/medico/enfermeiro access enum belongs to a Permissao model that is fully commented out in the legacy codebase, i.e. dormant dead code superseded even within the legacy stack by Django group permissions, so per the AMBIGUOUS-band policy it is not worth ratifying for v2."
+    evidence: ["RULE-AUTH-USUARIOS-047", "ESC-AMBIGUOUS-346"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-346, band: AMBIGUOUS}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-048
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "must be attached to exactly one of empresa, estabelecimento, or setor"
+    disposition: ADAPT
+    justification: "The exactly-one-scope-level invariant for an access group is a sound authorization design constraint worth preserving under the new ABAC model even though the Django three_xor validation mechanism itself will not be ported."
+    evidence: ["RULE-AUTH-USUARIOS-048"]
+    target: "architecture/security-lgpd.md#scope-exclusivity"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-049
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "reject requests lacking a resolved company context with 404"
+    disposition: ADAPT
+    justification: "Deny-by-default rejection of requests lacking a resolved tenant (empresa) context is exactly the kind of deny-by-default authorization lesson worth carrying into the new platform's security design, independent of the Django mixin implementation."
+    evidence: ["RULE-AUTH-USUARIOS-049"]
+    target: "architecture/security-lgpd.md#tenant-context-required"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-050
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "it is renamed to 'assign_permissions' before internal validation"
+    disposition: RETIRE
+    justification: "The permissoes-to-assign_permissions payload key rename is a legacy DRF-serializer input-shaping quirk tied to a specific field-name history; the new API's schema will not need this compatibility rename."
+    evidence: ["RULE-AUTH-USUARIOS-050"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-051
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "DISCREPANCY: line 38 calls super().save(*args, *kwargs)"
+    disposition: ADOPT-CORRECTED
+    justification: "The security invariant that a user must already belong to a group's empresa/estabelecimento/setor scope before joining that group is sound and worth keeping, but the reference-correct form must fix the *kwargs-instead-of-**kwargs typo (super().save(**kwargs)) rather than porting the latent defect, per ESC-P3-148."
+    evidence: ["RULE-AUTH-USUARIOS-051", "ESC-P3-148"]
+    target: "architecture/security-lgpd.md#group-scope-membership-check"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-148, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-052
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "LoginViewSet.create() never instantiates/validates the serializer - it reads request.data.get"
+    disposition: ADOPT-CORRECTED
+    justification: "The intent (require username/password on login) is sound but the legacy implementation never actually invokes the declared LoginSerializer validation, so the reference-correct form for v2 must actually enforce required-field validation on the login endpoint rather than porting the bypass, per ESC-P3-149."
+    evidence: ["RULE-AUTH-USUARIOS-052", "ESC-P3-149"]
+    target: "architecture/security-lgpd.md#login-input-validation"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-149, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-053
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "meaning a client cannot use this endpoint to remove ALL of a user's access groups by sending an empty array"
+    disposition: RETIRE
+    justification: "The field-rename shaping (setores/foto_perfil/grupos_acessos -> *_id/_b64/_ids) with its truthy-check bug that makes grupos_acessos=[] silently unreachable is a bespoke legacy request-shaping quirk tied to this exact payload schema, which the new API will not reuse, per ESC-P3-150."
+    evidence: ["RULE-AUTH-USUARIOS-053", "ESC-P3-150"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-150, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-054
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Computes two check digits from the first 9 digits with descending weights and modulo-11"
+    disposition: ADOPT
+    justification: "The CPF check-digit validator implements the standard published Brazilian CPF algorithm (weights 10..2 then 11..2, modulo 11) and was cross-verified as matching the reference algorithm, so it carries forward as-is for identity validation in v2."
+    evidence: ["RULE-AUTH-USUARIOS-054"]
+    target: "architecture/security-lgpd.md#cpf-validation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-055
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the username field is trimmed of leading/trailing whitespace and lower-cased"
+    disposition: ADOPT
+    justification: "Trimming and lower-casing the username before login submission is a small, sound input-normalization practice with no discrepancy, worth carrying into the new login flow as-is."
+    evidence: ["RULE-AUTH-USUARIOS-055"]
+    target: "architecture/security-lgpd.md#username-normalization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-056
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "exceto_metodo = (\"GET\", \"POST\", \"PUT\", \"PATH\")"
+    disposition: RETIRE
+    justification: "The exceto_metodo tuple's PATCH-misspelled-as-PATH is a plain typo in legacy viewset configuration, not a clinical or architectural asset worth ratifying; the new API's method-exception configuration will be written correctly from scratch, per ESC-AMBIGUOUS-317."
+    evidence: ["RULE-AUTH-USUARIOS-056", "ESC-AMBIGUOUS-317"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-317, band: AMBIGUOUS}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-057
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "formatted as the literal string \"JWT\" followed by a space and the raw token value"
+    disposition: SUPERSEDE
+    justification: "The custom 'JWT <token>' Authorization header scheme is legacy app-specific auth plumbing; ADR-001 Implicacao 7 mandates inheriting IAM Identity Center for SSO, which issues its own OIDC/OAuth2 bearer-token scheme rather than this bespoke header format."
+    evidence: ["RULE-AUTH-USUARIOS-057", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#auth-token-scheme"
+    supersedes_note: {replaced_by: "IAM Identity Center-issued OIDC/OAuth2 bearer tokens (ADR-001 Implicacao 7)", lost: "the bespoke 'JWT ' header prefix and the explicit header-clear-before-login step; not needed once SSO owns token issuance"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-058
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "a closed catalog of 28 permission flags spanning patient/occupancy management"
+    disposition: ADAPT
+    justification: "The closed 28-flag permission catalog (patient/occupancy mgmt, camera, audit, per-discipline evolution-form authoring, sepsis-protocol refusal, etc.) documents a valuable capability taxonomy worth preserving as the seed for the new platform's ABAC action-tag catalog, even though its Django-Permission-backed mechanism is superseded."
+    evidence: ["RULE-AUTH-USUARIOS-058"]
+    target: "architecture/security-lgpd.md#permission-catalog"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-059
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "modeled as a named bundle of the entire Permissions boolean map plus a list of member users"
+    disposition: SUPERSEDE
+    justification: "The frontend Grupo type (named bundle of the full permission map plus untyped member list) is a thin plumbing mirror of the backend Django Group model; the new platform's ABAC groups (ADR-001 Implicacao 7) replace this representation rather than porting it."
+    evidence: ["RULE-AUTH-USUARIOS-059", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#permission-catalog"
+    supersedes_note: {replaced_by: "Lake Formation ABAC group/tag model (ADR-001 Implicacao 7)", lost: "the untyped 'usuarios: any[]' membership list should be replaced by a properly typed member reference in v2"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-060
+    cluster: auth-usuarios
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the identical three-value literal union already used for bed monitoring modality (manual / automatica / homecare)"
+    disposition: ADAPT
+    justification: "The Empresa.tipo enum (manual/automatica/homecare) is functionally sound and unaligned-yet-consistent with LeitoTipo, but its independent redeclaration is a known duplication-drift risk the notes flag explicitly, so v2 should adapt it to a single shared source-of-truth enum rather than re-duplicating it."
+    evidence: ["RULE-AUTH-USUARIOS-060"]
+    target: "architecture/security-lgpd.md#tenant-config"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-061
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "explicitly excluding \"leito\" (bed) as a switchable destination"
+    disposition: RETIRE
+    justification: "The organizational context-switcher's closed 3-value destination set (empresa/estabelecimento/setor, no leito) is legacy frontend UI navigation mechanics of low significance, captured only at low confidence, and will be redesigned from scratch as part of the new UI."
+    evidence: ["RULE-AUTH-USUARIOS-061"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-062
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Both the original token and its refresh token share the same 30-day validity window"
+    disposition: SUPERSEDE
+    justification: "The 30-day JWT access-and-refresh-token lifetime is legacy Django-JWT settings plumbing already flagged in its own notes as too long-lived for a clinical system; ADR-001 Implicacao 7 places session/token lifecycle under the inherited IAM Identity Center SSO, whose own (shorter) session policies replace this configuration."
+    evidence: ["RULE-AUTH-USUARIOS-062", "ADR-001 Implicacao 7"]
+    target: "architecture/security-lgpd.md#token-lifetime"
+    supersedes_note: {replaced_by: "IAM Identity Center session/token policy (ADR-001 Implicacao 7)", lost: "the flat 30-day access==refresh token lifetime; v2 should adopt materially shorter access-token lifetimes as the legacy notes themselves recommend"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-063
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "any user whose PIN was never rotated legally signs medical documents/prescriptions with an org-wide shared default secret"
+    disposition: RATIFY
+    justification: "A deployment-wide shared default e-signature PIN that lets un-rotated users sign medical documents/prescriptions with a non-unique secret is a HIGH-priority security/compliance defect (defeats per-user attribution of clinical e-signatures) that cannot be resolved by an agent and must go to security/compliance ratification, per ESC-ADDENDUM-350."
+    evidence: ["RULE-AUTH-USUARIOS-063", "ESC-ADDENDUM-350"]
+    target: "RATIFICATION.md#rat-auth-usuarios-02"
+    supersedes_note: null
+    escalations: [{item_id: ESC-ADDENDUM-350, band: ADDENDUM}]
+    ratify_ref: RAT-AUTH-USUARIOS-02

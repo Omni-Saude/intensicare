@@ -1,0 +1,405 @@
+shard: balanco-hidrico-p2
+cluster: balanco-hidrico
+records:
+  - rule_id: RULE-BALANCO-HIDRICO-032
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance vital-sign ventilation conditional"
+    disposition: ADOPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: the ventilacao-conditional requirement for fluxo_o2_sup or fio2 is a straightforward clinical-forms decision-tree asset that the v2 vital-signs sub-form needs verbatim, alongside the unbounded numeric fields noted for the sibling vitals in this same sub-form."
+    evidence: ["RULE-BALANCO-HIDRICO-032"]
+    target: "design/screens/clinical-forms.md#ventilation-o2-fio2-conditional"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-033
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Balanco-hidrico sub-record digital-signature eligibility (can_assinar)"
+    disposition: ADAPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: the CPF+PIN digital-signature eligibility check (byte-identical across entradas/saidas/sinais_vitais serializers) embodies the medical-legal sign-to-finalize pattern CFM 2.299/2021 requires, so the authz/audit logic is adapted into the security doc rather than ported as three duplicated serializer copies."
+    evidence: ["RULE-BALANCO-HIDRICO-033", "CFM Resolucao 2.299/2021"]
+    target: "architecture/security-lgpd.md#digital-signature-eligibility"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-034
+    cluster: balanco-hidrico
+    category: triage-eligibility
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance action authorization (manage / delete permissions)"
+    disposition: ADAPT
+    justification: "Status OK, no escalation, but the notes flag that the sign Popconfirm's disabled prop is bound to !can_delete instead of a sign-specific permission (BalancoHidricoContent.tsx:276) -- the manage/delete permission-gating intent is sound but this specific delete-controls-sign coupling is a mechanism bug that v2's unified action-permission model must not reproduce."
+    evidence: ["RULE-BALANCO-HIDRICO-034"]
+    target: "architecture/security-lgpd.md#action-permission-gating"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-035
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "List endpoint required-day + auto-create with mismatched day value"
+    disposition: RETIRE
+    justification: "Status DISCREPANCY, escalation band P3: the list() action requires a caller-supplied 'dia' but then silently substitutes 'yesterday' for record auto-creation before 07:00, mis-dating first-time records; this entire GET-triggers-create endpoint is legacy homecare-app plumbing retired under ADR-001 (Intensicare reads AMH Gold, it does not run this Django viewset), so the bug is moot rather than corrected."
+    evidence: ["RULE-BALANCO-HIDRICO-035", "ADR001-C-01", "ESC-P3-113"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-113, band: P3}]
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-036
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Balanco hidrico auto-provisioning, no direct write endpoints"
+    disposition: RETIRE
+    justification: "Status OK, no escalation: this rule only documents that the legacy BalancoHidricoViewSet exposes list/retrieve with Create/Update/Destroy mixins commented out, i.e. record writes only happen as a GET side-effect -- this is homecare-app CRUD plumbing that ADR-001's Athena-only/no-own-ingestion mandate retires outright, not a clinical rule to carry forward."
+    evidence: ["RULE-BALANCO-HIDRICO-036", "ADR001-C-01"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-037
+    cluster: balanco-hidrico
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Daily fluid-balance auto-creation for occupied homecare beds"
+    disposition: RETIRE
+    justification: "Status OK, no escalation: the Celery shared_task that pre-creates one empty BalancoHidrico row per occupied homecare bed per day is scheduling/deployment plumbing tied to the retired Django/Celery homecare stack; v2 computes fluid-balance aggregates on demand from AMH Gold source events rather than pre-provisioning empty daily containers."
+    evidence: ["RULE-BALANCO-HIDRICO-037", "ADR001-C-01"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-038
+    cluster: balanco-hidrico
+    category: physiological-calculation
+    catalog_echo: {status: OK, verdict: VERIFIED}
+    source_quote: "Entrada soft-delete adjusts 24h fluid balance and logs audit action"
+    disposition: ADAPT
+    justification: "Verify true, verdict VERIFIED against the ADQI/Malbrain fluid-balance framework, but ledger constraint CLU-BALANCO-HIDRICO-C-05 flags that balanco_24h is a mutable incremental accumulator corrected only on create/delete, never on edit -- the soft-delete-plus-audit-log intent is preserved, but the running-total subtraction on destroy is replaced by v2 recomputing the balance from source rows."
+    evidence: ["RULE-BALANCO-HIDRICO-038", "CLU-BALANCO-HIDRICO-C-05", "Malbrain MLNG et al. Anaesthesiol Intensive Ther 2014;46(5):361-380"]
+    target: "clinical/domains/hemodynamics.md#fluid-balance-recompute-on-delete"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-039
+    cluster: balanco-hidrico
+    category: physiological-calculation
+    catalog_echo: {status: OK, verdict: VERIFIED}
+    source_quote: "Saida soft-delete adjusts 24h fluid balance and logs audit action"
+    disposition: ADAPT
+    justification: "Mirrors RULE-038 (verify true, verdict VERIFIED, same ADQI/Malbrain basis) for output records; the soft-delete audit-logging intent is kept but the balanco_24h += quantidade increment on destroy is the same accumulator anti-pattern flagged in CLU-BALANCO-HIDRICO-C-05, so v2 recomputes from source rows instead of adjusting a mutable running total."
+    evidence: ["RULE-BALANCO-HIDRICO-039", "CLU-BALANCO-HIDRICO-C-05", "Malbrain MLNG et al. Anaesthesiol Intensive Ther 2014;46(5):361-380"]
+    target: "clinical/domains/hemodynamics.md#fluid-balance-recompute-on-delete"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-040
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Entrada/Saida write manage_data payload injection (balanco id + assinar passthrough)"
+    disposition: RETIRE
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: injecting the parent balanco id from a nested route kwarg and conditionally passing through an 'assinar' payload flag is Django REST Framework view-plumbing specific to the retired homecare API surface, with no independent clinical semantics beyond what RULE-033/042 already capture for signing."
+    evidence: ["RULE-BALANCO-HIDRICO-040", "ADR001-C-01"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-041
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance (balanco hidrico) row type-label resolution and signature-date format"
+    disposition: ADAPT
+    justification: "Status OK, no escalation: showing the free-text nome for the 'outra_entrada'/'outra_saida' sentinel types instead of the humanized label, and formatting signature timestamps as DD/MM/YYYY HH:mm, are sound PT-BR presentation conventions worth keeping, but the per-route switch-statement mechanism (no default branch, silent undefined) is legacy frontend code adapted rather than ported as-is."
+    evidence: ["RULE-BALANCO-HIDRICO-041"]
+    target: "design/screens/clinical-forms.md#fluid-row-display-labels"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-042
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance record signature eligibility"
+    disposition: ADAPT
+    justification: "Status OK, no escalation: the showSignButton gate (ativo AND not-yet-signed AND can_assinar AND can_manage_balanco_hidrico) is the core medical-legal sign-to-finalize check, but edge_cases note ItemEntrada/ItemSaida omit the explicit can_manage check that ItemSinaisVitais and the desktop table enforce, so v2 adapts this into one unified, consistently-enforced signature gate."
+    evidence: ["RULE-BALANCO-HIDRICO-042", "CFM Resolucao 2.299/2021"]
+    target: "architecture/security-lgpd.md#signature-eligibility-gating"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-043
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "Saida record sign posts to the \"entrada\" route (bug)"
+    disposition: ADOPT-CORRECTED
+    justification: "Status DISCREPANCY, escalation band P3: ItemSaida's card sign handler calls onSign(\"entrada\", item.id) instead of onSign(\"saida\", item.id), mis-routing the sign PATCH to the wrong endpoint for a saida record id -- this is a well-understood copy-paste bug, so the corrected form (sign always targets the record's own route) is designed rather than escalated for clinical judgment."
+    evidence: ["ESC-P3-114", "RULE-BALANCO-HIDRICO-043"]
+    target: "design/screens/clinical-forms.md#fluid-record-sign-action"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-114, band: P3}]
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-044
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance module navigation/state routes"
+    disposition: ADOPT
+    justification: "Status OK, no escalation: the four fixed sub-routes (entrada, saida, sinais-vitais, and the read-only visao-geral aggregate) define the fluid-balance module's navigation structure and payload-shape contract, which the v2 clinical-forms screen adopts verbatim as its four fluid-balance views."
+    evidence: ["RULE-BALANCO-HIDRICO-044"]
+    target: "design/screens/clinical-forms.md#fluid-balance-navigation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-045
+    cluster: balanco-hidrico
+    category: care-pathway
+    catalog_echo: {status: AMBIGUOUS, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance record signing/deletion lifecycle"
+    disposition: RATIFY
+    justification: "Status AMBIGUOUS with escalation band AMBIGUOUS: the ativo/data_assinatura/deletado_por/can_delete/can_assinar record-lifecycle is inferred only from field shapes with no visible state-transition code, and the notes call this a recurring medical-legal 'sign to finalize' theme worth keeping, so per policy AMBIGUOUS-but-clinically-relevant rules are ratified rather than guessed at."
+    evidence: ["ESC-AMBIGUOUS-297", "RULE-BALANCO-HIDRICO-045"]
+    target: "RATIFICATION.md#rat-balanco-hidrico-17"
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-297, band: AMBIGUOUS}]
+    ratify_ref: RAT-BALANCO-HIDRICO-17
+
+  - rule_id: RULE-BALANCO-HIDRICO-046
+    cluster: balanco-hidrico
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid-balance PDF export with optional signatures"
+    disposition: ADAPT
+    justification: "Status OK, no escalation: the confirm-then-download PDF export with an optional 'assinaturas' flag is a legitimate reporting feature clinicians need in v2, but the unguarded balanco!.id non-null assertion (runtime throw if balanco isn't loaded) is a fragile mechanism that v2's export screen must guard against rather than reproduce."
+    evidence: ["RULE-BALANCO-HIDRICO-046"]
+    target: "design/screens/clinical-forms.md#pdf-export-with-signatures"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-047
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Entrada always marked checado on creation"
+    disposition: RETIRE
+    justification: "Status OK, no escalation: forcing checado=True on every Entrada regardless of client input, with no equivalent forced flag on SinaisVitais, is an internal legacy bookkeeping quirk of the Django serializer with no surfaced clinical meaning or UI exposure identified in this partition, so it is retired along with the platform it belonged to."
+    evidence: ["RULE-BALANCO-HIDRICO-047"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-048
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Entrada/Saida quantidade fallback to zero before persist"
+    disposition: ADAPT
+    justification: "Status OK, no escalation: coercing a still-falsy quantidade to 0 after the dieta_enteral default keeps quantidade non-null for arithmetic, which the correct null-safe sum from CLU-BALANCO-HIDRICO-C-04 must also guarantee -- the zero-fallback intent is kept, but unified into one consistent null/zero-sum convention across entrada/saida rather than this ad hoc post-hoc patch."
+    evidence: ["RULE-BALANCO-HIDRICO-048", "CLU-BALANCO-HIDRICO-C-04"]
+    target: "clinical/domains/hemodynamics.md#fluid-quantity-null-handling"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-049
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Entrada/Saida default display name from tipo"
+    disposition: ADAPT
+    justification: "Status OK, no escalation: defaulting the display name to get_tipo_display() when nome is blank is a sensible UX convention, but the edge_cases flag that the default only persists because of a trailing obj.save() call later in create() -- a fragile ordering dependency that v2 must make explicit and not rely on incidentally."
+    evidence: ["RULE-BALANCO-HIDRICO-049"]
+    target: "design/screens/clinical-forms.md#fluid-record-default-name"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-050
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Explicit 'dia' parameter parsing/validation for balanco hidrico"
+    disposition: RETIRE
+    justification: "Status OK, no escalation: strict 'YYYY-MM-DD' parsing with a Portuguese 400-error message is validation logic scoped entirely to the retired homecare 'dia' query-param endpoint (see RULE-035/036); with that endpoint retired under ADR-001, this specific validation mechanism has no v2 target to carry forward."
+    evidence: ["RULE-BALANCO-HIDRICO-050", "RULE-BALANCO-HIDRICO-035"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-051
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "Entrada/Saida listing includes soft-deleted records"
+    disposition: ADAPT
+    justification: "Status DISCREPANCY, escalation band P3: EntradasViewSet/SaidasViewSet use the default .objects manager instead of objects_without_deleted, so soft-deleted rows remain visible in list responses -- contrasting with BalancoHidricoViewSet's correct convention -- so v2 adapts this into a deny-by-default exclude-soft-deleted rule applied uniformly, matching the convention the catalog itself names as correct."
+    evidence: ["ESC-P3-151", "RULE-BALANCO-HIDRICO-051"]
+    target: "architecture/security-lgpd.md#soft-delete-exclusion-default"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-151, band: P3}]
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-052
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Vital-signs field set and units (sinais vitais)"
+    disposition: ADAPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: the vitals field-to-unit mapping (bpm, mmHg, C, %) is the clinical contract for this form and is kept, but the edge_cases-flagged truthy-render filter that hides a genuine reading of 0 (e.g. escala_dor 0, saturacao 0) is a display bug v2 must not reproduce, so the field/unit set is adapted with explicit is-not-null rendering."
+    evidence: ["RULE-BALANCO-HIDRICO-052"]
+    target: "design/screens/clinical-forms.md#vital-signs-field-units"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-053
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Fluid intake/output field set and volume unit (entrada/saida)"
+    disposition: ADAPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: the entrada/saida field set with quantidade fixed in milliliters is kept, but the edge_cases note a truthy/toString rendering drift between the card view (a 0 renders) and the overview grid (a 0 is suppressed, RULE-025) -- v2 adapts this into one consistent zero-visible rendering rule across surfaces."
+    evidence: ["RULE-BALANCO-HIDRICO-053", "RULE-BALANCO-HIDRICO-025"]
+    target: "design/screens/clinical-forms.md#fluid-io-field-units"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-054
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Empty-state for fluid-balance overview tab"
+    disposition: ADOPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation, no edge cases flagged: showing an empty-state message only when both entradas and saidas are empty, and rendering each non-empty section independently, is a simple, bug-free presentation rule adopted verbatim into the v2 overview tab."
+    evidence: ["RULE-BALANCO-HIDRICO-054"]
+    target: "design/screens/clinical-forms.md#fluid-overview-empty-state"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-055
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Controlled list of intravenous hydration solution types."
+    disposition: ADOPT
+    justification: "Status OK, verdict NOT_APPLICABLE, no escalation: the 7-item IV hydration solution list (Agua destilada, Solucao Hipertonica, Soro Fisiologico, etc.) is a controlled PT-BR clinical vocabulary asset with no free-text escape hatch, adopted verbatim with accents preserved per CLU-BALANCO-HIDRICO-C-08."
+    evidence: ["RULE-BALANCO-HIDRICO-055", "CLU-BALANCO-HIDRICO-C-08"]
+    target: "design/screens/clinical-forms.md#iv-hydration-solutions"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-056
+    cluster: balanco-hidrico
+    category: drug-dosing
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "Controlled list of continuous-infusion (BI/bomba de infusao) drugs and hydration selectable for"
+    disposition: RATIFY
+    justification: "Escalation band UNVERIFIABLE mandates ratification: this 32-item continuous-infusion (BI) drug/hydration pick-list is a facility-specific formulary with no guideline dictating menu contents, and the escalation flags a source-array count discrepancy plus spelling/brand-name variants (Clanidina, Hidrocortizona, Ketamin vs Cetamina) that a human must resolve before the vocabulary is finalized for v2."
+    evidence: ["ESC-UNVERIFIABLE-223", "RULE-BALANCO-HIDRICO-056"]
+    target: "RATIFICATION.md#rat-balanco-hidrico-18"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-223, band: UNVERIFIABLE}]
+    ratify_ref: RAT-BALANCO-HIDRICO-18
+
+  - rule_id: RULE-BALANCO-HIDRICO-057
+    cluster: balanco-hidrico
+    category: drug-dosing
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "Controlled list of antibiotics/antifungals/antivirals selectable as an intake."
+    disposition: RATIFY
+    justification: "Escalation band UNVERIFIABLE mandates ratification: this 40-item antimicrobial pick-list is a facility-specific formulary with no authoritative reference, and the escalation flags trailing-whitespace values ('Bedfordpoly B ', 'Novamin ') that need a data-quality ruling before the vocabulary is carried into the v2 clinical-forms design as-is."
+    evidence: ["ESC-UNVERIFIABLE-224", "RULE-BALANCO-HIDRICO-057"]
+    target: "RATIFICATION.md#rat-balanco-hidrico-19"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-224, band: UNVERIFIABLE}]
+    ratify_ref: RAT-BALANCO-HIDRICO-19
+
+  - rule_id: RULE-BALANCO-HIDRICO-058
+    cluster: balanco-hidrico
+    category: drug-dosing
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "Controlled list of electrolytes for a replacement intake."
+    disposition: ADAPT
+    justification: "Verdict UNVERIFIABLE but escalation band P3 (decide normally, not mandatory ratification): the 8-item electrolyte vocabulary is chemically sound overall, but the escalation flags that the phosphate label 'Fosfato (PO42-)' renders a non-standard charge notation, so the vocabulary intent is adopted while the label is adapted to the chemically-correct ion-charge convention."
+    evidence: ["ESC-P3-098", "RULE-BALANCO-HIDRICO-058"]
+    target: "design/screens/clinical-forms.md#electrolyte-replacement-vocabulary"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-098, band: P3}]
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-059
+    cluster: balanco-hidrico
+    category: clinical-scoring
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "Fluid-balance consciousness level enum (AVDI-like)"
+    disposition: RATIFY
+    justification: "Escalation band UNVERIFIABLE mandates ratification: this 7-state consciousness enum resembles the AVPU/AVDI reactivity ladder but is not identical to it (7 states vs AVPU's 4), and the escalation confirms it is a categorical UI enum rather than a validated scale, so a human ruling on whether to keep, rename, or map this to a standard scale is required before v2 design."
+    evidence: ["ESC-UNVERIFIABLE-222", "RULE-BALANCO-HIDRICO-059", "McNarry AF, Goldhill DR. Anaesthesia. 2004;59(1):34-37"]
+    target: "RATIFICATION.md#rat-balanco-hidrico-20"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-222, band: UNVERIFIABLE}]
+    ratify_ref: RAT-BALANCO-HIDRICO-20
+
+  - rule_id: RULE-BALANCO-HIDRICO-060
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "If a complaint is flagged, a free-text description becomes required."
+    disposition: ADOPT
+    justification: "Status OK, no escalation: requiring motivo_queixa free text only when queixa is flagged is a minimal, unambiguous conditional-required-field rule with no edge cases or divergence noted, adopted verbatim into the v2 vital-signs sub-form."
+    evidence: ["RULE-BALANCO-HIDRICO-060"]
+    target: "design/screens/clinical-forms.md#complaint-conditional"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-061
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "Required HH:MM 24h event-time (fluid balance)"
+    disposition: ADOPT-CORRECTED
+    justification: "Status DISCREPANCY, escalation band P3: this Horario mask enforces strict HH:MM with no empty-string branch, while a sibling discipline-form regex (RULE-003) allows empty -- since fluid-balance intake/output/vital-sign timestamps feed the 07:00-07:00 window and 2h-bucket aggregations elsewhere in this cluster, the corrected form makes the field required (this regex's behavior) rather than optional (RULE-003's), resolving the two divergent regexes in favor of the stricter one."
+    evidence: ["ESC-P3-152", "RULE-BALANCO-HIDRICO-061"]
+    target: "design/screens/clinical-forms.md#horario-required-validation"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-152, band: P3}]
+    ratify_ref: null
+
+  - rule_id: RULE-BALANCO-HIDRICO-062
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo: {status: AMBIGUOUS, verdict: NOT_APPLICABLE}
+    source_quote: "Balanco hidrico day filter (unused)"
+    disposition: RETIRE
+    justification: "Status AMBIGUOUS with escalation band AMBIGUOUS: the BalancoHidricoFilter on 'dia' is dead code, never attached to any viewset since BalancoHidricoViewSet implements its own manual day-cutoff logic (RULE-023) instead -- per policy, AMBIGUOUS rules not worth keeping are retired, and this unused filter class has no unique behavior to preserve."
+    evidence: ["ESC-AMBIGUOUS-318", "RULE-BALANCO-HIDRICO-062"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-318, band: AMBIGUOUS}]
+    ratify_ref: null

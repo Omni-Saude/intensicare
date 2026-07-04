@@ -1,0 +1,415 @@
+# IntensiCare v2 — PPV / Alarm-Fatigue Ledger (DRAFT)
+# Owner: alerting-ux-specialist  ·  Co-owners at barrier C3: alert-engine-architect, analytics-etl-lead
+# Purpose: the machine-readable budget that binds every alert type to a Positive-Predictive-Value (PPV)
+#   target and an "ignored" (alarm-fatigue) ceiling, and states EXACTLY how those numbers are measured
+#   from the raise -> acknowledge -> act -> resolve lifecycle feedback (alert-engine.md sec 9;
+#   severity-model.yaml ppv_analytics). This is the instrumentation backbone of US-22/US-23/US-25.
+#
+# STATUS: draft for C3. `measured:` blocks are null placeholders — they are populated by the analytics
+#   pipeline from live/pilot data, never hand-authored. Per-alert `ppv_target`/`ignored_max` seed from
+#   fleet defaults and are tunable per alert type via the governed threshold-change workflow (US-25),
+#   subject to the non-relaxable safety floor (admin-config.md sec 5).
+# Every number cites a source: CON-* ledger id, VIS-*/CAT-*/DM-*/PER-* brief fact, or US-* story.
+version: 1
+status: draft
+resolves_toward: [VIS-7.1-02, VIS-7.1-04, PER-CARLOS-02]     # PPV>=60%, fatigue<=10%, <3 FP/patient-day
+barrier: C3
+
+# ---------------------------------------------------------------------------------------------------
+# Fleet-wide targets (the default every alert inherits until tuned).
+# ---------------------------------------------------------------------------------------------------
+fleet_targets:
+  ppv: 0.60                 # VIS-7.1-02: PPV of alerts (acionaveis/total) baseline 0.35 -> goal >= 0.60
+  ignored_max: 0.10         # VIS-7.1-04: taxa de alarm fatigue (alertas ignorados/total) baseline 0.25 -> goal <= 0.10
+  fp_per_patient_day_max: 3 # CON-0088 / PER-CARLOS-02: < 3 false positives / patient-day
+  time_to_action_p50_max: PT15M  # VIS-7.1-03: tempo medio ate acao clinica pos-alerta 42min -> <= 15min
+  baseline:                 # vision sec 7.1 baselines, rendered against actuals in US-23 dashboard
+    ppv: 0.35
+    ignored: 0.25
+    time_to_action_min: 42
+
+# ---------------------------------------------------------------------------------------------------
+# METHOD — how PPV, "ignored", and FP/patient-day are computed from lifecycle feedback.
+# The single source of every ratio below is the alert lifecycle state + the `resolution` enum
+# {true_positive, false_positive, intervention_done} (DM-VOCAB-05) written at resolve, plus the
+# one-click disposition (procede / nao procede, US-22) written at ack/act. All feed Gold fact_alert (CON-0028).
+# ---------------------------------------------------------------------------------------------------
+method:
+  source_of_truth: "alert lifecycle transitions + alert.resolution + one-click disposition; every transition is an append-only audit_trail row (INV-1/CON-0066). Analytics read from operational alert table and Gold fact_alert (CON-0028)."
+  denominator_rule: "Only DISPOSITIONED alerts count toward PPV. An alert with no disposition/resolution is NOT a false positive by default — it is 'pending' or, once its ack-SLA lapses unacked, 'ignored' (feeds ignored_rate, NOT ppv). This prevents an un-triaged backlog from silently tanking PPV."
+  classification:
+    true_positive:
+      definition: "resolution == true_positive OR resolution == intervention_done OR disposition == procede. The alert reflected a real clinical state worth acting on."
+      source: [DM-VOCAB-05, US-22]
+    false_positive:
+      definition: "resolution == false_positive OR disposition == 'nao procede'. Clinician judged the firing did not reflect an actionable state."
+      source: [DM-VOCAB-05, US-22-AC2]
+    ignored:
+      definition: "alert reached ack-SLA breach with status still 'raised' (never acknowledged) and later auto-expired unacked. Counts toward ignored_rate, per VIS-7.1-04 'alertas ignorados / total'."
+      source: [VIS-7.1-04, alert-engine.md-sec9]
+      note: "An acknowledged-then-'nao procede' alert is a FALSE POSITIVE, not ignored — acknowledged != ignored (journey-maps MOT-08). Only never-acknowledged-until-expiry is 'ignored'."
+    pending:
+      definition: "raised or acknowledged, within SLA, not yet resolved/dispositioned. Excluded from PPV numerator and denominator until it terminates."
+  formulas:
+    ppv:            "true_positive / (true_positive + false_positive)"                # severity-model ppv_analytics.ppv; excludes pending & ignored
+    ignored_rate:   "ignored / total_raised"                                          # VIS-7.1-04
+    fp_per_patient_day: "false_positive / patient_days"                               # patient_days from occupancy census (US-23 AC1 / VIS-6.2-04)
+    alert_burden:   "total_raised / patient_days"                                     # alertas/paciente/dia (VIS-6.2-04)
+    time_to_recognition: "acknowledged_at - created_at"                              # DM-T-04
+    time_to_action:      "resolved_at - created_at"                                   # VIS-7.1-03, target p50 <= PT15M
+  grouping: [per_alert_type, per_unit, per_tenant, per_severity_band]                # US-23 AC1
+  windowing: "rolling 7d + rolling 30d; before/after markers keyed to threshold_config version + alert_definition_version so a tuning change's effect is visible (US-23 AC3 / US-25 AC3)."
+  correlation_note: "A correlation_event (US-20) that groups N constituent alerts counts as ONE dispositioned unit for fleet PPV; constituents keep their own per-type PPV. Grouping reducing notification count is a separate metric (US-20 AC4), not double-counted as improved PPV."
+  tuning_recommendation: "Per US-23 AC4, alert types are ranked by (lowest ppv x highest volume) into Fernanda's governance queue. A type whose 30d PPV < ppv_target for 2 consecutive windows raises a 'tune-me' recommendation carrying its measured ppv, volume, ack-time distribution, and the suggested threshold delta for US-26 retrospective preview."
+
+# ---------------------------------------------------------------------------------------------------
+# PER-ALERT BUDGET — the 32 existing catalog alerts (CON-SEED-10: all 32 must be reconciled).
+# severity = MAX band the alert can reach (severity-model aggregation: max-severity-wins, CON-0182).
+# safety_critical=true => the alert is on the non-relaxable list and CANNOT be silently disabled
+#   (admin-config.md sec 5, US-25 AC5, US-22 AC3). Its threshold cannot be relaxed below the published
+#   guideline value without a RATIFY-level escalation.
+# `measured:` is null until the analytics pipeline populates it (never hand-authored).
+# ---------------------------------------------------------------------------------------------------
+alerts:
+  # --- Sepsis / Infeccao (P1/P2) — CAT-SEP-001..003 ---
+  - id: SEP-001
+    name: "SIRS positivo com suspeita de infeccao"
+    domain: sepse
+    severity: urgent
+    phase: 2a
+    ppv_target: 0.55            # tuned below fleet: catalog flags SIRS low specificity (CAT-SEP-001 Lim) -> higher FP tolerance
+    ignored_max: 0.10
+    safety_critical: false
+    source: [CAT-SEP-001, US-13-AC1]
+    measured: null
+  - id: SEP-002
+    name: "qSOFA positivo com lactato elevado ou em elevacao"
+    domain: sepse
+    severity: critical
+    phase: 2a
+    ppv_target: 0.65
+    ignored_max: 0.05
+    safety_critical: true       # can escalate to 'choque septico iminente' CRIT (CAT-SEP-002, US-13-AC2)
+    source: [CAT-SEP-002, US-13-AC2]
+    measured: null
+  - id: SEP-003
+    name: "Procalcitonina — orientacao para antibioticoterapia"
+    domain: sepse
+    severity: urgent            # sub-a INFO(normal) desmame / sub-b URG(urgent) falha resposta
+    phase: 2b
+    ppv_target: 0.60
+    ignored_max: 0.15           # INFO-leg is advisory; higher ignore tolerance on the normal-band sub-alert
+    safety_critical: false
+    source: [CAT-SEP-003, US-13-AC3]
+    measured: null
+
+  # --- AKI / KDIGO (P1/P2) — CAT-AKI-001..005 ---
+  - id: AKI-001
+    name: "KDIGO Estagio 1"
+    domain: aki
+    severity: watch
+    phase: 2a
+    ppv_target: 0.60
+    ignored_max: 0.10
+    safety_critical: false
+    source: [CAT-AKI-001, US-14-AC1]
+    measured: null
+  - id: AKI-002
+    name: "KDIGO Estagio 2"
+    domain: aki
+    severity: urgent
+    phase: 2a
+    ppv_target: 0.65
+    ignored_max: 0.08
+    safety_critical: false
+    source: [CAT-AKI-002, US-14-AC1]
+    measured: null
+  - id: AKI-003
+    name: "KDIGO Estagio 3"
+    domain: aki
+    severity: critical
+    phase: 2a
+    ppv_target: 0.70
+    ignored_max: 0.05
+    safety_critical: true       # includes anuria >=12h / TRS initiation (CAT-AKI-003)
+    source: [CAT-AKI-003, US-14-AC1]
+    measured: null
+  - id: AKI-004
+    name: "Progressao AKI — mudanca de estagio em 24h"
+    domain: aki
+    severity: urgent
+    phase: 2a
+    ppv_target: 0.65
+    ignored_max: 0.08
+    safety_critical: false
+    source: [CAT-AKI-004, US-14-AC3]
+    measured: null
+  - id: AKI-005
+    name: "Risco de AKI por nefrotoxicidade aditiva"
+    domain: aki
+    severity: watch
+    phase: 2b
+    ppv_target: 0.50            # combinatorial drug-context trigger -> more FP-prone
+    ignored_max: 0.15
+    safety_critical: false
+    source: [CAT-AKI-005, US-14-AC4]
+    measured: null
+
+  # --- Respiratoria (P2/P3) — CAT-RESP-001..004 ---
+  - id: RESP-001
+    name: "SDRA Leve — SpO2/FiO2 <= 315"
+    domain: respiratoria
+    severity: watch
+    phase: 2b
+    ppv_target: 0.55            # SpO2/FiO2 surrogate; SpO2>97% overestimation caveat (CAT-RESP-001)
+    ignored_max: 0.12
+    safety_critical: false
+    source: [CAT-RESP-001, US-17-AC1]
+    measured: null
+  - id: RESP-002
+    name: "SDRA Moderada/Grave — SpO2/FiO2 <= 235 / <= 148"
+    domain: respiratoria
+    severity: critical          # sub-002 URG(urgent) moderada / sub-002b CRIT(critical) grave
+    phase: 2b
+    ppv_target: 0.65
+    ignored_max: 0.06
+    safety_critical: true       # grave leg (SpO2/FiO2<=148 / P:F<100) is imminent life risk
+    source: [CAT-RESP-002, US-17-AC1]
+    measured: null
+  - id: RESP-003
+    name: "Deterioracao ventilatoria — tendencia SpO2/FiO2"
+    domain: respiratoria
+    severity: urgent
+    phase: 2b
+    ppv_target: 0.55
+    ignored_max: 0.12
+    safety_critical: false
+    source: [CAT-RESP-003, US-17-AC2]
+    measured: null
+  - id: RESP-004
+    name: "Prontidao para desmame ventilatorio"
+    domain: respiratoria
+    severity: normal            # INFO-class advisory (Tier 4, non-paging)
+    phase: 2c
+    ppv_target: 0.50
+    ignored_max: 0.20           # advisory/opportunity alert; high ignore tolerance
+    safety_critical: false
+    source: [CAT-RESP-004, US-17-AC3]
+    measured: null
+
+  # --- Hemodinamica (P2/P3) — CAT-HEMO-001..004 ---
+  - id: HEMO-001
+    name: "Shock Index > 0,9 — hipoperfusao oculta"
+    domain: hemodinamica
+    severity: urgent
+    phase: 2b
+    ppv_target: 0.55
+    ignored_max: 0.10
+    safety_critical: false
+    source: [CAT-HEMO-001, US-16-AC1]
+    measured: null
+  - id: HEMO-002
+    name: "Clearance de lactato < 10% em 2h"
+    domain: hemodinamica
+    severity: critical
+    phase: 2b
+    ppv_target: 0.65
+    ignored_max: 0.06
+    safety_critical: true
+    source: [CAT-HEMO-002, US-16-AC2]
+    measured: null
+  - id: HEMO-003
+    name: "Escalonamento de vasopressor"
+    domain: hemodinamica
+    severity: critical
+    phase: 2b
+    ppv_target: 0.65
+    ignored_max: 0.06
+    safety_critical: true       # sub-003c choque refratario (nora >1.0 mcg/kg/min & MAP<65 >30min)
+    source: [CAT-HEMO-003, US-16-AC3]
+    measured: null
+  - id: HEMO-004
+    name: "Nao responsivo a fluidos — risco de sobrecarga"
+    domain: hemodinamica
+    severity: watch
+    phase: 2c
+    ppv_target: 0.50            # PPV/SVV availability Baixa (DATA-AVAIL-09); degraded alt-trigger path
+    ignored_max: 0.15
+    safety_critical: false
+    source: [CAT-HEMO-004, US-16-AC4]
+    measured: null
+
+  # --- Delirium / Sedacao (P3) — CAT-DEL-001..004 ---
+  - id: DEL-001
+    name: "Sedacao fora da faixa alvo (RASS)"
+    domain: delirium
+    severity: watch
+    phase: 2c
+    ppv_target: 0.55
+    ignored_max: 0.12
+    safety_critical: false
+    source: [CAT-DEL-001, US-19-AC1]
+    measured: null
+  - id: DEL-002
+    name: "Delirium — CAM-ICU positivo"
+    domain: delirium
+    severity: urgent
+    phase: 2c
+    ppv_target: 0.60
+    ignored_max: 0.10
+    safety_critical: false
+    source: [CAT-DEL-002, US-19-AC2]
+    measured: null
+  - id: DEL-003
+    name: "Risco de delirium iatrogenico — sedacao inadequada"
+    domain: delirium
+    severity: watch
+    phase: 2c
+    ppv_target: 0.50
+    ignored_max: 0.15
+    safety_critical: false
+    source: [CAT-DEL-003, US-19-AC2]
+    measured: null
+  - id: DEL-004
+    name: "Delirium hipoativo possivelmente nao reconhecido"
+    domain: delirium
+    severity: watch
+    phase: 2c
+    ppv_target: 0.50
+    ignored_max: 0.18
+    safety_critical: false
+    source: [CAT-DEL-004, US-19-AC2]
+    measured: null
+
+  # --- Eletrolitos (P1/P2) — CAT-ELY-001..006 ---
+  - id: ELY-001
+    name: "Hipercalemia — K+ > 6,5 mmol/L (critico)"
+    domain: eletrolitos
+    severity: critical          # a-CRIT / b-URG / c-WARN tiered
+    phase: 2a
+    ppv_target: 0.75            # lab-threshold alerts are high-specificity (objective cutoff)
+    ignored_max: 0.03
+    safety_critical: true
+    source: [CAT-ELY-001, US-15-AC1]
+    measured: null
+  - id: ELY-002
+    name: "Hipocalemia — K+ < 2,5 mmol/L (critico)"
+    domain: eletrolitos
+    severity: critical
+    phase: 2a
+    ppv_target: 0.75
+    ignored_max: 0.03
+    safety_critical: true
+    source: [CAT-ELY-002, US-15-AC1]
+    measured: null
+  - id: ELY-003
+    name: "Hiponatremia — Na+ < 120 mmol/L (critico) + delta-Na perigoso"
+    domain: eletrolitos
+    severity: critical          # sub-c ALERTA DE SEGURANCA: delta_na_24h > 10 mmol/L (CAT-C-01/CON-0061)
+    phase: 2a
+    ppv_target: 0.75
+    ignored_max: 0.03
+    safety_critical: true       # the delta-Na safety leg is NON-RELAXABLE (CON-0061 mielinolise pontina)
+    source: [CAT-ELY-003, CAT-C-01, CON-0061, US-15-AC2]
+    measured: null
+  - id: ELY-004
+    name: "Hipernatremia — Na+ > 160 mmol/L (critico)"
+    domain: eletrolitos
+    severity: critical
+    phase: 2a
+    ppv_target: 0.75
+    ignored_max: 0.03
+    safety_critical: true
+    source: [CAT-ELY-004, US-15-AC1]
+    measured: null
+  - id: ELY-005
+    name: "Disturbio grave do calcio"
+    domain: eletrolitos
+    severity: critical
+    phase: 2a
+    ppv_target: 0.70
+    ignored_max: 0.05
+    safety_critical: true
+    source: [CAT-ELY-005, US-15-AC1]
+    measured: null
+  - id: ELY-006
+    name: "Hipomagnesemia — Mg2+ < 0,5 mmol/L"
+    domain: eletrolitos
+    severity: urgent            # a-URG / b,c-WARN
+    phase: 2b
+    ppv_target: 0.65
+    ignored_max: 0.10
+    safety_critical: false
+    source: [CAT-ELY-006, US-15-AC1]
+    measured: null
+
+  # --- Interacoes Medicamentosas (P2/P3) — CAT-DDX-001..006 ---
+  - id: DDX-001
+    name: "Risco de Torsades por QTc prolongado + multiplas drogas"
+    domain: drogas
+    severity: critical          # principal-CRIT / b,c-WARN
+    phase: 2c
+    ppv_target: 0.60
+    ignored_max: 0.08
+    safety_critical: true
+    source: [CAT-DDX-001, US-18-AC1]
+    measured: null
+  - id: DDX-002
+    name: "Risco de sindrome serotoninergica — multiplos agentes"
+    domain: drogas
+    severity: urgent            # principal-URG / b-WARN
+    phase: 2c
+    ppv_target: 0.55
+    ignored_max: 0.12
+    safety_critical: false
+    source: [CAT-DDX-002, US-18-AC2]
+    measured: null
+  - id: DDX-003
+    name: "Depressao respiratoria por sinergismo de depressores SNC"
+    domain: drogas
+    severity: critical          # principal-CRIT (>=2 depressores + RR<10 ou SpO2<90) / b-WARN
+    phase: 2c
+    ppv_target: 0.60
+    ignored_max: 0.08
+    safety_critical: true
+    source: [CAT-DDX-003, US-18-AC2]
+    measured: null
+  - id: DDX-004
+    name: "Duplicidade terapeutica — 2+ medicamentos da mesma classe"
+    domain: drogas
+    severity: watch
+    phase: 2c
+    ppv_target: 0.50
+    ignored_max: 0.15
+    safety_critical: false
+    source: [CAT-DDX-004, US-18-AC3]
+    measured: null
+  - id: DDX-005
+    name: "Risco de sindrome de abstinencia por suspensao abrupta"
+    domain: drogas
+    severity: watch
+    phase: 2c
+    ppv_target: 0.50
+    ignored_max: 0.15
+    safety_critical: false
+    source: [CAT-DDX-005, US-18-AC3]
+    measured: null
+  - id: DDX-006
+    name: "Antimicrobiano com clearance renal sem ajuste para CrCl"
+    domain: drogas
+    severity: watch
+    phase: 2c
+    ppv_target: 0.55
+    ignored_max: 0.12
+    safety_critical: false
+    source: [CAT-DDX-006, US-18-AC3]
+    measured: null
+
+# ---------------------------------------------------------------------------------------------------
+reconciliation:
+  con_seed_10: "All 32 existing alert-catalog ids (SEP/AKI/RESP/HEMO/DEL/ELY/DDX) are enumerated here with a PPV budget — satisfies the CON-SEED-10 duty to reconcile every existing id."
+  severity_source: "Each severity is the MAX band from the catalog tier tables, mapped via severity-model.yaml existing_catalog (INFO->normal, WARN->watch, URG->urgent, CRIT->critical)."
+  safety_critical_basis: "safety_critical=true covers all critical-band alerts + the ELY-003c delta-Na safety leg (CON-0061). These are the alert types admin-config.md sec 5 forbids from silent disable and non-relaxable-below-guideline."
+open_questions:
+  - "Per-alert ppv_target/ignored_max are seeded from clinical FP-tolerance reasoning, NOT measured data; C3 + clinical-guild ratification required before they bind US-25 tuning gates."
+  - "Whether SEP-003 and RESP-002 (multi-severity alerts) should carry per-sub-alert budgets rather than one max-band budget — flagged for alert-engine-architect at C3."

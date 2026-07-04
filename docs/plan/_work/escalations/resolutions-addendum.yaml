@@ -1,0 +1,118 @@
+scope: ADDENDUM Phase-6 findings
+records:
+- item_id: ESC-ADDENDUM-349
+  rule_id: RULE-SEPSE-099
+  band: ADDENDUM
+  outcome: RATIFY
+  ratify:
+    question: For the active manual sepsis pathway _REGRAS descriptions, do we ratify correcting the criterio_8
+      key-typo (line 114 reads 'criterio8' without the underscore, so descricao_criterio_8 always defaults
+      to None and silently drops the Glasgow-decline/delirium criterion's clinical description text)?
+    options:
+    - id: A
+      text: 'Ratify the fix: read _REGRAS.get(''criterio_8'') so descricao_criterio_8 carries the intended
+        Glasgow-decline / delirium description text.'
+      clinical_risk: Low - restores the human-readable description for a functioning criterion; the boolean
+        criterio_8 evaluation is unaffected, only its displayed/stored description text is corrected.
+    - id: B
+      text: Preserve the legacy 'criterio8' key-typo verbatim.
+      clinical_risk: Moderate (display/traceability) - criterion 8 (acute Glasgow decline / delirium,
+        a neurologic sepsis organ-dysfunction signal) fires with a blank description wherever descricao_criterio_8
+        is read/exposed, degrading clinician interpretability and audit traceability of why the criterion
+        flagged.
+    recommended: A
+    rationale: |-
+      RULE-SEPSE-099 documents a live, silent key-typo. On TrilhaSepse the active _REGRAS dict defines
+      total_criterios=20 and per-criterion description text, but line 114 looks up 'criterio8' (missing underscore)
+      instead of 'criterio_8', so descricao_criterio_8 always defaults to None. The boolean criterion still
+      functions, but its clinical description - the acute Glasgow-Coma-Scale drop of >= 2 points over 24h OR
+      delirium - is silently dropped wherever the description is displayed or persisted. Restoring the correct key is
+      an unambiguous reference-correct fix (the intended text is already present in _REGRAS) with no change to
+      firing logic; because it is part of the manual sepsis screen surfaced to clinicians, it is ratified with the
+      clinical committee for confirmation of the description wording. Verification is NOT_APPLICABLE (display rule).
+  disposition_note: 'RATIFY the criterio_8 key fix (_REGRAS.get(''criterio_8'') at line 114) so the Glasgow-decline/delirium
+    description is no longer dropped. Do NOT port the ''criterio8'' typo. No change to boolean firing
+    logic (total_criterios=20 unchanged). Clinical committee to confirm the PT-BR description wording,
+    preserved verbatim: ''Presenca de reducao numerica da escala de coma de Glasgow em dois pontos ou
+    mais nas ultimas 24 horas (comparar com o ultimo checklist) OU presenca de delirium'' (accents per
+    source). _ANTIGAS_REGRAS (27 criteria) is deprecated/superseded; _REGRAS (20) is active. Related RULE-SEPSE-066.'
+- item_id: ESC-ADDENDUM-350
+  rule_id: RULE-AUTH-USUARIOS-063
+  band: ADDENDUM
+  outcome: RATIFY
+  ratify:
+    question: For electronic signing of clinical documents, do we ratify requiring a unique per-user signing
+      PIN - eliminating the org-wide shared default (Usuario.pin defaults to settings.PIN_DEFAULT) that
+      is base64-encoded and submitted verbatim as the CryptoCubo signing credential - subject to legal
+      review against MP 2.200-2 / ICP-Brasil signature-attribution requirements?
+    options:
+    - id: A
+      text: 'Ratify eliminating the shared default: require each user to set a unique signing PIN (no
+        deployment-wide default), enforce PIN rotation, and never fall back to settings.PIN_DEFAULT; refer
+        to legal for confirmation against MP 2.200-2 / ICP-Brasil per-signatory attribution.'
+      clinical_risk: Low (security-positive) - restores per-user attributability of legally-binding electronic
+        signatures on medical documents/prescriptions and aligns with e-signature integrity/non-repudiation
+        requirements.
+    - id: B
+      text: Preserve the legacy shared settings.PIN_DEFAULT default.
+      clinical_risk: High (legal/compliance) - any user whose PIN was never rotated signs medical/legal
+        documents with an org-wide shared secret, so signatures are non-attributable to an individual
+        signatory, undermining the legal validity and auditability of the signature and likely violating
+        MP 2.200-2 / ICP-Brasil attribution requirements.
+    recommended: A
+    rationale: |-
+      RULE-AUTH-USUARIOS-063 documents that Usuario.pin ('PIN para assinar com o CryptoCubo') defaults to
+      settings.PIN_DEFAULT (os.environ.get('PIN_DEFAULT'), a single deployment-wide value), and utils/cryptocubo.py
+      base64-encodes that PIN and submits it verbatim as the live signing credential. Every user created without an
+      explicit PIN inherits the same shared secret, making electronic signatures on clinical documents and
+      prescriptions non-attributable to an individual signatory. Under Brazil's MP 2.200-2/2001 (ICP-Brasil), a
+      legally valid electronic signature must be uniquely bound to and controlled by its signatory; a shared default
+      PIN defeats that binding and the non-repudiation it confers. This is audit ratification ask #3 (e-signature
+      legal review): the reference-correct default is a unique, rotated, per-user PIN with no shared fallback.
+  disposition_note: 'RATIFY a unique per-user signing PIN with enforced rotation and NO deployment-wide
+    settings.PIN_DEFAULT fallback; refer to legal/compliance for confirmation against MP 2.200-2 / ICP-Brasil
+    signatory-attribution and non-repudiation requirements (audit ratification ask #3, e-signature legal
+    review). Do NOT port the shared default. Couple with RULE-DOCUMENTACAO-FATURAMENTO-032 (ESC-ADDENDUM-351,
+    signature profile) and RULE-AUTH-USUARIOS-031 (password hashing). Note: if PIN_DEFAULT is unset the
+    default is None, triggering the downstream .encode() crash path. Verification NOT_APPLICABLE (non-formula
+    access-control rule). PT-BR field label preserved verbatim.'
+- item_id: ESC-ADDENDUM-351
+  rule_id: RULE-DOCUMENTACAO-FATURAMENTO-032
+  band: ADDENDUM
+  outcome: RATIFY
+  ratify:
+    question: For the CryptoCubo electronic-signature defaults used to legally sign clinical documents,
+      do we ratify the required signature profile - specifically whether signatures must use a 'qualified'
+      / ICP-Brasil-enabled profile (icpbr=True) rather than the legacy default of tipo='advanced' with
+      icpbr=False (ICP-Brasil root chain disabled) - subject to legal review under MP 2.200-2 / ICP-Brasil?
+    options:
+    - id: A
+      text: 'Ratify a legally-reviewed signature profile: escalate the default to ''qualified'' with ICP-Brasil
+        enabled (icpbr=True) where the document type legally requires a qualified signature, per legal
+        determination under MP 2.200-2 / ICP-Brasil; make the profile explicit rather than an unreviewed
+        keyword default.'
+      clinical_risk: Low (compliance-positive) - ensures clinical/legal documents carry the signature
+        strength the law requires and that ICP-Brasil validation is applied.
+    - id: B
+      text: Preserve the legacy defaults (tipo='advanced', perfil='adrb', icpbr=False).
+      clinical_risk: High (legal/compliance) - every document signed on this path uses an 'advanced' (not
+        'qualified') signature with the ICP-Brasil root chain disabled, potentially failing the legal-validity/evidentiary
+        bar for clinical records under MP 2.200-2 / ICP-Brasil and exposing signed evolutions/prescriptions
+        to challenge.
+    recommended: A
+    rationale: |-
+      RULE-DOCUMENTACAO-FATURAMENTO-032 documents that DocumentosCryptocubo.__init__ hardcodes the signature
+      defaults tipo='advanced' (NOT 'qualified'), formato='pdf', perfil='adrb', icpbr=False (ICP-Brasil root chain
+      off), and interpolates them into the CryptoCubo sign/verify URLs - so unless a caller overrides them, every
+      clinical document (evolutions/forms) is signed with an advanced, non-ICP-Brasil signature. Under MP
+      2.200-2/2001, a 'qualified' signature backed by an ICP-Brasil certificate carries a legal presumption of
+      authenticity that an 'advanced' signature with the root chain disabled does not; the required strength depends
+      on the legal classification of each document type. This is audit ratification ask #3 (e-signature legal
+      review): the reference-correct behaviour is a legally-determined, explicit profile, ratified with legal.
+  disposition_note: 'RATIFY a legal-review-determined CryptoCubo signature profile: escalate to ''qualified''
+    / ICP-Brasil-enabled (icpbr=True) where the document class legally requires it under MP 2.200-2 /
+    ICP-Brasil, and make the profile explicit rather than an unreviewed keyword default (audit ratification
+    ask #3, e-signature legal review). Do NOT port tipo=''advanced''/icpbr=False as an unreviewed default.
+    Couple with RULE-AUTH-USUARIOS-063 (ESC-ADDENDUM-350, per-user signing PIN): signature strength and
+    signatory attribution together determine legal validity. Verification NOT_APPLICABLE (non-formula
+    data-validation rule). Config values preserved verbatim.'

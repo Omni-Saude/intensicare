@@ -1,0 +1,132 @@
+# IntensiCare v2 — AMH Data-Platform Source Freshness Register
+# Owner: amh-integration-architect
+# Purpose: machine-readable companion to docs/plan/architecture/system-architecture.md §5 (freshness
+#   SLO handling + staleness propagation) and §6 (Alternativa-B escape-hatch decision table).
+# LAW anchor: ADR-001 — IntensiCare is a CONSUMER of the AMH Data Platform.
+#   ADR001-C-01/CON-0001  : clinical data read ONLY from AMH Gold via Amazon Athena; no own ingestion.
+#   ADR001-C-10/CON-0010  : IntensiCare INHERITS the AMH 99.5% data-availability SLO for analytics.
+#   ADR001-F-02           : AMH Gold batch (Silver-Entities) freshness target p95 < 30 min.
+#   VIS-C-09              : ingest->alert p95 < 30s (the vitals-driven early-warning promise).
+# Semantics of each field:
+#   source                       : logical AMH/operational source feeding an alerting domain.
+#   freshness_slo                : expected p95 age of the freshest row for THIS source, as delivered
+#                                  to IntensiCare (source_ref cited inline).
+#   staleness_max_for_alerting   : max data age at which an alert may still fire UNQUALIFIED. Beyond
+#                                  this, the score/alert is stamped `stale` and the UI must show the
+#                                  staleness badge (§5); beyond the hard ceiling, suppression applies.
+#   fallback                     : deterministic behavior when the source exceeds its freshness_slo or
+#                                  its staleness_max_for_alerting.
+# NB: staleness is measured on the CLINICAL timestamp (vital_sign.recorded_at / lab collected_at),
+#     NOT on ingested_at — DM-C-08/CON-0026 requires the two to stay distinct.
+version: 1
+inherited_availability_slo: "99.5%"        # ADR001-C-10 / CON-0010
+gold_batch_freshness_target_p95: "30min"   # ADR001-F-02 (Silver-Entities)
+alerting_latency_target_p95: "30s"         # VIS-C-09 (ingest->alert)
+
+sources:
+  - source: vitals_gold
+    description: >-
+      Vital signs (HR, RR, temp, systolic/diastolic BP, SpO2, AVPU) materialized in AMH Gold Iceberg,
+      read via Athena into local vital_sign hypertable. DM-AMH-02/CON-0026.
+    feeds_domains: [early_warning_scores, sepsis_qsofa, respiratory, hemodynamic]
+    freshness_slo: "p95 30min (AMH Gold batch, ADR001-F-02)"
+    staleness_max_for_alerting: "30min"
+    fallback: >-
+      Batch cannot meet VIS-C-09 (<30s) for bedside early-warning scores — this is the Alternativa-B
+      trigger (§6, ADR001-F-02/F-08). Interim: read vitals from the operational MLLP feed
+      (vitals_operational) for NRT scoring; hold vitals_gold as the analytical/replay source only.
+  - source: vitals_operational
+    description: >-
+      Same vital-sign parameters arriving sub-batch via the HL7 v2 MLLP listener (VIS-2-05) into the
+      vital_sign hypertable. Drives near-real-time MEWS/NEWS2/qSOFA (US-01/02/03, IMP-2.2-01..03).
+    feeds_domains: [early_warning_scores, sepsis_qsofa]
+    freshness_slo: "p95 <5s vitals stored (IMP-2.2-01)"
+    staleness_max_for_alerting: "5min"
+    fallback: >-
+      If no fresh vital within 5min, mark the derived clinical_score `stale`, keep the last score on the
+      bed-board with a staleness badge (§5), and suppress NEW threshold-cross alerts until a fresh
+      vital arrives (avoids alerting on a frozen value). Dead-man's-switch health check fires (IMP-C-05).
+  - source: mpi_demographics
+    description: >-
+      Patient identity + demographics from the AMH Master Patient Index (mpi.patients.master_patient_id),
+      synced into patient_cache. mpi_id is the SOLE patient key — no local ids minted (ADR001-C-02/CON-0002).
+    feeds_domains: [identity, all]
+    freshness_slo: "patient_cache.synced_at within 15min of MPI change (best-effort sync)"
+    staleness_max_for_alerting: "24h"
+    fallback: >-
+      Demographics are advisory context, never a scoring input. On stale/absent cache: re-resolve mpi_id
+      on demand from MPI; if MPI unreachable, serve last cached row with synced_at shown. Never invent an
+      identifier and never block an alert on demographics (DM-C-07). Cache flushed at discharge+30d (DM-RP-04).
+  - source: labs_sepsis
+    description: >-
+      Lactate, procalcitonin (PCT), WBC, blood cultures via AMH Gold / HAPI FHIR Observation +
+      DiagnosticReport (VIS-3.1-08, VIS-4.2-01). Confirms bedside qSOFA in the hybrid sepsis path.
+    feeds_domains: [sepsis]
+    freshness_slo: "on-result / p95 30min via Gold batch (VIS-4.2-01, ADR001-F-02)"
+    staleness_max_for_alerting: "2h"
+    fallback: >-
+      Lactate-trend rule (delta lactate) requires two results inside 2h; if the latest lactate is older
+      than 2h, fire only the vitals-driven qSOFA component and label the sepsis alert `lab-context-stale`.
+      Clinical target is <1h detection (VIS-3.1-01) so 30min Gold freshness is acceptable when results exist.
+  - source: labs_electrolytes
+    description: >-
+      Electrolyte panel (K+, Na+, Ca2+, Mg2+) via AMH Gold / FHIR Observation (VIS-3.6-11, VIS-4.2-06).
+      Lab-only source — no operational feed exists, so it is Gold-batch-bound.
+    feeds_domains: [electrolytes]
+    freshness_slo: "on-result / p95 30min via Gold batch (VIS-4.2-06, ADR001-F-02)"
+    staleness_max_for_alerting: "1h"
+    fallback: >-
+      CRIT band (e.g. K+ > 6.5, VIS-3.6-02) is fatal in minutes-hours; tighten the electrolyte lab-partition
+      Athena poll to ~1-2min to minimize the POLL stage, but source freshness stays AMH-batch-bound. This is
+      the STRONGEST Alternativa-B escape-hatch candidate (§6). On >1h staleness: badge alert `stale`, do not
+      auto-resolve an open CRIT electrolyte alert on a stale panel.
+  - source: labs_renal
+    description: >-
+      Serum creatinine + hourly urine output for AKI/KDIGO staging via AMH Gold / FHIR Observation and the
+      operational fluid-balance record (VIS-3.2-08, VIS-4.2-02).
+    feeds_domains: [aki]
+    freshness_slo: "every 1-6h (VIS-4.2-02); Gold p95 30min once available (ADR001-F-02)"
+    staleness_max_for_alerting: "12h"
+    fallback: >-
+      KDIGO baselines on 48h/7d creatinine deltas; 30min Gold freshness is far tighter than the 6h clinical
+      recognition target (VIS-6.1-02). On >12h creatinine gap, hold KDIGO stage flat and badge `stale`.
+  - source: blood_gas_respiratory
+    description: >-
+      Arterial blood gas (PaO2/PaCO2/pH) via AMH Gold / FHIR Observation, plus SpO2/FiO2 from the ventilator
+      via HL7 ORU into the operational store (VIS-3.3-09, VIS-4.2-03).
+    feeds_domains: [respiratory]
+    freshness_slo: "ABG on-result / p95 30min Gold; SpO2/FiO2 p95 <5s operational"
+    staleness_max_for_alerting: "1h ABG / 5min SpO2-FiO2"
+    fallback: >-
+      SpO2/FiO2 ratio is continuous-monitor-driven (NRT); PaO2/PaCO2 ABG is micro-batch. On stale ABG,
+      compute SpO2/FiO2 surrogate and badge the PaO2/FiO2-dependent portion `lab-context-stale`.
+  - source: hemodynamic_monitor
+    description: >-
+      Continuous invasive BP + HR from the bedside monitor into the operational store; lactate clearance
+      from AMH Gold (VIS-3.4-09, VIS-4.2-04).
+    feeds_domains: [hemodynamic]
+    freshness_slo: "continuous, p95 <5s operational; lactate p95 30min Gold"
+    staleness_max_for_alerting: "5min monitor / 2h lactate"
+    fallback: >-
+      Shock-index rule needs a continuous BP/HR stream sustained >15min (VIS-3.4-02). On monitor dropout
+      >5min, badge `stale` and suppress new shock-index alerts (frozen-value guard) until stream resumes.
+  - source: medication_events
+    description: >-
+      MedicationRequest / MedicationAdministration (vasopressors w/ infusion rate, antimicrobials,
+      sedatives, electrolyte replacement) via AMH Gold / FHIR (VIS-3.4-09, VIS-3.7-10, VIS-4.2-07).
+    feeds_domains: [drug_interactions, hemodynamic, sepsis, delirium, electrolytes]
+    freshness_slo: "on order/admin event; p95 30min via Gold batch (VIS-4.2-07, ADR001-F-02)"
+    staleness_max_for_alerting: "6h"
+    fallback: >-
+      Drug-interaction checks are event-triggered; batch cadence is clinically acceptable (on-event, not
+      time-critical). On >6h since last known med event for an active infusion, badge dependent alerts `stale`.
+  - source: delirium_assessments
+    description: >-
+      RASS + CAM-ICU scores and nursing mobilization/restraint records via AMH Gold / FHIR Observation
+      (VIS-3.5-08, VIS-4.2-05).
+    feeds_domains: [delirium]
+    freshness_slo: "every 4-12h per shift (VIS-4.2-05); Gold p95 30min once documented"
+    staleness_max_for_alerting: "12h"
+    fallback: >-
+      Shift-based screening; 30min Gold freshness is negligible against the 4-12h documentation cadence.
+      On >12h since last CAM-ICU, badge `stale` and prompt a re-assessment rather than firing on old data.

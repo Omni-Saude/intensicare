@@ -1,0 +1,683 @@
+# IntensiCare v2 — Canonical Units Registry (machine-readable)
+# Owner: units-canonicalization-engineer
+# LAW: docs/plan/_work/constraints/ledger.yaml CON-SEED-12 (+ CON-0060 / SYS-C-04).
+#   Mission-mandated canonicals are non-negotiable: lactate mmol/L; FiO2 fraction 0-1
+#   (percent display-only); vasopressor dosing mcg/kg/min (ml/h is an EDGE input requiring
+#   the conversion service in clinical/domains/hemodynamics.md#vasopressor-unit-conversion-service);
+#   temperature degC; creatinine mg/dL; electrolytes per vision.md §3.6.
+#
+# Contract of every field:
+#   parameter        - snake_case, PT-BR-friendly canonical name (the ONLY name downstream specs use)
+#   quantity         - physical/physiological quantity token
+#   canonical_unit   - THE unit at every computation + API boundary. No exceptions.
+#   aliases          - synonym unit spellings numerically IDENTICAL to canonical (factor 1.0),
+#                      accepted at the EDGE only, normalized on ingest. NEVER at the computation boundary.
+#   edge_conversions - units requiring a NUMERIC factor to reach canonical; applied ONCE at the edge.
+#                      factor: null => NOT a fixed factor (needs a conversion service), see note.
+#   display_transform- presentation-only reshaping (never mutates the stored/compared canonical value)
+#   conversion_notes - human-readable hazard / provenance
+#   refs             - guideline id, RULE-<CLUSTER>-<NNN>, vision § — provenance duty (CONTRACTS rule 3)
+#
+# Rule: a unit string on an alert input that is neither canonical_unit nor a declared alias is a
+# BUILD-TIME error in the alert-definition schema (not a runtime surprise).
+version: 1
+parameters:
+
+  # ============================================================================
+  # BLOOD GASES / OXYGENATION
+  # ============================================================================
+  - parameter: fio2
+    quantity: inspired_oxygen_fraction
+    canonical_unit: "fraction"
+    aliases: []
+    edge_conversions:
+      - {from: "percent", factor: 0.01, note: "percent -> fraction: divide by 100 (e.g. 40% -> 0.40)"}
+      - {from: "%", factor: 0.01, note: "same as percent"}
+    display_transform: "multiply canonical fraction by 100 -> percent (DISPLAY ONLY; storage + all predicates stay fraction 0.21-1.0)"
+    conversion_notes: "MISSION LAW: canonical is exactly 'fraction' 0-1. Legacy FiO2Validator stored 21-100 (percent) while P/F, SOFA-resp (400/300/200/100) and Berlin/weaning thresholds compared it as a fraction -> ratio ~100x too small. Percent is an EDGE input and a DISPLAY transform, never a computation unit."
+    refs: ["CON-SEED-12", "SYS-01", "P0-01 (RULE-CLINICAL-SCORING-002)", "P0-07 (RULE-CLINICAL-SCORING-008)", "P0-11 (RULE-VENTILACAO-011)", "RULE-VENTILACAO-004", "RULE-VENTILACAO-005", "Berlin-2012"]
+
+  - parameter: pao2
+    quantity: arterial_partial_pressure_o2
+    canonical_unit: "mmHg"
+    aliases: ["mmhg", "torr"]
+    edge_conversions:
+      - {from: "kPa", factor: 7.50062, note: "kPa -> mmHg: multiply by 7.50062"}
+    display_transform: null
+    conversion_notes: "Brazilian arterial blood gas is reported in mmHg. Feeds relacao_pao2_fio2; the ratio hazard is the FiO2 unit (see fio2), not PaO2."
+    refs: ["vision §3.3", "Berlin-2012", "RULE-SINAIS-VITAIS-016", "RULE-CLINICAL-SCORING-008"]
+
+  - parameter: paco2
+    quantity: arterial_partial_pressure_co2
+    canonical_unit: "mmHg"
+    aliases: ["mmhg", "torr"]
+    edge_conversions:
+      - {from: "kPa", factor: 7.50062, note: "kPa -> mmHg: multiply by 7.50062"}
+    display_transform: null
+    conversion_notes: "mmHg per Brazilian ABG convention. NEWS2 Scale 2 (hypercapnic) target range depends on this being mmHg."
+    refs: ["vision §3.3", "vision §2.1 (NEWS2 Scale 2)", "RULE-SINAIS-VITAIS-017"]
+
+  - parameter: spo2
+    quantity: peripheral_oxygen_saturation
+    canonical_unit: "percent"
+    aliases: ["%", "SpO2%"]
+    edge_conversions:
+      - {from: "fraction", factor: 100.0, note: "fraction -> percent: multiply by 100 (rare; most monitors emit percent)"}
+    display_transform: null
+    conversion_notes: "Percent by universal pulse-oximeter convention (0-100). Legacy SatO2Validator (21-100) was DISABLED on the model field -> SpO2 unvalidated at runtime; v2 must validate. Distinct from fio2: SpO2 stays percent, FiO2 is fraction."
+    refs: ["vision §3.3", "RULE-SINAIS-VITAIS-033", "RULE-SINAIS-VITAIS-018"]
+
+  - parameter: relacao_pao2_fio2
+    quantity: pf_ratio
+    canonical_unit: "ratio"
+    aliases: ["P/F", "PaO2/FiO2"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Dimensionless = pao2(mmHg) / fio2(fraction). REQUIRES fio2 in canonical 'fraction' — this is exactly the SYS-01 kill: with percent FiO2 the ratio is ~100x too small. Bands 400/300/200/100 (SOFA-resp), 300/200/100 (Berlin). Never compute from percent FiO2."
+    refs: ["CON-SEED-12", "SYS-01", "Berlin-2012", "P0-01 (RULE-CLINICAL-SCORING-002)", "RULE-CLINICAL-SCORING-008", "RULE-VENTILACAO-004", "RULE-VENTILACAO-005"]
+
+  - parameter: relacao_spo2_fio2
+    quantity: sf_ratio
+    canonical_unit: "ratio"
+    aliases: ["S/F", "SpO2/FiO2"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Dimensionless = spo2(percent numeric) / fio2(fraction). Non-invasive Berlin surrogate: <=315 mild, <=235 moderate, <=148 severe. REQUIRES fio2 in canonical 'fraction'; spo2 stays percent."
+    refs: ["vision §3.3", "Berlin-2012 (Rice Chest 2007 S/F derivation)", "RULE-VENTILACAO-011"]
+
+  - parameter: ph_arterial
+    quantity: acidity
+    canonical_unit: "pH"
+    aliases: ["pH", "ph"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Dimensionless logarithmic scale ~6.80-7.80. No conversion. PT-BR legacy writes comma decimals ('pH<7,15') — edge parser MUST accept comma as decimal separator (see SYS-09 family)."
+    refs: ["RULE-ESTABILIDADE-011", "SYS-09 (comma-decimal parse hazard)"]
+
+  - parameter: bicarbonato
+    quantity: serum_bicarbonate
+    canonical_unit: "mmol/L"
+    aliases: ["mEq/L", "meq/l"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "HCO3- is monovalent: mmol/L == mEq/L (1:1). Legacy 'BIC<16' bicarbonate-stewardship gate. Comma-decimal edge hazard applies."
+    refs: ["RULE-ESTABILIDADE-011", "vision §3 (acid-base context)"]
+
+  - parameter: lactato_arterial
+    quantity: lactate
+    canonical_unit: "mmol/L"
+    aliases: ["mmol/l", "mM"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 0.111, note: "mg/dL -> mmol/L: multiply by 0.111 (divide by 9.01; lactate MW ~90.08 g/mol)"}
+    display_transform: null
+    conversion_notes: "MISSION LAW: canonical mmol/L. SYS-03: sepsis/shock pathways disagreed mg/dL vs mmol/L (~9x). Sepsis-3 cutoff 2 mmol/L; septic-shock 4 mmol/L. Legacy RULE-SEPSE-061 used 30 mg/dL ~= 3.3 mmol/L. A bare number without a unit is a build-time error."
+    refs: ["CON-SEED-12", "SYS-03", "SSC-2021", "Sepsis-3 (Singer JAMA 2016)", "vision §3.1", "vision §3.4", "RULE-SEPSE-061", "RULE-SEPSE-013", "RULE-ESTABILIDADE-005", "RULE-VENTILACAO-012"]
+
+  # ============================================================================
+  # VENTILATION — airway pressures & volumes (cmH2O / mL)
+  # ============================================================================
+  - parameter: peep
+    quantity: positive_end_expiratory_pressure
+    canonical_unit: "cmH2O"
+    aliases: ["cmH2O", "cmh2o"]
+    edge_conversions:
+      - {from: "mbar", factor: 1.01972, note: "mbar -> cmH2O: multiply by 1.01972 (near 1:1)"}
+    display_transform: null
+    conversion_notes: "Legacy validation bounds diverged by form: movimentacao/physician 0-40, physio/homecare 5-18 (RATIFY which is correct for v2). Unit itself is consistently cmH2O."
+    refs: ["vision §3.3", "RULE-VENTILACAO-018", "RULE-VENTILACAO-020", "RULE-VENTILACAO-022"]
+
+  - parameter: pressao_plato
+    quantity: plateau_pressure
+    canonical_unit: "cmH2O"
+    aliases: ["cmH2O", "cmh2o", "Pplat"]
+    edge_conversions:
+      - {from: "mbar", factor: 1.01972, note: "mbar -> cmH2O: multiply by 1.01972"}
+    display_transform: null
+    conversion_notes: "Plateau pressure >30 cmH2O is the vision asynchrony/lung-protection cutoff."
+    refs: ["vision §3.3 (Pplat >30 cmH2O)", "Thille ICM 2016"]
+
+  - parameter: pressao_inspiratoria
+    quantity: peak_inspiratory_pressure
+    canonical_unit: "cmH2O"
+    aliases: ["cmH2O", "cmh2o", "PINS", "PIP"]
+    edge_conversions:
+      - {from: "mbar", factor: 1.01972, note: "mbar -> cmH2O: multiply by 1.01972"}
+    display_transform: null
+    conversion_notes: "PINS in legacy PT-BR forms. Bounds diverge 0-30 vs 5-40 across forms (RATIFY)."
+    refs: ["RULE-VENTILACAO-019", "RULE-VENTILACAO-023", "RULE-VENTILACAO-003"]
+
+  - parameter: volume_corrente
+    quantity: tidal_volume_absolute
+    canonical_unit: "mL"
+    aliases: ["ml", "cc"]
+    edge_conversions:
+      - {from: "L", factor: 1000.0, note: "L -> mL: multiply by 1000"}
+    display_transform: null
+    conversion_notes: "Absolute VT in mL. Legacy C1 flagged an ABSOLUTE >500 mL (RULE-VENTILACAO-003) which is NOT lung-protective; correct comparison is weight-indexed — see volume_corrente_pbw."
+    refs: ["RULE-VENTILACAO-003", "RULE-VENTILACAO-001", "ARDSNet-2000"]
+
+  - parameter: volume_corrente_pbw
+    quantity: tidal_volume_indexed
+    canonical_unit: "mL/kg"
+    aliases: ["mL/kg-PBW", "ml/kg"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "VT indexed to PREDICTED body weight (PBW), not actual weight. PBW derived from height + sex (Devine). ARDSNet target <=6 mL/kg PBW. Requires altura + sex; do NOT compute from peso (actual)."
+    refs: ["ARDSNet-2000", "RULE-VENTILACAO-001", "vision §3.3"]
+
+  # ============================================================================
+  # HEMODYNAMICS — pressures, rates, vasopressor dosing
+  # ============================================================================
+  - parameter: pressao_arterial_sistolica
+    quantity: systolic_blood_pressure
+    canonical_unit: "mmHg"
+    aliases: ["mmhg", "PAS", "SBP"]
+    edge_conversions:
+      - {from: "kPa", factor: 7.50062, note: "kPa -> mmHg: multiply by 7.50062"}
+    display_transform: null
+    conversion_notes: "PAS. Legacy validation 50-250. Feeds indice_choque (HR/SBP)."
+    refs: ["vision §3.4", "RULE-SEPSE-043", "RULE-SINAIS-VITAIS-005"]
+
+  - parameter: pressao_arterial_diastolica
+    quantity: diastolic_blood_pressure
+    canonical_unit: "mmHg"
+    aliases: ["mmhg", "PAD", "DBP"]
+    edge_conversions:
+      - {from: "kPa", factor: 7.50062, note: "kPa -> mmHg: multiply by 7.50062"}
+    display_transform: null
+    conversion_notes: "PAD. Legacy validation 0-150. NB RULE-SEPSE-043 compares PAD<90 (text says <60) — a threshold bug, not a unit bug; unit is unambiguously mmHg."
+    refs: ["vision §3.4", "P0-12 (RULE-SEPSE-043)", "RULE-SINAIS-VITAIS-015"]
+
+  - parameter: pressao_arterial_media
+    quantity: mean_arterial_pressure
+    canonical_unit: "mmHg"
+    aliases: ["mmhg", "PAM", "MAP"]
+    edge_conversions:
+      - {from: "kPa", factor: 7.50062, note: "kPa -> mmHg: multiply by 7.50062"}
+    display_transform: null
+    conversion_notes: "PAM/MAP. SOFA-cardio MAP<70; septic-shock MAP<65. Legacy PAMValidator (0-200) was DISABLED (dead code) -> MAP never stored/validated; v2 must decide (RATIFY) and validate."
+    refs: ["vision §3.1", "vision §3.4", "SSC-2021", "RULE-SINAIS-VITAIS-020", "RULE-CLINICAL-SCORING-005"]
+
+  - parameter: dose_vasopressor
+    quantity: weight_indexed_vasopressor_rate
+    canonical_unit: "mcg/kg/min"
+    aliases: ["ug/kg/min", "mcg/kg/min", "µg/kg/min"]
+    edge_conversions:
+      - {from: "mcg/kg/h", factor: 0.0166667, note: "mcg/kg/h -> mcg/kg/min: divide by 60 (fixed factor; both weight-indexed). Kills the SYS-02 60x label drift RULE-ESTABILIDADE-016 vs -024 on the same >0.5 number."}
+      - {from: "mg/kg/min", factor: 1000.0, note: "mg/kg/min -> mcg/kg/min: multiply by 1000"}
+      - {from: "mL/h", factor: null, note: "NOT a fixed factor. ml/h -> mcg/kg/min REQUIRES drug concentration (concentracao_farmaco) + patient weight (peso) via the conversion service: clinical/domains/hemodynamics.md#vasopressor-unit-conversion-service. See SYS-C-04 / CON-0060: any code assuming a constant ml/h<->mcg/kg/min factor is wrong."}
+    display_transform: null
+    conversion_notes: "MISSION LAW: canonical mcg/kg/min for norepinephrine/epinephrine/dopamine/dobutamine/phenylephrine. SYS-02: legacy mixed raw ml VOLUME, ml/h RATE, mcg/kg/min and mcg/kg/h for the SAME cutoff. mcg/kg/h converts by /60; ml/h does NOT convert without concentration+weight (edge conversion service only). Vasopressin is NOT weight-indexed — see dose_vasopressina."
+    refs: ["CON-SEED-12", "CON-0060", "SYS-02", "SYS-C-04", "P0-02 (RULE-CLINICAL-SCORING-005)", "P0-06 (RULE-ESTABILIDADE-016)", "RULE-ESTABILIDADE-007", "RULE-ESTABILIDADE-024", "SSC-2021", "clinical/domains/hemodynamics.md#vasopressor-unit-conversion-service"]
+
+  - parameter: dose_vasopressina
+    quantity: fixed_rate_vasopressin_dose
+    canonical_unit: "U/min"
+    aliases: ["units/min", "U/min", "UI/min"]
+    edge_conversions:
+      - {from: "U/h", factor: 0.0166667, note: "U/h -> U/min: divide by 60"}
+    display_transform: null
+    conversion_notes: "Vasopressin is dosed as a FIXED rate (e.g. 0.03 U/min), NOT weight-indexed and NOT expressible in mcg/kg/min. Kept separate from dose_vasopressor precisely so it is never coerced into the weight-based canonical."
+    refs: ["SSC-2021", "RULE-ESTABILIDADE-003 (vasopressor ladder)"]
+
+  - parameter: indice_choque
+    quantity: shock_index
+    canonical_unit: "ratio"
+    aliases: ["shock index", "SI"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Dimensionless = frequencia_cardiaca(bpm) / pressao_arterial_sistolica(mmHg). Elevated >0.9. Modified SI = HR/MAP >1.3. Requires both inputs in their canonical units."
+    refs: ["vision §3.4", "Rady 1994 (Ann Emerg Med)", "RULE-ESTABILIDADE-006"]
+
+  - parameter: tempo_enchimento_capilar
+    quantity: capillary_refill_time
+    canonical_unit: "s"
+    aliases: ["sec", "segundos", "seconds"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "TEC in seconds. ANDROMEDA-SHOCK normal <=3s (peripheral perfusion target). Legacy encoded TEC three incompatible ways (numeric 3-20s, boolean >5s, checkbox >5s) with a non-physiological 3s floor — unify to seconds; edge parser accepts comma decimals."
+    refs: ["ANDROMEDA-SHOCK (Hernandez JAMA 2019)", "RULE-SINAIS-VITAIS-004", "RULE-SINAIS-VITAIS-013", "RULE-ESTABILIDADE-003", "SYS-09 (comma decimal)"]
+
+  # ============================================================================
+  # LABS — electrolytes (vision §3.6 canonicals; Brazilian labs vary mg/dL<->mmol/L)
+  # ============================================================================
+  - parameter: potassio
+    quantity: serum_potassium
+    canonical_unit: "mmol/L"
+    aliases: ["mEq/L", "meq/l", "mmol/l"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 0.2558, note: "mg/dL -> mmol/L: multiply by 0.2558 (K MW 39.10). WARNING: K+ is essentially NEVER reported mg/dL clinically — RULE-EQUILIBRIO-004 mislabels K+ as 'mg/dl' (physiologically mEq/L). Treat inbound mg/dL K+ as a suspected mislabel, flag for review, do not silently convert."}
+    display_transform: null
+    conversion_notes: "K+ monovalent: mmol/L == mEq/L (1:1, alias). vision §3.6: hyperK crit >6.5, urgent >6.0; hypoK crit <2.5, urgent <3.0 mmol/L. RULE-EQUILIBRIO-004 unit-mislabel (K '5,5mg/dl') must be ADOPT-CORRECTED, never propagated."
+    refs: ["vision §3.6 (UKKA-2023)", "CON-SEED-12", "RULE-EQUILIBRIO-004", "CLU-EQUILIBRIO-C-01"]
+
+  - parameter: sodio
+    quantity: serum_sodium
+    canonical_unit: "mmol/L"
+    aliases: ["mEq/L", "meq/l", "mmol/l"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 0.435, note: "mg/dL -> mmol/L: multiply by 0.435 (Na MW 22.99). Na+ is not reported mg/dL clinically; treat as suspected mislabel."}
+    display_transform: null
+    conversion_notes: "Na+ monovalent: mmol/L == mEq/L. vision §3.6: hyperNa crit >160, urgent >155; hypoNa crit <120, urgent <125 mmol/L. delta_na correction hazard: >10 mmol/L/24h risks osmotic demyelination (CON-0061)."
+    refs: ["vision §3.6 (ESICM-2024)", "CON-SEED-12", "CON-0061", "Sterns JASN 2015", "RULE-EQUILIBRIO-002"]
+
+  - parameter: magnesio
+    quantity: serum_magnesium
+    canonical_unit: "mmol/L"
+    aliases: ["mmol/l"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 0.4114, note: "mg/dL -> mmol/L: multiply by 0.4114 (Mg MW 24.305, divalent). vision cross-checks: 0.5 mmol/L = 1.2 mg/dL, 0.7 mmol/L = 1.7 mg/dL."}
+      - {from: "mEq/L", factor: 0.5, note: "mEq/L -> mmol/L: multiply by 0.5 (divalent; mEq/L != mmol/L for Mg2+)"}
+    display_transform: null
+    conversion_notes: "Mg2+ DIVALENT so mEq/L is NOT 1:1 (factor 0.5) — a common Brazilian-lab trap. vision §3.6: hypoMg crit <0.5 mmol/L (1.2 mg/dL), urgent <0.7 mmol/L (1.7 mg/dL)."
+    refs: ["vision §3.6 (Hansen ICM 2018)", "CON-SEED-12"]
+
+  - parameter: calcio_ionizado
+    quantity: ionized_calcium
+    canonical_unit: "mmol/L"
+    aliases: ["mmol/l", "iCa"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 0.2495, note: "mg/dL -> mmol/L: multiply by 0.2495 (Ca MW 40.08, divalent)"}
+      - {from: "mEq/L", factor: 0.5, note: "mEq/L -> mmol/L: multiply by 0.5 (divalent)"}
+    display_transform: null
+    conversion_notes: "vision §3.6 primary calcium measure is IONIZED Ca2+ mmol/L: hyperCa crit >1.60, urgent >1.45; hypoCa crit <0.80, urgent <0.90 mmol/L. Divalent -> mEq/L factor 0.5. Corrected TOTAL calcium is a separate parameter (calcio_total)."
+    refs: ["vision §3.6 (Mousseaux NDT 2022; Cooper ICM 2022)", "CON-SEED-12"]
+
+  - parameter: calcio_total
+    quantity: total_calcium
+    canonical_unit: "mg/dL"
+    aliases: ["mg/dl"]
+    edge_conversions:
+      - {from: "mmol/L", factor: 4.008, note: "mmol/L -> mg/dL: multiply by 4.008 (Ca MW 40.08, divalent)"}
+      - {from: "mEq/L", factor: 2.004, note: "mEq/L -> mg/dL: multiply by 2.004"}
+    display_transform: null
+    conversion_notes: "Total Ca in mg/dL is the albumin-CORRECTED surrogate in vision §3.6 (corrected total Ca >14 mg/dL crit-high; <7.0 mg/dL crit-low). Correction needs albumina. Prefer calcio_ionizado when available."
+    refs: ["vision §3.6", "CON-SEED-12"]
+
+  - parameter: fosfato
+    quantity: serum_phosphate
+    canonical_unit: "mg/dL"
+    aliases: ["mg/dl", "fosforo"]
+    edge_conversions:
+      - {from: "mmol/L", factor: 3.097, note: "mmol/L -> mg/dL: multiply by 3.097 (elemental P MW 30.97)"}
+    display_transform: null
+    conversion_notes: "PO4 / inorganic phosphorus. NOT in vision §3.6 numeric table — canonical mg/dL follows Brazilian-lab convention (phosphorus reported mg/dL); mmol/L conversion provided. Confirm canonical with clinical committee (open item)."
+    refs: ["Brazilian-lab-convention", "vision §3.6 (electrolyte panel, phosphate implied)", "CON-SEED-12 (electrolytes per vision)"]
+
+  - parameter: cloreto
+    quantity: serum_chloride
+    canonical_unit: "mmol/L"
+    aliases: ["mEq/L", "meq/l", "mmol/l"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Cl- monovalent: mmol/L == mEq/L (1:1). Used in electrolyte-replacement vocab and acid-base (anion gap)."
+    refs: ["RULE-BALANCO-HIDRICO-058 (electrolyte replacement vocab)"]
+
+  # ============================================================================
+  # LABS — chemistry, hematology, inflammatory
+  # ============================================================================
+  - parameter: creatinina
+    quantity: serum_creatinine
+    canonical_unit: "mg/dL"
+    aliases: ["mg/dl"]
+    edge_conversions:
+      - {from: "umol/L", factor: 0.0113, note: "umol/L -> mg/dL: multiply by 0.0113 (divide by 88.42; creatinine MW 113.12)"}
+      - {from: "µmol/L", factor: 0.0113, note: "same as umol/L"}
+    display_transform: null
+    conversion_notes: "MISSION LAW: canonical mg/dL. SOFA-renal bands (<1.2 / 1.2-1.9 / 2.0-3.4 / 3.5-4.9 / >=5.0) and KDIGO (>=0.3 rise, 1.5-3x baseline, >=4.0) all in mg/dL. NB P0-03: legacy strict '>5' leaves a dead gap at (4.9,5.0] — a boundary bug, unit is correct."
+    refs: ["CON-SEED-12", "KDIGO-2012", "vision §3.2", "P0-03 (RULE-CLINICAL-SCORING-007)", "RULE-SINAIS-VITAIS-024"]
+
+  - parameter: glicemia
+    quantity: blood_glucose
+    canonical_unit: "mg/dL"
+    aliases: ["mg/dl", "HGT", "glicemia_capilar"]
+    edge_conversions:
+      - {from: "mmol/L", factor: 18.016, note: "mmol/L -> mg/dL: multiply by 18.016 (glucose MW 180.16)"}
+    display_transform: null
+    conversion_notes: "HGT / capillary + serum glucose. Brazilian convention mg/dL (balanco-hidrico HGT is mg/dL). mmol/L (rest-of-world) is an edge input, x18.016."
+    refs: ["CLU-BALANCO-HIDRICO-05", "RULE-BALANCO-HIDRICO-018", "Brazilian-lab-convention"]
+
+  - parameter: hemoglobina
+    quantity: hemoglobin_concentration
+    canonical_unit: "g/dL"
+    aliases: ["g/dl"]
+    edge_conversions:
+      - {from: "g/L", factor: 0.1, note: "g/L -> g/dL: multiply by 0.1 (divide by 10)"}
+      - {from: "mmol/L", factor: 1.611, note: "mmol/L -> g/dL: multiply by 1.611 (rare Hb SI unit)"}
+    display_transform: null
+    conversion_notes: "AUDIT FINDING: legacy mislabeled Hb as 'mg/dl' — that is a 1000x error (g/dL is correct; mg/dL would read 12000 for 12 g/dL). mg/dL is NOT an accepted alias for hemoglobin; reject/flag it at the edge."
+    refs: ["audit (Hb mislabeled mg/dl)", "vision §3 (hematology)"]
+
+  - parameter: plaquetas
+    quantity: platelet_count
+    canonical_unit: "10^3/uL"
+    aliases: ["10^9/L", "10e3/uL", "mil/uL", "K/uL"]
+    edge_conversions:
+      - {from: "/uL", factor: 0.001, note: "/uL -> 10^3/uL: divide by 1000 (e.g. 150000/uL -> 150)"}
+      - {from: "/mm^3", factor: 0.001, note: "/mm^3 -> 10^3/uL: divide by 1000 (PT-BR 'plaquetas/mm3')"}
+    display_transform: null
+    conversion_notes: "10^3/uL == 10^9/L (1:1 alias) and matches SOFA-coag threshold NUMBERS directly (<150 / <100 / <50 / <20). Absolute /uL and /mm^3 are 1000x and need division at the edge."
+    refs: ["vision §3 (SOFA coagulation)", "RULE-SINAIS-VITAIS-025", "RULE-CLINICAL-SCORING (coag sub-score)"]
+
+  - parameter: bilirubina
+    quantity: total_bilirubin
+    canonical_unit: "mg/dL"
+    aliases: ["mg/dl"]
+    edge_conversions:
+      - {from: "umol/L", factor: 0.05848, note: "umol/L -> mg/dL: multiply by 0.05848 (divide by 17.1; bilirubin MW 584.66)"}
+      - {from: "µmol/L", factor: 0.05848, note: "same as umol/L"}
+    display_transform: null
+    conversion_notes: "SOFA-liver bands in mg/dL: <1.2 / 1.2-1.9 / 2.0-5.9 / 6.0-11.9 / >=12.0. NB SYS-07: legacy strict inequalities leave dead gaps at [1.9,2.0)/[5.9,6.0)/[11.9,12.0) — boundary bug, unit correct."
+    refs: ["vision §3 (SOFA liver)", "SYS-07", "RULE-SINAIS-VITAIS-022", "RULE-CLINICAL-SCORING (liver sub-score)"]
+
+  - parameter: leucocitos
+    quantity: white_blood_cell_count
+    canonical_unit: "10^3/uL"
+    aliases: ["10^9/L", "10e3/uL", "mil/uL"]
+    edge_conversions:
+      - {from: "/uL", factor: 0.001, note: "/uL -> 10^3/uL: divide by 1000"}
+      - {from: "/mm^3", factor: 0.001, note: "/mm^3 -> 10^3/uL: divide by 1000 (SIRS uses >12000 or <4000 /mm^3 = >12 or <4 in canonical)"}
+    display_transform: null
+    conversion_notes: "WBC / leukograma. 10^3/uL == 10^9/L. SIRS: >12 or <4 (x10^3/uL). Absolute counts (/mm^3, /uL) divide by 1000 at edge."
+    refs: ["vision §3.1 (SIRS/leukogram)", "SSC-2021", "RULE-SINAIS-VITAIS-026"]
+
+  - parameter: bastonetes
+    quantity: band_neutrophils_fraction
+    canonical_unit: "percent"
+    aliases: ["%", "bastoes", "bastonetes_%"]
+    edge_conversions:
+      - {from: "fraction", factor: 100.0, note: "fraction -> percent: multiply by 100"}
+    display_transform: null
+    conversion_notes: "Immature neutrophils (bastonetes/bandemia) as PERCENT of WBC. SIRS: >10% immature forms. If an absolute band count is supplied, it must be divided by leucocitos first (out of edge scope; capture as percent)."
+    refs: ["vision §3.1 (SIRS)", "SSC-2021"]
+
+  - parameter: proteina_c_reativa
+    quantity: c_reactive_protein
+    canonical_unit: "mg/L"
+    aliases: ["mg/l", "PCR"]
+    edge_conversions:
+      - {from: "mg/dL", factor: 10.0, note: "mg/dL -> mg/L: multiply by 10 (Brazilian labs frequently report PCR in mg/dL)"}
+      - {from: "nmol/L", factor: 0.0001051, note: "nmol/L -> mg/L: multiply by ~0.000105 (CRP MW ~120000; rarely used)"}
+    display_transform: null
+    conversion_notes: "PCR (Proteina C Reativa). Canonical mg/L (critical-care convention). Brazilian mg/dL is a 10x edge input — a frequent silent 10x error if not normalized."
+    refs: ["vision §3.1 (inflammatory markers)", "Brazilian-lab-convention"]
+
+  - parameter: procalcitonina
+    quantity: procalcitonin
+    canonical_unit: "ng/mL"
+    aliases: ["ng/ml", "ug/L", "µg/L", "PCT"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "PCT. ng/mL == ug/L (1:1 alias). vision §3.1: PCT >0.5 ng/mL + delta >0.25/24h (rising); <0.25 ng/mL or >80% drop from peak (antimicrobial de-escalation)."
+    refs: ["vision §3.1 (Schuetz Lancet ID 2018; Cochrane 2017)"]
+
+  # ============================================================================
+  # NEURO / CLINICAL SCORES (dimensionless points or enum)
+  # ============================================================================
+  - parameter: glasgow
+    quantity: glasgow_coma_scale
+    canonical_unit: "points"
+    aliases: ["GCS", "ECG_glasgow"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Integer 3-15. Validator caps the scale — any 'severe band' predicate must use <= at the low end. qSOFA uses GCS<15 (altered mentation)."
+    refs: ["vision §3.1 (qSOFA)", "Sepsis-3 (Singer JAMA 2016)", "RULE-SINAIS-VITAIS-028"]
+
+  - parameter: rass
+    quantity: richmond_agitation_sedation_scale
+    canonical_unit: "points"
+    aliases: ["RASS"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Ordinal integer -5..+4. vision §3.5: target-out-of-range if >+1 (agitation) or <-3 (deep sedation). Signed scale — do not coerce sign (P0-10 legacy discarded +/- direction reading first char only)."
+    refs: ["vision §3.5 (PADIS-2018)", "PADIS-2018", "P0-10 (sign-loss hazard)"]
+
+  - parameter: cam_icu
+    quantity: delirium_assessment
+    canonical_unit: "enum"
+    aliases: ["CAM-ICU"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Enum {positivo, negativo, nao_avaliavel}. NOT numeric. Positive = acute change/fluctuation + inattention + (RASS!=0 OR disorganized thinking)."
+    refs: ["vision §3.5 (Ely NEJM 2001)", "Ely-2001"]
+
+  - parameter: mews
+    quantity: modified_early_warning_score
+    canonical_unit: "points"
+    aliases: ["MEWS"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Aggregate integer score (Phase-1 implemented). Dimensionless points; component units (HR bpm, RR rpm, temp degC, SBP mmHg) are canonical here."
+    refs: ["vision §2.1"]
+
+  - parameter: news2
+    quantity: national_early_warning_score_2
+    canonical_unit: "points"
+    aliases: ["NEWS2"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Aggregate integer score incl. hypercapnic Scale 2 (Phase-1 implemented). Scale-2 selection depends on paco2/SpO2 target being canonical."
+    refs: ["vision §2.1", "vision §3.3"]
+
+  - parameter: sofa
+    quantity: sequential_organ_failure_assessment
+    canonical_unit: "points"
+    aliases: ["SOFA"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "0-24 aggregate of 6 sub-scores. Each sub-score depends on a canonical input: resp relacao_pao2_fio2 (FiO2 fraction!), cardio dose_vasopressor (mcg/kg/min!), renal creatinina (mg/dL), liver bilirubina (mg/dL), coag plaquetas, CNS glasgow. The whole SOFA is corrupted if any input unit is wrong (SYS-01/02)."
+    refs: ["vision §2.1", "Sepsis-3 (Singer JAMA 2016)", "RULE-CLINICAL-SCORING-002", "RULE-CLINICAL-SCORING-005", "RULE-CLINICAL-SCORING-007"]
+
+  - parameter: qsofa
+    quantity: quick_sofa
+    canonical_unit: "points"
+    aliases: ["qSOFA"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "0-3: RR>=22 rpm, SBP<=100 mmHg, GCS<15. Dimensionless; inputs canonical."
+    refs: ["vision §3.1 (Seymour JAMA 2016)", "Sepsis-3"]
+
+  - parameter: escala_dor_numerica
+    quantity: numeric_pain_scale
+    canonical_unit: "points"
+    aliases: ["NRS", "EVA", "escala_numerica_dor"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "NRS 0-10, integer, validator-capped at 10. SYS-06/P0-04: 'if 7 <= dor > 10' misparses so the severe band never fires; a correct band is 7 <= dor <= 10. Registry documents the 0-10 domain so schema can reject out-of-range and forbid the chained-comparison bug."
+    refs: ["SYS-06", "P0-04 (RULE-PIORA-CLINICA-006)"]
+
+  - parameter: escala_dor_comportamental
+    quantity: behavioral_pain_scale
+    canonical_unit: "points"
+    aliases: ["BPS", "escala_comportamental_dor"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "BPS 3-12, integer, validator-capped at 12 (non-communicative/sedated patients). SYS-06/P0-05: 'if 10 <= sinais > 12' suppresses the severe band; correct is 10 <= sinais <= 12."
+    refs: ["SYS-06", "P0-05 (RULE-PIORA-CLINICA-007)"]
+
+  # ============================================================================
+  # VITALS, FLUIDS, ANTHROPOMETRICS, TEMPORAL
+  # ============================================================================
+  - parameter: temperatura
+    quantity: body_temperature
+    canonical_unit: "degC"
+    aliases: ["C", "Celsius", "ºC", "°C"]
+    edge_conversions:
+      - {from: "degF", factor: null, note: "AFFINE, not a factor: degC = (degF - 32) * 5/9. Apply the formula at the edge, never a single multiply."}
+      - {from: "K", factor: null, note: "AFFINE: degC = K - 273.15"}
+    display_transform: null
+    conversion_notes: "MISSION LAW: canonical degC. Store DECIMAL(4,1) (one decimal, e.g. 37.5) per data-model. degF/K are affine conversions (offset), so factor is null — the edge normalizer applies the formula. Comma-decimal edge hazard applies (SYS-09 family)."
+    refs: ["CON-SEED-12", "CON-0032 (DECIMAL(4,1))", "RULE-SINAIS-VITAIS-023", "SYS-09"]
+
+  - parameter: frequencia_cardiaca
+    quantity: heart_rate
+    canonical_unit: "bpm"
+    aliases: ["batimentos/min", "/min", "FC"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "FC. Legacy backend validates 0-200 but physician form left it UNBOUNDED (accept-then-reject UX) — v2 enforces bounds on every entry surface. Feeds indice_choque."
+    refs: ["vision §3.4", "RULE-SINAIS-VITAIS-005", "RULE-SINAIS-VITAIS-027"]
+
+  - parameter: frequencia_respiratoria
+    quantity: respiratory_rate
+    canonical_unit: "rpm"
+    aliases: ["irpm", "resp/min", "/min", "FR"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "FR (PT-BR 'irpm' = incursoes respiratorias por minuto, 1:1 alias). qSOFA RR>=22; asynchrony spontaneous RR > set RR. Legacy validates 0-50 (physician form unbounded)."
+    refs: ["vision §3.1 (qSOFA)", "vision §3.3", "RULE-SINAIS-VITAIS-005"]
+
+  - parameter: debito_urinario
+    quantity: urine_output_volume
+    canonical_unit: "mL"
+    aliases: ["ml", "cc", "diurese"]
+    edge_conversions:
+      - {from: "L", factor: 1000.0, note: "L -> mL: multiply by 1000"}
+    display_transform: null
+    conversion_notes: "Absolute urine output volume in mL. KDIGO absolute anuria/oliguria totals derive from this; the RATE form (mL/kg/h) is a separate parameter requiring weight."
+    refs: ["vision §3.2 (KDIGO)", "KDIGO-2012", "RULE-BALANCO-HIDRICO-008"]
+
+  - parameter: debito_urinario_horario
+    quantity: urine_output_rate_indexed
+    canonical_unit: "mL/kg/h"
+    aliases: ["ml/kg/h", "mL/kg/hr"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Weight-indexed urine rate. KDIGO oliguria <0.5 mL/kg/h (6/12h), stage-3 <0.3 mL/kg/h (24h). REQUIRES peso — SYS-09 weight-parse bug (70,5 -> 705 kg) inflates weight ~10x and makes this ~10x too small, masking oliguria. Do not compute without a validated peso."
+    refs: ["vision §3.2 (KDIGO)", "KDIGO-2012", "SYS-09", "P0-08 (RULE-SEPSE-014)"]
+
+  - parameter: balanco_hidrico
+    quantity: fluid_balance
+    canonical_unit: "mL"
+    aliases: ["ml", "cc", "BH"]
+    edge_conversions:
+      - {from: "L", factor: 1000.0, note: "L -> mL: multiply by 1000"}
+    display_transform: null
+    conversion_notes: "Signed fluid balance (intake - output) in mL; negative = net negative. Legacy 07:00-07:00 window used criado_em__day (month-agnostic) corrupting totals (SYS-10) — a windowing bug, unit is mL. v2 recomputes from source rows, never a mutable running total."
+    refs: ["CLU-BALANCO-HIDRICO-05", "SYS-10", "RULE-BALANCO-HIDRICO-006", "RULE-ESTABILIDADE-001"]
+
+  - parameter: peso
+    quantity: body_weight
+    canonical_unit: "kg"
+    aliases: ["kg", "quilos"]
+    edge_conversions:
+      - {from: "g", factor: 0.001, note: "g -> kg: divide by 1000"}
+      - {from: "lb", factor: 0.453592, note: "lb -> kg: multiply by 0.453592"}
+    display_transform: null
+    conversion_notes: "SYS-09 CRITICAL: legacy float(''.join(re.findall(r'\\d+', peso.replace(',', '.')))) STRIPS the decimal point: '70,5'/'70.5' -> 705 kg. Edge parser MUST accept comma AND dot decimals and PRESERVE the separator. Every weight-indexed threshold (mL/kg/h, mcg/kg dosing, mL/kg PBW) depends on a correct peso."
+    refs: ["SYS-09", "P0-08 (RULE-SEPSE-014)", "P0-01 (RULE-CLINICAL-SCORING-002)", "vision §3.2"]
+
+  - parameter: altura
+    quantity: body_height
+    canonical_unit: "cm"
+    aliases: ["cm", "centimetros"]
+    edge_conversions:
+      - {from: "m", factor: 100.0, note: "m -> cm: multiply by 100 (guards '1,70' entered as metres; comma-decimal hazard)"}
+    display_transform: null
+    conversion_notes: "Height in cm. Required (with sex) to compute PBW for volume_corrente_pbw. Comma-decimal edge hazard applies (1,70 m)."
+    refs: ["ARDSNet-2000 (PBW/Devine)", "SYS-09 (comma decimal)", "vision §3.3"]
+
+  - parameter: idade
+    quantity: age
+    canonical_unit: "years"
+    aliases: ["anos", "yr", "y"]
+    edge_conversions:
+      - {from: "months", factor: 0.0833333, note: "months -> years: divide by 12 (adult ICU expects years; guards infant records)"}
+    display_transform: null
+    conversion_notes: "Age in years. Delirium iatrogenic risk gate age>65; trial inclusion age>=18."
+    refs: ["vision §3.5", "vision §6.1 (inclusion age>=18)"]
+
+  - parameter: qtc
+    quantity: corrected_qt_interval
+    canonical_unit: "ms"
+    aliases: ["milissegundos", "msec"]
+    edge_conversions:
+      - {from: "s", factor: 1000.0, note: "s -> ms: multiply by 1000 (guards '0.48 s' entered instead of 480 ms)"}
+    display_transform: null
+    conversion_notes: "QTc in milliseconds. vision §3.7: Torsades risk QTc>500 ms or delta>60 ms + >=2 QT-prolonging drugs."
+    refs: ["vision §3.7 (Tisdale Circ 2013)", "Tisdale-2013"]
+
+  # ============================================================================
+  # DRUG ADMINISTRATION (edge inputs to the vasopressor conversion service)
+  # ============================================================================
+  - parameter: concentracao_farmaco
+    quantity: drug_concentration
+    canonical_unit: "mg/mL"
+    aliases: ["mg/ml"]
+    edge_conversions:
+      - {from: "mcg/mL", factor: 0.001, note: "mcg/mL -> mg/mL: divide by 1000"}
+      - {from: "g/L", factor: 1.0, note: "g/L == mg/mL (1:1)"}
+      - {from: "mg/L", factor: 0.001, note: "mg/L -> mg/mL: divide by 1000"}
+    display_transform: null
+    conversion_notes: "Infusion drug concentration. One of the two required inputs (with peso) for the vasopressor conversion service that turns an edge taxa_infusao (mL/h) into canonical dose_vasopressor (mcg/kg/min). Not itself a clinical threshold input."
+    refs: ["SYS-C-04", "CON-0060", "clinical/domains/hemodynamics.md#vasopressor-unit-conversion-service"]
+
+  - parameter: taxa_infusao
+    quantity: volumetric_infusion_rate
+    canonical_unit: "mL/h"
+    aliases: ["ml/h", "mL/hr"]
+    edge_conversions:
+      - {from: "mL/min", factor: 60.0, note: "mL/min -> mL/h: multiply by 60"}
+      - {from: "gtt/min", factor: null, note: "drops/min -> mL/h depends on the drip set (macro 20 gtt/mL, micro 60 gtt/mL); resolve per device, not a universal factor"}
+    display_transform: null
+    conversion_notes: "EDGE-ONLY. mL/h is a pump rate, NOT a clinical dose. It MUST be converted to canonical dose_vasopressor (mcg/kg/min) via the conversion service (needs concentracao_farmaco + peso) before any dosing predicate. A dosing rule that consumes mL/h directly is a build-time error (this is the SYS-02 / RULE-ESTABILIDADE-007/016 defect class)."
+    refs: ["SYS-02", "SYS-C-04", "CON-0060", "P0-06 (RULE-ESTABILIDADE-016)", "RULE-ESTABILIDADE-007", "clinical/domains/hemodynamics.md#vasopressor-unit-conversion-service"]
+
+  # ============================================================================
+  # DIMENSIONLESS UTILITY UNITS (primitives referenced by parameters above)
+  # ============================================================================
+  - parameter: fraction
+    quantity: dimensionless
+    canonical_unit: "fraction"
+    aliases: []
+    edge_conversions:
+      - {from: "percent", factor: 0.01, note: "percent -> fraction: divide by 100"}
+    display_transform: "multiply by 100 -> percent for display"
+    conversion_notes: "Utility 0-1 fraction primitive. Canonical form for FiO2 and any proportion used in computation. Percent is the display twin."
+    refs: ["CON-SEED-12 (FiO2 fraction law)"]
+
+  - parameter: percent
+    quantity: dimensionless
+    canonical_unit: "percent"
+    aliases: ["%"]
+    edge_conversions:
+      - {from: "fraction", factor: 100.0, note: "fraction -> percent: multiply by 100"}
+    display_transform: null
+    conversion_notes: "Utility 0-100 primitive. Legitimate CANONICAL for SpO2 and bands (measured-as-percent), and the DISPLAY twin of fraction for FiO2. Percent is display-only for FiO2 but computation-canonical for spo2."
+    refs: ["vision §3.3 (SpO2 percent)"]
+
+  - parameter: points
+    quantity: dimensionless
+    canonical_unit: "points"
+    aliases: ["pts", "score"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Utility ordinal/integer primitive for aggregate scores (MEWS/NEWS2/SOFA/qSOFA) and bounded scales (GCS/RASS/NRS/BPS). Always range-bounded; the bound is what defeats chained-comparison band-suppression (SYS-06)."
+    refs: ["vision §2.1", "SYS-06"]
+
+  - parameter: boolean
+    quantity: dimensionless
+    canonical_unit: "boolean"
+    aliases: ["bool", "sim_nao", "true_false"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Utility true/false primitive (e.g. presence flags, hemodialysis yes/no). Distinct from enum (>2 states) and from count."
+    refs: ["RULE-SEPSE-014 (presence gates)"]
+
+  - parameter: count
+    quantity: dimensionless
+    canonical_unit: "count"
+    aliases: ["n", "unidades", "integer"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Utility non-negative integer primitive (e.g. number of SIRS criteria met, number of QT-prolonging drugs, bed occupancy). NB SYS-09 warns bed/occupancy counts share the legacy digit-strip parser bug."
+    refs: ["vision §3.7 (>=2 drugs)", "SYS-09"]
+
+  - parameter: ratio
+    quantity: dimensionless
+    canonical_unit: "ratio"
+    aliases: ["razao", "x"]
+    edge_conversions: []
+    display_transform: null
+    conversion_notes: "Utility dimensionless ratio primitive (P/F, S/F, shock index, RSBI). Meaningful ONLY when its numerator and denominator are each in their canonical units — the ratio inherits the FiO2-fraction law."
+    refs: ["Berlin-2012", "vision §3.4 (shock index)"]

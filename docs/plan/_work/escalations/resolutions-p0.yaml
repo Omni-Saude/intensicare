@@ -1,0 +1,223 @@
+scope: "ONLY the 12 P0 items"
+records:
+  - item_id: ESC-P0-001
+    rule_id: RULE-CLINICAL-SCORING-002
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the SOFA respiratory sub-score (PaO2/FiO2), in what unit must FiO2 be supplied to the ratio, and must the 3- and 4-point bands be gated on active respiratory support?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: divide PaO2 by FiO2 as stored by DadosProntuario.FiO2Validator (percentage 21-100), apply bands 400/300/200/100 unconditionally with no respiratory-support gate."
+          clinical_risk: "High — a percentage FiO2 makes the ratio ~100x too small, driving virtually every ventilated patient to the maximum 4 respiratory points and inflating total SOFA; also over-scores spontaneously breathing patients."
+        - id: B
+          text: "Normalize FiO2 to a fraction 0.21-1.0 before dividing (convert any 21-100 percentage input by /100), keep the reference cutoffs 400/300/200/100, and gate the 3- and 4-point bands on documented respiratory support (mechanical ventilation / CPAP) per the SOFA definition."
+          clinical_risk: "Low — reproduces the validated 1996 SOFA respiratory scoring; correct oxygenation banding with no systematic upward bias."
+        - id: C
+          text: "Normalize FiO2 to a fraction but omit the respiratory-support gate on the 3/4-point bands."
+          clinical_risk: "Moderate — fixes the ~100x unit defect but still over-scores a spontaneously breathing patient with a low ratio (bands 3-4 should require support)."
+      recommended: B
+      rationale: "Vincent JL et al., Intensive Care Med 1996;22(7):707-710 defines the SOFA respiration component on PaO2/FiO2 with PaO2 in mmHg and FiO2 as a FRACTION (0.21-1.0): >=400=0, 300-399=1, 200-299=2, 100-199=3 (with respiratory support), <100=4 (with respiratory support). The legacy cutoffs are correct but assume a fraction while the persisted FiO2 is a percentage (21-100), and the 3/4 bands are applied without the support gate. Option B is the reference-correct behavior."
+    disposition_note: "RATIFY the reference-correct SOFA respiratory sub-score: FiO2 normalized to fraction 0.21-1.0, cutoffs 400/300/200/100, and the 3- and 4-point bands gated on active respiratory support. Do NOT port the percentage-FiO2 defect (RULE-CLINICAL-SCORING-002 / shared unit defect RULE-CLINICAL-SCORING-008). Legacy tests set fio2=1 directly and mask the runtime bug. Downstream: this sub-score feeds SOFA total (RULE-CLINICAL-SCORING-001)."
+
+  - item_id: ESC-P0-002
+    rule_id: RULE-CLINICAL-SCORING-005
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the SOFA cardiovascular sub-score, must vasopressor dosing be evaluated as an infusion RATE in mcg/kg/min (with the standard norepinephrine/dopamine/epinephrine/dobutamine tiers), rather than the legacy raw Noradrenalina.quantidade ml volume split at 10?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: noradrenalina as a raw ml volume (Noradrenalina.quantidade) with >10=4 / 0<=10=3, dobutamina any>0=2, pam<70=1, pam>=70=0."
+          clinical_risk: "High — a raw ml volume is not comparable to a mcg/kg/min rate; any patient on noradrenaline is auto-tiered to >=3 points regardless of true dose, and dopamine/epinephrine are ignored, materially mis-scoring shock severity."
+        - id: B
+          text: "Score cardiovascular on vasopressor RATE in mcg/kg/min per Vincent 1996: MAP>=70=0; MAP<70=1; dopamine<=5 OR dobutamine any dose=2; dopamine>5 OR epinephrine<=0.1 OR norepinephrine<=0.1=3; dopamine>15 OR epinephrine>0.1 OR norepinephrine>0.1=4."
+          clinical_risk: "Low — reproduces the validated SOFA cardiovascular tiers; requires the platform to capture/derive infusion rate (mcg/kg/min) with drug concentration and patient weight."
+        - id: C
+          text: "Keep MAP bands (>=70=0, <70=1) and dobutamine-any=2 from legacy (which match reference) but replace the noradrenaline ml split with the mcg/kg/min norepinephrine tiers and add dopamine/epinephrine tiers."
+          clinical_risk: "Low — functionally converges with Option B; documents that only the vasopressor-rate handling changes while MAP/dobutamine bands are already reference-concordant."
+      recommended: B
+      rationale: "Vincent JL et al., Intensive Care Med 1996 scores SOFA cardiovascular on vasopressor doses in mcg/kg/min sustained >=1h. MAP<70=1 and dobutamine-any=2 already match; the defect is that noradrenaline is read as a raw ml VOLUME (Noradrenalina.quantidade) split at 10 and dopamine/epinephrine are absent. Option B (equivalently C) restores the reference rate-based tiers."
+    disposition_note: "RATIFY the rate-based (mcg/kg/min) SOFA cardiovascular tiers per Vincent 1996; preserve the MAP bands and dobutamine-any=2 already correct in legacy. Do NOT port the raw-ml Noradrenalina.quantidade cutoff of 10. Preserve PT-BR field vocabulary verbatim (Noradrenalina.quantidade, pam, dobutamina). Requires infusion-rate capture (concentration + weight) upstream."
+
+  - item_id: ESC-P0-003
+    rule_id: RULE-CLINICAL-SCORING-007
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the SOFA renal sub-score, must the creatinine bands use the standard boundaries with an inclusive top band (>=5.0 mg/dL = 4) instead of the legacy strict >5 that leaves a dead gap at (4.9, 5.0]?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: creatinine >5=4, 3.5-4.9=3, 2.0-4.0=2, 1.2-1.9=1, <1.2=0; urine <200=4, <500=3."
+          clinical_risk: "High — creatinine exactly 5.0 mg/dL (a common reported value denoting severe renal failure) falls through every branch to 0, a 4-point undercount that silently lowers total SOFA and can under-triage severe AKI."
+        - id: B
+          text: "Use standard SOFA renal bands per Vincent 1996: creatinine <1.2=0, 1.2-1.9=1, 2.0-3.4=2, 3.5-4.9=3, >=5.0=4; urine output <500 mL/day=3, <200 mL/day=4 (inclusive top band, no dead gap)."
+          clinical_risk: "Low — reproduces the validated 1996 SOFA renal scale with contiguous bands and correct handling of Cr=5.0."
+        - id: C
+          text: "Patch only the top boundary to >=5.0 while leaving the nominal 2-point band written as 2.0-4.0."
+          clinical_risk: "Low — closes the Cr=5.0 undercount; the 2.0-4.0 vs 2.0-3.4 wording is practically inert because the 3.5-4.9 branch is evaluated first, but leaves a hairline reference gap at (3.4, 3.5)."
+      recommended: B
+      rationale: "Vincent JL et al., Intensive Care Med 1996;22(7):707-710 renal component (serum creatinine mg/dL OR urine output): <1.2=0, 1.2-1.9=1, 2.0-3.4=2, 3.5-4.9=3, >=5.0 (>440 umol/L)=4; urine <500=3, <200=4. The legacy strict >5 leaves a dead gap at (4.9,5.0] and the 2-point band is mis-stated as 2.0-4.0. Option B is fully reference-correct."
+    disposition_note: "RATIFY standard SOFA renal bands with inclusive >=5.0=4 and 2.0-3.4=2; do NOT port the strict >5 dead gap at (4.9,5.0] nor the 2.0-4.0 band wording. Keep urine-output cutoffs (<200=4, <500=3). Note legacy open-low bound treated debito==0 as no-data; preserve intent that true anuria (0 mL) is captured via the <200 band. PT-BR: debito_urinario_24h, creatinina."
+
+  - item_id: ESC-P0-004
+    rule_id: RULE-PIORA-CLINICA-006
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For Piora Clinica criterio_6 (dor, escala numerica 0-10 / NRS), must the severe-pain band be corrected to 7 <= dor <= 10 -> 3+ so it actually fires?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: severe band written `7 <= dor > 10` (parses as 7<=dor AND dor>10), which is unreachable because escala_dor is capped at 10, so pain 7,8,9,10 all score 0."
+          clinical_risk: "High — severe pain (NRS 7-10) never raises the 3+ (dor intensa) sub-score, silently suppressing the highest pain grade and any AMARELO/VERMELHO it should drive."
+        - id: B
+          text: "Correct the compound-comparison typo to `7 <= dor <= 10 -> 3+`, keeping the mild 2-3 -> 1+ and moderate 4-6 -> 2+ bands."
+          clinical_risk: "Low — restores the intended NRS severe-pain band; higher score = worse, severe pain drives intervention as the reference requires."
+      recommended: B
+      rationale: "Numeric Rating Scale (NRS 0-10) for pain intensity (Boonstra AM et al., Front Psychol 2016;7:1466): severe pain is the 7-10 band and is the grade that must drive intervention. The legacy `7 <= dor > 10` is a compound-comparison bug that makes 3+ unreachable; the reference-correct predicate is `7 <= dor <= 10`."
+    disposition_note: "RATIFY the corrected severe-pain band `7 <= dor <= 10 -> 3+`. Do NOT port the buggy `7 <= dor > 10` compound comparison (unreachable). Preserve PT-BR labels verbatim: 2+ = 'dor moderada', 3+ = 'dor intensa' (facade RULE-PIORA-CLINICA-011). Feeds the aggregate alert RULE-PIORA-CLINICA-010."
+
+  - item_id: ESC-P0-005
+    rule_id: RULE-PIORA-CLINICA-007
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For Piora Clinica criterio_7 (dor, escala comportamental / Behavioral Pain Scale 3-12), must the top band be corrected to 10 <= sinais <= 12 -> 3+ so it actually fires?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: top band written `10 <= sinais > 12` (parses as 10<=sinais AND sinais>12), unreachable because sinais_dor is capped at 12, so BPS 10,11,12 score 0."
+          clinical_risk: "High — maximal behavioral pain (BPS 10-12) never raises the 3+ (dor intensa) sub-score, suppressing the highest pain grade for non-verbal/sedated patients who cannot self-report."
+        - id: B
+          text: "Correct the compound-comparison typo to `10 <= sinais <= 12 -> 3+`, keeping 5-6 -> 1+ and 7-9 -> 2+."
+          clinical_risk: "Low — restores the intended BPS top band; BPS >5 (>=6) already indicates significant pain requiring analgesia, so the severe band must be reachable."
+      recommended: B
+      rationale: "Behavioral Pain Scale (Payen JF et al., Crit Care Med 2001;29(12):2258-63): three domains each 1-4, total 3 (no pain) to 12 (maximal pain), higher = worse; score >5 indicates unacceptable pain requiring analgesia. Legacy `10 <= sinais > 12` is the identical compound-comparison bug as criterio_6; reference-correct predicate is `10 <= sinais <= 12`."
+    disposition_note: "RATIFY the corrected top band `10 <= sinais <= 12 -> 3+`. Do NOT port the buggy `10 <= sinais > 12` compound comparison. Preserve PT-BR labels verbatim: 2+ = 'dor moderada', 3+ = 'dor intensa'. Same defect pattern as ESC-P0-004; feeds RULE-PIORA-CLINICA-010."
+
+  - item_id: ESC-P0-006
+    rule_id: RULE-ESTABILIDADE-016
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the Estabilidade vasopressor/inotrope escalation alert-text (criteria 7-9), must the displayed noradrenaline dose thresholds and the FC>130 tachycardia condition be driven by predicates measured in the SAME unit as the text (mcg/kg/min and actual FC), resolving the ml/h-vs-mcg/kg/min mismatch?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: display text asserting noradrenaline >0.5 / >1.5 mcg/kg/min and FC>130 bpm, while the paired v3 predicates fire on qt_vol_nora infusion volume in ml/h (>20; >70 + vaso>5) and never read FC."
+          clinical_risk: "High — the alert shows a mcg/kg/min dose threshold the trigger never measured; for common dilutions the ml/h trigger fires ~6-7x below the displayed 0.5 mcg/kg/min, prompting corticosteroid/vasopressin escalation at a much lower actual dose, and the FC>130 advice fires independent of real heart rate."
+        - id: B
+          text: "Align the trigger to the displayed clinical unit: evaluate noradrenaline as mcg/kg/min (add vasopressin when norepinephrine ~0.25-0.5 mcg/kg/min; IV hydrocortisone when norepinephrine/epinephrine >=0.25 mcg/kg/min for >=4h; epinephrine as second-line in refractory shock) and gate criterio_9 on actual FC>130 bpm."
+          clinical_risk: "Low — text and trigger share one unit (mcg/kg/min) and criterio_9 reads real FC; escalation prompts match SSC-2021. Requires infusion-rate derivation (concentration + weight) upstream."
+        - id: C
+          text: "Keep ml/h predicates but rewrite the displayed text to state the ml/h thresholds actually evaluated and remove the mcg/kg/min and FC claims the code cannot verify."
+          clinical_risk: "Moderate — removes the misleading unit mismatch but abandons the guideline-anchored mcg/kg/min dosing and the physiologically sound FC>130 dobutamine-suspension advice; ml/h thresholds are not guideline-referenceable without concentration/weight."
+      recommended: B
+      rationale: "Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin usually when norepinephrine 0.25-0.5 mcg/kg/min; IV hydrocortisone 200 mg/d when norepinephrine or epinephrine >=0.25 mcg/kg/min for >=4h; epinephrine as second-line in refractory shock. Tachycardia (FC>130 bpm) impairs LV filling/CO. The displayed mcg/kg/min doses are guideline-plausible; the defect is the unit mismatch to ml/h predicates and the unread FC. Option B makes the reference-correct dosing the actual trigger — the mcg/kg/min facade dosing is the target, the ml/h predicates are the defect to discard."
+    disposition_note: "RATIFY unit-aligned escalation: noradrenaline evaluated in mcg/kg/min per SSC-2021 and criterio_9 gated on actual FC>130 bpm. Do NOT port the qt_vol_nora ml/h predicates (>20; >70 + vaso>5) that never verify the displayed mcg/kg/min or FC. Preserve PT-BR dosing regimens verbatim (Hidrocortisona 50 mg EV 6/6h; Vasopressina EV continua; Adrenalina diluicao institucional). Cross-pathway note: estabilizacao sibling RULE-ESTABILIDADE-024 labels the analogous threshold mcg/kg/H — reconcile units there too. Paired v3 predicates: RULE-ESTABILIDADE-007/008/009."
+
+  - item_id: ESC-P0-007
+    rule_id: RULE-CLINICAL-SCORING-008
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the PaO2/FiO2 (P/F) ratio helper consumed by SOFA, ventilacao, sedacao and sepse, must FiO2 be canonicalized to a FRACTION (0.21-1.0) so every downstream threshold uses one consistent unit?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: return po2/fio2 using whatever FiO2 unit reaches the property (validator stores 21-100 percent; some call sites pass fraction <0.4; the FiO2xPEEP table divides by 100), False sentinel on non-positive inputs."
+          clinical_risk: "High — internally inconsistent FiO2 units; if a validator-conformant percentage FiO2 reaches the helper the ratio is ~100x too small, driving SOFA respiratory to 4 points and spuriously classifying severe ARDS."
+        - id: B
+          text: "Canonicalize FiO2 to a fraction 0.21-1.0 at a single boundary (normalize any 21-100 percentage by /100) before computing po2/fio2; keep the equation and the non-positive-input no-data guard; represent no-data as None rather than the False sentinel."
+          clinical_risk: "Low — one consistent unit across SOFA (400/300/200/100), ventilacao (150-300) and Berlin ARDS; eliminates the ~100x mis-scoring and the ambiguous False==0 numeric coercion."
+        - id: C
+          text: "Canonicalize FiO2 to a fraction but retain the False (==0) no-data sentinel."
+          clinical_risk: "Low — fixes the unit inconsistency; retains a benign but easily-misused False==0 sentinel in numeric comparisons."
+      recommended: B
+      rationale: "PaO2/FiO2 in every authoritative use (Vincent 1996 SOFA; Berlin Definition of ARDS, JAMA 2012;307:2526-2533) has PaO2 in mmHg and FiO2 as a FRACTION (0.21-1.0), e.g. P/F 300 = PaO2 150 at FiO2 0.5. The DadosProntuario.FiO2Validator stores a percentage (21-100) and the codebase is internally inconsistent. Option B canonicalizes to the reference fraction at one point, the reference-correct behavior; distinguishing no-data as None (Option B over C) is the safer secondary choice."
+    disposition_note: "RATIFY a single FiO2-as-fraction canonicalization (0.21-1.0) for the shared P/F helper; do NOT port the percentage-vs-fraction inconsistency (validator 21-100 vs call sites <0.4 vs /100 in the FiO2xPEEP table). This helper feeds SOFA respiratory (RULE-CLINICAL-SCORING-002 / ESC-P0-001) and ventilacao/sedacao/sepse pathways; canonicalizing here fixes them consistently. Prefer None over the False sentinel for no-data."
+
+  - item_id: ESC-P0-008
+    rule_id: RULE-SEPSE-014
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For SEPSE v3 criterio_8 (oliguria without vasopressor/dialysis), must the KDIGO urine-output criterion be made functional by fixing the always-empty 'DRC em TRS' diagnosis gate (and correcting its inverted sense) and the decimal-stripping weight parse?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: all([...]) including the DRC gate list(filter(x=='DRC em TRS', vars(evolucao).fromkeys(diagnostico_1..4))) which always yields [] (dead code) and the weight parse that strips the decimal separator (peso '70,5' -> 705 kg)."
+          clinical_risk: "High — the fromkeys bug forces the whole all([]) to False, so this safety-relevant AKI/oliguria criterion NEVER fires (permanent false-negative); if the gate were fixed, the ~10x weight inflation would then over-flag oliguria."
+        - id: B
+          text: "Implement the reference-correct criterion: urine output <0.5 mL/kg/h over the last 6-12h (KDIGO Stage 1), ABSENCE of noradrenaline (12h), ABSENCE of hemodialysis, and ABSENCE of chronic dialysis-dependent renal disease ('DRC em TRS') using a real diagnosis membership test; parse weight as a true decimal (70,5 -> 70.5 kg)."
+          clinical_risk: "Low — the KDIGO oliguria criterion fires correctly with an accurate mL/kg/h rate and a functioning exclusion for patients already on renal replacement therapy."
+      recommended: B
+      rationale: "KDIGO AKI 2012 (Kidney Int Suppl 2012;2:1-138): urine output <0.5 mL/kg/h for 6-12h defines Stage 1 oliguria. The core threshold (<0.5 mL/kg/h) is correct in legacy, but (a) the 'DRC em TRS' gate uses vars(evolucao).fromkeys(...) which builds a dict keyed by field NAMES that can never equal 'DRC em TRS' (always [] -> falsy -> all([]) False, dead code) and is logically inverted vs the docstring's ABSENCE intent, and (b) the weight parse strips the decimal separator, inflating peso ~10x. Option B is the reference-correct, functional criterion."
+    disposition_note: "RATIFY a functional KDIGO oliguria criterion: real 'DRC em TRS' diagnosis membership test with correct ABSENCE sense, decimal-preserving weight parse, and absence of noradrenaline (12h) / hemodialysis. Do NOT port the fromkeys dead-code gate (RULE-systemic-BE-03-001) nor the decimal-stripping peso parse. Preserve PT-BR vocabulary verbatim: 'DRC em TRS', diurese, qt_vol_espontanea/qt_vol_svd/qt_vol_cistostomia, diurna_terapia_hemo. Same diurese formula appears commented in trilha_profilaxia.py c8."
+
+  - item_id: ESC-P0-009
+    rule_id: RULE-EFICIENCIA-005
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For Eficiencia v3 criterio_9 (coma without sedation -> suspected brain death / donor-potential), must the GCS threshold be the intended severe value (GCS<=5) and the sedative-absence test use OR/any across sedatives rather than the legacy GCS<13 with an AND-combined filter?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: GCS<13 AND a single .filter() requiring ALL FIVE infusion sedatives simultaneously >0 (and both adep drugs >0) for the 'sedation present' test."
+          clinical_risk: "High if wired — GCS<13 labels many merely obtunded patients as brain-death suspects, and the AND-filter treats a patient on a single agent (e.g. propofol alone) as unsedated, so it could initiate donor-potential maintenance on a sedated/obtunded patient. Currently unwired (moderate live risk)."
+        - id: B
+          text: "Implement the intended trigger: GCS<=5 (GCS<6) not explained by sedation AND ABSENCE of ANY sedative (OR/any across cetamina/dexmedetomidina/propofol/tiopental/midazolam and adep fenitoina/fenobarbital) in the last 6h."
+          clinical_risk: "Low — matches OPO/NICE clinical triggers for brain-death evaluation / organ-donation referral; only genuinely comatose, unsedated patients are flagged."
+      recommended: B
+      rationale: "NICE CG135 (Organ donation for transplantation) clinical trigger: GCS <=4 not explained by sedation (or intention to test brainstem death); GCS scale 3-15 (Teasdale & Jennett, Lancet 1974;2:81-84). The docstring intent (GCS<6, i.e. GCS<=5) matches this literature; the code's GCS<13 and AND-combined sedative filter are defects. Option B is reference-correct. Any deployment must remain gated behind clinical/organ-procurement review given the sensitivity of a brain-death-suspicion alert."
+    disposition_note: "RATIFY the intended criterio_9: GCS<=5 (GCS<6) with an OR/any sedative-absence test across all agents over 6h. Do NOT port GCS<13 nor the AND-combined single-filter that requires all sedatives present at once. Rule is currently UNWIRED (calcular_criterio_9 commented out); ratification fixes the logic but wiring/enablement requires explicit clinical + organ-procurement governance. Preserve PT-BR: 'Suspeita de ME', qt_vol_cet/dex/pro/tiop/mid, adep fenitoina/fenobarbital."
+
+  - item_id: ESC-P0-010
+    rule_id: RULE-PIORA-CLINICA-010
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For the Piora Clinica aggregate alert (calculo do alerta), must the track-and-trigger logic preserve the highest single-criterion severity (no downgrade), count every abnormal parameter in the aggregate (including sign), and use reachable aggregate bands per NEWS2/MEWS?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: last-writer-wins overwrite of alerta/mensagem across criterio_1..9 (a later grade-2 can downgrade an earlier grade-3), soma using int(criterio[0]) (magnitude only, sign discarded), and soma bands 0-7/8-14/15-21 that only run when NO criterion reached grade 2/3 (so 15-21 is dead and only soma 8-9 reaches AMARELO)."
+          clinical_risk: "High — a high-severity single parameter (VERMELHO) can be silently downgraded to AMARELO by a later lower-severity criterion, violating the core early-warning safety rule that a red-score parameter must always escalate."
+        - id: B
+          text: "Implement NEWS2/MEWS-style two-tier logic: ANY single criterion at grade 3 forces VERMELHO regardless of aggregate (no overwrite/downgrade); ANY at grade 2 sets at least AMARELO; the aggregate sum (with every abnormal parameter contributing) drives graded bands, keeping the maximum severity across per-criterion and aggregate tiers."
+          clinical_risk: "Low — reproduces validated track-and-trigger escalation; a red-score parameter never downgraded, all abnormal parameters counted."
+      recommended: B
+      rationale: "NEWS2 / MEWS track-and-trigger (Royal College of Physicians NEWS2, 2017; NICE MIB205): (a) ANY single parameter scoring 3 (red score) mandates urgent escalation regardless of aggregate, and (b) aggregate bands drive graded response. A high-severity single parameter must never be downgraded by others and every abnormal parameter must contribute to the aggregate. The legacy overwrite (last-writer-wins), magnitude-only sum, and unreachable 15-21 band all violate this. Option B is reference-correct."
+    disposition_note: "RATIFY NEWS2/MEWS-correct aggregation: single-criterion grade-3 forces VERMELHO with no downgrade, grade-2 forces at least AMARELO, and the aggregate contributes every abnormal parameter with reachable bands. Do NOT port the last-writer-wins overwrite, the int(criterio[0]) sign-discarding sum, or the dead 15-21 sum band. Preserve PT-BR strings verbatim: 'Baixo/Moderado/Alto risco de piora clinica', NEUTRO/AMARELO/VERMELHO. Depends on corrected sub-scores incl. RULE-PIORA-CLINICA-006/007 (ESC-P0-004/005)."
+
+  - item_id: ESC-P0-011
+    rule_id: RULE-VENTILACAO-011
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For Ventilation C8 (extubation-readiness bundle), must FiO2 be handled in one consistent unit (fraction) across the ventilacao model so the FiO2<0.4 readiness gate is not inconsistent with C2/C3 which treat FiO2 as a percentage (fio2/100)?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: C8 tests fio2 < 0.4 as a FRACTION while C2/C3 (RULE-VENTILACAO-004/005) divide fio2 by 100 treating it as a PERCENTAGE within the same model."
+          clinical_risk: "High — inconsistent FiO2 units across criteria of one model; the same stored FiO2 value is interpreted differently, so either C8 or C2/C3 mis-evaluates the oxygenation gate and the readiness/mismatch flags become unreliable."
+        - id: B
+          text: "Canonicalize FiO2 to a fraction 0.21-1.0 model-wide (via the shared P/F helper, ESC-P0-007), keep the C8 readiness thresholds (FiO2<=0.40, PEEP<=8, RR criterion, adequate oxygenation P/F, no/minimal vasopressors, adequate consciousness) per the international weaning consensus."
+          clinical_risk: "Low — one consistent FiO2 unit; C8 readiness gate matches the ERS/ATS weaning-screen criteria and is consistent with C2/C3."
+      recommended: B
+      rationale: "Boles J-M et al., Eur Respir J 2007;29:1033-1056 (International Consensus Conference on weaning): readiness-to-wean/SBT screening uses FiO2 <=0.40 and PEEP <=8 cmH2O (FiO2 expressed as a fraction), adequate oxygenation (P/F >=150, some protocols >200), adequate consciousness, an RR criterion, and no/minimal vasopressors. C8's thresholds are correct; the defect is the FiO2 unit inconsistency vs C2/C3. Canonicalizing FiO2 to a fraction (Option B, aligned with ESC-P0-007) is reference-correct."
+    disposition_note: "RATIFY C8 readiness thresholds with model-wide FiO2-as-fraction canonicalization; do NOT port the FiO2 unit inconsistency (C8 fraction <0.4 vs C2/C3 percentage /100). Resolve jointly with the shared P/F helper (RULE-CLINICAL-SCORING-008 / ESC-P0-007). Alert-forcing criterion (RULE-VENTILACAO-014). Preserve PT-BR: dias_vm, relacao_po2_fio2, noradrenalina."
+
+  - item_id: ESC-P0-012
+    rule_id: RULE-SEPSE-043
+    band: P0
+    outcome: RATIFY
+    ratify:
+      question: "For Sepsis C6 major (hypotension), must the diastolic disjunct compare PAD < 60 (per _REGRAS and physiology) instead of the legacy PAD < 90?"
+      options:
+        - id: A
+          text: "Reproduce legacy verbatim: fire if PAS < 90 OR PAD < 90 (within 24h)."
+          clinical_risk: "High — a normal diastolic BP is ~60-80 mmHg, so PAD < 90 is satisfied by essentially every patient, making this MAJOR criterion nearly always True; it stops discriminating and pushes almost all patients toward the 2-major sepsis alert bar (false positives)."
+        - id: B
+          text: "Fire if PAS < 90 OR PAD < 60 (matching the _REGRAS specification and normal-diastolic physiology), retaining the 24h lookback for the diastolic value."
+          clinical_risk: "Low — restores specificity; the diastolic disjunct flags genuinely low diastolic pressure rather than every recorded value."
+        - id: C
+          text: "Replace the diastolic disjunct entirely with a MAP-based hypotension trigger (MAP < 70 or MAP < 65) plus PAS < 90, per Sepsis-3/SSC and the _ANTIGAS_REGRAS PAM<65 note."
+          clinical_risk: "Low — diastolic BP is not a standard sepsis hypotension trigger; MAP<70 (Sepsis-3) or MAP<65 (SSC resuscitation target) is the guideline-canonical marker and would be the most reference-aligned choice, but changes the input from PAD to MAP."
+      recommended: B
+      rationale: "Sepsis-3 / SSC 2021 (Singer et al., JAMA 2016;315(8):801-810; Evans et al. 2021): sepsis-related hypotension = SBP < 90 mmHg, MAP < 70 mmHg, or SBP drop > 40 mmHg from baseline; qSOFA uses SBP <=100. Diastolic BP is not a standard trigger, and when a low-diastolic threshold is used it is ~<60 mmHg (normal diastolic ~60-80). The legacy PAD < 90 is the documented DISCREPANCY vs _REGRAS ('PAS < 90 OU PAD < 60'). Option B restores the reference/spec-correct PAD < 60; Option C (MAP-based) is the most guideline-pure alternative if the platform captures MAP here."
+    disposition_note: "RATIFY the diastolic threshold PAD < 60 (per _REGRAS) over the legacy PAD < 90 that renders C6 non-discriminating. Do NOT port PAD < 90. A committee may prefer the MAP-based trigger (MAP<70 Sepsis-3 / MAP<65 SSC, per _ANTIGAS_REGRAS PAM<65) as the most reference-canonical form (Option C) if MAP is available at this criterion. Preserve PT-BR: pas, pad_em_24hrs, PAM. Test test_trilha_sepse.py:124-137."

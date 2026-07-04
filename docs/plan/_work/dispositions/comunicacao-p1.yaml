@@ -1,0 +1,279 @@
+shard: comunicacao-p1
+cluster: comunicacao
+records:
+  - rule_id: RULE-COMUNICACAO-001
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "UNVERIFIABLE"}
+    source_quote: "groupby only merges emoji runs that are already consecutive"
+    disposition: RATIFY
+    justification: "Confirmed live DISCREPANCY (Reacao has no Meta.ordering, so the Python-groupby endpoint can silently undercount a single emoji's total into multiple entries) but escalation band is UNVERIFIABLE with no clinical/published authority to arbitrate correctness intent vs acceptable-at-scale tradeoff, so it is escalated rather than agent-decided per policy."
+    evidence: ["RULE-COMUNICACAO-001", "ESC-UNVERIFIABLE-271"]
+    target: "RATIFICATION.md#rat-comunicacao-01"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-271, band: UNVERIFIABLE}]
+    ratify_ref: RAT-COMUNICACAO-01
+  - rule_id: RULE-COMUNICACAO-002
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "UNVERIFIABLE"}
+    source_quote: "get_minha_reacao_id returns the pk of the requesting user's own Reacao"
+    disposition: RATIFY
+    justification: "Status OK and reconciled-safe (unique_together on observacao+usuario confirmed, so .get() cannot raise MultipleObjectsReturned), but the escalation band is UNVERIFIABLE and per policy any P0/P1/UNVERIFIABLE-banded rule is mandatorily ratified regardless of its own status, distinct from RULE-COMUNICACAO-001's live-bug rationale."
+    evidence: ["RULE-COMUNICACAO-002", "ESC-UNVERIFIABLE-272"]
+    target: "RATIFICATION.md#rat-comunicacao-02"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-272, band: UNVERIFIABLE}]
+    ratify_ref: RAT-COMUNICACAO-02
+  - rule_id: RULE-COMUNICACAO-003
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: DISCREPANCY, verdict: "UNVERIFIABLE"}
+    source_quote: "the code references the bound method `get_pk` without calling it"
+    disposition: RATIFY
+    justification: "Confirmed serialization defect (missing () call on a @property yields a bound-method repr instead of a pk) in the homecare fluid-balance feed field, but band UNVERIFIABLE with no clinical authority to resolve whether the field is load-bearing enough to warrant a corrected v2 design versus simple removal, so it is escalated."
+    evidence: ["RULE-COMUNICACAO-003", "ESC-UNVERIFIABLE-270"]
+    target: "RATIFICATION.md#rat-comunicacao-03"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-270, band: UNVERIFIABLE}]
+    ratify_ref: RAT-COMUNICACAO-03
+  - rule_id: RULE-COMUNICACAO-004
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "updates that user's Firestore unread-message-count document"
+    disposition: SUPERSEDE
+    justification: "Per-user Firestore document read-modify-write for unread-message counters is a legacy transport tied to a data store outside the AMH-consumer stack; ADR-001 Implicacao 3 confines operational app state to PostgreSQL/TimescaleDB and vision's interface pillar mandates WebSocket + Redis pub/sub for real-time push, so the Firestore mechanism itself cannot be ported as-is."
+    evidence: ["RULE-COMUNICACAO-004", "ADR001-C-03", "VIS-2-08"]
+    target: "design/screens/collaboration.md#unread-counter-mechanism"
+    supersedes_note: {replaced_by: "Redis pub/sub + WebSocket push over an operational PostgreSQL/TimescaleDB counter table (ADR-001 Implicacao 3, VIS-2-08/09)", lost: "direct per-document Firestore set/update semantics; v2 must define an equivalent atomic increment/decrement-floored-at-0 counter primitive in the new store"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-005
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "NO reactions, NO checked confirmations (checagens with checado=True), and NO other replies"
+    disposition: ADAPT
+    justification: "The three-part eligibility test for whether an unread contribution may be decremented (no reactions, no checked checagens, no other replies) is store-agnostic business logic worth preserving verbatim even though its consumer (RULE-COMUNICACAO-004's Firestore counter) is being superseded by a new counter primitive."
+    evidence: ["RULE-COMUNICACAO-005", "RULE-COMUNICACAO-004"]
+    target: "design/screens/collaboration.md#unread-decrement-eligibility"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-006
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "its 'checado' field becomes truthy, and reduzir_qtd(observacao) confirms the shared unread-count was decremented"
+    disposition: ADAPT
+    justification: "The trigger condition (checklist item checked off AND eligibility confirmed) for firing an unread-count decrement is a reusable workflow rule distinct from RULE-COMUNICACAO-005's pure eligibility predicate; it must be re-wired against whatever counter primitive replaces the superseded Firestore call in RULE-COMUNICACAO-004."
+    evidence: ["RULE-COMUNICACAO-006", "RULE-COMUNICACAO-005"]
+    target: "design/screens/collaboration.md#checagem-triggered-decrement"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-007
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "to avoid simultaneously incrementing and decrementing the same message-count total"
+    disposition: ADAPT
+    justification: "Suppressing a duplicate increment notification when a reply already caused a decrement on its parent is a reusable double-counting guard independent of the Firestore transport being superseded, though the deliberate absence of @transaction.atomic (noted in edge_cases) should NOT be carried forward given the new operational-store durability requirements."
+    evidence: ["RULE-COMUNICACAO-007", "ADR001-C-03"]
+    target: "design/screens/collaboration.md#reply-suppression-logic"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-008
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "with a leito filter, messages up to 96 hours (4 days) old are retained"
+    disposition: ADAPT
+    justification: "The 48h-default/96h-with-leito-filter chat retention windowing is a store-agnostic product policy worth carrying forward as-is into whatever operational data store backs v2 chat history, independent of the Firestore-counter mechanism changes affecting the neighboring unread-badge rules."
+    evidence: ["RULE-COMUNICACAO-008"]
+    target: "design/screens/collaboration.md#chat-retention-window"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-009
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "a lodash debounce wrapping showNotification with a 2000ms wait"
+    disposition: RETIRE
+    justification: "A misnamed lodash-debounce popup throttle ('trotthleNotification') tied to a specific legacy React/antd component tree is legacy frontend UI mechanics with a known naming/behavior mismatch bug; v2's notification UI will be designed fresh against the new frontend stack rather than porting this defect."
+    evidence: ["RULE-COMUNICACAO-009"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-010
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "every other message type renders with a fixed neutral gray (#959595)"
+    disposition: RETIRE
+    justification: "Conditional ball-color derivation from a legacy statusTrilha lookup map, scoped only to leito-type messages, is legacy frontend styling mechanics tied to the old trilhas UI; v2's alert severity color-coding will follow the clinical.* severity scale defined fresh in the new design system, not this component's ad hoc branch."
+    evidence: ["RULE-COMUNICACAO-010"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-011
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "navigates to the associated trilha (care-pathway) page for that leito/occupation"
+    disposition: RETIRE
+    justification: "This click-through routing tree hardcodes window.location.replace URLs into the legacy trilhas-frontend page structure (empresa/estabelecimento/setor path segments); v2's information architecture and routing will be designed fresh, so this specific navigation mechanism does not carry forward."
+    evidence: ["RULE-COMUNICACAO-011"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-012
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "'manual' uses the real Paciente record (nested serializer); 'automatica' uses a stored JSON snapshot"
+    disposition: RETIRE
+    justification: "Branching patient-payload resolution on a legacy leito.tipo enum (manual/automatica/homecare) with per-branch JSON snapshot fields is tenancy/data-model plumbing specific to the old Django bed model; ADR-001 Implicacao 2 makes the MPI's mpi_id the sole patient-identity key, which supersedes this branching scheme entirely rather than adapting it."
+    evidence: ["RULE-COMUNICACAO-012", "ADR001-C-02"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-013
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "resolves the URL kwarg 'ocupacoes__pk' as EITHER a Movimentacao pk"
+    disposition: RETIRE
+    justification: "The dual-mode Movimentacao-or-Leito pk overload for resolving bed occupation on an observation is legacy ORM plumbing coupling this cluster's data model to the old Trilhas bed/admission schema; the new platform reads patient/encounter context from AMH Gold via mpi_id (ADR-001 Implicacao 1-2), making this specific resolution scheme obsolete."
+    evidence: ["RULE-COMUNICACAO-013", "ADR001-C-01", "ADR001-C-02"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-014
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "can be toggled by the current user unless it has already been checked by someone else"
+    disposition: ADAPT
+    justification: "The deny-re-toggle-once-confirmed-by-another-user rule (plus the reply-preview toggle lockout) is a sound audit/authorization pattern worth keeping for any v2 checklist or protocol-item UI, independent of the specific MessageBallon/chat component it currently lives in."
+    evidence: ["RULE-COMUNICACAO-014"]
+    target: "architecture/security-lgpd.md#checklist-item-toggle-lock"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-015
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "only triggers a delete call when that entry belongs to the currently logged-in user"
+    disposition: ADAPT
+    justification: "Restricting deletion of a reaction to its own author, and treating an absent own-reaction as a silent no-op rather than an implicit create, is a general own-resource-only authorization pattern worth preserving for any v2 UI surface with per-user deletable annotations."
+    evidence: ["RULE-COMUNICACAO-015"]
+    target: "architecture/security-lgpd.md#own-resource-deletion-guard"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-016
+    cluster: comunicacao
+    category: triage-eligibility
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "only offers an \"Entrar na sala\" (join call) button if at least one video input device is detected"
+    disposition: RETIRE
+    justification: "This join-gate is wired specifically to Agora.io's RTC SDK and the browser mediaDevices API inside the legacy BuildVideoChat component; teleUTI video calling is absent from the v2 vision/ADR scope entirely, so this vendor-coupled device-detection gate has no target document to carry it into."
+    evidence: ["RULE-COMUNICACAO-016"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-017
+    cluster: comunicacao
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "generates one UsuarioNotificacao (unread) per user in the observation's sector and dispatches a websocket task"
+    disposition: ADAPT
+    justification: "Fanning a new event out to every user in the affected sector via a bulk-created per-user unread record plus a websocket dispatch is a generically reusable staff-notification pattern that the v2 Alert Engine's staff-facing alert delivery (with its own ack_sla requirement) can adapt, independent of the legacy Notificacao/UsuarioNotificacao Django models."
+    evidence: ["RULE-COMUNICACAO-017"]
+    target: "architecture/alert-engine.md#staff-notification-fanout"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-018
+    cluster: comunicacao
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "an Indicador of type 'interacao_notificacao' is recorded (analytics of notification engagement)"
+    disposition: RETIRE
+    justification: "This first-view engagement logging writes to the legacy Indicador analytics model on a Django consumer class specific to the old notification-center websocket; v2's alert response tracking is already a first-class field (response.ack_sla) in the alert schema, making this bespoke engagement-indicator mechanism redundant rather than adaptable."
+    evidence: ["RULE-COMUNICACAO-018"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-019
+    cluster: comunicacao
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "its websocket message type is \"leito\" if bound to a bed, else \"setor\""
+    disposition: RETIRE
+    justification: "Auto-spawning a Notificacao from a saved Observacao and branching its tipo_mensagem on the presence of a legacy leito FK is model-coupled Trilhas plumbing (Observacao/Notificacao/Leito); the v2 Alert Engine generates alerts from clinical rule evaluation over AMH Gold data, not from a generic chat-message save hook, so this trigger mechanism does not carry forward."
+    evidence: ["RULE-COMUNICACAO-019"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-020
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "ignore any incoming message whose responsavel (author) id matches the currently logged-in user's id"
+    disposition: ADAPT
+    justification: "Suppressing real-time self-notifications (never showing a user a toast/badge for their own authored message) is a small, store-agnostic UX rule worth carrying into whatever websocket notification stream replaces the two legacy hardcoded FE socket connections in DisplayNotificaoes."
+    evidence: ["RULE-COMUNICACAO-020"]
+    target: "design/screens/collaboration.md#self-message-notification-filter"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-021
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "loads messages in fixed pages of 20, newest-first from the API but reversed for display"
+    disposition: RETIRE
+    justification: "This hardcoded page-size-20, reverse-on-display, refetch-the-whole-window-on-any-action pagination scheme is legacy frontend implementation detail specific to the old MessagesList component; v2's chat/messaging surfaces (if retained) will be designed fresh against the new frontend stack rather than porting this quirk."
+    evidence: ["RULE-COMUNICACAO-021"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-022
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the first item in the fetched list is automatically selected"
+    disposition: RETIRE
+    justification: "Auto-selecting the first sector conversation on the establishment-wide chats index page is a page-specific legacy frontend micro-behavior tied to a route (chats/index.tsx) that does not exist in the v2 information architecture; not worth adapting on its own."
+    evidence: ["RULE-COMUNICACAO-022"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-COMUNICACAO-023
+    cluster: comunicacao
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "resets qtd_mensagens to 0 for that user/sector; the badge is not reset merely by rendering"
+    disposition: SUPERSEDE
+    justification: "This client-side reset writes directly to the same Firestore document family as RULE-COMUNICACAO-004's server-side counter; since that Firestore counter mechanism is being superseded by a Redis/Postgres-backed primitive (ADR-001 Implicacao 3), this client-side mark-all-read reset must be superseded in lockstep against the new store rather than left pointing at Firestore."
+    evidence: ["RULE-COMUNICACAO-023", "RULE-COMUNICACAO-004", "ADR001-C-03"]
+    target: "design/screens/collaboration.md#unread-counter-mechanism"
+    supersedes_note: {replaced_by: "mark-all-read reset against the Redis/Postgres-backed unread-counter primitive replacing RULE-COMUNICACAO-004's Firestore document", lost: "direct client SDK write to Firestore; v2 needs an API endpoint or optimistic client mutation against the new store"}
+    escalations: []
+    ratify_ref: null

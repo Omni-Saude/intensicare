@@ -1,0 +1,423 @@
+shard: movimentacao-adt-p2
+cluster: movimentacao-adt
+records:
+  - rule_id: RULE-MOVIMENTACAO-ADT-036
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "static fixed template, not per-patient data"
+    disposition: ADOPT-CORRECTED
+    justification: "Homecare trilhas must be per-patient like the automatica pathway (RULE-037); the class-level get_payload() call and dead piora_clinica/sepse lookups show the intended per-patient shape that v2 must implement instead of the broken static template."
+    evidence: ["RULE-MOVIMENTACAO-ADT-036", "RULE-MOVIMENTACAO-ADT-037"]
+    target: "clinical/domains/correlation-engine.md#homecare-trilhas"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-121, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-037
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "trilhas only populate when the bed is occupied"
+    disposition: ADOPT
+    justification: "Sound care-pathway aggregation semantics for occupied automatica beds (sepse/ventilacao/sedacao/estabilidade latest-record lookup) map directly to the correlation-engine's per-bed pathway rollup in v2, unoccupied-bed empty-list edge case preserved."
+    evidence: ["RULE-MOVIMENTACAO-ADT-037"]
+    target: "clinical/domains/correlation-engine.md#trilha-aggregation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-038
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Trilha recompute orchestration on prontuario data update"
+    disposition: ADAPT
+    justification: "The clinical intent (recompute all four pathways on prontuario update, then re-aggregate the bed alert) is sound but the fixed-order synchronous Django save cascade with SOFA excluded is legacy plumbing; v2 needs event-driven recompute preserving the same four-pathway + aggregation semantics."
+    evidence: ["RULE-MOVIMENTACAO-ADT-038", "vision.md §2.2"]
+    target: "clinical/domains/correlation-engine.md#recompute-on-update"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-039
+    cluster: movimentacao-adt
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Builds the set of prontuario PKs to search for 12h/24h historical criteria"
+    disposition: ADAPT
+    justification: "The 12h/24h historical-lookback windowing that underpins sepse and estabilidade criteria is clinically load-bearing, but the linked-list chain walk with a documented potential infinite loop is a fragile legacy mechanism that v2 must replace with bounded time-windowed queries."
+    evidence: ["RULE-MOVIMENTACAO-ADT-039"]
+    target: "clinical/domains/sepsis.md#historical-lookback-window"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-040
+    cluster: movimentacao-adt
+    category: scheduling-operational
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Celery task recomputes all manual pathways for current (atual=True) movimentacoes"
+    disposition: SUPERSEDE
+    justification: "The Celery-specific shared_task with an 'trilhas' exchange and ENVIRONMENT-prefixed routing key is legacy-stack plumbing; the periodic full-recompute intent is superseded by the AMH Data Platform's own batch/streaming refresh cadence per ADR-001, which the correlation engine consumes instead of self-scheduling."
+    evidence: ["RULE-MOVIMENTACAO-ADT-040", "ADR001-F-02"]
+    target: "clinical/domains/correlation-engine.md#recompute-scheduling"
+    supersedes_note: {replaced_by: "AMH Data Platform Silver-Entities batch/streaming refresh triggers (ADR-001)", lost: "Celery exchange/routing-key mechanism and the SOFA-lag caveat (SOFA not resaved in the manual loop)"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-041
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Patient creation wrapper (CadastrarPaciente)"
+    disposition: RETIRE
+    justification: "This is a thin Django use-case wrapper around PacienteSerializer for minting local patient records; per ADR-001 Intensicare consumes the AMH MPI's mpi_id and mints no identifiers of its own, so local patient-creation plumbing has no v2 role."
+    evidence: ["RULE-MOVIMENTACAO-ADT-041", "ADR001-F-07"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-042
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "computes the difference between the submitted pacientes_id list and the currently-linked patient"
+    disposition: ADAPT
+    justification: "The diff-sync pattern for professional-to-patient care-team assignment (bulk-delete removed, bulk-create added links) is a reusable access-control lesson, but the full-clear-on-empty-list edge case must be made explicit/deny-by-default rather than implicit in v2's security model."
+    evidence: ["RULE-MOVIMENTACAO-ADT-042"]
+    target: "architecture/security-lgpd.md#patient-assignment-sync"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-043
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "always overwrites 'paciente', 'setor', and 'usuario' from the corresponding URL kwargs"
+    disposition: ADAPT
+    justification: "Forcing link-identity fields (paciente/setor/usuario) from trusted URL kwargs rather than client-supplied body is a deny-by-default authorization lesson worth carrying into v2's security-lgpd design, though the hard-delete (vs soft-delete/audit trail) mechanism needs correction."
+    evidence: ["RULE-MOVIMENTACAO-ADT-043"]
+    target: "architecture/security-lgpd.md#url-trusted-identity-fields"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-044
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Default active sector selection for patient management"
+    disposition: RETIRE
+    justification: "Auto-selecting the professional's first assigned sector on screen mount is a legacy React UI mechanic specific to the GestaoPacienteContent component that v2's redesigned screens will replace wholesale."
+    evidence: ["RULE-MOVIMENTACAO-ADT-044"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-045
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Pre-selection of already-linked patients"
+    disposition: RETIRE
+    justification: "Pre-checking rows for patients already linked to the professional is a legacy patient-linking screen UI mechanic; v2's design/screens work will define fresh pre-selection behavior for the new patient-assignment UI rather than porting this component."
+    evidence: ["RULE-MOVIMENTACAO-ADT-045"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-046
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Marking a specific care-pathway (trilha) on a bed occupancy as attended-to"
+    disposition: ADAPT
+    justification: "The clinical workflow of marking a care pathway 'assistido' (attended-to), gated by a can_assist_ocupacao permission, is sound intent for alert-acknowledgement in v2, but the untyped POST response and absent client-side permission check need correction in the new mechanism."
+    evidence: ["RULE-MOVIMENTACAO-ADT-046"]
+    target: "clinical/domains/correlation-engine.md#assistido-acknowledgement"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-047
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Records whether a cardiac arrest occurred and its datetime, in a nullable group"
+    disposition: ADOPT
+    justification: "The parada cardiorrespiratoria (PCR) nullable boolean+datetime capture is a controlled clinical form field feeding downstream pathways; carried into v2's clinical form vocabulary verbatim, including the independently-editable boolean/datetime pairing noted as an edge case."
+    evidence: ["RULE-MOVIMENTACAO-ADT-047"]
+    target: "design/screens/clinical-forms.md#parada-cardiorrespiratoria"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-048
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "forces a loading spinner to display for exactly 3000ms after mount"
+    disposition: RETIRE
+    justification: "A hardcoded 3-second spinner delay on the bed-camera page, with intent ambiguous between UX masking and missing readiness-event wiring, carries no clinical weight; v2's camera/video screens will define real readiness-event-driven loading states instead."
+    evidence: ["RULE-MOVIMENTACAO-ADT-048"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-331, band: AMBIGUOUS}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-049
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "the exclusion only removes a row when ALL THREE conditions hold together"
+    disposition: RETIRE
+    justification: "This Tasy-direct Oracle ETL test-bed exclusion filter (with unintentionally narrow AND semantics instead of the apparently-intended OR) is legacy Tasy-ETL plumbing tied to a direct Oracle connection that ADR-001's AMH-consumer platform change eliminates entirely."
+    evidence: ["RULE-MOVIMENTACAO-ADT-049", "ADR001-F-06"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-332, band: AMBIGUOUS}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-050
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "a bed is occupied iff ie_ocupado == \"S\" (Sim/Yes), and active iff ie_situacao == \"A\""
+    disposition: RETIRE
+    justification: "Deriving Leito occupancy/active flags from raw Tasy single-character indicator codes is direct-Oracle-ETL plumbing specific to the legacy stack's Tasy integration, which ADR-001's AMH Data Platform consumer model replaces with curated Gold/Silver-Entities bed-state facts."
+    evidence: ["RULE-MOVIMENTACAO-ADT-050", "ADR001-F-06"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-051
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "an occupied bed with no movimentacao is an error; an empty bed returns only the bed payload"
+    disposition: SUPERSEDE
+    justification: "The invariant that an occupied bed must have a corresponding encounter record is clinically sound, but in v2 encounter/occupancy consistency is guaranteed upstream by the AMH MPI/encounter feed (Intensicare mints no identifiers per ADR-001), superseding this local ParseError guard with an AMH data-quality contract."
+    evidence: ["RULE-MOVIMENTACAO-ADT-051", "ADR001-F-07"]
+    target: "clinical/domains/correlation-engine.md#occupancy-encounter-consistency"
+    supersedes_note: {replaced_by: "AMH MPI/encounter feed as authoritative occupancy-encounter source (ADR-001)", lost: "local 'leito ocupado sem movimentacao' ParseError guard"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-052
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "manual data entry, automatic (device-integrated) monitoring, or homecare"
+    disposition: ADOPT
+    justification: "The closed three-value monitoring-modality enum (manual|automatica|homecare) is a controlled vocabulary asset governing which pathway/data-entry mechanism applies to a bed, and is carried verbatim into v2's clinical-forms/governance vocabulary."
+    evidence: ["RULE-MOVIMENTACAO-ADT-052"]
+    target: "design/screens/clinical-forms.md#leito-tipo"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-053
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "restricted to a fixed catalog of 10 procedure types spanning central-venous-catheter placements"
+    disposition: ADOPT
+    justification: "The 10-value invasive-procedure-type enumeration (CVC variants, orotracheal intubation, tracheostomy, urinary catheter) is a controlled PT-BR clinical vocabulary carried verbatim into v2 clinical forms, including the noted diacritics/ASCII naming inconsistency recorded as-is."
+    evidence: ["RULE-MOVIMENTACAO-ADT-053"]
+    target: "design/screens/clinical-forms.md#procedimento-invasivo"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-054
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "\"M\" maps to a male icon, \"F\" maps to a female icon, and any other value"
+    disposition: RETIRE
+    justification: "This is purely a legacy Material Design icon-choice mapping (mdiGenderMale/mdiGenderFemale/mdiAccountQuestion) duplicated across two frontend pages; v2's new design system will define its own icon set, while the underlying M/F/O gender vocabulary itself is carried separately (RULE-064)."
+    evidence: ["RULE-MOVIMENTACAO-ADT-054", "RULE-MOVIMENTACAO-ADT-064"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-055
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Discharging a patient requires both data_saida (exit date) AND motivo_baixa (reason)"
+    disposition: ADOPT
+    justification: "The discharge (baixa) requirement of both exit-date AND reason is independently reconciled and verified aligned between backend and frontend with no divergence, so it is carried as-is into v2's discharge form; the 'movito_baixa' keyword typo is legacy-internal and not user-facing."
+    evidence: ["RULE-MOVIMENTACAO-ADT-055"]
+    target: "design/screens/clinical-forms.md#baixa-leito"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-056
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "a follow-up movimentacao created via the /nova/ endpoint against an ultima_movimentacao does not require paciente"
+    disposition: ADOPT
+    justification: "The admission-vs-chained-transfer distinction (initial admission requires paciente payload; a chained /nova/ movimentacao inherits patient identity) is a sound, test-verified continuity rule for v2's ADT movement tracking and is carried through unchanged."
+    evidence: ["RULE-MOVIMENTACAO-ADT-056"]
+    target: "clinical/domains/correlation-engine.md#movimentacao-chaining"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-057
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "may be omitted (accepted, defaults applied) but must not be an empty string and must not be in the future"
+    disposition: ADOPT
+    justification: "The admission-timestamp acceptance contract (absent-OK/empty-string-invalid/future-rejected) is a test-asserted API-level rule that governs data integrity for every movimentacao creation and is carried into v2's admission-timestamp validation unchanged."
+    evidence: ["RULE-MOVIMENTACAO-ADT-057"]
+    target: "clinical/domains/correlation-engine.md#admission-timestamp-validation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-058
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: AMBIGUOUS, verdict: "NOT_APPLICABLE"}
+    source_quote: "Cannot confirm from tests alone whether 'automatica' beds impose an additional data_entrada requirement"
+    disposition: RETIRE
+    justification: "The AMBIGUOUS confound (empty data_entrada already explains the 400 for any bed type per RULE-057) means no distinct automatica-specific clinical rule can be confirmed here; it carries no clinical weight of its own, so it is retired rather than ratified separately from RULE-057's already-adopted behavior."
+    evidence: ["RULE-MOVIMENTACAO-ADT-058", "RULE-MOVIMENTACAO-ADT-057"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-AMBIGUOUS-333, band: AMBIGUOUS}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-059
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Validates a datetime string against an expected format and rejects future dates"
+    disposition: ADOPT
+    justification: "The UTC-normalized future-date rejection for admission timestamps is a sound, reusable data-integrity guard; carried into v2's temporal validation, noting the hardcoded 'data_entrada' error key as a legacy-internal quirk not affecting the adopted clinical semantics."
+    evidence: ["RULE-MOVIMENTACAO-ADT-059"]
+    target: "clinical/domains/correlation-engine.md#future-date-guard"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-060
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Missing/malformed data_nascimento raises unhandled TypeError/ValueError (no explicit guard)"
+    disposition: ADAPT
+    justification: "Requiring a non-future birthdate and a mandatory patient payload is sound clinical registration logic, but the unhandled TypeError/ValueError on malformed input and the 'nasicmento' typo are implementation defects that v2 must fix with explicit input guards while preserving the same validation intent."
+    evidence: ["RULE-MOVIMENTACAO-ADT-060"]
+    target: "design/screens/clinical-forms.md#cadastro-paciente"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-061
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "The request must contain a dados_prontuario key"
+    disposition: ADOPT
+    justification: "A simple, unambiguous required-payload-key check for dados_prontuario on movimentacao creation; carried unchanged into v2's composite validation since there is no discrepancy or ambiguity to correct."
+    evidence: ["RULE-MOVIMENTACAO-ADT-061"]
+    target: "clinical/domains/correlation-engine.md#prontuario-required"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-062
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "Movimentacao creation runs bed, prontuario, patient, and (conditionally) entry-date validations together"
+    disposition: ADOPT
+    justification: "The composite-validation orchestration (bed + prontuario + patient + conditional entry-date checks run together on movimentacao creation) correctly aggregates RULE-025/059/060/061 and is carried into v2's admission validation pipeline as a single composite rule."
+    evidence: ["RULE-MOVIMENTACAO-ADT-062", "RULE-MOVIMENTACAO-ADT-059", "RULE-MOVIMENTACAO-ADT-060", "RULE-MOVIMENTACAO-ADT-061"]
+    target: "clinical/domains/correlation-engine.md#composite-admission-validation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-063
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "eme (Estado de Mal Epileptico), shic (Sindrome de Hipertensao Intra Craniana)"
+    disposition: ADOPT
+    justification: "This set of boolean comorbidity/pathway flags (covid_19, dpoc, eme, shic, historico_cirurgia_abdominal_recente, baixa_aceitacao_dieta_vo) is a controlled PT-BR clinical-form vocabulary that drives downstream respiratory (dpoc), neuro (eme/shic) and nutrition pathways, and is preserved verbatim into v2's clinical forms."
+    evidence: ["RULE-MOVIMENTACAO-ADT-063"]
+    target: "design/screens/clinical-forms.md#flags-clinicos"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-064
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "CPF mask enforces 11 digits in NNN.NNN.NNN-NN layout but no check-digit validation"
+    disposition: ADAPT
+    justification: "Requiring attendance number, name, birthdate and masked CPF for patient registration is sound, LGPD-relevant identity capture, but the absence of CPF check-digit validation is a data-quality gap v2 must close while preserving the M/F/O gender vocabulary and required-field set."
+    evidence: ["RULE-MOVIMENTACAO-ADT-064"]
+    target: "architecture/security-lgpd.md#cpf-validation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-065
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "InfoPaciente.objects.filter(NR_ATENDIMENTO=leito.nr_atendimento)"
+    disposition: RETIRE
+    justification: "This viewset scopes a legacy homecare InfoPaciente model (an out-of-partition Oracle/Tasy-backed table per the cluster's out-of-partition notes) by encounter number; it is Tasy-direct legacy plumbing eliminated entirely by ADR-001's AMH Data Platform consumer model."
+    evidence: ["RULE-MOVIMENTACAO-ADT-065", "ADR001-F-06"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-066
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "reference equality (===) used where deep/value equality was evidently intended"
+    disposition: RETIRE
+    justification: "This is a legacy React button-disable bug (array reference-equality check that is effectively always true) confined to the GestaoPacienteContent frontend component; v2's redesigned patient-linking screen will implement correct deep-equality selection-diffing from scratch rather than porting this defect."
+    evidence: ["RULE-MOVIMENTACAO-ADT-066"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-168, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-067
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "the API cannot distinguish \"user cleared this section\" from \"user never touched it\""
+    disposition: ADAPT
+    justification: "Submit-side normalization of noradrenalina/PCR/ventilacao-mecanica sub-records (annul-if-empty, reformat datetimes) is sound clinical-form intent, but the noted inability to distinguish an explicit clear from an untouched field is a mechanism gap v2 must close with an explicit null-vs-undefined contract."
+    evidence: ["RULE-MOVIMENTACAO-ADT-067"]
+    target: "design/screens/clinical-forms.md#prontuario-submit-normalization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-068
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "horario_fim of ventilacao_mecanica is NOT re-hydrated here"
+    disposition: ADAPT
+    justification: "Rehydrating stored prontuario date strings into moment objects for display (companion to RULE-067's submit-side transform) is sound intent, but the noted gap where ventilacao_mecanica's horario_fim is never rehydrated must be fixed in v2 to keep read and submit transforms symmetric."
+    evidence: ["RULE-MOVIMENTACAO-ADT-068", "RULE-MOVIMENTACAO-ADT-067"]
+    target: "design/screens/clinical-forms.md#prontuario-hydration"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-069
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: DISCREPANCY, verdict: "NOT_APPLICABLE"}
+    source_quote: "FormProntuario fields have no bound input controls"
+    disposition: RETIRE
+    justification: "Every Form.Item in this component is declared without a child input, so the form captures no patient/admission data at all; it is a non-functional legacy stub with no working behavior to carry forward, so v2's patient-record form will be built fresh rather than adapting a broken component."
+    evidence: ["RULE-MOVIMENTACAO-ADT-069"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-169, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-MOVIMENTACAO-ADT-070
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo: {status: OK, verdict: "NOT_APPLICABLE"}
+    source_quote: "defaults \"Leitos\" (ocupado) to \"todos\" and explicitly converts that sentinel to undefined"
+    disposition: RETIRE
+    justification: "The 'todos' sentinel-to-undefined filter mapping and the asymmetric lack of a no-filter option for 'tipo' are legacy FilterOcupacoes UI mechanics specific to the current frontend; v2's redesigned occupancy list filtering will define its own consistent sentinel handling."
+    evidence: ["RULE-MOVIMENTACAO-ADT-070"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

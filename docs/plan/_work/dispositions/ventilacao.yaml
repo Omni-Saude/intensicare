@@ -1,0 +1,483 @@
+shard: ventilacao
+cluster: ventilacao
+records:
+- rule_id: RULE-VENTILACAO-001
+  cluster: ventilacao
+  category: physiological-calculation
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: computes predicted/ideal body weight (ARDSNet/Devine-style
+  disposition: ADOPT
+  justification: PBW formula (male 50 + 0.91*(h-152.4); female 45.5 + 0.91*(h-152.4)) and 4/5/6 mL/kg lung-protective targets match ARDSNet/ARMA exactly, so this calculator is carried forward verbatim into the respiratory domain's tidal-volume calculator.
+  evidence:
+  - ARDS Network ARMA trial, NEJM 2000;342:1301-1308
+  - RULE-VENTILACAO-001
+  target: clinical/domains/respiratory.md#pbw-tidal-volume-targets
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-002
+  cluster: ventilacao
+  category: physiological-calculation
+  catalog_echo:
+    status: OK
+    verdict: UNVERIFIABLE
+  source_quote: Number of days a patient has been on mechanical ventilation
+  disposition: RATIFY
+  justification: This internal days-on-VM duration helper feeds four downstream criteria (C4/C5/C6/C8) but carries an UNVERIFIABLE verdict (no published clinical anchor for a raw duration count) plus documented .days-truncation and abs()-on-future-timestamps quirks, so the mandatory UNVERIFIABLE escalation band requires ratification of whether the truncation/sign-handling behavior should be corrected before v2 adopts it as the shared duration primitive.
+  evidence:
+  - RULE-VENTILACAO-002
+  - ESC-UNVERIFIABLE-292
+  target: RATIFICATION.md#rat-ventilacao-01
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-292
+    band: UNVERIFIABLE
+  ratify_ref: RAT-VENTILACAO-01
+- rule_id: RULE-VENTILACAO-003
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: Flags inspiratory pressure > 16 OR tidal volume > 500 ml
+  disposition: RATIFY
+  justification: C1's absolute VT>500mL threshold contradicts the correct weight-indexed PBW calculator (RULE-VENTILACAO-001) and the ARDSNet <=6 mL/kg-PBW standard, and it is a hard alert-forcing criterion feeding the pathway's VERMELHO override, so the mandatory P1 escalation band requires clinical ratification of the corrected weight-indexed threshold before v2 respiratory alerting can adopt it.
+  evidence:
+  - RULE-VENTILACAO-003
+  - RULE-VENTILACAO-001
+  - ESC-P1-051
+  - ARDS Network ARMA trial, NEJM 2000;342:1301-1308
+  target: RATIFICATION.md#rat-ventilacao-02
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P1-051
+    band: P1
+  ratify_ref: RAT-VENTILACAO-02
+- rule_id: RULE-VENTILACAO-004
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: the peep>0 requirement is dead (inside `False and ...`)
+  disposition: RATIFY
+  justification: C2's guard silently drops the PEEP>0 requirement via a malformed boolean expression and treats fio2 as a percentage while sibling criterion C8 (RULE-VENTILACAO-011) treats fio2 as a fraction, a P1 unit-inconsistency affecting a moderate-hypoxemia PEEP/FiO2 mismatch alert, so ratification must fix both the guard and the unit convention before v2 adopts this table.
+  evidence:
+  - RULE-VENTILACAO-004
+  - RULE-VENTILACAO-011
+  - ESC-P1-052
+  - ARDSNet Lower-PEEP/Higher-FiO2 titration table (ARMA NEJM 2000)
+  target: RATIFICATION.md#rat-ventilacao-03
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P1-052
+    band: P1
+  ratify_ref: RAT-VENTILACAO-03
+- rule_id: RULE-VENTILACAO-005
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: Flags a PEEP not matching the (different, severe) FiO2->PEEP table
+  disposition: RATIFY
+  justification: C3's severe-hypoxemia PEEP/FiO2 mismatch check shares the same fio2/100-as-percentage unit assumption as C2 (RULE-VENTILACAO-004) which clashes with C8's fio2-as-fraction convention, a P1 unit-inconsistency across the same clinical model that must be ratified into one canonical FiO2 unit before v2 adopts the severe-hypoxemia table.
+  evidence:
+  - RULE-VENTILACAO-005
+  - RULE-VENTILACAO-004
+  - RULE-VENTILACAO-011
+  - ESC-P1-053
+  - ARDSNet Higher-PEEP/Lower-FiO2 titration table (ALVEOLI, ARMA NEJM 2000)
+  target: RATIFICATION.md#rat-ventilacao-04
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P1-053
+    band: P1
+  ratify_ref: RAT-VENTILACAO-04
+- rule_id: RULE-VENTILACAO-006
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: DISCREPANCY
+  source_quote: Defined in both criterio_2 and criterio_3 but never read (dead code)
+  disposition: RETIRE
+  justification: peep_old_table is a superseded, never-read single-expected-PEEP-per-FiO2 variant sitting dead inside the criterio_2/criterio_3 methods; its successor (peep_new_table, captured under RULE-VENTILACAO-004/005) is already queued for P1 ratification, so this inert prior-version artifact is retired rather than ported.
+  evidence:
+  - RULE-VENTILACAO-006
+  - ESC-P3-130
+  target: null
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P3-130
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-007
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: long VM with good oxygenation on controlled mode without sedation
+  disposition: ADAPT
+  justification: C4's RASS>=-2 / Glasgow>8 weaning-readiness disjuncts are clinically sound and published-anchored, but the controlled-mode conjunct compares the dispositivo field (tot/tqt/dni) against modalidade values (PCV/VCV), making that branch unreachable outside tests; v2 keeps the same three-way readiness semantics but corrects the mechanism to compare against the modalidade field.
+  evidence:
+  - RULE-VENTILACAO-007
+  - RULE-VENTILACAO-025
+  - ESC-P2-083
+  - Richmond Agitation-Sedation Scale, Sessler 2002 AJRCCM
+  - Glasgow Coma Scale, Teasdale 1974
+  target: clinical/domains/respiratory.md#weaning-readiness
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P2-083
+    band: P2
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-008
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: Flags more than 10 days of mechanical ventilation via orotracheal tube
+  disposition: ADOPT
+  justification: C5's >10-day orotracheal-intubation trigger for tracheostomy workup matches contemporary tracheostomy-timing evidence and is carried forward unchanged into the respiratory domain's prolonged-intubation criterion.
+  evidence:
+  - RULE-VENTILACAO-008
+  - Contemporary tracheostomy-timing evidence, post-TracMan reassessment, JALH 2025
+  target: clinical/domains/respiratory.md#prolonged-intubation-tracheostomy
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-009
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: Flags TOT ventilation > 10 days AND COVID-19 diagnosis
+  disposition: RATIFY
+  justification: C6's COVID-tracheostomy timing (>10 days) directly contradicts both the sibling facade protocol's >14-day threshold (RULE-VENTILACAO-017) and the AAO-HNS/international COVID tracheostomy guidance recommending deferral to >=14 days, a mandatory P1 cross-pathway contradiction that must be ratified to a single value before v2 respiratory logic can adopt a COVID-specific tracheostomy trigger.
+  evidence:
+  - RULE-VENTILACAO-009
+  - RULE-VENTILACAO-017
+  - ESC-P1-054
+  - AAO-HNS COVID-19 tracheostomy guidelines 2020
+  target: RATIFICATION.md#rat-ventilacao-05
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P1-054
+    band: P1
+  ratify_ref: RAT-VENTILACAO-05
+- rule_id: RULE-VENTILACAO-010
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: Flags P/F<150 AND noradrenaline dose<25 AND admission length>7 days
+  disposition: ADOPT
+  justification: C7's combination of severe hypoxemia (P/F<150), low-dose vasopressor support, and prolonged admission is a verified PROSEVA-anchored severe-ARDS-with-shock pattern spanning both respiratory and hemodynamic status, so it is adopted into the correlation engine's respiratory-hemodynamic cross-domain check named in the vision.
+  evidence:
+  - RULE-VENTILACAO-010
+  - PROSEVA trial, Guerin et al., NEJM 2013;368:2159
+  - VIS-4-03
+  target: clinical/domains/correlation-engine.md#ards-shock
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-011
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: DISCREPANCY
+  source_quote: fio2 < 0.4 treats FiO2 as a fraction here
+  disposition: RATIFY
+  justification: C8's extubation-readiness bundle is a hard alert-forcing criterion whose fio2<0.4 fraction convention directly clashes with C2/C3's fio2/100 percentage convention on the same model, a mandatory P0 escalation because a unit mismatch in a hard-alert extubation-readiness rule can silently mis-fire or mis-suppress a safety-critical alert; ratification must fix the canonical FiO2 unit before v2 adopts this bundle.
+  evidence:
+  - RULE-VENTILACAO-011
+  - RULE-VENTILACAO-004
+  - RULE-VENTILACAO-005
+  - ESC-P0-011
+  - Boles J-M et al., Eur Respir J 2007;29:1033-1056
+  target: RATIFICATION.md#rat-ventilacao-06
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P0-011
+    band: P0
+  ratify_ref: RAT-VENTILACAO-06
+- rule_id: RULE-VENTILACAO-012
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: DISCREPANCY
+  source_quote: Strict lactato>2.5 (note estabilidade/sepse use >=2.5; ventilacao uses >2.5)
+  disposition: ADOPT-CORRECTED
+  justification: C9's shock-without-ventilation composite (noradrenaline present + elevated lactate + no VM) is a hard alert-forcing criterion whose lactate>2.5 mmol/L cutoff deviates from the Sepsis-3 septic-shock definition of lactate>2 mmol/L; v2's correlation-engine check adopts the corrected >2 mmol/L Sepsis-3 boundary while keeping the same three-part composite logic.
+  evidence:
+  - RULE-VENTILACAO-012
+  - ESC-P2-084
+  - Singer M et al., JAMA 2016;315(8):801-810 (Sepsis-3)
+  target: clinical/domains/correlation-engine.md#shock-without-ventilation
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P2-084
+    band: P2
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-013
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: COPD lowers the SpO2 target to >92
+  disposition: ADOPT
+  justification: C10's oxygenation-adequacy check, including the COPD-specific lowered SpO2 target, matches the BTS 2017 oxygen guideline's 94-98% general / 88-92% hypercapnic-risk targets and is carried forward unchanged into the respiratory domain's oxygenation-target logic.
+  evidence:
+  - RULE-VENTILACAO-013
+  - O'Driscoll BR et al., BTS Guideline, Thorax 2017;72(Suppl 1):ii1-ii90
+  target: clinical/domains/respiratory.md#oxygenation-targets
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-014
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: VERMELHO if >=3 criteria OR any of C1/C8/C9 is set
+  disposition: ADAPT
+  justification: The trilha_manual count-plus-hard-override aggregation (>=3 true criteria escalate, OR any of the three alert-forcing criteria C1/C8/C9 force escalation regardless of count) is the most complete of the three competing legacy alert-aggregation variants and its clinical intent (severity by count with critical-criterion override) is preserved, but the three-state VERMELHO/AMARELO/NEUTRO mechanism is replaced by v2's normal/watch/urgent/critical severity scale per the alert entry schema.
+  evidence:
+  - RULE-VENTILACAO-014
+  - RULE-VENTILACAO-003
+  - RULE-VENTILACAO-011
+  - RULE-VENTILACAO-012
+  target: clinical/domains/respiratory.md#alert-aggregation
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-015
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: NEUTRO also resets assistido=False
+  disposition: SUPERSEDE
+  justification: This trilha_automatica v1 alert is a separate active pathway variant using only a subset of criteria (C2/C5/C7/C10) with a count(True)-only boolean match against IntegerField criteria that can silently under-match integer flags; it is superseded by the single unified v2 respiratory alert definition that consolidates all three legacy ventilation pathways rather than porting a second, narrower aggregation convention.
+  evidence:
+  - RULE-VENTILACAO-015
+  - RULE-VENTILACAO-014
+  - RULE-VENTILACAO-017
+  target: clinical/domains/respiratory.md#alert-aggregation
+  supersedes_note:
+    replaced_by: unified v2 respiratory-domain alert consolidating trilha_manual (RULE-VENTILACAO-014), trilha_automatica v1 (this rule), and the facade protocol (RULE-VENTILACAO-017) into one alert definition per the CONTRACTS alert schema
+    lost: the criterio_2/5/7/10-only subset and its count(True) boolean-only matching against IntegerField criteria
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-016
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: NOT_APPLICABLE
+  source_quote: Legacy ventilation alert defined but NOT called by save(); retained on class
+  disposition: RETIRE
+  justification: This is confirmed dead code (not invoked by trilha_automatica's save() path, which calls calcular_alerta_v2/RULE-VENTILACAO-015 instead) and its logic is a redundant near-duplicate of the trilha_manual alert already carried forward via RULE-VENTILACAO-014's ADAPT, so despite the AMBIGUOUS escalation band it is not worth a separate ratification and is retired as unreachable legacy code.
+  evidence:
+  - RULE-VENTILACAO-016
+  - RULE-VENTILACAO-014
+  - RULE-VENTILACAO-015
+  - ESC-AMBIGUOUS-296
+  target: null
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-296
+    band: AMBIGUOUS
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-017
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: lung-protective ventilation, PEEP/FiO2 table titration, spontaneous-breathing readiness, tracheostomy timing, PRONA indication
+  disposition: ADOPT
+  justification: This composite weaning/PEEP-titration/PRONA/tracheostomy protocol facade is VERIFIED against six independent published anchors (ARDSNet, PROSEVA, ERS/ATS weaning consensus, BTS 2017, tracheostomy-timing literature, high-risk-extubation VNI) and is adopted wholesale as the respiratory domain's weaning and lung-protective-ventilation protocol, superseding the need to separately port each C1-C10 criterion's narrower mechanism.
+  evidence:
+  - RULE-VENTILACAO-017
+  - ARDS Network NEJM 2000;342:1301-8
+  - PROSEVA, Guerin C et al. NEJM 2013;368:2159-68
+  - Boles 2007 ERS/ATS weaning consensus
+  - BTS 2017 oxygen guideline
+  target: clinical/domains/respiratory.md#weaning-and-lung-protective-protocol
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-018
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: 'fio2: interval 21-100; peep: 0-40; pressao_inspiratoria: 0-30'
+  disposition: ADAPT
+  justification: This movimentacao-form input-plausibility bound agrees with the physician form (RULE-VENTILACAO-019) but its PEEP 0-40/PINS 0-30 ceiling diverges from the physiotherapist and homecare validators' PEEP 5-18/PINS 5-40 (RULE-VENTILACAO-020/022/023); v2 adopts a single reconciled bound (PEEP 0-24 cmH2O matching the ARDSNet PEEP/FiO2 table ceiling used in RULE-VENTILACAO-004/005, PINS/plateau 0-30 cmH2O matching the Amato driving-pressure/plateau limit already cited in RULE-VENTILACAO-003) instead of four divergent per-form ranges.
+  evidence:
+  - RULE-VENTILACAO-018
+  - RULE-VENTILACAO-004
+  - RULE-VENTILACAO-005
+  - Amato MB et al., NEJM 2015;372:747 (driving/plateau pressure <=30 cmH2O)
+  target: design/screens/clinical-forms.md#ventilator-parameter-bounds
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-019
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: Value/label mismatch (ventilacao_ar_ambiente labeled "Espontanea"
+  disposition: ADAPT
+  justification: The physician form's conditional reveal of invasive-VM parameters vs supplemental-O2 flow is sound UX logic sharing the same VM-parameter ranges as RULE-VENTILACAO-018 (agreeing) and the same 1-15 L/min O2-flow bound as RULE-VENTILACAO-021 (agreeing), but its tipo_ventilacao value/label pairing (ventilacao_ar_ambiente value labeled "Espontanea") is semantic drift; v2 keeps the PT-BR labels verbatim while reconciling the shared parameter bounds per RULE-VENTILACAO-018's target.
+  evidence:
+  - RULE-VENTILACAO-019
+  - RULE-VENTILACAO-018
+  - RULE-VENTILACAO-021
+  target: design/screens/clinical-forms.md#ventilation-type-selector
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-020
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: PEEP bounded 5-18 here vs 0-40 on movimentacao/physician forms
+  disposition: ADAPT
+  justification: The physiotherapy form's tipo_ventilacao decision tree and its rich free-text weaning-predictor fields (Tobin index, IWI, cuff leak) are sound clinical documentation, but its PEEP 5-18/PINS 5-40 bounds diverge from the movimentacao/physician forms' PEEP 0-40/PINS 0-30 (RULE-VENTILACAO-018/019); v2 reconciles all four forms onto the single PEEP 0-24/PINS 0-30 bound defined at RULE-VENTILACAO-018's target instead of preserving the P3-flagged divergence.
+  evidence:
+  - RULE-VENTILACAO-020
+  - RULE-VENTILACAO-018
+  - ESC-P3-131
+  target: design/screens/clinical-forms.md#ventilator-parameter-bounds
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P3-131
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-021
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: Supplemental oxygen flow is constrained to 1..15 L/min
+  disposition: ADOPT
+  justification: The homecare supplemental-O2 flow bound of 1-15 L/min agrees exactly with the physician form's fluxo_o2 field (RULE-VENTILACAO-019), so this uncontested input-plausibility bound is carried forward unchanged into v2's clinical forms.
+  evidence:
+  - RULE-VENTILACAO-021
+  - RULE-VENTILACAO-019
+  target: design/screens/clinical-forms.md#supplemental-o2-flow
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-022
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: Positive end-expiratory pressure is constrained to 5..18
+  disposition: ADAPT
+  justification: The homecare backend's PEEP 5-18 cmH2O bound agrees with the physiotherapist frontend form (RULE-VENTILACAO-020) but diverges from the movimentacao/physician forms' PEEP 0-40 (RULE-VENTILACAO-018/019); it is reconciled into the same single PEEP 0-24 cmH2O bound defined at RULE-VENTILACAO-018's target rather than kept as a third divergent range.
+  evidence:
+  - RULE-VENTILACAO-022
+  - RULE-VENTILACAO-020
+  - RULE-VENTILACAO-018
+  target: design/screens/clinical-forms.md#ventilator-parameter-bounds
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-023
+  cluster: ventilacao
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: Inspiratory pressure is constrained to 5..40
+  disposition: ADAPT
+  justification: The homecare backend's inspiratory-pressure 5-40 cmH2O bound agrees with the physiotherapist frontend form (RULE-VENTILACAO-020) but diverges from the movimentacao/physician forms' PINS 0-30 (RULE-VENTILACAO-018/019); it is reconciled into the Amato-anchored PINS/plateau 0-30 cmH2O bound defined at RULE-VENTILACAO-018's target rather than kept as a third divergent range that permits an unsafe 40 cmH2O ceiling.
+  evidence:
+  - RULE-VENTILACAO-023
+  - RULE-VENTILACAO-020
+  - RULE-VENTILACAO-018
+  - Amato MB et al., NEJM 2015;372:747
+  target: design/screens/clinical-forms.md#ventilator-parameter-bounds
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-024
+  cluster: ventilacao
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: Lists contain duplicates and misspellings matched VERBATIM
+  disposition: SUPERSEDE
+  justification: The free-text ventilation-category matcher's exact-string membership preserves misspellings and misroutes verbatim (e.g. 'vni/ mascara facial' and 've pela tqt por mascara' misclassified as spontaneous breathing), a P3-flagged data-quality defect; v2 supersedes this free-text fuzzy matching entirely with the structured tipo_ventilacao enum already defined in RULE-VENTILACAO-019/026, losing backward-compatibility with historical free-text records which instead require a one-time migration rather than live matching logic.
+  evidence:
+  - RULE-VENTILACAO-024
+  - RULE-VENTILACAO-019
+  - RULE-VENTILACAO-026
+  - ESC-P3-132
+  target: design/screens/clinical-forms.md#ventilation-type-selector
+  supersedes_note:
+    replaced_by: structured tipo_ventilacao enum entry at data-capture time (RULE-VENTILACAO-019/026), design/screens/clinical-forms.md#ventilation-type-selector
+    lost: live free-text reclassification of legacy misspelled/misrouted values (e.g. 'espontnaea', 'vni/ mascara facial'); historical records need a one-time backfill instead
+  escalations:
+  - item_id: ESC-P3-132
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-025
+  cluster: ventilacao
+  category: data-validation
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: Enumerations for ventilation support type, airway device, and ventilation modality
+  disposition: ADAPT
+  justification: The VentilacaoMecanica ventilacao/dispositivo/modalidade enumerations are a sound controlled vocabulary preserved verbatim, but the vm_invasiva value is paired with the nasal-cannula label 'Cateter Nasal de O2' and C4 (RULE-VENTILACAO-007) compares dispositivo against uppercase PCV/VCV values that only exist in modalidade, making that branch unreachable; v2 keeps the PT-BR enum values/labels but corrects the label mismatch and harmonizes the C4 comparison against the modalidade field.
+  evidence:
+  - RULE-VENTILACAO-025
+  - RULE-VENTILACAO-007
+  - ESC-P3-181
+  target: design/screens/clinical-forms.md#ventilation-device-modality-enums
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P3-181
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-VENTILACAO-026
+  cluster: ventilacao
+  category: data-validation
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: secrecao_traqueal {pouca, media, grande, aspiracao_ausente}
+  disposition: ADOPT
+  justification: The nursing ventilation/secretion assessment enums (secrecao_traqueal, tosse, ausculta, aspecto_do_curativo flogistic-signs) are an uncontested PT-BR controlled vocabulary asset with no reported discrepancy, so they are carried forward verbatim into v2's respiratory clinical-forms documentation.
+  evidence:
+  - RULE-VENTILACAO-026
+  target: design/screens/clinical-forms.md#respiratory-assessment-enums
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
