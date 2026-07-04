@@ -1,0 +1,48 @@
+- rule_id: RULE-TRILHAS-ENGINE-017
+  reference:
+    citation: >
+      No authoritative published reference is verifiable for this rule. The rule
+      is categorized drug-dosing (verify:true) but encodes only a UI surfacing
+      mechanism: the actual dose values are embedded in an opaque image asset
+      (criterio.imagem), not in machine-readable code. No equation, coefficient,
+      unit, valid-range, rounding, or cutoff is present in the partition to check
+      against a clinical guideline or standard calculator.
+    url: null
+  checks:
+    equation: n/a       # no equation in code; dosing lives inside the image asset
+    coefficients: n/a   # none present
+    units: n/a          # no numeric quantities in code
+    ranges: n/a         # no input ranges (input is an image URL string)
+    rounding: n/a       # no numeric computation
+    cutoffs: n/a        # no score bands / thresholds
+  test_vectors:
+    # Only the surfacing mechanism is testable; the numeric doses cannot be
+    # verified because they are baked into the image. These trace the code gate.
+    - inputs: {criterio.imagem: "https://cdn/dose_noradrenalina.png"}
+      expected_reference: "Button 'Acessar dosagens' rendered; onClick opens Modal.info title 'Dosagens' with <img src=that URL>"
+      actual_legacy: "criterio.imagem truthy -> Button + Modal.info({title:'Dosagens', content:<img src=criterio.imagem>}) rendered (TabRecomendacoes.tsx L257-277)"
+      match: true
+    - inputs: {criterio.imagem: null}
+      expected_reference: "No dosing button shown"
+      actual_legacy: "criterio.imagem falsy -> {criterio.imagem && (...)} short-circuits, no button rendered"
+      match: true
+    - inputs: {criterio.imagem: ""}
+      expected_reference: "Empty string is falsy -> no dosing button"
+      actual_legacy: "'' is falsy in JS -> no button rendered"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy code confirmed at trilhas-frontend @ f9656be, src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines 257-277: `{criterio.imagem && (<Button icon=mdiPill shape=round
+    onClick=Modal.info({title:"Dosagens", content:<img src=criterio.imagem!/>})>Acessar dosagens</Button>)}`.
+    The rule matches the source verbatim. However the audit's target — the numeric
+    drug doses (mcg/kg/min vs mcg/kg/h, mg/dl vs mmol/L, FiO2 fraction vs percent,
+    etc.) — is NOT in the code: it is rendered from a pre-authored image (criterio.imagem)
+    served by the backend/CMS and is opaque to static analysis. Therefore no dosing
+    value can be traced against a published reference from this partition. Flagged
+    for internal review: the actual dosing image assets (their source, clinical
+    provenance, and last-reviewed date) should be audited separately by a human
+    clinician against the relevant guidelines. This is NOT a defect in the rule as
+    written; the surfacing mechanism is correct and the verdict reflects the absence
+    of a machine-checkable numeric payload, not a discrepancy.

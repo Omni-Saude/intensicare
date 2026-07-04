@@ -1,0 +1,120 @@
+- rule_id: RULE-BALANCO-HIDRICO-038
+  reference:
+    citation: "Cumulative/net fluid balance = total intake − total output (standard critical-care convention). Malbrain MLNG et al., 'Fluid overload, de-resuscitation, and outcomes in critically ill or injured patients: an updated view,' Anaesthesiol Intensive Ther 2014;46(5):361-380 (ADQI fluid-balance framework); Bouchard J et al., Kidney Int 2009;76:422-427."
+    url: "https://pubmed.ncbi.nlm.nih.gov/25432556/"
+  checks:
+    equation: ok
+    coefficients: "n/a (unit accumulator ±quantidade, no coefficients)"
+    units: "ok — quantidade mL, balanco_24h mL, consistent"
+    ranges: "n/a"
+    rounding: "n/a (direct float subtraction, no rounding)"
+    cutoffs: "n/a"
+  test_vectors:
+    - {inputs: {balanco_24h_before: 1000, delete_entrada_quantidade: 250}, expected_reference: 750, actual_legacy: 750, match: true}
+    - {inputs: {balanco_24h_before: 0, delete_entrada_quantidade: 200}, expected_reference: -200, actual_legacy: -200, match: true}
+    - {inputs: {balanco_24h_before: 750, delete_entrada_quantidade: 200, note: "double-delete of already soft-deleted entrada"}, expected_reference: "no further change (idempotent per intent)", actual_legacy: 550, match: false}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Legacy views/entradas.py:57-66 does `instance.balanco.balanco_24h -= instance.quantidade` on soft-delete.
+    Sign convention is correct against FB = Σintake − Σoutput: an intake was originally added positively (RULE-014),
+    so removing it must subtract. Arithmetic/unit-consistent -> VERIFIED. Caveats (edge-case robustness, NOT a
+    reference discrepancy): no double-delete guard (3rd vector double-subtracts) and no accumulator correction on
+    quantidade edit. A single valid delete matches the reference. Robustness issues flagged for internal review only.
+- rule_id: RULE-BALANCO-HIDRICO-039
+  reference:
+    citation: "Net fluid balance = total intake − total output (mirror of RULE-038). ADQI/KDIGO fluid-management convention; Malbrain MLNG et al., Anaesthesiol Intensive Ther 2014;46(5):361-380; Bouchard J et al., Kidney Int 2009;76:422-427."
+    url: "https://pubmed.ncbi.nlm.nih.gov/25432556/"
+  checks:
+    equation: ok
+    coefficients: "n/a"
+    units: "ok — quantidade mL, balanco_24h mL"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a"
+  test_vectors:
+    - {inputs: {balanco_24h_before: 750, delete_saida_quantidade: 300}, expected_reference: 1050, actual_legacy: 1050, match: true}
+    - {inputs: {balanco_24h_before: -200, delete_saida_quantidade: 500}, expected_reference: 300, actual_legacy: 300, match: true}
+    - {inputs: {balanco_24h_before: 1050, delete_saida_quantidade: 300, note: "double-delete of already soft-deleted saida"}, expected_reference: "no further change", actual_legacy: 1350, match: false}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Legacy views/saidas.py:44-53 does `instance.balanco.balanco_24h += instance.quantidade` on soft-delete — exact
+    mirror of RULE-038. An output was originally subtracted (RULE-015), so deleting it must add back. Sign/unit
+    consistent with FB = Σintake − Σoutput -> VERIFIED. Same double-delete / no-update-correction caveat as RULE-038
+    (3rd vector); edge-case robustness, not a reference discrepancy. Flagged for internal review.
+- rule_id: RULE-BALANCO-HIDRICO-056
+  reference:
+    citation: "No authoritative published reference — facility-specific formulary pick-list of continuous-infusion (BI/bomba de infusão) drugs + hydration for the intake form. No guideline dictates which agents appear on a given ICU's continuous-infusion menu."
+    url: "n/a"
+  checks:
+    equation: "n/a (vocabulary, no computation)"
+    coefficients: "n/a"
+    units: "volume mL only; no dose/rate/concentration captured (cannot represent mcg/kg/min infusions — by design)"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a"
+  test_vectors:
+    - {inputs: {nome: "Noradrenalina"}, expected_reference: "valid member of facility BI list", actual_legacy: "accepted (present in options)", match: true}
+    - {inputs: {nome: "Clanidina"}, expected_reference: "intended = Clonidina (spelling variant)", actual_legacy: "stored verbatim as 'Clanidina'", match: true}
+    - {inputs: {nome: "ketamine"}, expected_reference: "single agent", actual_legacy: "TWO options 'Cetamina' and 'Ketamin' both present — duplicate for same drug", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Proprietary facility formulary vocabulary (dataFormBalancoHidrico.ts:146-190) — do NOT treat as wrong.
+    Data-quality observations for internal review (not reference discrepancies):
+    (1) Legacy source array has 29 options, but the catalog entry claims "32 options" — catalog metadata count is
+        off by 3 (verified by direct count of the options array).
+    (2) Orthography variants vs standard INN/PT-BR: 'Clanidina'->Clonidina, 'Hidrocortizona'->Hidrocortisona,
+        'Octeotride'->Octreotide.
+    (3) Same drug listed twice under different spellings: 'Cetamina' and 'Ketamin' (both ketamine).
+    (4) Volume-only capture (mL), no dose/rate — expected for a fluid-balance form.
+- rule_id: RULE-BALANCO-HIDRICO-057
+  reference:
+    citation: "No authoritative published reference — facility-specific antimicrobial pick-list (antibiotics + antifungals + antivirals) for the intake form."
+    url: "n/a"
+  checks:
+    equation: "n/a"
+    coefficients: "n/a"
+    units: "volume mL only"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a"
+  test_vectors:
+    - {inputs: {nome: "Vancocina "}, expected_reference: "vancomycin selectable", actual_legacy: "stored value 'Vancocina ' WITH trailing space; a trimmed client value 'Vancocina' would NOT equal the option value", match: false}
+    - {inputs: {nome: "Aciclovir"}, expected_reference: "antiviral, present despite 'antibiótico' label", actual_legacy: "accepted — list mixes antivirals/antifungals under an antibiotic label", match: true}
+    - {inputs: {nome: "Bedfordpoly B "}, expected_reference: "polymyxin B (Bedford)", actual_legacy: "stored 'Bedfordpoly B ' with trailing whitespace", match: false}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Proprietary formulary vocabulary (dataFormBalancoHidrico.ts:191-247), 40 options — do NOT treat as wrong.
+    Data-quality observations for internal review:
+    (1) Trailing-whitespace values: 'Bedfordpoly B ', 'Novamin ', 'Staficilin N ', 'Vancocina '. Since value===label
+        including the space, any consumer that trims/normalizes fails equality matching (1st & 3rd vectors) — a real
+        value-integrity risk for downstream filtering/reporting.
+    (2) Label 'antibiótico' but list includes antifungals (Cancidas, Mycamine, Ecalta, Ambisome, Anforicin B, Zoltec)
+        and antivirals (Aciclovir, Zovirax) — mislabeled category (cosmetic).
+    (3) Brand/generic duplicates (Flagyl/Metronidazol; Zoltec/Fluconazol; Zovirax/Aciclovir).
+- rule_id: RULE-BALANCO-HIDRICO-058
+  reference:
+    citation: "Ion valence/charge notation is chemically verifiable. Standard inorganic chemistry: orthophosphate PO4^3− (charge 3−); hydrogen phosphate HPO4^2−; sulfate SO4^2−; bicarbonate HCO3−; Na+, K+, Cl−, Ca2+, Mg2+."
+    url: "https://pubchem.ncbi.nlm.nih.gov/compound/Phosphate"
+  checks:
+    equation: "n/a (vocabulary)"
+    coefficients: "n/a"
+    units: "volume mL only (no mEq/mmol dose)"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a"
+  test_vectors:
+    - {inputs: {nome: "Sulfato (SO42-)"}, expected_reference: "SO4^2− (charge 2−)", actual_legacy: "label 'SO42-' = SO4^2− — correct", match: true}
+    - {inputs: {nome: "Fosfato (PO42-)"}, expected_reference: "orthophosphate PO4^3− (charge 3−)", actual_legacy: "label 'PO42-' reads as PO4^2− — chemically incorrect for orthophosphate", match: false}
+    - {inputs: {nome: "Bicarbonato (HCO3-)"}, expected_reference: "HCO3− (charge 1−)", actual_legacy: "label 'HCO3-' correct", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: none
+  notes: |
+    Proprietary electrolyte pick-list (dataFormBalancoHidrico.ts:248-271), 8 options, volume-only capture — do NOT
+    treat as wrong. One chemically-verifiable observation: the phosphate label 'Fosfato (PO42-)' renders the charge as
+    2− whereas orthophosphate is PO4^3−; sulfate 'SO42-' (2−) and all other ions are correct. This is a DISPLAY-LABEL
+    notation error only — the field captures a volume in mL, no valence/dose math is performed on the label — so
+    clinical impact is none. Flagged for internal review as a cosmetic data-quality fix.

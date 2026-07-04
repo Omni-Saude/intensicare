@@ -1,0 +1,97 @@
+- rule_id: RULE-ESTABILIDADE-020
+  reference:
+    citation: "Singer M, et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3). JAMA 2016;315(8):801-810 — septic shock identified by vasopressor need + serum lactate >2 mmol/L (>18 mg/dL); Surviving Sepsis Campaign 2021 uses lactate >2 mmol/L as the hypoperfusion anchor."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903338/"
+  checks:
+    equation: ok        # single threshold comparison
+    coefficients: diff  # cutoff 2.5 vs reference anchor 2.0
+    units: diff         # rule input label ambiguous (mmol/L clinically, but _REGRAS text says mg/dl); reference is mmol/L (>18 mg/dL)
+    ranges: ok          # 0-20 mmol/L plausible clinical span
+    rounding: n/a       # no rounding applied
+    cutoffs: diff       # >=2.5 mmol/L vs Sepsis-3/SSC >2.0 mmol/L
+  test_vectors:
+    - {inputs: {lactato_arterial: 2.0}, expected_reference: "elevated/hypoperfusion TRUE (>2 mmol/L abnormal)", actual_legacy: "FALSE (2.0 >= 2.5 is false)", match: false}
+    - {inputs: {lactato_arterial: 2.3}, expected_reference: "TRUE (>2 mmol/L)", actual_legacy: "FALSE (2.3 >= 2.5 is false)", match: false}
+    - {inputs: {lactato_arterial: 2.5}, expected_reference: "TRUE", actual_legacy: "TRUE (2.5 >= 2.5)", match: true}
+    - {inputs: {lactato_arterial: 1.8}, expected_reference: "FALSE (<2 mmol/L, normal)", actual_legacy: "FALSE", match: true}
+    - {inputs: {lactato_arterial: 0}, expected_reference: "FALSE (default/normal)", actual_legacy: "FALSE", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Legacy manual C4 (trilha_estabilidade.py:130) flags lactato_arterial >= 2.5, whereas the
+    Sepsis-3 / SSC hypoperfusion anchor is >2.0 mmol/L (>18 mg/dL). The higher, inclusive 2.5
+    cutoff misses mild hyperlactatemia in the 2.0-2.49 mmol/L band that references would flag —
+    a screening-sensitivity gap, hence low (not none). Secondary flag: input unit label is
+    ambiguous — _REGRAS text says mg/dl but the 2.5 value is only coherent as mmol/L (2.5 mg/dL
+    is far below the normal lactate ceiling of ~18 mg/dL; if code were fed mg/dL, essentially no
+    patient would trigger). Value is consistent with the mmol/L interpretation, so no evidence of
+    an active unit bug in the comparison, but the mislabel should be corrected. Sibling v3/facade
+    criteria use the 2.0 anchor (per catalog notes), so 2.5 is an intra-system inconsistency too.
+
+- rule_id: RULE-ESTABILIDADE-022
+  reference:
+    citation: "No authoritative published source defines a numeric infusion-volume rule of the form 'dobutamine >10 ml/h AND noradrenaline volume == 50 ml'. Closest clinical anchor: Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49(11):e1063-e1143) supports adding dobutamine to norepinephrine in septic shock with cardiac dysfunction/persistent hypoperfusion, but specifies no device-volume thresholds and doses vasopressors by weight-rate (mcg/kg/min), not bag volume (ml)."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/"
+  checks:
+    equation: n/a       # proprietary boolean combination, no reference equation
+    coefficients: n/a   # >10 ml/h and 50 ml are internal device thresholds, not guideline values
+    units: n/a          # ml / ml/h are infusion-volume/rate units with no reference counterpart
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {dobutamina: 15, "noradrenalina.quantidade": 50}, expected_reference: "no published expected value (n/a)", actual_legacy: "TRUE (15>10 AND 50==50)", match: "n/a"}
+    - {inputs: {dobutamina: 15, "noradrenalina.quantidade": 40}, expected_reference: "n/a", actual_legacy: "FALSE (40 != 50)", match: "n/a"}
+    - {inputs: {dobutamina: 15, "noradrenalina.quantidade": 51}, expected_reference: "n/a — clinically a HIGHER noradrenaline exposure than 50, yet not flagged", actual_legacy: "FALSE (51 != 50)", match: "n/a"}
+    - {inputs: {dobutamina: 10, "noradrenalina.quantidade": 50}, expected_reference: "n/a", actual_legacy: "FALSE (10 not > 10)", match: "n/a"}
+  verdict: UNVERIFIABLE
+  clinical_impact: "n/a"
+  notes: >
+    Verified against legacy source (trilha_estabilidade.py:137): dobutamina > 10 AND
+    buscar_quantidade_noradrenalina() == 50. The specific numeric thresholds (>10 ml/h dobutamine,
+    exactly 50 ml noradrenaline) are proprietary/internal device-configuration rules with no
+    authoritative published anchor, so they cannot be VERIFIED or refuted against a reference ->
+    UNVERIFIABLE, flag for internal review (do not treat as clinically wrong). FLAGGED FOR INTERNAL
+    REVIEW: the extraction-stage DISCREPANCY is a code-vs-intent anomaly, not a code-vs-reference
+    one — exact equality '== 50' on a continuous noradrenaline volume is clinically implausible
+    (49 or 51 ml -> False), so a genuinely refractory-shock patient at 60 ml would NOT set
+    criterio_6; the sibling v3 criterio_9 uses '> 50', suggesting the intended operator was >= or
+    >. Also the dobutamina model validator max (30) exceeds nothing problematic but the >10 gate
+    sits well inside it. criterio_6 affects calcular_alerta (RULE-023) but is not surfaced by
+    get_payload (iterates 1..5), so the equality bug silently perturbs the alert count only.
+
+- rule_id: RULE-ESTABILIDADE-024
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49(11):e1063-e1143): IV hydrocortisone 200 mg/day given as 50 mg IV q6h (or continuous) for septic shock on vasopressors; corticosteroid trigger norepinephrine/epinephrine >=0.25 mcg/kg/MIN for >=4h; add vasopressin (typically at norepinephrine 0.25-0.5 mcg/kg/MIN). Vasopressor dosing is weight-rate per MINUTE. Sepsis-3 for the hyperlactatemia concept."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/"
+  checks:
+    equation: n/a       # recommendation/alert-text catalog, no computation in this file
+    coefficients: ok    # hydrocortisone 50 mg EV 6/6h == SSC 200 mg/d schedule; vasopressin continuous == SSC
+    units: diff         # noradrenaline high-dose labelled ">0,5mcg/kg/h" (criterio_3) vs SSC standard mcg/kg/MIN
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff       # 0.5 threshold vs SSC corticosteroid trigger 0.25 mcg/kg/min (0.5 sits at top of vasopressin-add band)
+  test_vectors:
+    - {inputs: {scenario: "high-dose noradrenaline, criterio_3"}, expected_reference: "hydrocortisone 50 mg IV q6h + continuous vasopressin (SSC 2021)", actual_legacy: "text: 'hidrocortisona 50mg EV 6/6hs + vasopressina EV continua' — content matches; but dose unit stated as mcg/kg/H not mcg/kg/MIN", match: false}
+    - {inputs: {scenario: "corticosteroid trigger value, criterio_3"}, expected_reference: "norepinephrine >=0.25 mcg/kg/min (SSC 2021)", actual_legacy: "alert text uses >0.5 mcg/kg/h (wrong unit; value 0.5 within vasopressin-add range but stated per hour)", match: false}
+    - {inputs: {scenario: "refractory shock, tachycardia, criterio_6"}, expected_reference: "excessive beta-1 chronotropy (HR>130) impairs LV filling -> reduce/hold dobutamine", actual_legacy: "text: FC>130bpm reduces LV filling -> avaliar reducao/suspensao da dobutamina — concept matches", match: true}
+    - {inputs: {scenario: "hyperlactatemia, criterio_4"}, expected_reference: "assess perfusion (lactate/ScvO2/deltaPCO2), volume + inotrope for low output", actual_legacy: "text: checar TEC/ScVO2/deltaPCO2, prova volemica + dobutamina — concept matches", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Verified against legacy source (core/facade/trilha_estabilizacao.py:1-54), a display-only
+    alert/recommendation text catalog. Clinical recommendation CONTENT is consistent with SSC 2021
+    (hydrocortisone 50 mg q6h, continuous vasopressin, dobutamine reduction at HR>130, lactate/
+    perfusion work-up). Primary DISCREPANCY: criterio_3 alert states the noradrenaline high-dose
+    threshold as ">0,5mcg/kg/H" whereas the guideline standard (and the sibling estabilidade
+    facade RULE-016 criterio_7) express it in mcg/kg/MIN. 0.5 mcg/kg/min = 30 mcg/kg/h, so the
+    two units differ 60x; the '/h' label in clinician-facing text is a genuine unit error of
+    exactly the class this audit targets. Impact moderate: this file performs no numeric
+    comparison so it will not itself misfire, but (a) it shows an incorrect unit in clinical
+    guidance and (b) any downstream reuse of the '/h' framing against a real mcg/kg/min feed would
+    spuriously classify almost any noradrenaline exposure as 'high dose'. Threshold value 0.5 also
+    exceeds the SSC corticosteroid trigger of 0.25 mcg/kg/min (0.5 is the top of the vasopressin-
+    add band) — later/stricter escalation. Additional non-clinical defects: structural key gap
+    (criterio_6 -> _7 -> _10, missing 8/9), criterio_7 and criterio_10 have empty recomendacoes,
+    and criterio_7 alerta carries a stray smart-quote. Rule status was AMBIGUOUS; characterized
+    here as a units DISCREPANCY with otherwise reference-consistent content.

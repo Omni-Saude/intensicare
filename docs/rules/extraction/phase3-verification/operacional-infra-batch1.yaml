@@ -1,0 +1,177 @@
+- rule_id: RULE-OPERACIONAL-INFRA-001
+  reference:
+    citation: "ISO 8601-1:2019 time-of-day representation (hour range 00-23; 24:00 permitted ONLY as an end-of-day midnight marker, never as a labeled hour-of-day). Cross-checked against standard 'round half up' arithmetic convention (IEEE 754 roundTiesToAway / common commercial rounding)."
+    url: "https://www.iso.org/iso-8601-date-and-time-format.html"
+  checks:
+    equation: diff
+    coefficients: "n/a (no clinical coefficients)"
+    units: "ok - minutes/hours, no unit-scale mismatch"
+    ranges: "diff - output hour can be 24 (BE) which is outside the ISO 8601 valid hour-of-day domain 0-23"
+    rounding: "diff - legacy rounds the exact half (:30) DOWN (threshold minute>=31 / minute>30 selects only 31-59); standard round-half-up would carry :30 up. This half-tie direction is a design choice, not a standards violation per se."
+    cutoffs: "diff - unguarded top-of-day overflow: 23:31-23:59 -> hour 24 with no modulo-24 / no date carry"
+  test_vectors:
+    - inputs: {time: "14:30"}
+      expected_reference: "round-half-up -> 15:00 (tie carries up)"
+      actual_legacy: "BE minute 30 not >=31 -> 14:00; FE 30 not >30 -> 14:00"
+      match: false
+    - inputs: {time: "14:31"}
+      expected_reference: "nearest hour -> 15:00"
+      actual_legacy: "BE 31>=31 -> 15:00; FE 31>30 -> 15:00"
+      match: true
+    - inputs: {time: "23:31 (day boundary)"}
+      expected_reference: "nearest hour -> 00:00 of the following calendar day (hour in 0-23, date carried forward)"
+      actual_legacy: "BE hour 23+1=24 -> literal invalid string '24:00' (no modulo, no date carry); FE builds '24:00' then moment('24:00','HH:mm') leniently rolls to '00:00' silently dropping the date"
+      match: false
+    - inputs: {time: "14:00"}
+      expected_reference: "14:00"
+      actual_legacy: "BE/FE -> 14:00"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    Confirms extraction status DISCREPANCY against ISO 8601. Two distinct deviations. (1) Half-tie:
+    :30 rounds DOWN not up - this is a convention choice, no clinical standard mandates a direction,
+    impact none on its own. (2) Real defect: the 23:31-23:59 overflow produces hour 24, outside the
+    valid 0-23 hour-of-day domain. BE emits the out-of-range literal "24:00"; FE's re-parse silently
+    collapses it to "00:00", dropping the date. The two sides diverge in how the same shared bug
+    manifests. Clinical impact is LOW because the value is only a coarse hour-of-day LABEL
+    (hora_cheia) on homecare balanco-hidrico / sinais-vitais records, the affected window is 29
+    minutes/day at the day boundary, and no dosing/scoring depends on it - but a "24:00" label can
+    break downstream time parsing/sorting and the FE variant can mis-attribute a late-night reading
+    to the start of the day. FE justOclock has no confirmed call site (possibly dead code).
+- rule_id: RULE-OPERACIONAL-INFRA-002
+  reference:
+    citation: "No authoritative published reference exists. Portuguese display-name abbreviation with connective (da/de/do/das/dos) handling is a proprietary UI/partial-anonymization business rule, not governed by any clinical guideline or standard calculator."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: "internal-only: documented IndexError on names with <2 words (nome_fracionado[1]) and on empty tokens/double-space (parte[0])"
+    rounding: n/a
+    cutoffs: "internal: keep first 2 tokens full; keep 3rd full iff token index 1 is a connective; abbreviate the rest to initial"
+  test_vectors:
+    - inputs: {nome_completo: "Joao da Silva Souza"}
+      expected_reference: "n/a (no external standard)"
+      actual_legacy: "index1='da' is a connective -> keep first 3 full -> ' Joao da Silva' + ' S' => ' Joao da Silva S'"
+      match: "n/a"
+    - inputs: {nome_completo: "Maria Clara Santos Lima"}
+      expected_reference: "n/a"
+      actual_legacy: "index1='Clara' not connective -> keep first 2 -> ' Maria Clara' + ' S' + ' L' => ' Maria Clara S L' (note leading space)"
+      match: "n/a"
+    - inputs: {nome_completo: "Cher"}
+      expected_reference: "n/a"
+      actual_legacy: "nome_fracionado[1] -> IndexError (uncaught crash on single-word name)"
+      match: "n/a"
+  verdict: UNVERIFIABLE
+  clinical_impact: "n/a"
+  notes: >-
+    Legacy source (core/utils.py:34-48) verified verbatim against the rule logic. This is an internal
+    display/partial-anonymization helper with no authoritative external reference; flag for internal
+    review, do NOT treat as wrong. The extraction DISCREPANCY (unguarded nome_fracionado[1] crash on
+    single-word names, and parte[0] crash on empty tokens from double spaces) is a real robustness
+    defect but is a code-quality/internal-consistency matter, not a deviation from any published
+    standard. Preserving the exact behavior (including the leading space and the connective list) is
+    required for a faithful rebuild.
+- rule_id: RULE-OPERACIONAL-INFRA-003
+  reference:
+    citation: "No authoritative clinical reference. This is offline-sync data-shaping (group prescriptions by calendar day). The only external correctness contract is Python's itertools.groupby semantics: it groups only CONSECUTIVE equal keys, so input must be pre-sorted by the grouping key."
+    url: "https://docs.python.org/3/library/itertools.html#itertools.groupby"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "ok (internal) - groups by str(obj.dia); correctness depends on upstream ordering, which RULE-005 confirms is order_by('-dia')"
+  test_vectors:
+    - inputs: {prescricoes: "[d=07-03, d=07-03, d=07-02, d=07-01] (pre-sorted desc as guaranteed by RULE-005)"}
+      expected_reference: "groupby yields {'2026-07-03':[2 items], '2026-07-02':[1], '2026-07-01':[1]}"
+      actual_legacy: "payload = {'2026-07-03':[..], '2026-07-02':[..], '2026-07-01':[..]}"
+      match: true
+    - inputs: {prescricoes: "[] (no prescriptions for nr_atendimento)"}
+      expected_reference: "{}"
+      actual_legacy: "context.get('prescricoes',{}).get(nr,[]) -> [] -> payload {}"
+      match: true
+    - inputs: {prescricoes: "[d=07-03, d=07-02, d=07-03] (hypothetically UNsorted)"}
+      expected_reference: "groupby would emit 07-03, 07-02, 07-03 as 3 groups; dict-write collapses the two 07-03 keys, LAST wins -> data loss"
+      actual_legacy: "same collapse - BUT upstream is guaranteed sorted by -dia (RULE-005), so this state cannot occur in practice"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: "n/a"
+  notes: >-
+    Legacy source (serializers/dados_offline.py:31-60) verified verbatim; docstring 'ultimos 3 dias'
+    matches the view-side QTD_DIAS window (RULE-005). No authoritative clinical reference; internal
+    data-shaping only. Against the applicable external contract (itertools.groupby requires sorted
+    input) the usage is CORRECT because the source queryset is ordered by '-dia' first. Flag for
+    internal review only as confirmation of the ordering dependency; no defect found relative to that
+    contract.
+- rule_id: RULE-OPERACIONAL-INFRA-004
+  reference:
+    citation: "No universal published standard fixes the shift boundary at 07:00. A ~07:00 day-shift change is a common Brazilian/institutional nursing-shift convention, but the specific cutoff is a proprietary operational business rule. Only the Django Case/When boundary logic (inclusive at 07:00) is externally checkable."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "ok - time-of-day compared to '07:00'; date arithmetic +1 day"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "ok (internal) - boundary inclusive on the >=07:00 side; strictly-before 07:00 rolls to dia+1, matching the described behavior"
+  test_vectors:
+    - inputs: {horario: "07:00:00", dia: "2026-07-01"}
+      expected_reference: "07:00 belongs to own day -> dia_real=2026-07-01"
+      actual_legacy: "horario>=07:00 -> then F(dia) -> 2026-07-01"
+      match: true
+    - inputs: {horario: "06:59:59", dia: "2026-07-01"}
+      expected_reference: "before 07:00 -> next day -> dia_real=2026-07-02"
+      actual_legacy: "horario<07:00 -> F(dia)+1day -> 2026-07-02"
+      match: true
+    - inputs: {horario: "23:00:00", dia: "2026-07-01"}
+      expected_reference: "after 07:00 -> own day -> dia_real=2026-07-01"
+      actual_legacy: "horario>=07:00 -> 2026-07-01"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: "n/a"
+  notes: >-
+    Legacy source (views/dados_offline.py:118-142) verified verbatim - the two When branches split at
+    horario__gte='07:00' (own day) vs horario__lt='07:00' (dia+1), ordered by (dia_real, horario).
+    The 07:00 shift-boundary value itself has no authoritative published reference (institutional
+    convention); flag for internal review. The boundary IMPLEMENTATION is internally consistent and
+    correctly inclusive at exactly 07:00:00 as described. No defect relative to the stated intent.
+- rule_id: RULE-OPERACIONAL-INFRA-005
+  reference:
+    citation: "No authoritative clinical reference. The 3-day retention window (QTD_DIAS=2, inclusive) and the item-type priority ordering (DIETA=1, MEDICAMENTO_SOLUCAO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5) are proprietary offline-sync display business rules. Only the window arithmetic and NULL-ordering are externally checkable (Python/Django date math; PostgreSQL default ASC NULLS LAST)."
+    url: "https://www.postgresql.org/docs/current/queries-order.html"
+  checks:
+    equation: n/a
+    coefficients: "internal - priority map 1..5 confirmed matching code (Value(1)..Value(5))"
+    units: "ok - days"
+    ranges: "ok (internal) - dia__gte = today - 2 days; closed lower bound, no upper bound (future dia values would be included)"
+    rounding: n/a
+    cutoffs: "ok (internal) - QTD_DIAS=2 confirmed in core/enum.py:2 -> inclusive 3-day window; unmatched DS_TIPO_ITEM_PRESCR -> NULL prioridade (no else in Case)"
+  test_vectors:
+    - inputs: {today: "2026-07-03", dia: "2026-07-01"}
+      expected_reference: "dia__gte = 2026-07-01; 07-01 is the inclusive lower bound -> included (window = 07-01,07-02,07-03 = 3 days)"
+      actual_legacy: "filter dia__gte 2026-07-01 -> 2026-07-01 included"
+      match: true
+    - inputs: {today: "2026-07-03", dia: "2026-06-30"}
+      expected_reference: "06-30 < 07-01 lower bound -> excluded"
+      actual_legacy: "excluded"
+      match: true
+    - inputs: {DS_TIPO_ITEM_PRESCR: "DIETA"}
+      expected_reference: "prioridade = 1 (sorts first within a day)"
+      actual_legacy: "When DIETA then Value(1) -> 1"
+      match: true
+    - inputs: {DS_TIPO_ITEM_PRESCR: "EXAME (unmatched type)"}
+      expected_reference: "no When matches -> NULL prioridade -> sorts LAST in ASC (PostgreSQL NULLS LAST default)"
+      actual_legacy: "Case with no else -> NULL -> order_by('-dia','prioridade') puts it last"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: "n/a"
+  notes: >-
+    Legacy source (views/dados_offline.py:144-172) verified verbatim; QTD_DIAS=2 confirmed in
+    core/enum.py:2. Window arithmetic yields the documented inclusive 3-day window and the priority
+    map exactly matches the code. The retention window and the DIETA>MEDICAMENTO>SN_ACM>... priority
+    hierarchy are proprietary product decisions with no authoritative external reference; flag for
+    internal review. No defect found relative to the stated intent. Note (already flagged): closed
+    lower bound with no upper bound would admit any future-dated 'dia' rows.

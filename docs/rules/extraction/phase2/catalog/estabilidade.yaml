@@ -1,973 +1,1678 @@
 cluster: estabilidade
 commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
 commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
-
-# RECONCILIATION SUMMARY
-# ----------------------
-# This cluster contains THREE distinct variant implementations of the hemodynamic-
-# stability pathway plus a sibling "estabilizacao" pathway. No two entries are exact
-# duplicates, so there are ZERO merges (each provisional ID -> its own final rule).
-#
-#   * v3 predicate code   : trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
-#                           (criteria 1-13 + alert) -> RULE-001..014  [primary/current impl]
-#   * facade alert-text   : core/facade/trilha_estabilidade.py
-#                           (recommendation catalog, criteria 1-13)   -> RULE-015..016
-#   * manual v1 code      : trilha_manual/models/trilha_estabilidade.py
-#                           (criteria 1-6 + alert)                    -> RULE-017..023  [variant]
-#   * estabilizacao       : core/facade/trilha_estabilizacao.py +
-#                           trilha_automatica/models/trilha2.py       -> RULE-024..025  [sibling pathway]
-#
-# The facade text (RULE-015/016) is the alert message layer displayed by the v3 code:
-# TrilhaEstabilidadeV3Model.get_detalhe() attaches get_payload_trilha_estabilidade()[criterio_N]
-# to each fired v3 criterio_N. The displayed text asserts dose/lab thresholds
-# (noradrenaline >0.5 & >1.5 mcg/kg/min, FC>130, ScVO2<70, deltaPCO2>6, lactate>2) that the
-# v3 predicates DO NOT actually test (they trigger on ml/h infusion volumes and lactate>=2).
-# This text-vs-predicate mismatch is a NEW cross-implementation divergence surfaced here.
-# The three implementations are VARIANTS (different thresholds/data models) and are cross-
-# referenced via `related`, never merged.
-
 rules:
-  # ============================================================
-  # CORE FORMULAS / PHYSIOLOGICAL CALCULATIONS (type formula)
-  # ============================================================
-  - id: RULE-ESTABILIDADE-001
-    name: Estabilidade v3 criterio_5 - vasopressor with negative cumulative fluid balance
-    category: physiological-calculation
-    type: formula
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Intended: noradrenaline started in last 6h AND cumulative fluid balance < -2000ml AND
-      no >=500ml Ringer/saline bolus in last 4h. The code diverges substantially from this
-      documented intent. Criterion is defined but UNWIRED (calcular_criterios does not call it).
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: balanco.qt_vol_ganhos (all-time Sum), type: float, unit: mL}
-      - {name: balanco.qt_vol_perdas (all-time Sum), type: float, unit: mL}
-      - {name: evolucao.diurna_lactato, type: float, unit: mmol/L}
-    outputs:
-      - {name: criterio_5, type: boolean}
-    logic: |
-      balanco_acumulado = aggregate(total_ganhos=Sum(qt_vol_ganhos), total_perdas=Sum(qt_vol_perdas))  # over ALL balancos, no time window
-      return all([
-        balanco_6h.filter(qt_vol_nora__gt=0).exists(),
-        get_number(total_ganhos) - get_number(total_perdas) < 2000,   # docstring intent: BHA < -2000 (negative)
-        get_number(evolucao.diurna_lactato) > 0.5,                    # docstring intent: no >=500ml Ringer/saline in 4h
-      ]) if (ultimo_balanco and balanco_4h and ultima_evolucao) else False
-    edge_cases: >
-      Cumulative balance is summed over the ENTIRE history (not a window). Comparison uses
-      < 2000 (positive) rather than the documented < -2000, so it fires for almost any BHA
-      below +2000 ml. The third clause tests lactate > 0.5 instead of the documented Ringer/
-      saline volume. Guarded by presence of ultimo_balanco/balanco_4h/ultima_evolucao else False.
-    confidence: high
-    related: [RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-015]
-    divergence: >
-      Code vs its own docstring: (1) threshold sign — code `< 2000` vs documented `< -2000`;
-      (2) window — code sums ALL balancos vs documented last-6h/last-4h window; (3) third clause
-      — code tests `diurna_lactato > 0.5` vs documented "no >=500ml Ringer/saline in 4h".
-    merged_from: [RULE-estabilidade-BE-03-065]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "364-396", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Facade alert text for criterio_5 (RULE-015) describes "BH acumulado negativo em mais de
-      2000ml". Unwired in calcular_criterios. Same clinical theme as manual pathway has no direct
-      equivalent.
+- id: RULE-ESTABILIDADE-001
+  name: Estabilidade v3 criterio_5 - vasopressor with negative cumulative fluid balance
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended: noradrenaline started in last 6h AND cumulative fluid balance < -2000ml AND no >=500ml
+    Ringer/saline bolus in last 4h. The code diverges substantially from this documented intent. Criterion is defined
+    but UNWIRED (calcular_criterios does not call it).
 
-  - id: RULE-ESTABILIDADE-002
-    name: Estabilidade v3 criterio_6 - shock index with beta-blocker/vasopressor absence
-    category: physiological-calculation
-    type: formula
-    status: OK
-    verify: true
-    description: >
-      Antibiotic prescribed AND (shock index FC/PAS > 0.7 OR FC/PAM > 0.9) AND absence of all
-      beta-blockers (propranolol, carvedilol, bisoprolol, atenolol, metoprolol) AND absence of
-      noradrenaline. Defined but UNWIRED.
-    inputs:
-      - {name: balanco.fc, type: float, unit: bpm}
-      - {name: balanco.pas, type: float, unit: mmHg}
-      - {name: balanco.pam, type: float, unit: mmHg}
-      - {name: cpoe beta-blockers (propranolol/carvedilol/bisoprolol/atenolol/metoprolol), type: float}
-      - {name: cpoe.antibiotico, type: float}
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-    outputs:
-      - {name: criterio_6, type: boolean}
-    logic: |
-      return all([
-        get_number(cpoe.antibiotico) > 0,
-        any([
-          (get_number(fc)/get_number(pas)) > 0.7 if get_number(pas) else False,
-          (get_number(fc)/get_number(pam)) > 0.9 if get_number(pam) else False,
-        ]),
-        all([ not get_number(cpoe.propranolol) > 0, not get_number(cpoe.carvedilol) > 0,
-              not get_number(cpoe.bisoprolol) > 0, not get_number(cpoe.atenolol) > 0,
-              not get_number(cpoe.metoprolol) > 0, not get_number(balanco.qt_vol_nora) > 0 ]),
-      ]) if (ultima_cpoe and ultima_balanco and ultima_evolucao) else False
-    edge_cases: >
-      Division guarded by truthiness of pas/pam (avoids ZeroDivision). Shock-index thresholds:
-      0.7 against PAS, 0.9 against PAM. Beta-blocker/noradrenaline absence must ALL hold.
-      Unwired in calcular_criterios.
-    confidence: high
-    related: [RULE-ESTABILIDADE-013, RULE-ESTABILIDADE-015]
-    merged_from: [RULE-estabilidade-BE-03-066]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "398-458", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Shock index (heart rate / systolic BP) is a recognized hemodynamic marker; verify against
-      published normal range (0.5-0.7). Facade criterio_6 alert text = "Risco de choque
-      circulatorio (Indice de choque positivo)".
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: balanco.qt_vol_ganhos (all-time Sum)
+    type: float
+    unit: mL
+  - name: balanco.qt_vol_perdas (all-time Sum)
+    type: float
+    unit: mL
+  - name: evolucao.diurna_lactato
+    type: float
+    unit: mmol/L
+  outputs:
+  - name: criterio_5
+    type: boolean
+  logic: "balanco_acumulado = aggregate(total_ganhos=Sum(qt_vol_ganhos), total_perdas=Sum(qt_vol_perdas))  # over\
+    \ ALL balancos, no time window\nreturn all([\n  balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  get_number(total_ganhos)\
+    \ - get_number(total_perdas) < 2000,   # docstring intent: BHA < -2000 (negative)\n  get_number(evolucao.diurna_lactato)\
+    \ > 0.5,                    # docstring intent: no >=500ml Ringer/saline in 4h\n]) if (ultimo_balanco and balanco_4h\
+    \ and ultima_evolucao) else False\n"
+  edge_cases: 'Cumulative balance is summed over the ENTIRE history (not a window). Comparison uses < 2000 (positive)
+    rather than the documented < -2000, so it fires for almost any BHA below +2000 ml. The third clause tests lactate
+    > 0.5 instead of the documented Ringer/ saline volume. Guarded by presence of ultimo_balanco/balanco_4h/ultima_evolucao
+    else False.
 
-  # ============================================================
-  # THRESHOLDS / DECISION LOGIC
-  # v3 predicate criteria (current/primary implementation)
-  # ============================================================
-  - id: RULE-ESTABILIDADE-003
-    name: Estabilidade v3 criterio_1 - hypoperfusion on vasopressor
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: >
-      Noradrenaline present in balanco in last 6h AND (capillary refill time > 3s OR arterial
-      lactate >= 2 mmol/L). Defined but UNWIRED.
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: evolucao.tempo_enchimento_capilar, type: float, unit: s}
-      - {name: evolucao.diurna_lactato, type: float, unit: mmol/L}
-    outputs:
-      - {name: criterio_1, type: boolean}
-    logic: |
-      return all([
-        balanco_6h.filter(qt_vol_nora__gt=0).exists(),
-        any([ get_number(tempo_enchimento_capilar) > 3, get_number(diurna_lactato) >= 2 ]),
-      ]) if (balanco_6h and ultima_evolucao) else False
-    edge_cases: "TEC strict > 3; lactate inclusive >= 2. Unwired in calcular_criterios."
-    confidence: high
-    related: [RULE-ESTABILIDADE-015, RULE-ESTABILIDADE-017]
-    merged_from: [RULE-estabilidade-BE-03-061]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "215-247", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Manual-pathway counterpart RULE-017 uses TEC>5 (strict) with mere noradrenaline presence
-      (no lactate branch) — variant thresholds, not a duplicate. Lactate>=2 is the Sepsis-3
-      hyperlactatemia anchor.
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-015
+  divergence: 'Code vs its own docstring: (1) threshold sign — code `< 2000` vs documented `< -2000`; (2) window
+    — code sums ALL balancos vs documented last-6h/last-4h window; (3) third clause — code tests `diurna_lactato
+    > 0.5` vs documented "no >=500ml Ringer/saline in 4h".
 
-  - id: RULE-ESTABILIDADE-004
-    name: Estabilidade v3 criterio_2 - new vasopressor missing sepsis work-up
-    category: care-pathway
-    type: decision-tree
-    status: OK
-    verify: true
-    description: >
-      Noradrenaline started in last 24h AND (no new antibiotic OR a Ringer-lactate record < 1000ml
-      / isolated saline OR no blood culture ordered). Defined but UNWIRED.
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml}
-      - {name: balanco.qt_vol_ringer_lactato, type: float, unit: ml}
-      - {name: balanco.qt_vol_soro, type: float, unit: ml}
-      - {name: cpoe.antibiotico, type: float}
-      - {name: cpoe.hemocultura_bacterias / hemocultura_fungos, type: float}
-    outputs:
-      - {name: criterio_2, type: boolean}
-    logic: |
-      return all([
-        balanco_24h.filter(qt_vol_nora__gt=0).exists(),
-        any([ not cpoe_24h.filter(antibiotico__gt=0).exists(),
-              not balanco_24h.filter(Q(qt_vol_ringer_lactato__lt=1000) | Q(qt_vol_soro__gt=0)).exists(),
-              not cpoe_24h.filter(hemocultura_bacterias__gt=0).exists(),
-              not cpoe_24h.filter(hemocultura_fungos__gt=0).exists() ]),
-      ]) if (balanco_24h and cpoe_24h) else False
-    edge_cases: >
-      Ringer clause fires when a SINGLE record has qt_vol_ringer_lactato < 1000 (not an aggregate),
-      OR'd with any isolated saline record. Unwired in calcular_criterios.
-    confidence: high
-    related: [RULE-ESTABILIDADE-015, RULE-ESTABILIDADE-018, RULE-ESTABILIDADE-024]
-    merged_from: [RULE-estabilidade-BE-03-062]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "249-284", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Encodes Surviving-Sepsis-Campaign bundle elements (cultures, antibiotics, fluid
-      resuscitation) — verify the 1000ml fluid anchor against the SSC 30 ml/kg recommendation.
+    '
+  merged_from:
+  - RULE-estabilidade-BE-03-065
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 364-396
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade alert text for criterio_5 (RULE-015) describes "BH acumulado negativo em mais de 2000ml". Unwired
+    in calcular_criterios. Same clinical theme as manual pathway has no direct equivalent.
 
-  - id: RULE-ESTABILIDADE-005
-    name: Estabilidade v3 criterio_3 - lactate elevation with sepsis therapy
-    category: alert-threshold
-    type: threshold
-    status: AMBIGUOUS
-    verify: true
-    description: >
-      Lactate >= 2 mmol/L AND antibiotic prescribed AND noradrenaline present in last 4h AND no
-      mechanical ventilation in last 24h. The docstring documents ABSENCE of noradrenaline but the
-      code checks PRESENCE. Defined but UNWIRED.
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: evolucao.diurna_lactato, type: float, unit: mmol/L}
-      - {name: cpoe.antibiotico, type: float}
-      - {name: evolucao.diurna_ventilacao, type: string}
-    outputs:
-      - {name: criterio_3, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(qt_vol_nora__gt=0).exists(),               # docstring: "ausencia de noradrenalina"
-        get_number(evolucao.diurna_lactato) >= 2,
-        get_number(cpoe.antibiotico),
-        not evolucao_24h.filter(diurna_ventilacao__in=get_ventilacao("ventilacao_mecanica")).exists(),
-      ]) if (ultimo_balanco and ultima_cpoe and ultima_evolucao and evolucao_24h) else False
-    edge_cases: "Presence-vs-documented-absence of noradrenaline. Lactate inclusive >= 2. Unwired."
-    confidence: medium
-    related: [RULE-ESTABILIDADE-015]
-    divergence: >
-      Code checks noradrenaline PRESENCE (qt_vol_nora__gt=0 exists) while the docstring specifies
-      ABSENCE ("ausencia de noradrenalina ... nas ultimas 4h"). Kept AMBIGUOUS (not DISCREPANCY)
-      because the criterion is unwired, leaving true intent undetermined.
-    merged_from: [RULE-estabilidade-BE-03-063]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "286-319", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: "Facade criterio_3 alert = 'Lactato >2mmol/L sem DVA e VM. Choque oculto?' (occult shock)."
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49(11):e1063-e1143) — fluid
+        resuscitation/de-resuscitation; Malbrain ML et al. Ann Intensive Care 2018;8:66 (ROSE concept, conservative/negative
+        fluid balance after stabilization). No published standard fixes a specific "-2000 mL" cumulative-balance
+        cutoff — that intent value is institutional.
 
-  - id: RULE-ESTABILIDADE-006
-    name: Estabilidade v3 criterio_4 - persistent shock on low-dose vasopressor
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: >
-      Respiratory rate > 20 AND noradrenaline > 10ml/h in last 4h AND (lactate > 2 OR TEC > 3)
-      AND spontaneous / room-air ventilation. Defined but UNWIRED.
-    inputs:
-      - {name: balanco.fr, type: float, unit: ipm}
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: evolucao.diurna_lactato, type: float, unit: mmol/L}
-      - {name: evolucao.tempo_enchimento_capilar, type: float, unit: s}
-      - {name: evolucao.diurna_ventilacao, type: string}
-    outputs:
-      - {name: criterio_4, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(fr__gt=20).exists(),
-        balanco_4h.filter(qt_vol_nora__gt=10).exists(),
-        any([ get_number(diurna_lactato) > 2, get_number(tempo_enchimento_capilar) > 3 ]),
-        evolucao.diurna_ventilacao.strip().lower() in [*get_ventilacao("ar_ambiente"), *get_ventilacao("ventilacao_espontanea")],
-      ]) if (ultimo_balanco and balanco_4h and ultima_evolucao) else False
-    edge_cases: "FR strict >20, nora strict >10, lactate strict >2, TEC strict >3. Unwired."
-    confidence: high
-    related: [RULE-ESTABILIDADE-015]
-    merged_from: [RULE-estabilidade-BE-03-064]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "321-362", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: "Facade criterio_4 = 'Choque septico em ventilacao espontanea: otimizar DO2 e VO2'."
-
-  - id: RULE-ESTABILIDADE-007
-    name: Estabilidade v3 criterio_7 - high-dose noradrenaline without adjuncts (VERMELHO, wired)
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: >
-      Noradrenaline > 20ml/h in last 4h AND (no vasopressin recorded in balanco OR no
-      hydrocortisone prescribed). WIRED (contributes to VERMELHO alert).
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: balanco.qt_vol_vaso, type: float, unit: ml/h}
-      - {name: cpoe.hidrocortisona, type: float}
-    outputs:
-      - {name: criterio_7, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(qt_vol_nora__gt=20).exists(),
-        any([ not get_number(ultimo_balanco.qt_vol_vaso) > 0, not get_number(ultima_cpoe.hidrocortisona) > 0 ]),
-      ]) if (balanco_4h and ultimo_balanco and ultima_cpoe) else False
-    edge_cases: >
-      Refactored threshold: original docstring specified a 20-70 ml/h band; refactored code uses
-      simply > 20 ml/h. Code matches the refactored docstring (no discrepancy).
-    confidence: high
-    related: [RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-016, RULE-ESTABILIDADE-019]
-    merged_from: [RULE-estabilidade-BE-03-067]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "460-497", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Displayed facade text (RULE-016 criterio_7) asserts "Noradrenalina >0,5mcg/kg/min" but this
-      predicate fires on qt_vol_nora>20 ml/h — see divergence on RULE-016. Manual-pathway
-      counterpart RULE-019 uses noradrenaline quantidade>21 (ml). SSC vasopressin/hydrocortisone
-      adjunct anchor.
-
-  - id: RULE-ESTABILIDADE-008
-    name: Estabilidade v3 criterio_8 - refractory shock triple therapy
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: >
-      Noradrenaline > 70ml/h AND vasopressin > 5ml/h in last 4h AND absence of adrenaline in last
-      4h. Defined but UNWIRED.
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: balanco.qt_vol_vaso, type: float, unit: ml/h}
-      - {name: balanco.qt_vol_adre, type: float, unit: ml/h}
-    outputs:
-      - {name: criterio_8, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(qt_vol_nora__gt=70, qt_vol_vaso__gt=5).exists(),
-        not balanco_4h.filter(qt_vol_adre__gt=0).exists(),
-      ]) if (ultimo_balanco and balanco_4h and ultima_evolucao) else False
-    edge_cases: "nora>70 AND vaso>5 must co-occur in the SAME record (comma = AND). Unwired."
-    confidence: high
-    related: [RULE-ESTABILIDADE-016]
-    merged_from: [RULE-estabilidade-BE-03-068]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "499-521", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Facade criterio_8 = 'Noradrenalina > 1,5mcg/kg/min, associar adrenalina' (dose in mcg/kg/min,
-      code in ml/h) — see divergence on RULE-016.
-
-  - id: RULE-ESTABILIDADE-009
-    name: Estabilidade v3 criterio_9 - dobutamine with high-dose noradrenaline
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: "Noradrenaline > 50ml/h AND dobutamine > 10ml/h in last 4h. Defined but UNWIRED."
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: balanco.qt_vol_dobuta, type: float, unit: ml/h}
-    outputs:
-      - {name: criterio_9, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(qt_vol_nora__gt=50, qt_vol_dobuta__gt=10).exists(),
-      ]) if balanco_4h else False
-    edge_cases: "nora>50 AND dobuta>10 in the SAME record. Unwired."
-    confidence: high
-    related: [RULE-ESTABILIDADE-016, RULE-ESTABILIDADE-022]
-    merged_from: [RULE-estabilidade-BE-03-069]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "523-542", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Facade criterio_9 alert also describes a FC>130 bpm tachycardia trigger that this predicate
-      does NOT implement (see divergence on RULE-016). Manual-pathway counterpart RULE-022 uses
-      dobutamine>10 AND noradrenaline == 50 (equality bug).
-
-  - id: RULE-ESTABILIDADE-010
-    name: Estabilidade v3 criterio_10 - antihypertensive with active vasopressor (VERMELHO, wired)
-    category: drug-dosing
-    type: decision-tree
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Noradrenaline > 50ml/h in last 4h AND any scheduled antihypertensive prescribed. WIRED
-      (contributes to VERMELHO alert).
-    inputs:
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: "cpoe antihypertensives (checked, 16): monocordil, nifedipino, losartan, captopril, enalapril, sustrate, nitroglicerina, nitroprussiato, clonidina, hidralazina, propranolol, bisoprolol, carvedilol, atenolol, metildopa, minoxidil", type: float}
-    outputs:
-      - {name: criterio_10, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(qt_vol_nora__gt=50).exists(),
-        any([ get_number(cpoe.<each of the 16 antihypertensives above>) > 0 ]),
-      ]) if (ultima_cpoe and balanco_4h) else False
-    edge_cases: >
-      Docstring lists 18 antihypertensives (additionally anlodipino and metoprolol) but the code's
-      any([...]) checks only 16 — a patient on ONLY anlodipino or metoprolol would not trigger.
-    confidence: high
-    related: [RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-021]
-    divergence: >
-      Code vs docstring: documented 18-drug antihypertensive list, code checks 16 (omits
-      anlodipino and metoprolol from the any([]) evaluation).
-    merged_from: [RULE-estabilidade-BE-03-070]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "544-590", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Status upgraded OK->DISCREPANCY: Phase-1 identified the 16-vs-18 drug-list gap in notes but
-      left status OK. Facade text counterpart = criterio_10 'Uso de Noradrenalina e presenca de
-      anti-hipertensivos na prescricao'.
-
-  - id: RULE-ESTABILIDADE-011
-    name: Estabilidade v3 criterio_11 - bicarbonate despite compensated acidosis
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: true
-    description: >
-      Bicarbonate > 16 mEq/L AND pH > 7.2 (flags inappropriate bicarbonate use). Bicarbonate-
-      prescription precondition noted as missing in a code comment. Defined but UNWIRED.
-    inputs:
-      - {name: evolucao.diurna_bicabornato, type: float, unit: mEq/L}
-      - {name: evolucao.diurna_ph, type: float}
-    outputs:
-      - {name: criterio_11, type: boolean}
-    logic: |
-      return all([
-        # code comment: "falta prescricao de bicarbonato" (bicarbonate-prescription check NOT implemented)
-        get_number(evolucao.diurna_bicabornato) > 16,
-        get_number(evolucao.diurna_ph) > 7.2,
-      ]) if (ultima_evolucao and ultima_cpoe) else False
-    edge_cases: >
-      The documented bicarbonate-prescription precondition is absent (comment only). Strict
-      thresholds bicarbonato>16, pH>7.2. Unwired.
-    confidence: high
-    related: [RULE-ESTABILIDADE-015]
-    merged_from: [RULE-estabilidade-BE-03-071]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "592-612", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Complementary framing to facade criterio_11 ("Indicar apenas se pH<7,15 e BIC<16"): the
-      facade states WHEN bicarbonate is appropriate, this predicate flags the inverse (BIC>16 &
-      pH>7.2 = bicarbonate NOT indicated). SSC/acid-base bicarbonate anchor.
-
-  - id: RULE-ESTABILIDADE-012
-    name: Estabilidade v3 criterio_12 - antihypertensive with recurrent hypotension (AMARELO, wired)
-    category: alert-threshold
-    type: threshold
-    status: DISCREPANCY
-    verify: false
-    description: >
-      Any scheduled antihypertensive prescribed AND more than 2 balance records with PAS<90 AND
-      PAD<60 in last 6h. WIRED (contributes to AMARELO alert).
-    inputs:
-      - {name: balanco.pas, type: float, unit: mmHg}
-      - {name: balanco.pad, type: float, unit: mmHg}
-      - {name: cpoe antihypertensives (16-drug list, same as RULE-010), type: float}
-    outputs:
-      - {name: criterio_12, type: boolean}
-    logic: |
-      return all([
-        balanco_6h.filter(pas__lt=90, pad__lt=60).count() > 2,     # docstring: PAS<90 OU PAD<60 (OR); code ANDs them
-        any([ get_number(cpoe.<16 antihypertensives>) > 0 ]),
-      ]) if (balanco_6h and ultima_cpoe) else False
-    edge_cases: >
-      Requires BOTH pas<90 AND pad<60 in the SAME record (comma = AND) whereas the docstring says
-      OR. Count strictly > 2 (i.e. >= 3 records). Window refactored 4h -> 6h. Same 16-vs-18
-      antihypertensive-list omission as RULE-010 (no anlodipino/metoprolol).
-    confidence: high
-    related: [RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-010, RULE-ESTABILIDADE-024]
-    divergence: >
-      Code vs docstring: (1) PAS/PAD combined with AND (`pas__lt=90, pad__lt=60`) vs documented
-      OR; (2) antihypertensive list 16 checked vs 18 documented (omits anlodipino, metoprolol).
-    merged_from: [RULE-estabilidade-BE-03-072]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "614-669", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Status upgraded OK->DISCREPANCY: Phase-1 identified the AND-vs-OR divergence in notes but
-      left status OK. Facade criterio_12 = 'Hipotensao recorrente e anti-hipertensivos na
-      prescricao'. verify:false — generic BP thresholds + drug-list enum, no specific published score.
-
-  - id: RULE-ESTABILIDADE-013
-    name: Estabilidade v3 criterio_13 - recurrent hypertension off vasopressor (AMARELO, wired)
-    category: alert-threshold
-    type: threshold
-    status: DISCREPANCY
-    verify: false
-    description: >
-      Intended: PAS>155 OR PAD>90 in the last 2 balance records AND no noradrenaline in last 4h
-      AND no ischemic-stroke (AVCi / I64) admission diagnosis. WIRED (contributes to AMARELO).
-    inputs:
-      - {name: balanco.pas, type: float, unit: mmHg}
-      - {name: balanco.pad, type: float, unit: mmHg}
-      - {name: balanco.qt_vol_nora, type: float, unit: ml/h}
-      - {name: evolucao.diagnostico_1..4, type: string}
-    outputs:
-      - {name: criterio_13, type: boolean}
-    logic: |
-      return all([
-        balanco_4h.filter(pas__gt=155, pad__gt=90).count() == 2,   # docstring: PAS>155 OU PAD>90 nos ultimos 2 lancamentos
-        not balanco_4h.filter(qt_vol_nora__gt=0).exists(),
-        not list(filter(lambda x: x.startswith("I64"),
-                        vars(ultima_evolucao).fromkeys(("diagnostico_1","diagnostico_2","diagnostico_3","diagnostico_4")))),
-      ]) if (ultima_evolucao and balanco_4h) else False
-    edge_cases: >
-      (1) pas>155 AND pad>90 in the SAME record (comma = AND) with count exactly == 2, whereas the
-      docstring says "PAS>155 OU PAD>90 nos ultimos 2 lancamentos"; (2) the I64/AVCi exclusion is
-      vacuously always True — `vars(evolucao).fromkeys((...))` builds a dict keyed by the field
-      NAMES ("diagnostico_1".."diagnostico_4") with None values, so filtering keys for
-      startswith("I64") always yields [] and `not []` == True.
-    confidence: high
-    related: [RULE-ESTABILIDADE-014]
-    divergence: >
-      Code vs docstring: (1) PAS/PAD combined with AND vs documented OR; (2) `.count() == 2`
-      (exactly two) vs documented "nos ultimos 2 lancamentos"; (3) the AVCi (ICD I64) diagnosis
-      gate is non-functional (fromkeys bug) and never excludes anyone.
-    merged_from: [RULE-estabilidade-BE-03-073]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "671-709", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Facade criterio_13 = 'Hipertensao recorrente, otimizar anti-hipertensivos'. The fromkeys
-      diagnosis bug is a shared systemic pattern (Phase-1 cross-ref RULE-systemic-BE-03-001).
-      verify:false — generic hypertension thresholds, no specific published score.
-
-  - id: RULE-ESTABILIDADE-014
-    name: Estabilidade v3 alert level (calcular_alerta == calcular_alerta_v2)
-    category: alert-threshold
-    type: decision-tree
-    status: OK
-    verify: false
-    description: >
-      v3 stability alert: VERMELHO if criterio_7 or criterio_10 set; else AMARELO if criterio_12
-      or criterio_13 set; else NEUTRO. calcular_alerta and calcular_alerta_v2 are byte-identical;
-      save() uses calcular_alerta_v2.
-    inputs:
-      - {name: "criterio_7, criterio_10 (vermelho); criterio_12, criterio_13 (amarelo)", type: boolean}
-    outputs:
-      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}"}
-    logic: |
-      amarelo = [criterio_12, criterio_13].count(True)
-      vermelho = [criterio_7, criterio_10].count(True)
-      if vermelho >= 1: return "VERMELHO"
-      elif amarelo >= 1: return "AMARELO"
-      else: return "NEUTRO"
-    edge_cases: >
-      Only criteria 7, 10, 12, 13 are computed by calcular_criterios (1-6, 8, 9, 11 stay null and
-      never influence the alert). If alerta == "NEUTRO", save() also resets assistido=False.
-    confidence: high
-    related: [RULE-ESTABILIDADE-007, RULE-ESTABILIDADE-010, RULE-ESTABILIDADE-012, RULE-ESTABILIDADE-013, RULE-ESTABILIDADE-023, RULE-ESTABILIDADE-025]
-    merged_from: [RULE-estabilidade-BE-03-060]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py, lines: "117-155, 200-213", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Model property tipo == 'estabilizacao' and nome == 'Estabilizacao' despite the class being
-      TrilhaEstabilidadeV3Model (naming overlap between the estabilidade and estabilizacao pathways).
-
-  # ============================================================
-  # THRESHOLDS / DECISION LOGIC
-  # Facade recommendation / alert-text catalog (v3 message layer)
-  # ============================================================
-  - id: RULE-ESTABILIDADE-015
-    name: Estabilidade facade alert-text - perfusion/shock triggers & bicarbonate (criteria 1-6, 11)
-    category: alert-threshold
-    type: threshold
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Recommendation / alert-text catalog (get_payload_trilha_estabilidade) rendered by the v3
-      model's get_detalhe for fired criteria. This capture covers the numeric-threshold criteria
-      1-6 (myocardiopathy/perfusion, out-of-protocol noradrenaline, occult shock, septic shock in
-      spontaneous ventilation, negative fluid balance, shock index) and 11 (restricted bicarbonate
-      in sepsis).
-    inputs:
-      - {name: lactato arterial, type: float, unit: mmol/L}
-      - {name: ScVO2 (saturacao venosa central), type: float, unit: '%'}
-      - {name: delta PCO2, type: float, unit: mmHg}
-      - {name: balanco hidrico acumulado, type: float, unit: ml}
-      - {name: pH, type: float}
-      - {name: bicarbonato (BIC), type: float, unit: mEq/L}
-    outputs:
-      - {name: alerta + recomendacoes (per criterion), type: string}
-    logic: |
-      criterio_1 miocardiopatia septica -> prova volemica + dobutamina SE lactato > 2 mmol/L
-                 OR ScVO2 < 70% OR delta PCO2 > 6; solicitar ecocardiograma.
-      criterio_2 inicio de noradrenalina fora do protocolo SEPSE -> checar ressuscitacao, culturas,
-                 dispositivos > 5 dias, abertura da ficha; garantir PAI + noradrenalina via CVC.
-      criterio_3 lactato > 2 mmol/L sem DVA e sem VM (choque oculto) -> abrir ficha, prova volemica,
-                 dobutamina; se refratario IOT + sedoanalgesia RASS -2 a -3.
-      criterio_4 choque septico em ventilacao espontanea -> IOT p/ otimizar DO2/VO2, RASS -2 a -3.
-      criterio_5 BH acumulado negativo > 2000 ml -> desafio hidrico 500 ml Ringer bolus ate 30 ml/kg.
-      criterio_6 indice de choque positivo -> checar disfuncao organica, abrir SEPSE, 500ml Ringer ate 30ml/kg.
-      criterio_11 bicarbonato na SEPSE: indicar APENAS se pH < 7.15 E BIC < 16.
-    edge_cases: >
-      Text-layer thresholds: lactato>2, ScVO2<70, deltaPCO2>6, BH negativo>2000ml, bicarbonate
-      indicated only if pH<7.15 AND BIC<16. Criteria 10, 12, 13 of the same facade function are
-      qualitative antihypertensive-management alerts with no numeric cutoffs (see notes).
-    confidence: high
-    related: [RULE-ESTABILIDADE-001, RULE-ESTABILIDADE-002, RULE-ESTABILIDADE-003, RULE-ESTABILIDADE-004, RULE-ESTABILIDADE-005, RULE-ESTABILIDADE-006, RULE-ESTABILIDADE-011, RULE-ESTABILIDADE-024]
-    divergence: >
-      Cross-implementation (facade text vs v3 predicate code): the displayed alert text asserts
-      conditions the v3 predicates never test. (a) criterio_1 text uses lactato > 2 while v3
-      criterio_1 (RULE-003) uses lactate >= 2, and the text's ScVO2<70 / deltaPCO2>6 branches are
-      absent from the v3 code entirely; (b) criterio_5 text says "BH negativo > 2000ml" while v3
-      criterio_5 (RULE-001) compares cumulative balance < 2000 (positive, unwindowed) — see
-      RULE-001 divergence; (c) criterio_11 text states bicarbonate is appropriate only if pH<7.15
-      AND BIC<16, whereas v3 criterio_11 (RULE-011) flags BIC>16 AND pH>7.2 (inverse framing with
-      different numeric cutoffs). This text-vs-code mismatch is a NEW reconciliation finding.
-    merged_from: [RULE-estabilidade-BE-01-013]
-    sources:
-      - {repo: ahlabs-trilhas, path: core/facade/trilha_estabilidade.py, lines: "1-57, 92-101", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Same get_payload_trilha_estabilidade() function also defines criteria 10 ('Uso de
-      Noradrenalina e presenca de anti-hipertensivos'), 12 ('Hipotensao recorrente e anti-
-      hipertensivos') and 13 ('Hipertensao recorrente, otimizar anti-hipertensivos') as qualitative
-      alerts pairing with v3 RULE-010/012/013 — captured here to avoid information loss. Verify the
-      lactate/ScVO2/deltaPCO2/bicarbonate anchors against Sepsis-3 / SSC guidance.
-
-  - id: RULE-ESTABILIDADE-016
-    name: Estabilidade facade alert-text - vasopressor/inotrope escalation ladder (criteria 7-9)
-    category: drug-dosing
-    type: decision-tree
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Recommendation / alert-text catalog for the septic-shock vasopressor and inotrope escalation
-      steps (criteria 7-9), rendered by the v3 model's get_detalhe. Contains the institutional
-      dosing regimens surfaced when noradrenaline dose crosses fixed cutoffs or dobutamine causes
-      tachycardia.
-    inputs:
-      - {name: noradrenalina dose, type: float, unit: mcg/kg/min}
-      - {name: FC, type: float, unit: bpm}
-    outputs:
-      - {name: escalation regimen (alerta + recomendacoes), type: string}
-    logic: |
-      criterio_7 noradrenalina > 0.5 mcg/kg/min -> Hidrocortisona 50 mg EV 6/6h (or switch current
-        corticoid to hydrocortisone) + Vasopressina EV continua 6 ml/h (dose maxima; diluicao
-        institucional: Vasopressina 2 amp em SG5% 98 ml).
-      criterio_8 noradrenalina > 1.5 mcg/kg/min -> associar Adrenalina (1 mg/mL, 1 amp 10 mL em
-        SG5% 90 mL = 0.1 mg/mL; iniciar 10 ml/h, progredir ate 100 ml/h).
-      criterio_9 choque refratario + altas doses de dobutamina: se FC > 130 bpm considerar SUSPENDER
-        dobutamina (taquicardia reduz enchimento de VE e debito cardiaco) e associar Adrenalina
-        (mesma diluicao/titulacao acima).
-    edge_cases: "Noradrenaline cutoffs strictly >0.5 and >1.5 mcg/kg/min; tachycardia cutoff FC>130 bpm."
-    confidence: high
-    related: [RULE-ESTABILIDADE-007, RULE-ESTABILIDADE-008, RULE-ESTABILIDADE-009, RULE-ESTABILIDADE-024]
-    divergence: >
-      Cross-implementation (facade text vs v3 predicate code): (a) UNITS — facade dosing is in
-      noradrenaline mcg/kg/min (>0.5, >1.5) whereas the paired v3 predicates trigger on qt_vol_nora
-      infusion volume in ml/h (RULE-007 >20 ml/h; RULE-008 >70 ml/h + vaso>5 ml/h), which are not
-      convertible without concentration/weight; (b) criterio_9 text centres on FC > 130 bpm
-      tachycardia, but v3 criterio_9 (RULE-009) tests only noradrenaline>50 ml/h AND dobutamine>10
-      ml/h and never checks FC. A clinician sees text claiming a mcg/kg/min threshold the trigger
-      did not verify. NEW reconciliation finding.
-    merged_from: [RULE-estabilidade-BE-01-012]
-    sources:
-      - {repo: ahlabs-trilhas, path: core/facade/trilha_estabilidade.py, lines: "58-85", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Facade function is get_payload_trilha_estabilidade (aka estabilidade_automatica text layer).
-      Noradrenaline unit here is mcg/kg/MIN; the estabilizacao sibling (RULE-024 criterio_3) labels
-      the analogous threshold mcg/kg/H — an additional cross-pathway unit inconsistency. Dosing
-      regimens are drug-dosing content: verify against SSC vasopressor/corticosteroid guidance.
-
-  # ============================================================
-  # THRESHOLDS / DECISION LOGIC
-  # Manual v1 pathway (trilha_manual) - variant, 6 criteria + alert
-  # ============================================================
-  - id: RULE-ESTABILIDADE-017
-    name: Estabilidade manual C1 - slow capillary refill on noradrenaline
-    category: care-pathway
-    type: decision-tree
-    status: OK
-    verify: true
-    description: "Flags capillary refill time > 5s together with an active (persisted) noradrenaline record."
-    inputs:
-      - {name: tec, type: int, unit: seconds, range: "0 or 3-20"}
-      - {name: noradrenalina_exists, type: bool}
-    outputs:
-      - {name: criterio_1, type: bool}
-    logic: |
-      bool(tec > 5 AND verificar_objeto_existe(dados_prontuario, 'noradrenalina'))
-    edge_cases: >
-      tec strict > 5 (tec == 5 -> False). Requires a persisted Noradrenalina (hasattr AND
-      instance.pk truthy). Test tec=6 with noradrenaline -> True; delete noradrenaline -> False.
-    confidence: high
-    related: [RULE-ESTABILIDADE-003, RULE-ESTABILIDADE-023]
-    merged_from: [RULE-estab-BE-10-019]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "109-111", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Variant of v3 criterio_1 (RULE-003): manual uses TEC>5 + noradrenaline presence (no lactate
-      branch), v3 uses TEC>3 OR lactate>=2 with a 6h vasopressor window. verificar_objeto_existe
-      checks hasattr AND pk. Unit test test_trilha_estabilidade.py:34-48.
-
-  - id: RULE-ESTABILIDADE-018
-    name: Estabilidade manual C2 - noradrenaline started in last 24h
-    category: care-pathway
-    type: threshold
-    status: OK
-    verify: false
-    description: >
-      True if any Noradrenalina in the patient's lookback chain has horario_inicio within the last
-      24h.
-    inputs:
-      - {name: buscar_ultimos_dados, type: "list[pk]"}
-      - {name: Noradrenalina.horario_inicio, type: datetime}
-    outputs:
-      - {name: criterio_2, type: bool}
-    logic: |
-      horario = now - 24h
-      Noradrenalina.objects.filter(pk__in=dados_prontuario.buscar_ultimos_dados,
-                                   horario_inicio__gt=horario).exists()
-    edge_cases: >
-      Strict > (started exactly 24h ago excluded). Searches across chained prontuarios (same pk
-      space as dados_prontuario).
-    confidence: high
-    related: [RULE-ESTABILIDADE-004, RULE-ESTABILIDADE-023]
-    merged_from: [RULE-estab-BE-10-020]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "91-99,113-114", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Temporal vasopressor-initiation check; no numeric clinical anchor -> verify:false. Unit test
-      test_trilha_estabilidade.py:58-74.
-
-  - id: RULE-ESTABILIDADE-019
-    name: Estabilidade manual C3 - high noradrenaline without rescue therapy
-    category: care-pathway
-    type: decision-tree
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Flags noradrenaline dose > 21 ml together with absence of vasopressin OR absence of
-      hydrocortisone.
-    inputs:
-      - {name: noradrenalina.quantidade, type: float, unit: ml, range: "0-200"}
-      - {name: vasopressina, type: bool}
-      - {name: hidrocortisona, type: bool}
-    outputs:
-      - {name: criterio_3, type: bool}
-    logic: |
-      all([
-        buscar_quantidade_noradrenalina() > 21,
-        any([not vasopressina, not hidrocortisona]),
-      ])
-    edge_cases: >
-      buscar_quantidade_noradrenalina returns False (->0) if no noradrenaline; False>21 -> False.
-      Strict > 21. Test uses quantidade=22 -> True.
-    confidence: high
-    related: [RULE-ESTABILIDADE-007, RULE-ESTABILIDADE-023]
-    divergence: >
-      Code vs _REGRAS spec text: code uses strict `> 21` while the _REGRAS description states
-      "noradrenalina >= 21ml mcg" (inclusive boundary). (Prior _ANTIGAS_REGRAS threshold was 25,
-      lowered to 21.)
-    merged_from: [RULE-estab-BE-10-021]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "86-89,116-127", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Variant of v3 criterio_7 (RULE-007, noradrenaline>20 ml/h) — same clinical rule (high
-      vasopressor without vasopressin/hydrocortisone adjuncts), different unit/threshold. SSC
-      adjunct anchor. Unit test test_trilha_estabilidade.py:76-88.
-
-  - id: RULE-ESTABILIDADE-020
-    name: Estabilidade manual C4 - elevated arterial lactate
-    category: care-pathway
-    type: threshold
-    status: OK
-    verify: true
-    description: "Flags arterial lactate >= 2.5."
-    inputs:
-      - {name: lactato_arterial, type: float, unit: "mmol/L (units ambiguous; _REGRAS text says mg/dl)", range: "0-20"}
-    outputs:
-      - {name: criterio_4, type: bool}
-    logic: |
-      lactato_arterial >= 2.5
-    edge_cases: "Inclusive >= 2.5. Default lactato 0 -> False."
-    confidence: high
-    related: [RULE-ESTABILIDADE-003, RULE-ESTABILIDADE-023]
-    merged_from: [RULE-estab-BE-10-022]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "129-130", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Manual uses lactate >= 2.5; v3/facade criteria use the Sepsis-3 anchor of 2.0. Unit label
-      inconsistent across pathways (_REGRAS says mg/dl, clinically mmol/L). Same 2.5 value also
-      appears in sepse C13 and ventilacao C9 per Phase-1 cross-cluster notes. Unit test
-      test_trilha_estabilidade.py:90-93.
-
-  - id: RULE-ESTABILIDADE-021
-    name: Estabilidade manual C5 - antihypertensive with adequate pressure/noradrenaline
-    category: care-pathway
-    type: decision-tree
-    status: OK
-    verify: false
-    description: "Flags presence of antihypertensive together with (noradrenaline present OR PAS>90)."
-    inputs:
-      - {name: anti_hipertensivo, type: bool}
-      - {name: noradrenalina_exists, type: bool}
-      - {name: pas, type: float, unit: mmHg}
-    outputs:
-      - {name: criterio_5, type: bool}
-    logic: |
-      anti_hipertensivo AND (verificar_objeto_existe(dados_prontuario, 'noradrenalina') OR pas > 90)
-    edge_cases: "Strict pas>90 (pas==90 -> needs noradrenaline). Test pas=95 -> True."
-    confidence: high
-    related: [RULE-ESTABILIDADE-010, RULE-ESTABILIDADE-023]
-    merged_from: [RULE-estab-BE-10-023]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "132-134", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Variant of v3 criterio_10 (RULE-010, antihypertensive + noradrenaline>50 ml/h). Medication-
-      conflict pathway trigger with a generic BP threshold -> verify:false. Unit test
-      test_trilha_estabilidade.py:95-106.
-
-  - id: RULE-ESTABILIDADE-022
-    name: Estabilidade manual C6 - dobutamine with exact noradrenaline 50
-    category: care-pathway
-    type: decision-tree
-    status: DISCREPANCY
-    verify: true
-    description: >
-      Flags dobutamine > 10 ml/h together with noradrenaline quantity EXACTLY equal to 50 ml.
-    inputs:
-      - {name: dobutamina, type: float, unit: ml/h, range: "0-30"}
-      - {name: noradrenalina.quantidade, type: float, unit: ml, range: "0-200"}
-    outputs:
-      - {name: criterio_6, type: bool}
-    logic: |
-      dobutamina > 10 AND buscar_quantidade_noradrenalina() == 50
-    edge_cases: >
-      Uses equality == 50 (not >=): noradrenaline 40 or 51 -> False. Test confirms 50->True,
-      40->False.
-    confidence: high
-    related: [RULE-ESTABILIDADE-009, RULE-ESTABILIDADE-023]
-    divergence: >
-      Code uses exact equality `== 50` on a continuous noradrenaline dose (clinically implausible;
-      likely intended >= or > 50), while the _REGRAS text "Dobutamina > 10ml/h E Noradrenalina 50
-      ml/h" is ambiguous about the operator. Also the dobutamina model validator max is 30 yet the
-      threshold is > 10.
-    merged_from: [RULE-estab-BE-10-024]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "136-137", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Variant of v3 criterio_9 (RULE-009, noradrenaline>50 AND dobutamine>10). criterio_6 is NOT
-      counted by get_payload (iterates only 1..total_criterios=5) but IS counted by calcular_alerta
-      (RULE-023). Unit test test_trilha_estabilidade.py:108-121.
-
-  - id: RULE-ESTABILIDADE-023
-    name: Estabilidade manual pathway alert level
-    category: alert-threshold
-    type: threshold
-    status: OK
-    verify: false
-    description: "Maps count of satisfied manual stability criteria (1..6) to a 3-level alert."
-    inputs:
-      - {name: criterios_true_count, type: int, range: "0-6"}
-    outputs:
-      - {name: alerta, type: "str enum {VERMELHO, AMARELO, NEUTRO}"}
-    logic: |
-      n = count(True among criterio_1..6)
-      if n >= 3: 'VERMELHO'
-      elif n > 0: 'AMARELO'
-      else: 'NEUTRO'
-    edge_cases: >
-      calcular_alerta counts all 6 criteria (including criterio_6). get_payload, however, iterates
-      only criterio_1..5 (_REGRAS total_criterios=5), so criterio_6 is invisible in the payload yet
-      still affects the alert. Test reaches VERMELHO with c2+c4+c5.
-    confidence: high
-    related: [RULE-ESTABILIDADE-017, RULE-ESTABILIDADE-018, RULE-ESTABILIDADE-019, RULE-ESTABILIDADE-020, RULE-ESTABILIDADE-021, RULE-ESTABILIDADE-022, RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-025]
-    merged_from: [RULE-estab-BE-10-025]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_manual/models/trilha_estabilidade.py, lines: "139-153", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      Internal count->color aggregation, no published anchor -> verify:false. get_alerta/get_payload
-      label the manual trilha nome='Estabilizacao', tipo='estabilizacao'. Unit test
-      test_trilha_estabilidade.py:123-138.
-
-  # ============================================================
-  # THRESHOLDS / DECISION LOGIC
-  # Estabilizacao sibling pathway (trilha2) - separate variant
-  # ============================================================
-  - id: RULE-ESTABILIDADE-024
-    name: Estabilizacao (trilha2) - shock work-up & vasopressor escalation text catalog
-    category: care-pathway
-    type: decision-tree
-    status: AMBIGUOUS
-    verify: true
-    description: >
-      Recommendation/alert-text catalog for the estabilizacao (trilha2) pathway. Criteria for
-      malperfusion, noradrenaline initiation, high-dose noradrenaline, hyperlactatemia,
-      antihypertensives in shock, and refractory shock with dobutamine, plus sparse criterio_7/10
-      stubs.
-    inputs:
-      - {name: noradrenalina dose, type: float, unit: "mcg/kg/h (as labelled)"}
-      - {name: FC, type: float, unit: bpm}
-    outputs:
-      - {name: alerta + recomendacoes, type: string}
-    logic: |
-      criterio_1 ma perfusao (TEC prolongado) -> checar lactato/ScVO2/deltaPCO2, prova volemica ou inotropico.
-      criterio_2 noradrenalina iniciada nas ultimas 24h -> checar ressuscitacao/culturas/dispositivos/SEPSE;
-                 garantir PAI e noradrenalina via CVC.
-      criterio_3 noradrenalina dose alta > 0.5 mcg/kg/h -> Hidrocortisona 50 mg EV 6/6h + Vasopressina EV continua.
-      criterio_4 hiperlactatemia -> checar TEC/ScVO2/deltaPCO2, prova volemica + dobutamina.
-      criterio_5 choque + anti-hipertensivos -> suspender anti-hipertensivo/beta-bloqueador.
-      criterio_6 choque refratario + altas doses nora+dobutamina: FC > 130 bpm -> reduzir/suspender dobutamina.
-      criterio_7 (alerta "Noradrenalina >0,5mcg/kg/min, associar corticoide e vasopressina") - EMPTY recomendacoes.
-      criterio_10 (alerta "Noradrenalina e anti-hipertensivos na prescricao") - EMPTY recomendacoes.
-    edge_cases: >
-      Structural gap: keys jump criterio_6 -> criterio_7 -> criterio_10 (criteria 8 and 9 absent).
-      criterio_7 alerta contains a stray smart-quote after "vasopressina". Noradrenaline dose unit
-      is mcg/kg/H (criterio_3) which conflicts with the mcg/kg/MIN used in the estabilidade facade
-      (RULE-016).
-    confidence: medium
-    related: [RULE-ESTABILIDADE-015, RULE-ESTABILIDADE-016, RULE-ESTABILIDADE-025]
-    divergence: >
-      Noradrenaline high-dose threshold labelled mcg/kg/H here (criterio_3) vs mcg/kg/MIN in the
-      estabilidade facade (RULE-016 criterio_7) — a cross-pathway unit inconsistency on the same
-      >0.5 value.
-    merged_from: [RULE-estabilizacao-BE-01-014]
-    sources:
-      - {repo: ahlabs-trilhas, path: core/facade/trilha_estabilizacao.py, lines: "1-54", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      AMBIGUOUS: overlaps heavily with the estabilidade facade/v3 (RULE-015/016) but is a SEPARATE
-      pathway (payload_trilha_estabilizacao, feeds trilha2) with sparser content and missing
-      criteria; not merged (variant). Phase-1 description labelled this payload_estabilizacao_
-      automatica, but the cited file core/facade/trilha_estabilizacao.py actually defines
-      payload_trilha_estabilizacao; trilha2.py imports a sibling payload_estabilizacao_automatica
-      from trilha_automatica/facade/estabilizacao.py (not captured here). Dosing content ->
-      verify:true.
-
-  - id: RULE-ESTABILIDADE-025
-    name: Estabilizacao v1 alert with criterio_6 combination clause
-    category: alert-threshold
-    type: decision-tree
-    status: OK
-    verify: false
-    description: >
-      Color alert for estabilizacao v1 (TrilhaEstabilizacaoModel, db_table AMH_TM_SINTETICO_02_V);
-      criterio_6 alone is insufficient unless combined with another set criterion.
-    inputs:
-      - {name: criterio_1..6, type: "int flag (1 = present)"}
-    outputs:
-      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}"}
-    logic: |
-      amarelo = [criterio_1, criterio_4].count(1)
-      vermelho = [criterio_2, criterio_3, criterio_5].count(1)
-      criterio_6 = [criterio_6].count(1)
-      if vermelho >= 1: return "VERMELHO"
-      elif amarelo >= 1 or (criterio_6 == 1 and criterio_6 + amarelo + vermelho >= 2): return "AMARELO"
-      else: return "NEUTRO"
-    edge_cases: >
-      criterio_6 only escalates to AMARELO when at least one other counted criterion is also set
-      (criterio_6 + amarelo + vermelho >= 2). If vermelho>=1 the criterio_6 clause is unreachable.
-    confidence: high
-    related: [RULE-ESTABILIDADE-024, RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-023]
-    merged_from: [RULE-estabilizacao-BE-03-011]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha2.py, lines: "78-97", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      TrilhaEstabilizacaoTesteModel subclasses this unchanged (db_table AMH_TM_SINTETICO_02_V_TESTE).
-      Internal count->color aggregation, no published anchor -> verify:false.
-
-  # ============================================================
-  # DATA-VALIDATION / MODEL SAVE DEFAULTS (integrated misroute)
-  # ============================================================
-  - id: RULE-ESTABILIDADE-026
-    name: Auto start-time default (now) for noradrenaline & cardiac arrest
-    category: data-validation
-    type: validation
-    status: OK
-    verify: false
-    description: Noradrenalina and ParadaCardioRespiratoria default horario_inicio to timezone.now() at
-      save if unset.
-    inputs:
-    - name: horario_inicio
-      type: datetime | None
-    outputs:
-    - name: horario_inicio
-      type: datetime
-    logic: 'def save(): if not self.horario_inicio: self.horario_inicio = timezone.now(); super().save()
+        '
+      url: https://pubmed.ncbi.nlm.nih.gov/34605781/
+    evidence: estabilidade-batch1.yaml
+    test_vectors: 1/3 match
+    summary: 'Three code-vs-docstring divergences confirmed against the source (lines 364-396): (1) SIGN — code
+      `< 2000` (positive) vs documented `< -2000`, so it fires for essentially any balance below +2000 mL including
+      positive balances (clinically inverted — would mislabel over-resuscitated patients as needing a fluid challenge);
+      (2) WINDOW — code Sum() aggregates all balancos with no time window vs documented last-6h; (3) THIRD CLAUSE
+      — code tests `diurna_lactato > 0.5` vs the documented "no >=500 mL Ringer/saline bolus in 4h". The specific
+      -2000 mL target is institutional (UNVERIFIABLE component), but the sign inversion is an unambiguous defect
+      against the rule''s own clinical intent. Impact rated moderate on logic; mitigated to none in production because
+      the criterion is UNWIRED (commented out in calcular_criterios).
 
       '
-    edge_cases: Only sets when falsy. Drives the "started in last 24h" criteria (sepse C4, estabilidade
-      C2, sedacao PCR-24h).
-    confidence: high
-    related:
-    - RULE-ESTABILIDADE-018
-    merged_from:
-    - RULE-cons-BE-10-067
-    sources:
-    - repo: ahlabs-trilhas
-      path: trilha_manual/models/noradrenalina.py
-      lines: 19-23
-      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
-      role: primary
-    notes: Same pattern in parada_cardiorrespiratoria.py:18-22. VentilacaoMecanica.horario_inicio is a required
-      field with NO default.
+- id: RULE-ESTABILIDADE-002
+  name: Estabilidade v3 criterio_6 - shock index with beta-blocker/vasopressor absence
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Antibiotic prescribed AND (shock index FC/PAS > 0.7 OR FC/PAM > 0.9) AND absence of all beta-blockers
+    (propranolol, carvedilol, bisoprolol, atenolol, metoprolol) AND absence of noradrenaline. Defined but UNWIRED.
 
+    '
+  inputs:
+  - name: balanco.fc
+    type: float
+    unit: bpm
+  - name: balanco.pas
+    type: float
+    unit: mmHg
+  - name: balanco.pam
+    type: float
+    unit: mmHg
+  - name: cpoe beta-blockers (propranolol/carvedilol/bisoprolol/atenolol/metoprolol)
+    type: float
+  - name: cpoe.antibiotico
+    type: float
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_6
+    type: boolean
+  logic: "return all([\n  get_number(cpoe.antibiotico) > 0,\n  any([\n    (get_number(fc)/get_number(pas)) > 0.7\
+    \ if get_number(pas) else False,\n    (get_number(fc)/get_number(pam)) > 0.9 if get_number(pam) else False,\n\
+    \  ]),\n  all([ not get_number(cpoe.propranolol) > 0, not get_number(cpoe.carvedilol) > 0,\n        not get_number(cpoe.bisoprolol)\
+    \ > 0, not get_number(cpoe.atenolol) > 0,\n        not get_number(cpoe.metoprolol) > 0, not get_number(balanco.qt_vol_nora)\
+    \ > 0 ]),\n]) if (ultima_cpoe and ultima_balanco and ultima_evolucao) else False\n"
+  edge_cases: 'Division guarded by truthiness of pas/pam (avoids ZeroDivision). Shock-index thresholds: 0.7 against
+    PAS, 0.9 against PAM. Beta-blocker/noradrenaline absence must ALL hold. Unwired in calcular_criterios.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-013
+  - RULE-ESTABILIDADE-015
+  merged_from:
+  - RULE-estabilidade-BE-03-066
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 398-458
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Shock index (heart rate / systolic BP) is a recognized hemodynamic marker; verify against published normal
+    range (0.5-0.7). Facade criterio_6 alert text = "Risco de choque circulatorio (Indice de choque positivo)".
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: low
+    reference:
+      citation: 'Shock Index — Allgower M, Burri C. Dtsch Med Wochenschr 1967 (original); normal SI = HR/SBP 0.5-0.7,
+        >0.9-1.0 associated with higher transfusion/ICU/mortality (Rady MY, Ann Emerg Med 1994; Koch E et al., Open
+        Access Emerg Med 2019, PMC6698590). Modified Shock Index = HR/MAP, commonly cited normal band 0.7-1.3.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC6698590/
+    evidence: estabilidade-batch1.yaml
+    test_vectors: 3/3 match
+    summary: 'SI branch (FC/PAS > 0.7) matches the published upper limit of normal exactly. The MSI branch (FC/PAM
+      > 0.9) is BELOW the commonly cited MSI abnormal/mortality threshold (~1.3) but is the algebraic MAP-equivalent
+      of SI 0.7 (since SBP/MAP ~= 1.3, SI 0.7 -> MSI ~= 0.9), so the dual cutoffs are internally coherent as an
+      early "above-upper-normal" screen rather than a mortality-prediction cutoff. Beta-blocker + noradrenaline
+      absence gate is clinically sensible (excludes rate-controlled / already-vasopressed patients). Only caveat:
+      the MSI 0.9 screen is more sensitive than a strict MSI>1.3 rule would be. Criterion is UNWIRED, so no production
+      impact.
+
+      '
+- id: RULE-ESTABILIDADE-003
+  name: Estabilidade v3 criterio_1 - hypoperfusion on vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Noradrenaline present in balanco in last 6h AND (capillary refill time > 3s OR arterial lactate
+    >= 2 mmol/L). Defined but UNWIRED.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: evolucao.tempo_enchimento_capilar
+    type: float
+    unit: s
+  - name: evolucao.diurna_lactato
+    type: float
+    unit: mmol/L
+  outputs:
+  - name: criterio_1
+    type: boolean
+  logic: "return all([\n  balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  any([ get_number(tempo_enchimento_capilar)\
+    \ > 3, get_number(diurna_lactato) >= 2 ]),\n]) if (balanco_6h and ultima_evolucao) else False\n"
+  edge_cases: TEC strict > 3; lactate inclusive >= 2. Unwired in calcular_criterios.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-015
+  - RULE-ESTABILIDADE-017
+  merged_from:
+  - RULE-estabilidade-BE-03-061
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 215-247
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Manual-pathway counterpart RULE-017 uses TEC>5 (strict) with mere noradrenaline presence (no lactate branch)
+    — variant thresholds, not a duplicate. Lactate>=2 is the Sepsis-3 hyperlactatemia anchor.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference:
+      citation: 'Sepsis-3 (Singer M et al., JAMA 2016;315(8):801-810) — hyperlactatemia lactate >2 mmol/L anchor
+        for septic shock; ANDROMEDA-SHOCK (Hernandez G et al., JAMA 2019;321(7):654-664) — capillary refill time
+        normalization target < 3 s (CRT >3 s = abnormal hypoperfusion).
+
+        '
+      url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+    evidence: estabilidade-batch1.yaml
+    test_vectors: 3/3 match
+    summary: 'Both anchors match authoritative sources: lactate cutoff on the Sepsis-3 >2 mmol/L hyperlactatemia
+      value, CRT >3 s on the ANDROMEDA-SHOCK <3 s normalization target. Minor boundary nuance: code uses lactate
+      `>= 2` (inclusive) whereas Sepsis-3 wording is strictly `> 2`, so at exactly 2.0 mmol/L the legacy fires while
+      a strict-Sepsis-3 reading would not — negligible clinical impact (2.0 is at/above the abnormality threshold
+      either way). Criterion is UNWIRED.
+
+      '
+- id: RULE-ESTABILIDADE-004
+  name: Estabilidade v3 criterio_2 - new vasopressor missing sepsis work-up
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Noradrenaline started in last 24h AND (no new antibiotic OR a Ringer-lactate record < 1000ml / isolated
+    saline OR no blood culture ordered). Defined but UNWIRED.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml
+  - name: balanco.qt_vol_ringer_lactato
+    type: float
+    unit: ml
+  - name: balanco.qt_vol_soro
+    type: float
+    unit: ml
+  - name: cpoe.antibiotico
+    type: float
+  - name: cpoe.hemocultura_bacterias / hemocultura_fungos
+    type: float
+  outputs:
+  - name: criterio_2
+    type: boolean
+  logic: "return all([\n  balanco_24h.filter(qt_vol_nora__gt=0).exists(),\n  any([ not cpoe_24h.filter(antibiotico__gt=0).exists(),\n\
+    \        not balanco_24h.filter(Q(qt_vol_ringer_lactato__lt=1000) | Q(qt_vol_soro__gt=0)).exists(),\n      \
+    \  not cpoe_24h.filter(hemocultura_bacterias__gt=0).exists(),\n        not cpoe_24h.filter(hemocultura_fungos__gt=0).exists()\
+    \ ]),\n]) if (balanco_24h and cpoe_24h) else False\n"
+  edge_cases: 'Ringer clause fires when a SINGLE record has qt_vol_ringer_lactato < 1000 (not an aggregate), OR''d
+    with any isolated saline record. Unwired in calcular_criterios.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-015
+  - RULE-ESTABILIDADE-018
+  - RULE-ESTABILIDADE-024
+  merged_from:
+  - RULE-estabilidade-BE-03-062
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 249-284
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Encodes Surviving-Sepsis-Campaign bundle elements (cultures, antibiotics, fluid resuscitation) — verify
+    the 1000ml fluid anchor against the SSC 30 ml/kg recommendation.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: low
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 Hour-1 bundle (Evans L et al., Crit Care Med 2021;49(11): e1063-e1143):
+        obtain blood cultures BEFORE antibiotics, administer broad-spectrum antibiotics, give 30 mL/kg crystalloid
+        within 3 h, measure/remeasure lactate, start vasopressors for MAP >=65. ANDROMEDA-SHOCK-2 defines septic
+        shock after a >=1000 mL fluid load.
+
+        '
+      url: https://pubmed.ncbi.nlm.nih.gov/34605781/
+    evidence: estabilidade-batch1.yaml
+    test_vectors: 2/3 match
+    summary: 'Component mapping to the SSC Hour-1 bundle is sound (cultures, antibiotics, fluids, vasopressor window).
+      Two reference caveats, neither a code-vs-docstring defect (code faithfully implements its docstring): (1)
+      the 1000 mL Ringer anchor is below the SSC 30 mL/kg resuscitation target (~2100 mL/70 kg), aligning instead
+      with the ANDROMEDA-SHOCK-2 >=1000 mL fluid-load definition; (2) the fluid sub-clause is a convoluted negation
+      — `not exists(ringer<1000 OR soro>0)` fires when a fully-resuscitated patient has NO under-1000 mL Ringer
+      record and no saline (test vector 3 false positive). Rated low impact / VERIFIED because it is a bundle-completeness
+      heuristic (no single published equation to violate) and is UNWIRED in production.
+
+      '
+- id: RULE-ESTABILIDADE-005
+  name: Estabilidade v3 criterio_3 - lactate elevation with sepsis therapy
+  category: alert-threshold
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: 'Lactate >= 2 mmol/L AND antibiotic prescribed AND noradrenaline present in last 4h AND no mechanical
+    ventilation in last 24h. The docstring documents ABSENCE of noradrenaline but the code checks PRESENCE. Defined
+    but UNWIRED.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: evolucao.diurna_lactato
+    type: float
+    unit: mmol/L
+  - name: cpoe.antibiotico
+    type: float
+  - name: evolucao.diurna_ventilacao
+    type: string
+  outputs:
+  - name: criterio_3
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(qt_vol_nora__gt=0).exists(),               # docstring: \"ausencia de\
+    \ noradrenalina\"\n  get_number(evolucao.diurna_lactato) >= 2,\n  get_number(cpoe.antibiotico),\n  not evolucao_24h.filter(diurna_ventilacao__in=get_ventilacao(\"\
+    ventilacao_mecanica\")).exists(),\n]) if (ultimo_balanco and ultima_cpoe and ultima_evolucao and evolucao_24h)\
+    \ else False\n"
+  edge_cases: Presence-vs-documented-absence of noradrenaline. Lactate inclusive >= 2. Unwired.
+  confidence: medium
+  related:
+  - RULE-ESTABILIDADE-015
+  divergence: 'Code checks noradrenaline PRESENCE (qt_vol_nora__gt=0 exists) while the docstring specifies ABSENCE
+    ("ausencia de noradrenalina ... nas ultimas 4h"). Kept AMBIGUOUS (not DISCREPANCY) because the criterion is
+    unwired, leaving true intent undetermined.
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-03-063
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 286-319
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Facade criterio_3 alert = 'Lactato >2mmol/L sem DVA e VM. Choque oculto?' (occult shock).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Sepsis-3 (Singer M et al., JAMA 2016;315(8):801-810) — hyperlactatemia >2 mmol/L; concept of cryptic/occult
+        septic shock = hyperlactatemia WITHOUT hypotension/vasopressor requirement (normotensive hyperlactatemia).
+        Facade alert text (RULE-015 criterio_3) states "Lactato >2mmol/L sem DVA e VM. Choque oculto?" (i.e. occult
+        shock = ABSENCE of vasopressor).
+
+        '
+      url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+    evidence: estabilidade-batch1.yaml
+    test_vectors: 0/3 match
+    summary: 'Lactate anchor (>=2 mmol/L) matches Sepsis-3 (minor inclusive-vs-strict boundary at 2.0). The load-bearing
+      discrepancy is the noradrenaline direction: the code requires vasopressor PRESENCE (`balanco_4h.filter(qt_vol_nora__gt=0).exists()`,
+      line 308) while both the docstring ("ausencia de noradrenalina ... nas ultimas 4h") AND the facade alert text
+      ("sem DVA ... Choque oculto?") and the published cryptic/occult-shock concept require vasopressor ABSENCE.
+      The code thus flags the exact opposite population (patients already on vasopressors) from the intended occult-shock
+      cohort. Extraction kept this AMBIGUOUS because the criterion is unwired; characterized here as a DISCREPANCY
+      since two independent documentation layers plus the clinical concept agree the check is inverted. Impact moderate
+      on logic; none in production (UNWIRED).
+
+      '
+- id: RULE-ESTABILIDADE-006
+  name: Estabilidade v3 criterio_4 - persistent shock on low-dose vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Respiratory rate > 20 AND noradrenaline > 10ml/h in last 4h AND (lactate > 2 OR TEC > 3) AND spontaneous
+    / room-air ventilation. Defined but UNWIRED.
+
+    '
+  inputs:
+  - name: balanco.fr
+    type: float
+    unit: ipm
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: evolucao.diurna_lactato
+    type: float
+    unit: mmol/L
+  - name: evolucao.tempo_enchimento_capilar
+    type: float
+    unit: s
+  - name: evolucao.diurna_ventilacao
+    type: string
+  outputs:
+  - name: criterio_4
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(fr__gt=20).exists(),\n  balanco_4h.filter(qt_vol_nora__gt=10).exists(),\n\
+    \  any([ get_number(diurna_lactato) > 2, get_number(tempo_enchimento_capilar) > 3 ]),\n  evolucao.diurna_ventilacao.strip().lower()\
+    \ in [*get_ventilacao(\"ar_ambiente\"), *get_ventilacao(\"ventilacao_espontanea\")],\n]) if (ultimo_balanco\
+    \ and balanco_4h and ultima_evolucao) else False\n"
+  edge_cases: FR strict >20, nora strict >10, lactate strict >2, TEC strict >3. Unwired.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-015
+  merged_from:
+  - RULE-estabilidade-BE-03-064
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 321-362
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade criterio_4 = ''Choque septico em ventilacao espontanea: otimizar DO2 e VO2''.'
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference:
+      citation: 'Sepsis-3 (Singer et al., JAMA 2016 — septic shock: vasopressor + serum lactate >2 mmol/L); ANDROMEDA-SHOCK
+        (Hernandez et al., JAMA 2019 — abnormal capillary refill time >3 s); SIRS respiratory criterion RR >20/min
+        (qSOFA uses RR >=22).
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC4968574/ , https://pmc.ncbi.nlm.nih.gov/articles/PMC6439620/
+    evidence: estabilidade-batch2.yaml
+    test_vectors: 3/3 match
+    summary: 'All three published anchors match on value AND boundary direction: lactate >2 mmol/L (Sepsis-3 septic-shock
+      threshold, strict), capillary refill time >3 s (ANDROMEDA-SHOCK abnormal, strict), RR >20/min (SIRS, strict).
+      Room-air / spontaneous-ventilation gate is clinically coherent (the alert targets septic shock not yet intubated).
+      The qt_vol_nora >10 ml/h clause is an institution-specific pump-volume threshold with no published anchor
+      (not convertible to mcg/kg/min without concentration+weight); it does not contradict any reference, so verdict
+      stays VERIFIED. Predicate is UNWIRED (calcular_criterios never calls criterio_4), so no live impact.
+
+      '
+- id: RULE-ESTABILIDADE-007
+  name: Estabilidade v3 criterio_7 - high-dose noradrenaline without adjuncts (VERMELHO, wired)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Noradrenaline > 20ml/h in last 4h AND (no vasopressin recorded in balanco OR no hydrocortisone prescribed).
+    WIRED (contributes to VERMELHO alert).
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: balanco.qt_vol_vaso
+    type: float
+    unit: ml/h
+  - name: cpoe.hidrocortisona
+    type: float
+  outputs:
+  - name: criterio_7
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(qt_vol_nora__gt=20).exists(),\n  any([ not get_number(ultimo_balanco.qt_vol_vaso)\
+    \ > 0, not get_number(ultima_cpoe.hidrocortisona) > 0 ]),\n]) if (balanco_4h and ultimo_balanco and ultima_cpoe)\
+    \ else False\n"
+  edge_cases: 'Refactored threshold: original docstring specified a 20-70 ml/h band; refactored code uses simply
+    > 20 ml/h. Code matches the refactored docstring (no discrepancy).
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-016
+  - RULE-ESTABILIDADE-019
+  merged_from:
+  - RULE-estabilidade-BE-03-067
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 460-497
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Displayed facade text (RULE-016 criterio_7) asserts "Noradrenalina >0,5mcg/kg/min" but this predicate
+    fires on qt_vol_nora>20 ml/h — see divergence on RULE-016. Manual-pathway counterpart RULE-019 uses noradrenaline
+    quantidade>21 (ml). SSC vasopressin/hydrocortisone adjunct anchor.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin when norepinephrine
+        is 0.25-0.5 mcg/kg/min instead of escalating; give IV hydrocortisone (50 mg q6h) when norepinephrine/epinephrine
+        >=0.25 mcg/kg/min for >=4 h.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch2.yaml
+    test_vectors: 0/3 match
+    summary: 'The CLINICAL CONCEPT (add vasopressin and/or hydrocortisone as adjuncts in high-dose vasopressor septic
+      shock; flag when either adjunct is absent) is consistent with SSC-2021. The DISCREPANCY is a unit/threshold
+      mismatch: the executed predicate fires on noradrenaline infusion volume >20 ml/h, while both the guideline
+      anchor and the paired displayed facade text (RULE-016 criterio_7) are in mcg/kg/min (>0.5 displayed; 0.25-0.5
+      guideline). Under a plausible dilution the ml/h trigger fires at ~0.3-0.4 mcg/kg/min, below the 0.5 the clinician
+      is shown. Moderate impact: the alert can fire at a materially different actual dose than the displayed threshold
+      and misses the SSC 4-hour duration qualifier — a clinician may act on an unverified mcg/kg/min claim. WIRED
+      (contributes to VERMELHO), so this is live. The ml/h cutoff itself is institution-specific/unverifiable.
+
+      '
+- id: RULE-ESTABILIDADE-008
+  name: Estabilidade v3 criterio_8 - refractory shock triple therapy
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Noradrenaline > 70ml/h AND vasopressin > 5ml/h in last 4h AND absence of adrenaline in last 4h.
+    Defined but UNWIRED.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: balanco.qt_vol_vaso
+    type: float
+    unit: ml/h
+  - name: balanco.qt_vol_adre
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_8
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(qt_vol_nora__gt=70, qt_vol_vaso__gt=5).exists(),\n  not balanco_4h.filter(qt_vol_adre__gt=0).exists(),\n\
+    ]) if (ultimo_balanco and balanco_4h and ultima_evolucao) else False\n"
+  edge_cases: nora>70 AND vaso>5 must co-occur in the SAME record (comma = AND). Unwired.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-016
+  merged_from:
+  - RULE-estabilidade-BE-03-068
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 499-521
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade criterio_8 = ''Noradrenalina > 1,5mcg/kg/min, associar adrenalina'' (dose in mcg/kg/min, code in
+    ml/h) — see divergence on RULE-016.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add epinephrine (adrenaline)
+        as a third agent when MAP remains inadequate despite norepinephrine + vasopressin (refractory septic shock).
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch2.yaml
+    test_vectors: 1/3 match
+    summary: 'Concept matches SSC-2021 escalation ladder (epinephrine as third agent for refractory shock on NE+vasopressin,
+      gated by absence of adrenaline — verified correct in vector 3). DISCREPANCY is the same unit mismatch as RULE-007:
+      predicate uses ml/h (nora>70, vaso>5) while guideline/facade (RULE-016 criterio_8) use mcg/kg/min (>1.5 displayed).
+      Under a plausible dilution >70 ml/h maps to ~1.1 mcg/kg/min, not the 1.5 shown. The nora>70 AND vaso>5 must
+      co-occur in the SAME balance record (Django comma = AND), a reasonable "on both agents" proxy. Moderate impact:
+      displayed dose overstates actual by design and depends on unknown concentration/weight. Predicate is UNWIRED
+      (not in calcular_criterios), so no live alert. ml/h cutoffs are institution-specific/unverifiable.
+
+      '
+- id: RULE-ESTABILIDADE-009
+  name: Estabilidade v3 criterio_9 - dobutamine with high-dose noradrenaline
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: Noradrenaline > 50ml/h AND dobutamine > 10ml/h in last 4h. Defined but UNWIRED.
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: balanco.qt_vol_dobuta
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_9
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(qt_vol_nora__gt=50, qt_vol_dobuta__gt=10).exists(),\n]) if balanco_4h\
+    \ else False\n"
+  edge_cases: nora>50 AND dobuta>10 in the SAME record. Unwired.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-016
+  - RULE-ESTABILIDADE-022
+  merged_from:
+  - RULE-estabilidade-BE-03-069
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 523-542
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade criterio_9 alert also describes a FC>130 bpm tachycardia trigger that this predicate does NOT implement
+    (see divergence on RULE-016). Manual-pathway counterpart RULE-022 uses dobutamine>10 AND noradrenaline == 50
+    (equality bug).
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al.): for septic shock with cardiac dysfunction and persistent
+        hypoperfusion despite adequate volume and arterial pressure, add dobutamine (or switch to epinephrine).
+        Rationale for facade FC>130 note: tachycardia shortens diastolic LV filling and can reduce cardiac output.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch2.yaml
+    test_vectors: 0/3 match
+    summary: 'Two divergences from the paired facade recommendation (RULE-016 criterio_9): (1) the displayed advice
+      is conditioned on FC >130 bpm (physiologically sound — suspend dobutamine when tachycardia impairs filling),
+      but the predicate tests ONLY nora>50 ml/h AND dobuta>10 ml/h and never reads FC, so the FC-conditional recommendation
+      is shown irrespective of actual heart rate (vector 2); (2) same ml/h-vs-mcg/kg/min unit issue as 007/008.
+      The underlying concept (dobutamine used with high-dose vasopressor = cardiac dysfunction in shock) aligns
+      with SSC-2021. Moderate impact: clinician may see ''suspend dobutamine'' framed around a tachycardia threshold
+      that was not checked. Predicate is UNWIRED. ml/h cutoffs institution-specific/unverifiable.
+
+      '
+- id: RULE-ESTABILIDADE-010
+  name: Estabilidade v3 criterio_10 - antihypertensive with active vasopressor (VERMELHO, wired)
+  category: drug-dosing
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Noradrenaline > 50ml/h in last 4h AND any scheduled antihypertensive prescribed. WIRED (contributes
+    to VERMELHO alert).
+
+    '
+  inputs:
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: 'cpoe antihypertensives (checked, 16): monocordil, nifedipino, losartan, captopril, enalapril, sustrate,
+      nitroglicerina, nitroprussiato, clonidina, hidralazina, propranolol, bisoprolol, carvedilol, atenolol, metildopa,
+      minoxidil'
+    type: float
+  outputs:
+  - name: criterio_10
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(qt_vol_nora__gt=50).exists(),\n  any([ get_number(cpoe.<each of the\
+    \ 16 antihypertensives above>) > 0 ]),\n]) if (ultima_cpoe and balanco_4h) else False\n"
+  edge_cases: 'Docstring lists 18 antihypertensives (additionally anlodipino and metoprolol) but the code''s any([...])
+    checks only 16 — a patient on ONLY anlodipino or metoprolol would not trigger.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-021
+  divergence: 'Code vs docstring: documented 18-drug antihypertensive list, code checks 16 (omits anlodipino and
+    metoprolol from the any([]) evaluation).
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-03-070
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 544-590
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Status upgraded OK->DISCREPANCY: Phase-1 identified the 16-vs-18 drug-list gap in notes but left status
+    OK. Facade text counterpart = criterio_10 ''Uso de Noradrenalina e presenca de anti-hipertensivos na prescricao''.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference:
+      citation: 'No authoritative published clinical score/guideline defines a "scheduled antihypertensive present
+        WITH active vasopressor" conflict alert or its specific drug enumeration — this is an internal medication-safety
+        business rule (TASY drug list). SSC-2021 concept of avoiding agents that lower MAP during shock resuscitation
+        is directionally supportive but does not specify a list.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch2.yaml
+    test_vectors: 2/4 match
+    summary: 'No external authoritative reference governs this rule''s drug enumeration or its ml/h vasopressor
+      threshold — it is a proprietary medication-conflict safety rule; flagged for internal review, not treated
+      as wrong. However the extraction-flagged DISCREPANCY is CONFIRMED by direct source read (lines 544-590): the
+      docstring enumerates 18 antihypertensives (…anlodipino…metoprolol…) but the any([...]) evaluates only 16,
+      omitting anlodipino (amlodipine) and metoprolol. Consequence: a patient on active high-dose vasopressor whose
+      ONLY prescribed antihypertensive is amlodipine or metoprolol would NOT trigger this WIRED VERMELHO alert (vectors
+      2-3). Amlodipine and metoprolol are common agents, so the gap is clinically relevant as a missed-safety-alert,
+      but because no published source mandates the list, impact is recorded n/a and the finding is routed to internal
+      review. The ml/h cutoff (>50) is likewise institution-specific and unverifiable against published anchors.
+
+      '
+- id: RULE-ESTABILIDADE-011
+  name: Estabilidade v3 criterio_11 - bicarbonate despite compensated acidosis
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Bicarbonate > 16 mEq/L AND pH > 7.2 (flags inappropriate bicarbonate use). Bicarbonate- prescription
+    precondition noted as missing in a code comment. Defined but UNWIRED.
+
+    '
+  inputs:
+  - name: evolucao.diurna_bicabornato
+    type: float
+    unit: mEq/L
+  - name: evolucao.diurna_ph
+    type: float
+  outputs:
+  - name: criterio_11
+    type: boolean
+  logic: "return all([\n  # code comment: \"falta prescricao de bicarbonato\" (bicarbonate-prescription check NOT\
+    \ implemented)\n  get_number(evolucao.diurna_bicabornato) > 16,\n  get_number(evolucao.diurna_ph) > 7.2,\n])\
+    \ if (ultima_evolucao and ultima_cpoe) else False\n"
+  edge_cases: 'The documented bicarbonate-prescription precondition is absent (comment only). Strict thresholds
+    bicarbonato>16, pH>7.2. Unwired.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-015
+  merged_from:
+  - RULE-estabilidade-BE-03-071
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 592-612
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Complementary framing to facade criterio_11 ("Indicar apenas se pH<7,15 e BIC<16"): the facade states
+    WHEN bicarbonate is appropriate, this predicate flags the inverse (BIC>16 & pH>7.2 = bicarbonate NOT indicated).
+    SSC/acid-base bicarbonate anchor.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021;49:e1063-e1143): "suggest against
+        using sodium bicarbonate therapy to improve hemodynamics or reduce vasopressor requirements in patients
+        with hypoperfusion-induced lactic acidemia and pH >= 7.15"; suggest bicarbonate for severe metabolic acidemia
+        (pH <= 7.2) WITH AKIN 2-3 (BICAR-ICU, Jaber et al., Lancet 2018).
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch3.yaml
+    test_vectors: 2/4 match
+    summary: 'Concept (flag bicarbonate when acidosis not severe) is guideline-concordant. Cutoff diverges: code
+      uses pH>7.2 whereas SSC-2021 (and the paired facade text RULE-015 criterio_11) use pH 7.15 as the "bicarbonate
+      not indicated" boundary, so the code fails to flag inappropriate bicarbonate in the narrow 7.15<pH<=7.2 band,
+      and never fires at BIC exactly 16 (strict >). Additionally the code comment "falta prescricao de bicarbonato"
+      confirms the bicarbonate-PRESCRIPTION precondition is unimplemented, so the flag cannot actually confirm bicarbonate
+      "use". Impact low: advisory-only, unwired criterion, narrow pH band, conservative (under-flags) direction.
+
+      '
+- id: RULE-ESTABILIDADE-012
+  name: Estabilidade v3 criterio_12 - antihypertensive with recurrent hypotension (AMARELO, wired)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: 'Any scheduled antihypertensive prescribed AND more than 2 balance records with PAS<90 AND PAD<60
+    in last 6h. WIRED (contributes to AMARELO alert).
+
+    '
+  inputs:
+  - name: balanco.pas
+    type: float
+    unit: mmHg
+  - name: balanco.pad
+    type: float
+    unit: mmHg
+  - name: cpoe antihypertensives (16-drug list
+    same as RULE-010): null
+    type: float
+  outputs:
+  - name: criterio_12
+    type: boolean
+  logic: "return all([\n  balanco_6h.filter(pas__lt=90, pad__lt=60).count() > 2,     # docstring: PAS<90 OU PAD<60\
+    \ (OR); code ANDs them\n  any([ get_number(cpoe.<16 antihypertensives>) > 0 ]),\n]) if (balanco_6h and ultima_cpoe)\
+    \ else False\n"
+  edge_cases: 'Requires BOTH pas<90 AND pad<60 in the SAME record (comma = AND) whereas the docstring says OR. Count
+    strictly > 2 (i.e. >= 3 records). Window refactored 4h -> 6h. Same 16-vs-18 antihypertensive-list omission as
+    RULE-010 (no anlodipino/metoprolol).
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-010
+  - RULE-ESTABILIDADE-024
+  divergence: 'Code vs docstring: (1) PAS/PAD combined with AND (`pas__lt=90, pad__lt=60`) vs documented OR; (2)
+    antihypertensive list 16 checked vs 18 documented (omits anlodipino, metoprolol).
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-03-072
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 614-669
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Status upgraded OK->DISCREPANCY: Phase-1 identified the AND-vs-OR divergence in notes but left status
+    OK. Facade criterio_12 = ''Hipotensao recorrente e anti-hipertensivos na prescricao''. verify:false — generic
+    BP thresholds + drug-list enum, no specific published score.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-013
+  name: Estabilidade v3 criterio_13 - recurrent hypertension off vasopressor (AMARELO, wired)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: 'Intended: PAS>155 OR PAD>90 in the last 2 balance records AND no noradrenaline in last 4h AND no
+    ischemic-stroke (AVCi / I64) admission diagnosis. WIRED (contributes to AMARELO).
+
+    '
+  inputs:
+  - name: balanco.pas
+    type: float
+    unit: mmHg
+  - name: balanco.pad
+    type: float
+    unit: mmHg
+  - name: balanco.qt_vol_nora
+    type: float
+    unit: ml/h
+  - name: evolucao.diagnostico_1..4
+    type: string
+  outputs:
+  - name: criterio_13
+    type: boolean
+  logic: "return all([\n  balanco_4h.filter(pas__gt=155, pad__gt=90).count() == 2,   # docstring: PAS>155 OU PAD>90\
+    \ nos ultimos 2 lancamentos\n  not balanco_4h.filter(qt_vol_nora__gt=0).exists(),\n  not list(filter(lambda\
+    \ x: x.startswith(\"I64\"),\n                  vars(ultima_evolucao).fromkeys((\"diagnostico_1\",\"diagnostico_2\"\
+    ,\"diagnostico_3\",\"diagnostico_4\")))),\n]) if (ultima_evolucao and balanco_4h) else False\n"
+  edge_cases: '(1) pas>155 AND pad>90 in the SAME record (comma = AND) with count exactly == 2, whereas the docstring
+    says "PAS>155 OU PAD>90 nos ultimos 2 lancamentos"; (2) the I64/AVCi exclusion is vacuously always True — `vars(evolucao).fromkeys((...))`
+    builds a dict keyed by the field NAMES ("diagnostico_1".."diagnostico_4") with None values, so filtering keys
+    for startswith("I64") always yields [] and `not []` == True.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-014
+  divergence: 'Code vs docstring: (1) PAS/PAD combined with AND vs documented OR; (2) `.count() == 2` (exactly two)
+    vs documented "nos ultimos 2 lancamentos"; (3) the AVCi (ICD I64) diagnosis gate is non-functional (fromkeys
+    bug) and never excludes anyone.
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-03-073
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 671-709
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade criterio_13 = ''Hipertensao recorrente, otimizar anti-hipertensivos''. The fromkeys diagnosis bug
+    is a shared systemic pattern (Phase-1 cross-ref RULE-systemic-BE-03-001). verify:false — generic hypertension
+    thresholds, no specific published score.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-014
+  name: Estabilidade v3 alert level (calcular_alerta == calcular_alerta_v2)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'v3 stability alert: VERMELHO if criterio_7 or criterio_10 set; else AMARELO if criterio_12 or criterio_13
+    set; else NEUTRO. calcular_alerta and calcular_alerta_v2 are byte-identical; save() uses calcular_alerta_v2.
+
+    '
+  inputs:
+  - name: criterio_7, criterio_10 (vermelho); criterio_12, criterio_13 (amarelo)
+    type: boolean
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+  logic: 'amarelo = [criterio_12, criterio_13].count(True)
+
+    vermelho = [criterio_7, criterio_10].count(True)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo >= 1: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    '
+  edge_cases: 'Only criteria 7, 10, 12, 13 are computed by calcular_criterios (1-6, 8, 9, 11 stay null and never
+    influence the alert). If alerta == "NEUTRO", save() also resets assistido=False.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-007
+  - RULE-ESTABILIDADE-010
+  - RULE-ESTABILIDADE-012
+  - RULE-ESTABILIDADE-013
+  - RULE-ESTABILIDADE-023
+  - RULE-ESTABILIDADE-025
+  merged_from:
+  - RULE-estabilidade-BE-03-060
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_estabilidade.py
+    lines: 117-155, 200-213
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Model property tipo == ''estabilizacao'' and nome == ''Estabilizacao'' despite the class being TrilhaEstabilidadeV3Model
+    (naming overlap between the estabilidade and estabilizacao pathways).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-015
+  name: Estabilidade facade alert-text - perfusion/shock triggers & bicarbonate (criteria 1-6, 11)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Recommendation / alert-text catalog (get_payload_trilha_estabilidade) rendered by the v3 model''s
+    get_detalhe for fired criteria. This capture covers the numeric-threshold criteria 1-6 (myocardiopathy/perfusion,
+    out-of-protocol noradrenaline, occult shock, septic shock in spontaneous ventilation, negative fluid balance,
+    shock index) and 11 (restricted bicarbonate in sepsis).
+
+    '
+  inputs:
+  - name: lactato arterial
+    type: float
+    unit: mmol/L
+  - name: ScVO2 (saturacao venosa central)
+    type: float
+    unit: '%'
+  - name: delta PCO2
+    type: float
+    unit: mmHg
+  - name: balanco hidrico acumulado
+    type: float
+    unit: ml
+  - name: pH
+    type: float
+  - name: bicarbonato (BIC)
+    type: float
+    unit: mEq/L
+  outputs:
+  - name: alerta + recomendacoes (per criterion)
+    type: string
+  logic: "criterio_1 miocardiopatia septica -> prova volemica + dobutamina SE lactato > 2 mmol/L\n           OR\
+    \ ScVO2 < 70% OR delta PCO2 > 6; solicitar ecocardiograma.\ncriterio_2 inicio de noradrenalina fora do protocolo\
+    \ SEPSE -> checar ressuscitacao, culturas,\n           dispositivos > 5 dias, abertura da ficha; garantir PAI\
+    \ + noradrenalina via CVC.\ncriterio_3 lactato > 2 mmol/L sem DVA e sem VM (choque oculto) -> abrir ficha, prova\
+    \ volemica,\n           dobutamina; se refratario IOT + sedoanalgesia RASS -2 a -3.\ncriterio_4 choque septico\
+    \ em ventilacao espontanea -> IOT p/ otimizar DO2/VO2, RASS -2 a -3.\ncriterio_5 BH acumulado negativo > 2000\
+    \ ml -> desafio hidrico 500 ml Ringer bolus ate 30 ml/kg.\ncriterio_6 indice de choque positivo -> checar disfuncao\
+    \ organica, abrir SEPSE, 500ml Ringer ate 30ml/kg.\ncriterio_11 bicarbonato na SEPSE: indicar APENAS se pH <\
+    \ 7.15 E BIC < 16.\n"
+  edge_cases: 'Text-layer thresholds: lactato>2, ScVO2<70, deltaPCO2>6, BH negativo>2000ml, bicarbonate indicated
+    only if pH<7.15 AND BIC<16. Criteria 10, 12, 13 of the same facade function are qualitative antihypertensive-management
+    alerts with no numeric cutoffs (see notes).
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-001
+  - RULE-ESTABILIDADE-002
+  - RULE-ESTABILIDADE-003
+  - RULE-ESTABILIDADE-004
+  - RULE-ESTABILIDADE-005
+  - RULE-ESTABILIDADE-006
+  - RULE-ESTABILIDADE-011
+  - RULE-ESTABILIDADE-024
+  divergence: 'Cross-implementation (facade text vs v3 predicate code): the displayed alert text asserts conditions
+    the v3 predicates never test. (a) criterio_1 text uses lactato > 2 while v3 criterio_1 (RULE-003) uses lactate
+    >= 2, and the text''s ScVO2<70 / deltaPCO2>6 branches are absent from the v3 code entirely; (b) criterio_5 text
+    says "BH negativo > 2000ml" while v3 criterio_5 (RULE-001) compares cumulative balance < 2000 (positive, unwindowed)
+    — see RULE-001 divergence; (c) criterio_11 text states bicarbonate is appropriate only if pH<7.15 AND BIC<16,
+    whereas v3 criterio_11 (RULE-011) flags BIC>16 AND pH>7.2 (inverse framing with different numeric cutoffs).
+    This text-vs-code mismatch is a NEW reconciliation finding.
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-01-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_estabilidade.py
+    lines: 1-57, 92-101
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same get_payload_trilha_estabilidade() function also defines criteria 10 (''Uso de Noradrenalina e presenca
+    de anti-hipertensivos''), 12 (''Hipotensao recorrente e anti- hipertensivos'') and 13 (''Hipertensao recorrente,
+    otimizar anti-hipertensivos'') as qualitative alerts pairing with v3 RULE-010/012/013 — captured here to avoid
+    information loss. Verify the lactate/ScVO2/deltaPCO2/bicarbonate anchors against Sepsis-3 / SSC guidance.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Sepsis-3 (Singer et al., JAMA 2016;315:801) hyperlactatemia >2 mmol/L; Surviving Sepsis Campaign
+        2021 fluid resuscitation 30 ml/kg; EGDT ScvO2 target >=70% (Rivers et al., NEJM 2001;345:1368; incorporated
+        into SSC); venous-arterial deltaPCO2 >6 mmHg as marker of inadequate flow (Vallee et al., Intensive Care
+        Med 2008); SSC-2021 bicarbonate pH 7.15.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch3.yaml
+    test_vectors: 0/4 match
+    summary: 'The displayed alert-text thresholds are each individually VERIFIED against published references (lactate>2
+      Sepsis-3, ScVO2<70% EGDT, deltaPCO2>6 mmHg, 30 ml/kg SSC fluid, bicarbonate pH 7.15). The DISCREPANCY is cross-implementation,
+      not a reference error: get_payload text asserts thresholds the paired v3 predicates never test (ScVO2/deltaPCO2
+      branches absent; lactate>2 text vs >=2 code; criterio_5 negative-BH text vs positive-<2000 code sign bug).
+      Clinician sees guideline-concordant conditions the trigger did not actually verify -> moderate impact (misleading,
+      but the guidance text itself is clinically sound; criteria are unwired in calcular_criterios).
+
+      '
+- id: RULE-ESTABILIDADE-016
+  name: Estabilidade facade alert-text - vasopressor/inotrope escalation ladder (criteria 7-9)
+  category: drug-dosing
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Recommendation / alert-text catalog for the septic-shock vasopressor and inotrope escalation steps
+    (criteria 7-9), rendered by the v3 model''s get_detalhe. Contains the institutional dosing regimens surfaced
+    when noradrenaline dose crosses fixed cutoffs or dobutamine causes tachycardia.
+
+    '
+  inputs:
+  - name: noradrenalina dose
+    type: float
+    unit: mcg/kg/min
+  - name: FC
+    type: float
+    unit: bpm
+  outputs:
+  - name: escalation regimen (alerta + recomendacoes)
+    type: string
+  logic: "criterio_7 noradrenalina > 0.5 mcg/kg/min -> Hidrocortisona 50 mg EV 6/6h (or switch current\n  corticoid\
+    \ to hydrocortisone) + Vasopressina EV continua 6 ml/h (dose maxima; diluicao\n  institucional: Vasopressina\
+    \ 2 amp em SG5% 98 ml).\ncriterio_8 noradrenalina > 1.5 mcg/kg/min -> associar Adrenalina (1 mg/mL, 1 amp 10\
+    \ mL em\n  SG5% 90 mL = 0.1 mg/mL; iniciar 10 ml/h, progredir ate 100 ml/h).\ncriterio_9 choque refratario +\
+    \ altas doses de dobutamina: se FC > 130 bpm considerar SUSPENDER\n  dobutamina (taquicardia reduz enchimento\
+    \ de VE e debito cardiaco) e associar Adrenalina\n  (mesma diluicao/titulacao acima).\n"
+  edge_cases: Noradrenaline cutoffs strictly >0.5 and >1.5 mcg/kg/min; tachycardia cutoff FC>130 bpm.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-007
+  - RULE-ESTABILIDADE-008
+  - RULE-ESTABILIDADE-009
+  - RULE-ESTABILIDADE-024
+  divergence: 'Cross-implementation (facade text vs v3 predicate code): (a) UNITS — facade dosing is in noradrenaline
+    mcg/kg/min (>0.5, >1.5) whereas the paired v3 predicates trigger on qt_vol_nora infusion volume in ml/h (RULE-007
+    >20 ml/h; RULE-008 >70 ml/h + vaso>5 ml/h), which are not convertible without concentration/weight; (b) criterio_9
+    text centres on FC > 130 bpm tachycardia, but v3 criterio_9 (RULE-009) tests only noradrenaline>50 ml/h AND
+    dobutamine>10 ml/h and never checks FC. A clinician sees text claiming a mcg/kg/min threshold the trigger did
+    not verify. NEW reconciliation finding.
+
+    '
+  merged_from:
+  - RULE-estabilidade-BE-01-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_estabilidade.py
+    lines: 58-85
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Facade function is get_payload_trilha_estabilidade (aka estabilidade_automatica text layer). Noradrenaline
+    unit here is mcg/kg/MIN; the estabilizacao sibling (RULE-024 criterio_3) labels the analogous threshold mcg/kg/H
+    — an additional cross-pathway unit inconsistency. Dosing regimens are drug-dosing content: verify against SSC
+    vasopressor/corticosteroid guidance.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: high
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin usually when
+        norepinephrine 0.25-0.5 mcg/kg/min; IV hydrocortisone 200 mg/d when norepinephrine or epinephrine >= 0.25
+        mcg/kg/min for >= 4h; epinephrine as second-line vasopressor in refractory shock. Tachycardia (FC>130 bpm)
+        impairs LV filling/CO (physiology of inotrope-induced tachyarrhythmia).
+
+        '
+      url: https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021
+    evidence: estabilidade-batch3.yaml
+    test_vectors: 0/3 match
+    summary: 'The mcg/kg/min doses in the displayed text are individually plausible against SSC-2021 (0.5 is at
+      the upper end of the 0.25-0.5 vasopressin/hydrocortisone window). The DISCREPANCY is a UNIT MISMATCH between
+      the text (noradrenaline mcg/kg/min) and the paired v3 predicates (qt_vol_nora in ml/h): ml/h -> mcg/kg/min
+      is not convertible without drug concentration and patient weight, and for common dilutions the ml/h trigger
+      fires far below the mcg/kg/min the text asserts. criterio_9 text centres on FC>130 bpm that the predicate
+      never evaluates. This is exactly the mcg/kg/min-vs- ml/h class of defect the audit targets -> high impact
+      (clinician may act on a dose threshold the trigger never measured, or receive corticosteroid/vasopressin prompts
+      at a much lower actual dose).
+
+      '
+- id: RULE-ESTABILIDADE-017
+  name: Estabilidade manual C1 - slow capillary refill on noradrenaline
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Flags capillary refill time > 5s together with an active (persisted) noradrenaline record.
+  inputs:
+  - name: tec
+    type: int
+    unit: seconds
+    range: 0 or 3-20
+  - name: noradrenalina_exists
+    type: bool
+  outputs:
+  - name: criterio_1
+    type: bool
+  logic: 'bool(tec > 5 AND verificar_objeto_existe(dados_prontuario, ''noradrenalina''))
+
+    '
+  edge_cases: 'tec strict > 5 (tec == 5 -> False). Requires a persisted Noradrenalina (hasattr AND instance.pk truthy).
+    Test tec=6 with noradrenaline -> True; delete noradrenaline -> False.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-003
+  - RULE-ESTABILIDADE-023
+  merged_from:
+  - RULE-estab-BE-10-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 109-111
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Variant of v3 criterio_1 (RULE-003): manual uses TEC>5 + noradrenaline presence (no lactate branch), v3
+    uses TEC>3 OR lactate>=2 with a 6h vasopressor window. verificar_objeto_existe checks hasattr AND pk. Unit test
+    test_trilha_estabilidade.py:34-48.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'ANDROMEDA-SHOCK (Hernandez et al., JAMA 2019;321:654) and Surviving Sepsis Campaign perfusion-targeted
+        resuscitation: capillary refill time (CRT) > 3 seconds is the validated abnormal/hypoperfusion threshold
+        in septic shock (measured on distal phalanx, 10 s pressure).
+
+        '
+      url: https://pubmed.ncbi.nlm.nih.gov/24811942/
+    evidence: estabilidade-batch3.yaml
+    test_vectors: 2/4 match
+    summary: 'Manual C1 uses CRT strict > 5 s, whereas the validated septic-shock reference (ANDROMEDA-SHOCK) defines
+      abnormal peripheral perfusion as CRT > 3 s (the v3 counterpart RULE-003 correctly uses >3). The 3-5 s abnormal
+      band (patients with genuine hypoperfusion on noradrenaline) is missed -> reduced sensitivity/delayed escalation.
+      Impact moderate: under-detection of hypoperfusion in a patient already on vasopressor; direction is conservative
+      (fewer alerts) but clinically under-sensitive.
+
+      '
+- id: RULE-ESTABILIDADE-018
+  name: Estabilidade manual C2 - noradrenaline started in last 24h
+  category: care-pathway
+  type: threshold
+  status: OK
+  verify: false
+  description: 'True if any Noradrenalina in the patient''s lookback chain has horario_inicio within the last 24h.
+
+    '
+  inputs:
+  - name: buscar_ultimos_dados
+    type: list[pk]
+  - name: Noradrenalina.horario_inicio
+    type: datetime
+  outputs:
+  - name: criterio_2
+    type: bool
+  logic: "horario = now - 24h\nNoradrenalina.objects.filter(pk__in=dados_prontuario.buscar_ultimos_dados,\n    \
+    \                         horario_inicio__gt=horario).exists()\n"
+  edge_cases: 'Strict > (started exactly 24h ago excluded). Searches across chained prontuarios (same pk space as
+    dados_prontuario).
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-004
+  - RULE-ESTABILIDADE-023
+  merged_from:
+  - RULE-estab-BE-10-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 91-99,113-114
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Temporal vasopressor-initiation check; no numeric clinical anchor -> verify:false. Unit test test_trilha_estabilidade.py:58-74.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-019
+  name: Estabilidade manual C3 - high noradrenaline without rescue therapy
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Flags noradrenaline dose > 21 ml together with absence of vasopressin OR absence of hydrocortisone.
+
+    '
+  inputs:
+  - name: noradrenalina.quantidade
+    type: float
+    unit: ml
+    range: 0-200
+  - name: vasopressina
+    type: bool
+  - name: hidrocortisona
+    type: bool
+  outputs:
+  - name: criterio_3
+    type: bool
+  logic: "all([\n  buscar_quantidade_noradrenalina() > 21,\n  any([not vasopressina, not hidrocortisona]),\n])\n"
+  edge_cases: 'buscar_quantidade_noradrenalina returns False (->0) if no noradrenaline; False>21 -> False. Strict
+    > 21. Test uses quantidade=22 -> True.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-007
+  - RULE-ESTABILIDADE-023
+  divergence: 'Code vs _REGRAS spec text: code uses strict `> 21` while the _REGRAS description states "noradrenalina
+    >= 21ml mcg" (inclusive boundary). (Prior _ANTIGAS_REGRAS threshold was 25, lowered to 21.)
+
+    '
+  merged_from:
+  - RULE-estab-BE-10-021
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 86-89,116-127
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Variant of v3 criterio_7 (RULE-007, noradrenaline>20 ml/h) — same clinical rule (high vasopressor without
+    vasopressin/hydrocortisone adjuncts), different unit/threshold. SSC adjunct anchor. Unit test test_trilha_estabilidade.py:76-88.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin (usually at
+        norepinephrine 0.25-0.5 mcg/kg/min) and IV hydrocortisone (norepinephrine/epinephrine >= 0.25 mcg/kg/min
+        for >= 4h) as adjuncts in ongoing/high-dose vasopressor requirement.
+
+        '
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch3.yaml
+    test_vectors: 2/3 match
+    summary: 'The clinical CONCEPT (high-dose noradrenaline without vasopressin OR hydrocortisone adjunct) is guideline-concordant
+      with SSC-2021. Two divergences: (1) extraction-flagged code >21 vs internal _REGRAS spec ">=21" -- affects
+      only the exact boundary dose 21, negligible; (2) the numeric anchor "21 ml" (noradrenalina.quantidade in ml,
+      likely infusion volume) has NO published reference and its unit (ml) is not convertible to the SSC adjunct
+      trigger dose in mcg/kg/min without concentration/ weight -- so the numeric threshold itself is unverifiable
+      against the guideline (same ml-vs- mcg/kg/min theme as RULE-016). Verdict DISCREPANCY (honors carried status
+      + boundary diff); impact low because the boundary affects a single value and the adjunct concept matches the
+      reference.
+
+      '
+- id: RULE-ESTABILIDADE-020
+  name: Estabilidade manual C4 - elevated arterial lactate
+  category: care-pathway
+  type: threshold
+  status: OK
+  verify: true
+  description: Flags arterial lactate >= 2.5.
+  inputs:
+  - name: lactato_arterial
+    type: float
+    unit: mmol/L (units ambiguous; _REGRAS text says mg/dl)
+    range: 0-20
+  outputs:
+  - name: criterio_4
+    type: bool
+  logic: 'lactato_arterial >= 2.5
+
+    '
+  edge_cases: Inclusive >= 2.5. Default lactato 0 -> False.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-003
+  - RULE-ESTABILIDADE-023
+  merged_from:
+  - RULE-estab-BE-10-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 129-130
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Manual uses lactate >= 2.5; v3/facade criteria use the Sepsis-3 anchor of 2.0. Unit label inconsistent
+    across pathways (_REGRAS says mg/dl, clinically mmol/L). Same 2.5 value also appears in sepse C13 and ventilacao
+    C9 per Phase-1 cross-cluster notes. Unit test test_trilha_estabilidade.py:90-93.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference:
+      citation: Singer M, et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3).
+        JAMA 2016;315(8):801-810 — septic shock identified by vasopressor need + serum lactate >2 mmol/L (>18 mg/dL);
+        Surviving Sepsis Campaign 2021 uses lactate >2 mmol/L as the hypoperfusion anchor.
+      url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+    evidence: estabilidade-batch4.yaml
+    test_vectors: 3/5 match
+    summary: 'Legacy manual C4 (trilha_estabilidade.py:130) flags lactato_arterial >= 2.5, whereas the Sepsis-3
+      / SSC hypoperfusion anchor is >2.0 mmol/L (>18 mg/dL). The higher, inclusive 2.5 cutoff misses mild hyperlactatemia
+      in the 2.0-2.49 mmol/L band that references would flag — a screening-sensitivity gap, hence low (not none).
+      Secondary flag: input unit label is ambiguous — _REGRAS text says mg/dl but the 2.5 value is only coherent
+      as mmol/L (2.5 mg/dL is far below the normal lactate ceiling of ~18 mg/dL; if code were fed mg/dL, essentially
+      no patient would trigger). Value is consistent with the mmol/L interpretation, so no evidence of an active
+      unit bug in the comparison, but the mislabel should be corrected. Sibling v3/facade criteria use the 2.0 anchor
+      (per catalog notes), so 2.5 is an intra-system inconsistency too.
+
+      '
+- id: RULE-ESTABILIDADE-021
+  name: Estabilidade manual C5 - antihypertensive with adequate pressure/noradrenaline
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Flags presence of antihypertensive together with (noradrenaline present OR PAS>90).
+  inputs:
+  - name: anti_hipertensivo
+    type: bool
+  - name: noradrenalina_exists
+    type: bool
+  - name: pas
+    type: float
+    unit: mmHg
+  outputs:
+  - name: criterio_5
+    type: bool
+  logic: 'anti_hipertensivo AND (verificar_objeto_existe(dados_prontuario, ''noradrenalina'') OR pas > 90)
+
+    '
+  edge_cases: Strict pas>90 (pas==90 -> needs noradrenaline). Test pas=95 -> True.
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-010
+  - RULE-ESTABILIDADE-023
+  merged_from:
+  - RULE-estab-BE-10-023
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 132-134
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Variant of v3 criterio_10 (RULE-010, antihypertensive + noradrenaline>50 ml/h). Medication- conflict pathway
+    trigger with a generic BP threshold -> verify:false. Unit test test_trilha_estabilidade.py:95-106.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-022
+  name: Estabilidade manual C6 - dobutamine with exact noradrenaline 50
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Flags dobutamine > 10 ml/h together with noradrenaline quantity EXACTLY equal to 50 ml.
+
+    '
+  inputs:
+  - name: dobutamina
+    type: float
+    unit: ml/h
+    range: 0-30
+  - name: noradrenalina.quantidade
+    type: float
+    unit: ml
+    range: 0-200
+  outputs:
+  - name: criterio_6
+    type: bool
+  logic: 'dobutamina > 10 AND buscar_quantidade_noradrenalina() == 50
+
+    '
+  edge_cases: 'Uses equality == 50 (not >=): noradrenaline 40 or 51 -> False. Test confirms 50->True, 40->False.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-009
+  - RULE-ESTABILIDADE-023
+  divergence: 'Code uses exact equality `== 50` on a continuous noradrenaline dose (clinically implausible; likely
+    intended >= or > 50), while the _REGRAS text "Dobutamina > 10ml/h E Noradrenalina 50 ml/h" is ambiguous about
+    the operator. Also the dobutamina model validator max is 30 yet the threshold is > 10.
+
+    '
+  merged_from:
+  - RULE-estab-BE-10-024
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 136-137
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Variant of v3 criterio_9 (RULE-009, noradrenaline>50 AND dobutamine>10). criterio_6 is NOT counted by
+    get_payload (iterates only 1..total_criterios=5) but IS counted by calcular_alerta (RULE-023). Unit test test_trilha_estabilidade.py:108-121.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference:
+      citation: 'No authoritative published source defines a numeric infusion-volume rule of the form ''dobutamine
+        >10 ml/h AND noradrenaline volume == 50 ml''. Closest clinical anchor: Surviving Sepsis Campaign 2021 (Evans
+        L, et al. Crit Care Med 2021;49(11):e1063-e1143) supports adding dobutamine to norepinephrine in septic
+        shock with cardiac dysfunction/persistent hypoperfusion, but specifies no device-volume thresholds and doses
+        vasopressors by weight-rate (mcg/kg/min), not bag volume (ml).'
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch4.yaml
+    test_vectors: 4/4 match
+    summary: 'Verified against legacy source (trilha_estabilidade.py:137): dobutamina > 10 AND buscar_quantidade_noradrenalina()
+      == 50. The specific numeric thresholds (>10 ml/h dobutamine, exactly 50 ml noradrenaline) are proprietary/internal
+      device-configuration rules with no authoritative published anchor, so they cannot be VERIFIED or refuted against
+      a reference -> UNVERIFIABLE, flag for internal review (do not treat as clinically wrong). FLAGGED FOR INTERNAL
+      REVIEW: the extraction-stage DISCREPANCY is a code-vs-intent anomaly, not a code-vs-reference one — exact
+      equality ''== 50'' on a continuous noradrenaline volume is clinically implausible (49 or 51 ml -> False),
+      so a genuinely refractory-shock patient at 60 ml would NOT set criterio_6; the sibling v3 criterio_9 uses
+      ''> 50'', suggesting the intended operator was >= or >. Also the dobutamina model validator max (30) exceeds
+      nothing problematic but the >10 gate sits well inside it. criterio_6 affects calcular_alerta (RULE-023) but
+      is not surfaced by get_payload (iterates 1..5), so the equality bug silently perturbs the alert count only.
+
+      '
+- id: RULE-ESTABILIDADE-023
+  name: Estabilidade manual pathway alert level
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: Maps count of satisfied manual stability criteria (1..6) to a 3-level alert.
+  inputs:
+  - name: criterios_true_count
+    type: int
+    range: 0-6
+  outputs:
+  - name: alerta
+    type: str enum {VERMELHO, AMARELO, NEUTRO}
+  logic: 'n = count(True among criterio_1..6)
+
+    if n >= 3: ''VERMELHO''
+
+    elif n > 0: ''AMARELO''
+
+    else: ''NEUTRO''
+
+    '
+  edge_cases: 'calcular_alerta counts all 6 criteria (including criterio_6). get_payload, however, iterates only
+    criterio_1..5 (_REGRAS total_criterios=5), so criterio_6 is invisible in the payload yet still affects the alert.
+    Test reaches VERMELHO with c2+c4+c5.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-017
+  - RULE-ESTABILIDADE-018
+  - RULE-ESTABILIDADE-019
+  - RULE-ESTABILIDADE-020
+  - RULE-ESTABILIDADE-021
+  - RULE-ESTABILIDADE-022
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-025
+  merged_from:
+  - RULE-estab-BE-10-025
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_estabilidade.py
+    lines: 139-153
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Internal count->color aggregation, no published anchor -> verify:false. get_alerta/get_payload label the
+    manual trilha nome=''Estabilizacao'', tipo=''estabilizacao''. Unit test test_trilha_estabilidade.py:123-138.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-024
+  name: Estabilizacao (trilha2) - shock work-up & vasopressor escalation text catalog
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: 'Recommendation/alert-text catalog for the estabilizacao (trilha2) pathway. Criteria for malperfusion,
+    noradrenaline initiation, high-dose noradrenaline, hyperlactatemia, antihypertensives in shock, and refractory
+    shock with dobutamine, plus sparse criterio_7/10 stubs.
+
+    '
+  inputs:
+  - name: noradrenalina dose
+    type: float
+    unit: mcg/kg/h (as labelled)
+  - name: FC
+    type: float
+    unit: bpm
+  outputs:
+  - name: alerta + recomendacoes
+    type: string
+  logic: "criterio_1 ma perfusao (TEC prolongado) -> checar lactato/ScVO2/deltaPCO2, prova volemica ou inotropico.\n\
+    criterio_2 noradrenalina iniciada nas ultimas 24h -> checar ressuscitacao/culturas/dispositivos/SEPSE;\n   \
+    \        garantir PAI e noradrenalina via CVC.\ncriterio_3 noradrenalina dose alta > 0.5 mcg/kg/h -> Hidrocortisona\
+    \ 50 mg EV 6/6h + Vasopressina EV continua.\ncriterio_4 hiperlactatemia -> checar TEC/ScVO2/deltaPCO2, prova\
+    \ volemica + dobutamina.\ncriterio_5 choque + anti-hipertensivos -> suspender anti-hipertensivo/beta-bloqueador.\n\
+    criterio_6 choque refratario + altas doses nora+dobutamina: FC > 130 bpm -> reduzir/suspender dobutamina.\n\
+    criterio_7 (alerta \"Noradrenalina >0,5mcg/kg/min, associar corticoide e vasopressina\") - EMPTY recomendacoes.\n\
+    criterio_10 (alerta \"Noradrenalina e anti-hipertensivos na prescricao\") - EMPTY recomendacoes.\n"
+  edge_cases: 'Structural gap: keys jump criterio_6 -> criterio_7 -> criterio_10 (criteria 8 and 9 absent). criterio_7
+    alerta contains a stray smart-quote after "vasopressina". Noradrenaline dose unit is mcg/kg/H (criterio_3) which
+    conflicts with the mcg/kg/MIN used in the estabilidade facade (RULE-016).
+
+    '
+  confidence: medium
+  related:
+  - RULE-ESTABILIDADE-015
+  - RULE-ESTABILIDADE-016
+  - RULE-ESTABILIDADE-025
+  divergence: 'Noradrenaline high-dose threshold labelled mcg/kg/H here (criterio_3) vs mcg/kg/MIN in the estabilidade
+    facade (RULE-016 criterio_7) — a cross-pathway unit inconsistency on the same >0.5 value.
+
+    '
+  merged_from:
+  - RULE-estabilizacao-BE-01-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_estabilizacao.py
+    lines: 1-54
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: overlaps heavily with the estabilidade facade/v3 (RULE-015/016) but is a SEPARATE pathway (payload_trilha_estabilizacao,
+    feeds trilha2) with sparser content and missing criteria; not merged (variant). Phase-1 description labelled
+    this payload_estabilizacao_ automatica, but the cited file core/facade/trilha_estabilizacao.py actually defines
+    payload_trilha_estabilizacao; trilha2.py imports a sibling payload_estabilizacao_automatica from trilha_automatica/facade/estabilizacao.py
+    (not captured here). Dosing content -> verify:true.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference:
+      citation: 'Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49(11):e1063-e1143): IV hydrocortisone
+        200 mg/day given as 50 mg IV q6h (or continuous) for septic shock on vasopressors; corticosteroid trigger
+        norepinephrine/epinephrine >=0.25 mcg/kg/MIN for >=4h; add vasopressin (typically at norepinephrine 0.25-0.5
+        mcg/kg/MIN). Vasopressor dosing is weight-rate per MINUTE. Sepsis-3 for the hyperlactatemia concept.'
+      url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+    evidence: estabilidade-batch4.yaml
+    test_vectors: 2/4 match
+    summary: 'Verified against legacy source (core/facade/trilha_estabilizacao.py:1-54), a display-only alert/recommendation
+      text catalog. Clinical recommendation CONTENT is consistent with SSC 2021 (hydrocortisone 50 mg q6h, continuous
+      vasopressin, dobutamine reduction at HR>130, lactate/ perfusion work-up). Primary DISCREPANCY: criterio_3
+      alert states the noradrenaline high-dose threshold as ">0,5mcg/kg/H" whereas the guideline standard (and the
+      sibling estabilidade facade RULE-016 criterio_7) express it in mcg/kg/MIN. 0.5 mcg/kg/min = 30 mcg/kg/h, so
+      the two units differ 60x; the ''/h'' label in clinician-facing text is a genuine unit error of exactly the
+      class this audit targets. Impact moderate: this file performs no numeric comparison so it will not itself
+      misfire, but (a) it shows an incorrect unit in clinical guidance and (b) any downstream reuse of the ''/h''
+      framing against a real mcg/kg/min feed would spuriously classify almost any noradrenaline exposure as ''high
+      dose''. Threshold value 0.5 also exceeds the SSC corticosteroid trigger of 0.25 mcg/kg/min (0.5 is the top
+      of the vasopressin- add band) — later/stricter escalation. Additional non-clinical defects: structural key
+      gap (criterio_6 -> _7 -> _10, missing 8/9), criterio_7 and criterio_10 have empty recomendacoes, and criterio_7
+      alerta carries a stray smart-quote. Rule status was AMBIGUOUS; characterized here as a units DISCREPANCY with
+      otherwise reference-consistent content.
+
+      '
+- id: RULE-ESTABILIDADE-025
+  name: Estabilizacao v1 alert with criterio_6 combination clause
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Color alert for estabilizacao v1 (TrilhaEstabilizacaoModel, db_table AMH_TM_SINTETICO_02_V); criterio_6
+    alone is insufficient unless combined with another set criterion.
+
+    '
+  inputs:
+  - name: criterio_1..6
+    type: int flag (1 = present)
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+  logic: 'amarelo = [criterio_1, criterio_4].count(1)
+
+    vermelho = [criterio_2, criterio_3, criterio_5].count(1)
+
+    criterio_6 = [criterio_6].count(1)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo >= 1 or (criterio_6 == 1 and criterio_6 + amarelo + vermelho >= 2): return "AMARELO"
+
+    else: return "NEUTRO"
+
+    '
+  edge_cases: 'criterio_6 only escalates to AMARELO when at least one other counted criterion is also set (criterio_6
+    + amarelo + vermelho >= 2). If vermelho>=1 the criterio_6 clause is unreachable.
+
+    '
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-024
+  - RULE-ESTABILIDADE-014
+  - RULE-ESTABILIDADE-023
+  merged_from:
+  - RULE-estabilizacao-BE-03-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha2.py
+    lines: 78-97
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'TrilhaEstabilizacaoTesteModel subclasses this unchanged (db_table AMH_TM_SINTETICO_02_V_TESTE). Internal
+    count->color aggregation, no published anchor -> verify:false.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ESTABILIDADE-026
+  name: Auto start-time default (now) for noradrenaline & cardiac arrest
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Noradrenalina and ParadaCardioRespiratoria default horario_inicio to timezone.now() at save if unset.
+  inputs:
+  - name: horario_inicio
+    type: datetime | None
+  outputs:
+  - name: horario_inicio
+    type: datetime
+  logic: 'def save(): if not self.horario_inicio: self.horario_inicio = timezone.now(); super().save()
+
+    '
+  edge_cases: Only sets when falsy. Drives the "started in last 24h" criteria (sepse C4, estabilidade C2, sedacao
+    PCR-24h).
+  confidence: high
+  related:
+  - RULE-ESTABILIDADE-018
+  merged_from:
+  - RULE-cons-BE-10-067
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/noradrenalina.py
+    lines: 19-23
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Same pattern in parada_cardiorrespiratoria.py:18-22. VentilacaoMecanica.horario_inicio is a required field
+    with NO default.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 dropped: []
-
 integrated_misroutes:
-  - {id: RULE-cons-BE-10-067, disposition: appended:RULE-ESTABILIDADE-026}
+- id: RULE-cons-BE-10-067
+  disposition: appended:RULE-ESTABILIDADE-026

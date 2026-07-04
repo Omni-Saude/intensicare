@@ -2,164 +2,238 @@ cluster: antimicrobiano
 commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
 commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
 rules:
-  - id: RULE-ANTIMICROBIANO-001
-    name: Antimicrobiano alert color (active - calcular_alerta_v2)
-    category: alert-threshold
-    type: decision-tree
-    status: OK
-    verify: false
-    description: >
-      Active antimicrobial severity/color alert wired into TrilhaAntimicrobianoModel.save()
-      (line 102: self.alerta = self.calcular_alerta_v2()). Maps a subset of the boolean
-      stewardship criteria flags to VERMELHO/AMARELO/NEUTRO. When NEUTRO, save() also resets
-      assistido=False (lines 103-104).
-    inputs:
-      - {name: criterio_3, type: int flag (truthy), unit: null}   # avaliar ajuste de dose pelo peso
-      - {name: criterio_4, type: int flag (truthy), unit: null}   # ajuste de dose por funcao renal
-      - {name: criterio_5, type: int flag (truthy), unit: null}   # reavaliar duracao
-      - {name: criterio_6, type: int flag (truthy), unit: null}   # atraso na administracao
-      - {name: criterio_8, type: int flag (truthy), unit: null}   # febre >38.3 + CVC >7d
-    outputs:
-      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}", unit: null}
-    logic: |
-      amarelo  = [criterio_3, criterio_5, criterio_6].count(True)
-      vermelho = [criterio_4, criterio_8].count(True)
-      if vermelho >= 1:
-          return "VERMELHO"
-      elif amarelo >= 1:
-          return "AMARELO"
-      else:
-          return "NEUTRO"
-      # In save(): self.alerta = calcular_alerta_v2(); if alerta == "NEUTRO": self.assistido = False
-    edge_cases: >
-      Uses .count(True); Django IntegerField values of 1 equal True in Python so 1-flags count.
-      save() forces assistido=False on NEUTRO. Only criteria 3,4,5,6,8 feed this alert (the
-      criterios_mensagem property lists criterio_4 and criterio_8 as the red-driving ones).
-    confidence: high
-    related: [RULE-ANTIMICROBIANO-002, RULE-ANTIMICROBIANO-003]
-    merged_from: [RULE-antimicrobiano-BE-03-015]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha5.py, lines: "101-105, 182-201", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-    notes: >
-      This is the version actually called by save(). RULE-ANTIMICROBIANO-002 (calcular_alerta)
-      is the unused legacy variant with a different, richer criterion weighting - kept SEPARATE
-      as a version variant, not merged. A THIRD, distinct severity path also exists in the same
-      model but was NOT captured as a separate Phase-1 rule: generate_view_data() ->
-      define_tipo_alerta(conta_criterios_automatica(), _CRITERIOS_ALERTA={"amarelo":2,"vermelho":3})
-      counts criterio_1..12 truthy (trilha5.py lines 12/51, 107-121). Recorded here for
-      completeness; not fabricated as a rule.
+- id: RULE-ANTIMICROBIANO-001
+  name: Antimicrobiano alert color (active - calcular_alerta_v2)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Active antimicrobial severity/color alert wired into TrilhaAntimicrobianoModel.save() (line 102:
+    self.alerta = self.calcular_alerta_v2()). Maps a subset of the boolean stewardship criteria flags to VERMELHO/AMARELO/NEUTRO.
+    When NEUTRO, save() also resets assistido=False (lines 103-104).
 
-  - id: RULE-ANTIMICROBIANO-002
-    name: Antimicrobiano alert color (legacy unused - calcular_alerta)
-    category: alert-threshold
-    type: decision-tree
-    status: AMBIGUOUS
-    verify: false
-    description: >
-      Legacy antimicrobial severity/color alert (calcular_alerta) with a third weighted
-      criterion group ("criterios"). Not called by save() - dead in the active path. Kept as a
-      version variant of RULE-ANTIMICROBIANO-001, not merged.
-    inputs:
-      - {name: criterio_1..14, type: int flag (1), unit: null}
-    outputs:
-      - {name: alerta, type: "enum {VERMELHO, AMARELO, NEUTRO}", unit: null}
-    logic: |
-      amarelo   = [criterio_1, criterio_2, criterio_3].count(1)
-      criterios = [criterio_4, criterio_6, criterio_8, criterio_9,
-                   criterio_11, criterio_12, criterio_13, criterio_14].count(1)
-      vermelho  = [criterio_5, criterio_7, criterio_10].count(1)
-      if vermelho >= 1 or criterios > 3:
-          return "VERMELHO"
-      elif amarelo >= 1 or (0 < criterios <= 2):
-          return "AMARELO"
-      else:
-          return "NEUTRO"
-    edge_cases: >
-      criterios == 3 exactly falls through BOTH branches to NEUTRO (gap between the <=2 AMARELO
-      condition and the >3 VERMELHO condition) - a latent defect if this code were reactivated.
-      Uses .count(1) (literal 1) rather than .count(True); behaves identically to _v2 for 1-valued
-      IntegerFields since 1 == True in Python.
-    confidence: high
-    related: [RULE-ANTIMICROBIANO-001, RULE-ANTIMICROBIANO-003]
-    merged_from: [RULE-antimicrobiano-BE-03-016]
-    sources:
-      - {repo: ahlabs-trilhas, path: trilha_automatica/models/trilha5.py, lines: "156-180", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: variant}
-    notes: >
-      Dead code: save() calls calcular_alerta_v2 (RULE-ANTIMICROBIANO-001), never this. Status
-      AMBIGUOUS retained (never downgraded) because of the criterios==3 fall-through gap.
-      This is a version variant of RULE-ANTIMICROBIANO-001 (different criterion sets and the extra
-      "criterios" bucket), so it is cross-referenced via related and NOT merged.
+    '
+  inputs:
+  - name: criterio_3
+    type: int flag (truthy)
+    unit: null
+  - name: criterio_4
+    type: int flag (truthy)
+    unit: null
+  - name: criterio_5
+    type: int flag (truthy)
+    unit: null
+  - name: criterio_6
+    type: int flag (truthy)
+    unit: null
+  - name: criterio_8
+    type: int flag (truthy)
+    unit: null
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+    unit: null
+  logic: "amarelo  = [criterio_3, criterio_5, criterio_6].count(True)\nvermelho = [criterio_4, criterio_8].count(True)\n\
+    if vermelho >= 1:\n    return \"VERMELHO\"\nelif amarelo >= 1:\n    return \"AMARELO\"\nelse:\n    return \"\
+    NEUTRO\"\n# In save(): self.alerta = calcular_alerta_v2(); if alerta == \"NEUTRO\": self.assistido = False\n"
+  edge_cases: 'Uses .count(True); Django IntegerField values of 1 equal True in Python so 1-flags count. save()
+    forces assistido=False on NEUTRO. Only criteria 3,4,5,6,8 feed this alert (the criterios_mensagem property lists
+    criterio_4 and criterio_8 as the red-driving ones).
 
-  - id: RULE-ANTIMICROBIANO-003
-    name: "Antimicrobial stewardship criteria catalog (12 criteria: duration, spectrum, weight/renal dose, CVC, candidemia, cultures, CAP/COVID)"
-    category: care-pathway
-    type: decision-tree
-    status: OK
-    verify: true
-    description: >
-      Antimicrobial stewardship pathway payload (payload_trilha_antimicrobiano, aliased as
-      payload_antimicrobiano_automatica): 12 stewardship criteria, each an alerta label plus one
-      or more recomendacoes, covering antibiotic duration, spectrum de-/escalation, weight- and
-      renal-function dose adjustment, CVC-related infection, empiric candidemia, culture
-      solicitation, and CAP/COVID de-escalation. Consumed by get_detalhe() to render triggered
-      criteria.
-    inputs:
-      - {name: antibiotic duration, type: float, unit: days}
-      - {name: internacao time, type: float, unit: hours}
-      - {name: CVC dwell time, type: float, unit: days}
-      - {name: TAX (temperature), type: float, unit: degC}
-      - {name: PCR (C-reactive protein), type: float, unit: null}
-    outputs:
-      - {name: alerta + recomendacoes, type: string, unit: null}
-    logic: |
-      criterio_1  mesmo antibiotico ha > 7 dias -> considerar suspensao.
-      criterio_2  antibiotico de curto espectro iniciado com internacao > 48h ->
-                  suspender OU escalonar (Tazocin/Cefepime) + parecer infectologia.
-      criterio_3  ajuste de dose pelo PESO (tabela via imagem S3). SEM ajuste renal:
-                  Polimixina B, Linezolida, Oxacilina, Tigeciclina, Clindamicina.
-      criterio_4  ajuste de dose pela FUNCAO RENAL / clearence reduzido (tabela via imagem S3);
-                  mesmas excecoes de nao-ajuste renal que criterio_3.
-      criterio_5  reavaliar duracao (suspender por tempo/melhora clinica; se refratario ->
-                  avaliar falencia, coletar todas as culturas, imagem e escalonar espectro).
-      criterio_6  atraso na administracao -> acionar enfermeiro(a)/plantonista.
-      criterio_7  CVC > 7 dias evoluindo com febre -> avaliar retirada/troca + hemocultura
-                  bacterias x2; avaliar integridade e sinais flogisticos.
-      criterio_8  Febre > 38,3 degC + considerar retirada de CVC (> 7 dias) -> avaliar
-                  integridade/sinais flogisticos, retirada/troca + hemocultura bacterias x2.
-      criterio_9  risco de candidemia -> equinocandina (Anidulafungina/Micafungina/Caspofungina)
-                  + parecer infectologia + culturas: sangue bacterias x2, secrecao traqueal,
-                  urina, RX torax, EAS.
-      criterio_10 risco de candidemia -> equinocandina + parecer infectologia + 2 amostras de
-                  cultura de sangue para FUNGOS.
-      criterio_11 iniciado antimicrobiano -> avaliar solicitar culturas (sangue bacterias x2,
-                  secrecao traqueal, urina, RX torax, EAS).
-      criterio_12 antibioticoterapia para PAC com PCR < 100 OU COVID-19 confirmado ->
-                  considerar suspensao; considerar DPOC/congestao pulmonar/broncoaspiracao.
-    edge_cases: >
-      Numeric cutoffs: same-antibiotic > 7d (criterio_1); short-spectrum start with internacao
-      > 48h (criterio_2); CVC > 7d (criterio_7, criterio_8); fever > 38,3 degC (criterio_8);
-      PCR < 100 (criterio_12). criterio_9 and criterio_10 carry the IDENTICAL alerta label
-      ("Paciente grave com risco de candidemia") but differ in workup: criterio_9 = full
-      bacterial+fungal workup (blood x2, tracheal, urine, chest X-ray, EAS); criterio_10 =
-      fungi-only, 2 blood samples. Dose-adjustment tables for criterio_3 (weight) and criterio_4
-      (renal) are external S3 PNG images, not inline values. get_detalhe() on
-      TrilhaAntimicrobianoModel surfaces only criteria 3,4,5,6,8; TrilhaCincoSintetico.get_detalhe
-      iterates criteria 1..12.
-    confidence: high
-    related: [RULE-ANTIMICROBIANO-001, RULE-ANTIMICROBIANO-002]
-    merged_from: [RULE-antimicrobiano-BE-01-019]
-    sources:
-      - {repo: ahlabs-trilhas, path: core/facade/trilha_antimicrobiano.py, lines: "1-94", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: primary}
-      - {repo: ahlabs-trilhas, path: trilha_automatica/facade/antimicrobiano.py, lines: "1-4", commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f, role: duplicate}
-    notes: >
-      trilha_automatica/facade/antimicrobiano.py only re-exports the same dict
-      (payload_antimicrobiano_automatica = payload_trilha_antimicrobiano) - a pure alias, NOT a
-      divergent second copy, so no cross-implementation discrepancy exists. No frontend copy of
-      this stewardship logic was found: the only frontend "antimicrobiano" hits
-      (trilhas-frontend src/utils/dataForms/dataFormFarmaceutico.ts lines 555/623/639) are
-      unrelated pharmacist-intervention dropdown options, not this rule. verify=true because the
-      catalog embeds threshold/eligibility decisions with published clinical anchors (fever
-      > 38.3 degC + catheter management ~ IDSA CRBSI; empiric echinocandin for candidemia ~ IDSA
-      candidiasis guidance; antibiotic-duration/de-escalation stewardship; CRP-guided CAP
-      de-escalation). Clinical content preserved verbatim; not corrected.
+    '
+  confidence: high
+  related:
+  - RULE-ANTIMICROBIANO-002
+  - RULE-ANTIMICROBIANO-003
+  merged_from:
+  - RULE-antimicrobiano-BE-03-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha5.py
+    lines: 101-105, 182-201
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This is the version actually called by save(). RULE-ANTIMICROBIANO-002 (calcular_alerta) is the unused
+    legacy variant with a different, richer criterion weighting - kept SEPARATE as a version variant, not merged.
+    A THIRD, distinct severity path also exists in the same model but was NOT captured as a separate Phase-1 rule:
+    generate_view_data() -> define_tipo_alerta(conta_criterios_automatica(), _CRITERIOS_ALERTA={"amarelo":2,"vermelho":3})
+    counts criterio_1..12 truthy (trilha5.py lines 12/51, 107-121). Recorded here for completeness; not fabricated
+    as a rule.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ANTIMICROBIANO-002
+  name: Antimicrobiano alert color (legacy unused - calcular_alerta)
+  category: alert-threshold
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: 'Legacy antimicrobial severity/color alert (calcular_alerta) with a third weighted criterion group
+    ("criterios"). Not called by save() - dead in the active path. Kept as a version variant of RULE-ANTIMICROBIANO-001,
+    not merged.
+
+    '
+  inputs:
+  - name: criterio_1..14
+    type: int flag (1)
+    unit: null
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+    unit: null
+  logic: "amarelo   = [criterio_1, criterio_2, criterio_3].count(1)\ncriterios = [criterio_4, criterio_6, criterio_8,\
+    \ criterio_9,\n             criterio_11, criterio_12, criterio_13, criterio_14].count(1)\nvermelho  = [criterio_5,\
+    \ criterio_7, criterio_10].count(1)\nif vermelho >= 1 or criterios > 3:\n    return \"VERMELHO\"\nelif amarelo\
+    \ >= 1 or (0 < criterios <= 2):\n    return \"AMARELO\"\nelse:\n    return \"NEUTRO\"\n"
+  edge_cases: 'criterios == 3 exactly falls through BOTH branches to NEUTRO (gap between the <=2 AMARELO condition
+    and the >3 VERMELHO condition) - a latent defect if this code were reactivated. Uses .count(1) (literal 1) rather
+    than .count(True); behaves identically to _v2 for 1-valued IntegerFields since 1 == True in Python.
+
+    '
+  confidence: high
+  related:
+  - RULE-ANTIMICROBIANO-001
+  - RULE-ANTIMICROBIANO-003
+  merged_from:
+  - RULE-antimicrobiano-BE-03-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha5.py
+    lines: 156-180
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: variant
+  notes: 'Dead code: save() calls calcular_alerta_v2 (RULE-ANTIMICROBIANO-001), never this. Status AMBIGUOUS retained
+    (never downgraded) because of the criterios==3 fall-through gap. This is a version variant of RULE-ANTIMICROBIANO-001
+    (different criterion sets and the extra "criterios" bucket), so it is cross-referenced via related and NOT merged.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-ANTIMICROBIANO-003
+  name: 'Antimicrobial stewardship criteria catalog (12 criteria: duration, spectrum, weight/renal dose, CVC, candidemia,
+    cultures, CAP/COVID)'
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Antimicrobial stewardship pathway payload (payload_trilha_antimicrobiano, aliased as payload_antimicrobiano_automatica):
+    12 stewardship criteria, each an alerta label plus one or more recomendacoes, covering antibiotic duration,
+    spectrum de-/escalation, weight- and renal-function dose adjustment, CVC-related infection, empiric candidemia,
+    culture solicitation, and CAP/COVID de-escalation. Consumed by get_detalhe() to render triggered criteria.
+
+    '
+  inputs:
+  - name: antibiotic duration
+    type: float
+    unit: days
+  - name: internacao time
+    type: float
+    unit: hours
+  - name: CVC dwell time
+    type: float
+    unit: days
+  - name: TAX (temperature)
+    type: float
+    unit: degC
+  - name: PCR (C-reactive protein)
+    type: float
+    unit: null
+  outputs:
+  - name: alerta + recomendacoes
+    type: string
+    unit: null
+  logic: "criterio_1  mesmo antibiotico ha > 7 dias -> considerar suspensao.\ncriterio_2  antibiotico de curto espectro\
+    \ iniciado com internacao > 48h ->\n            suspender OU escalonar (Tazocin/Cefepime) + parecer infectologia.\n\
+    criterio_3  ajuste de dose pelo PESO (tabela via imagem S3). SEM ajuste renal:\n            Polimixina B, Linezolida,\
+    \ Oxacilina, Tigeciclina, Clindamicina.\ncriterio_4  ajuste de dose pela FUNCAO RENAL / clearence reduzido (tabela\
+    \ via imagem S3);\n            mesmas excecoes de nao-ajuste renal que criterio_3.\ncriterio_5  reavaliar duracao\
+    \ (suspender por tempo/melhora clinica; se refratario ->\n            avaliar falencia, coletar todas as culturas,\
+    \ imagem e escalonar espectro).\ncriterio_6  atraso na administracao -> acionar enfermeiro(a)/plantonista.\n\
+    criterio_7  CVC > 7 dias evoluindo com febre -> avaliar retirada/troca + hemocultura\n            bacterias\
+    \ x2; avaliar integridade e sinais flogisticos.\ncriterio_8  Febre > 38,3 degC + considerar retirada de CVC\
+    \ (> 7 dias) -> avaliar\n            integridade/sinais flogisticos, retirada/troca + hemocultura bacterias\
+    \ x2.\ncriterio_9  risco de candidemia -> equinocandina (Anidulafungina/Micafungina/Caspofungina)\n        \
+    \    + parecer infectologia + culturas: sangue bacterias x2, secrecao traqueal,\n            urina, RX torax,\
+    \ EAS.\ncriterio_10 risco de candidemia -> equinocandina + parecer infectologia + 2 amostras de\n          \
+    \  cultura de sangue para FUNGOS.\ncriterio_11 iniciado antimicrobiano -> avaliar solicitar culturas (sangue\
+    \ bacterias x2,\n            secrecao traqueal, urina, RX torax, EAS).\ncriterio_12 antibioticoterapia para\
+    \ PAC com PCR < 100 OU COVID-19 confirmado ->\n            considerar suspensao; considerar DPOC/congestao pulmonar/broncoaspiracao.\n"
+  edge_cases: 'Numeric cutoffs: same-antibiotic > 7d (criterio_1); short-spectrum start with internacao > 48h (criterio_2);
+    CVC > 7d (criterio_7, criterio_8); fever > 38,3 degC (criterio_8); PCR < 100 (criterio_12). criterio_9 and criterio_10
+    carry the IDENTICAL alerta label ("Paciente grave com risco de candidemia") but differ in workup: criterio_9
+    = full bacterial+fungal workup (blood x2, tracheal, urine, chest X-ray, EAS); criterio_10 = fungi-only, 2 blood
+    samples. Dose-adjustment tables for criterio_3 (weight) and criterio_4 (renal) are external S3 PNG images, not
+    inline values. get_detalhe() on TrilhaAntimicrobianoModel surfaces only criteria 3,4,5,6,8; TrilhaCincoSintetico.get_detalhe
+    iterates criteria 1..12.
+
+    '
+  confidence: high
+  related:
+  - RULE-ANTIMICROBIANO-001
+  - RULE-ANTIMICROBIANO-002
+  merged_from:
+  - RULE-antimicrobiano-BE-01-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_antimicrobiano.py
+    lines: 1-94
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/facade/antimicrobiano.py
+    lines: 1-4
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'trilha_automatica/facade/antimicrobiano.py only re-exports the same dict (payload_antimicrobiano_automatica
+    = payload_trilha_antimicrobiano) - a pure alias, NOT a divergent second copy, so no cross-implementation discrepancy
+    exists. No frontend copy of this stewardship logic was found: the only frontend "antimicrobiano" hits (trilhas-frontend
+    src/utils/dataForms/dataFormFarmaceutico.ts lines 555/623/639) are unrelated pharmacist-intervention dropdown
+    options, not this rule. verify=true because the catalog embeds threshold/eligibility decisions with published
+    clinical anchors (fever > 38.3 degC + catheter management ~ IDSA CRBSI; empiric echinocandin for candidemia
+    ~ IDSA candidiasis guidance; antibiotic-duration/de-escalation stewardship; CRP-guided CAP de-escalation). Clinical
+    content preserved verbatim; not corrected.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference:
+      citation: 'IDSA 2016 Clinical Practice Guideline for the Management of Candidiasis (Pappas et al., Clin Infect
+        Dis 2016;62:e1-e50) for empiric echinocandin therapy; IDSA 2009 Guidelines for Diagnosis and Management
+        of Intravascular Catheter-Related Infection (Mermel et al., Clin Infect Dis 2009;49:1-45) for CVC removal
+        + paired blood cultures; Surviving Sepsis Campaign 2021 (Evans et al., Intensive Care Med 2021;47:1181-1247)
+        for shorter antibiotic duration + daily de-escalation + procalcitonin/biomarker-guided discontinuation.
+        Fever 38.3 degC threshold per IDSA febrile-neutropenia single-measurement definition.
+
+        '
+      url: 'https://academic.oup.com/cid/article/62/4/e1/2462830 ; https://academic.oup.com/cid/article/49/11/1770/344574
+        ; https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+
+        '
+    evidence: antimicrobiano-batch1.yaml
+    test_vectors: 4/5 match
+    summary: 'This rule is a qualitative stewardship care-pathway catalog (12 alerta+recomendacao entries), not
+      a scored equation, so equation/coefficients/rounding are n/a. Every clinically anchorable element matches
+      its authoritative reference: (a) empiric echinocandin (anidulafungin/ micafungin/caspofungin) for candidemia
+      risk = IDSA 2016 strong recommendation for non-neutropenic ICU patients (criterio_9, criterio_10); (b) CVC
+      removal/exchange with two blood-culture samples on fever = IDSA 2009 CRBSI management (criterio_7, criterio_8);
+      (c) reassess/shorten antibiotic course, escalate/de-escalate spectrum, biomarker-guided discontinuation =
+      SSC 2021 (criterio_1, criterio_2, criterio_5, criterio_11, criterio_12). The numeric thresholds that are institution-specific
+      protocol choices -- same-antibiotic >7d, short-spectrum start with internacao >48h, CVC >7d, CRP/PCR <100
+      for CAP de-escalation -- are NOT drawn from a single published equation but are consistent with and do not
+      contradict the cited guidelines (SSC endorses shorter durations and biomarker-guided stops without fixing
+      an exact day/CRP cutoff). One immaterial boundary observation (test vector 4): criterio_8 uses a strict fever
+      cutoff > 38,3 degC whereas IDSA''s neutropenic-fever definition is >= 38.3 degC, so a temperature of exactly
+      38.3 degC would not trigger in legacy; clinically negligible (a single 0.0 degC boundary point on a low-specificity
+      sign that is one of two OR-linked catheter criteria). criterio_9 and criterio_10 intentionally share the identical
+      alerta label but differ in workup (full bacterial+fungal vs fungi-only 2 blood samples) -- both align with
+      guideline culture practice. No frontend copy exists; trilha_automatica/facade/antimicrobiano.py is a pure
+      alias re-export, so no cross-implementation discrepancy. Clinical content preserved verbatim.
+
+      '
 dropped: []

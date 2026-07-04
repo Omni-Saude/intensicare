@@ -1,0 +1,152 @@
+- rule_id: RULE-CLINICAL-SCORING-001
+  reference:
+    citation: >
+      Vincent JL, Moreno R, Takala J, et al. The SOFA (Sepsis-related Organ Failure
+      Assessment) score to describe organ dysfunction/failure. Intensive Care Med.
+      1996;22(7):707-710. Total SOFA = arithmetic sum of the six organ sub-scores,
+      range 0-24.
+    url: https://link.springer.com/article/10.1007/BF01709751
+  checks:
+    equation: ok
+    coefficients: ok (unweighted sum, each organ 0-4)
+    units: ok (points)
+    ranges: ok (0-24 total)
+    rounding: n/a (integer sum)
+    cutoffs: n/a (aggregation only)
+  test_vectors:
+    - {inputs: {sub_scores: [0,0,0,0,0,0]}, expected_reference: 0, actual_legacy: 0, match: true}
+    - {inputs: {sub_scores: [4,4,0,0,0,0], note: "creatinina=6 ->4, plaquetas=15000 ->4"}, expected_reference: 8, actual_legacy: 8, match: true}
+    - {inputs: {sub_scores: [4,4,4,4,4,4]}, expected_reference: 24, actual_legacy: 24, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Pure arithmetic sum matches the reference definition. Caveat (not a defect in this
+    rule): if a sub-score returns None (bilirubin gaps in RULE-004 or creatinine gap in
+    RULE-007) the sum() raises TypeError; that risk is owned by RULE-004/007, not the
+    aggregation formula.
+
+- rule_id: RULE-CLINICAL-SCORING-002
+  reference:
+    citation: >
+      Vincent JL et al. 1996 (SOFA), respiration component. PaO2/FiO2 in mmHg with FiO2
+      as a FRACTION (0.21-1.0): >=400=0, 300-399=1, 200-299=2, 100-199=3 (requires
+      respiratory support), <100=4 (requires respiratory support).
+    url: https://www.ebmedicine.net/media_library/files/Calculated%20Decisions%20E1018%20Sepsis.pdf
+  checks:
+    equation: ok (ratio = PaO2/FiO2)
+    coefficients: n/a
+    units: diff (FiO2 must be a fraction 0.21-1.0; DadosProntuario FiO2Validator stores 21-100 percent -> ratio ~100x too small)
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok (400/300/200/100 boundaries match; inclusive-low [lo,hi) reproduces reference bands)
+  test_vectors:
+    - {inputs: {po2: 350, fio2: 1.0}, expected_reference: 1, actual_legacy: 1, match: true}
+    - {inputs: {po2: 250, fio2: 1.0}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {po2: 50, fio2: 1.0}, expected_reference: 4, actual_legacy: 4, match: true}
+    - {inputs: {po2: 350, fio2: 100, note: "FiO2 stored as percent per validator"}, expected_reference: 1, actual_legacy: 4, match: false}
+    - {inputs: {po2: 0, fio2: 1.0}, expected_reference: "0 (no data)", actual_legacy: 0, match: true}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    Two issues. (1) UNIT: cutoffs are correct P/F thresholds but presume FiO2 as a
+    fraction; the model's FiO2Validator stores 21-100 (percent), so with real persisted
+    data the ratio is ~100x too small and nearly every ventilated patient scores 4
+    (worst) instead of the true band, inflating total SOFA. Tests set fio2=1 directly,
+    masking this. (2) Reference gates the 3- and 4-point bands on respiratory support
+    (mechanical ventilation); legacy applies them unconditionally, over-scoring a
+    spontaneously breathing patient with a low ratio. High impact: both errors push the
+    respiratory sub-score upward and can change sepsis-driven escalation.
+
+- rule_id: RULE-CLINICAL-SCORING-003
+  reference:
+    citation: >
+      Vincent JL et al. 1996 (SOFA), coagulation component. Platelets x10^3/uL:
+      >=150=0, 100-149=1, 50-99=2, 20-49=3, <20=4.
+    url: https://www.ebmedicine.net/media_library/files/Calculated%20Decisions%20E1018%20Sepsis.pdf
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (legacy /mm3; 150000/mm3 == 150 x10^3/uL)
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok (150000/100000/50000/20000 map exactly to 150/100/50/20 x10^3/uL)
+  test_vectors:
+    - {inputs: {plaquetas: 10000}, expected_reference: 4, actual_legacy: 4, match: true}
+    - {inputs: {plaquetas: 25000}, expected_reference: 3, actual_legacy: 3, match: true}
+    - {inputs: {plaquetas: 75000}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {plaquetas: 120000}, expected_reference: 1, actual_legacy: 1, match: true}
+    - {inputs: {plaquetas: 200000}, expected_reference: 0, actual_legacy: 0, match: true}
+    - {inputs: {plaquetas: 0, note: "sentinel/no-data"}, expected_reference: "4 if literal <20 else missing", actual_legacy: 0, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All five bands match the reference exactly. Only divergence from a literal reading
+    is plaquetas==0 -> 0 (treated as no-data rather than 4); a deliberate missing-data
+    sentinel, clinically defensible since a true platelet count of 0 is not observed.
+
+- rule_id: RULE-CLINICAL-SCORING-004
+  reference:
+    citation: >
+      Vincent JL et al. 1996 (SOFA), liver component. Total bilirubin mg/dL:
+      <1.2=0, 1.2-1.9=1, 2.0-5.9=2, 6.0-11.9=3, >=12.0=4 (mmol/L: <20 / 20-32 /
+      33-101 / 102-204 / >204).
+    url: https://link.springer.com/article/10.1007/BF01709751
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok (mg/dL)
+    ranges: diff (dead gaps introduced)
+    rounding: n/a
+    cutoffs: diff (upper bounds use strict < at 1.9/5.9/11.9 instead of <2.0/<6.0/<12.0)
+  test_vectors:
+    - {inputs: {bilirrubinas: 1.5}, expected_reference: 1, actual_legacy: 1, match: true}
+    - {inputs: {bilirrubinas: 3.0}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {bilirrubinas: 7.0}, expected_reference: 3, actual_legacy: 3, match: true}
+    - {inputs: {bilirrubinas: 14.0}, expected_reference: 4, actual_legacy: 4, match: true}
+    - {inputs: {bilirrubinas: 1.95}, expected_reference: 1, actual_legacy: "None (no branch)", match: false}
+    - {inputs: {bilirrubinas: 5.95}, expected_reference: 2, actual_legacy: "None", match: false}
+    - {inputs: {bilirrubinas: 11.95}, expected_reference: 3, actual_legacy: "None", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms extraction flag. Band upper bounds are strict-< at 1.9, 5.9 and 11.9,
+    leaving dead intervals [1.9,2.0), [5.9,6.0), [11.9,12.0) that match no branch and
+    return None. Bilirubin 1.95/5.95/11.95 mg/dL should score 1/2/3 but returns None,
+    which makes calcular_escore_sofa (RULE-001) raise TypeError on sum() or mis-sum.
+    Moderate impact: affected values are narrow (0.1 mg/dL) but land on clinically
+    plausible results and can crash the SOFA computation for that patient. Reproduce
+    verbatim including the gaps.
+
+- rule_id: RULE-CLINICAL-SCORING-005
+  reference:
+    citation: >
+      Vincent JL et al. 1996 (SOFA), cardiovascular component. Vasopressor doses in
+      mcg/kg/min sustained >=1h: MAP>=70=0; MAP<70=1; dopamine<=5 OR dobutamine (any
+      dose)=2; dopamine>5 OR epinephrine<=0.1 OR norepinephrine<=0.1=3; dopamine>15 OR
+      epinephrine>0.1 OR norepinephrine>0.1=4.
+    url: https://www.ebmedicine.net/media_library/files/Calculated%20Decisions%20E1018%20Sepsis.pdf
+  checks:
+    equation: n/a
+    coefficients: diff (norepinephrine split at 10 raw ml vs reference 0.1 mcg/kg/min for the 3-vs-4 band)
+    units: diff (noradrenalina = Noradrenalina.quantidade in ml volume, NOT a mcg/kg/min rate)
+    ranges: diff (norepi any >0 -> min 3 pts; dopamine/epinephrine tiers absent)
+    rounding: n/a
+    cutoffs: partial (MAP<70=1 and MAP>=70=0 match; dobutamine any>0=2 matches)
+  test_vectors:
+    - {inputs: {pam: 80, noradrenalina: 0, dobutamina: 0}, expected_reference: 0, actual_legacy: 0, match: true}
+    - {inputs: {pam: 50, noradrenalina: 0, dobutamina: 0}, expected_reference: 1, actual_legacy: 1, match: true}
+    - {inputs: {pam: 50, noradrenalina: 0, dobutamina: 5}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {pam: 50, noradrenalina: 5, dobutamina: 5, note: "norepi 5 mcg/kg/min is a very high rate"}, expected_reference: 4, actual_legacy: 3, match: false}
+    - {inputs: {pam: 50, noradrenalina: 20, dobutamina: 0}, expected_reference: 4, actual_legacy: 4, match: false}
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    Confirms extraction flag. MAP bands (>=70=0, <70=1) and dobutamine-any=2 match the
+    reference. Norepinephrine handling does not: legacy reads a raw ml VOLUME
+    (Noradrenalina.quantidade) and splits 3 vs 4 points at >10 ml, whereas the reference
+    uses an infusion RATE (mcg/kg/min) with the 3/4 split at 0.1. The mapping is
+    incoherent (10 ml is not comparable to 0.1 mcg/kg/min), so any patient on
+    norepinephrine can be mis-tiered in either direction depending on how the ml value
+    was recorded. Legacy also omits dopamine and epinephrine entirely. High impact:
+    cardiovascular is a frequent SOFA driver and this can materially mis-score shock
+    severity. Reproduce verbatim.

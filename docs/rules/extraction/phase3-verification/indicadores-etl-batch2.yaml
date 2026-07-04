@@ -1,0 +1,61 @@
+- rule_id: RULE-INDICADORES-ETL-012
+  reference:
+    citation: >-
+      Evans L, Rhodes A, Alhazzani W, et al. Surviving Sepsis Campaign:
+      International Guidelines for Management of Sepsis and Septic Shock 2021.
+      Crit Care Med. 2021;49(11):e1063-e1143 (norepinephrine is the first-line
+      vasopressor, one specific agent among many vasoactive drugs). Corroborated
+      by standard Brazilian ICU terminology: "DVA" = droga vasoativa = any
+      vasoactive drug (noradrenalina, adrenalina, vasopressina, dopamina,
+      dobutamina, nitroprussiato, nitroglicerina, levosimendana).
+    url: https://www.sccm.org/survivingsepsiscampaign/guidelines-and-resources/surviving-sepsis-campaign-adult-guidelines
+  checks:
+    equation: n/a   # boolean passthrough (DVA == "S"), no numeric formula
+    coefficients: n/a
+    units: n/a      # dimensionless boolean flag; no unit conversion involved
+    ranges: ok      # strict equality to literal string "S"; any other value (incl. None) => False, matches legacy edge_case
+    rounding: n/a
+    cutoffs: diff   # semantic label mismatch: generic "droga vasoativa" flag surfaced under a drug-specific key "noradrenalina"
+  test_vectors:
+    - inputs: {DVA: "S", agent: norepinephrine only}
+      expected_reference: "patient on norepinephrine => noradrenalina indicator true"
+      actual_legacy: "noradrenalina = (DVA == 'S') = true"
+      match: true   # coincidentally correct only because the sole agent happens to be norepinephrine
+    - inputs: {DVA: "S", agent: dopamine/dobutamine/vasopressin (no norepinephrine)}
+      expected_reference: "patient NOT on norepinephrine => noradrenalina indicator false"
+      actual_legacy: "noradrenalina = (DVA == 'S') = true"
+      match: false  # false positive: labeled 'noradrenalina' while on a different vasoactive agent
+    - inputs: {DVA: "S", agent: nitroprusside/nitroglycerin (vasodilator, given for hypertensive/afterload management)}
+      expected_reference: "patient on a vasodilator, NOT on norepinephrine => noradrenalina indicator false"
+      actual_legacy: "noradrenalina = (DVA == 'S') = true"
+      match: false  # clinically opposite: a vasodilator flagged as the vasopressor norepinephrine
+    - inputs: {DVA: "N"}
+      expected_reference: "no vasoactive drug => false"
+      actual_legacy: "noradrenalina = (DVA == 'S') = false"
+      match: true
+    - inputs: {DVA: None}
+      expected_reference: "unknown/absent => not asserted true"
+      actual_legacy: "noradrenalina = (None == 'S') = false"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Legacy code (utils/micro_indicadores.py lines 47-58) matches the rule's
+    logic field verbatim: output key "noradrenalina" is derived solely from
+    micro_indicador.DVA == "S". Web/terminology verification confirms DVA =
+    droga vasoativa is a GENERIC vasoactive-drug class (norepinephrine is only
+    one member, and the class even includes vasodilators such as nitroprusside
+    and nitroglycerin), so the drug-specific label overstates specificity. There
+    is no published equation/calculator to verify against (this is a data
+    field-to-label mapping, not a clinical score), so the checks that involve
+    numeric behavior are n/a; the substantive finding is the naming/semantic
+    mismatch. Clinical impact rated moderate rather than high because this feeds
+    a read-only bed-card quality indicator (RULE-INDICADORES-ETL-026 renders it
+    truthy => icon shown) and does not drive any automated dosing or alerting;
+    however, a clinician reading "noradrenalina = present" could wrongly infer
+    the patient is specifically on norepinephrine when they may be on another
+    vasoactive agent (or a vasodilator), misrepresenting hemodynamic-support
+    status. Distinct from NoradrenalinaValidator (RULE-vitais-BE-11-027), which
+    validates an actual norepinephrine dosing field. Flag for clinical SME
+    review; the DVA source field should either be relabeled to a generic
+    "droga_vasoativa" key or backed by a truly norepinephrine-specific source.

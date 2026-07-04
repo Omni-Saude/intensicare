@@ -1,0 +1,195 @@
+- rule_id: RULE-MOVIMENTACAO-ADT-001
+  reference:
+    citation: >-
+      Length-of-stay is an operational ADT metric, not a published clinical
+      formula. No single authoritative equation exists; conventions vary
+      (elapsed-calendar-days vs midnight-census/inclusive-day count). Legacy
+      computes elapsed whole days: (timezone.now().date() - data_entrada.date()).days.
+    url: https://www.cms.gov/medicare/payment/prospective-payment-systems
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {data_entrada: "2026-07-01T08:00", now: "2026-07-03T20:00"}
+      expected_reference: "2 days elapsed (calendar-day difference)"
+      actual_legacy: "(2026-07-03 - 2026-07-01).days = 2"
+      match: true
+    - inputs: {data_entrada: "2026-07-03T23:00", now: "2026-07-03T23:30"}
+      expected_reference: "0 elapsed days (same calendar day); inclusive/midnight convention would give 1"
+      actual_legacy: "(2026-07-03 - 2026-07-03).days = 0"
+      match: true
+    - inputs: {data_entrada: null, now: "2026-07-03"}
+      expected_reference: "no admission date -> undefined; buscar_dias_internacao guards to 0"
+      actual_legacy: "buscar_dias_internacao=0; tempo_permanencia raises AttributeError (no None guard)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Pure operational date arithmetic; no canonical published LOS formula to check
+    against. Internally consistent (elapsed whole-day count via .date() truncation).
+    Only definitional caveat: elapsed-days yields one fewer day than the
+    inclusive/midnight-census convention some hospitals bill on - a convention
+    choice, not an error. Unguarded null data_entrada (AttributeError) is a
+    code-robustness note, not clinical. Flag for internal review of intended LOS convention.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-002
+  reference:
+    citation: >-
+      Backend/frontend object-shape contract for the micro_indicadores payload -
+      an internal API data-contract, not a clinical calculation with a published
+      reference. Its markers (VM, noradrenaline, sedation, LOS) are presence
+      flags / scalars, not scored against a guideline.
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {path: "manual movimentacao get_payload"}
+      expected_reference: "n/a (no clinical reference for object shape)"
+      actual_legacy: "{tempo_internacao, ventilacao_mecanica, noradrenalina, sedacao} (4 fields)"
+      match: null
+    - inputs: {path: "frontend MicroIndicadores TS interface"}
+      expected_reference: "n/a"
+      actual_legacy: "6 fields (adds hemodialise, mortalidade_esperada)"
+      match: null
+    - inputs: {reconciliation: "BE payload vs FE type"}
+      expected_reference: "n/a"
+      actual_legacy: "field-set mismatch: FE declares 2 fields BE manual path never emits"
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Extraction status DISCREPANCY is a backend/frontend field-set mismatch, not a
+    clinical-formula error - no authoritative reference governs the API object
+    shape. Confirmed real: manual get_payload emits 4 keys; FE union type declares
+    6 (hemodialise, mortalidade_esperada extra), likely because FE reuses one union
+    type across manual/automatica/homecare streams. Characterized, not corrected.
+    Its clinical sub-fields are handled by RULE-003 (mortalidade_esperada) and
+    RULE-004 (labs/neuro). Flag for internal API-contract review.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-003
+  reference:
+    citation: >-
+      Expected ICU mortality is conventionally derived from APACHE II (Knaus et al.,
+      Crit Care Med 1985;13:818-29) or SAPS 3 (Moreno et al., Intensive Care Med
+      2005); both output a predicted death probability 0-1 / 0-100%. The legacy
+      field mortalidade_esperada is opaque: no formula, inputs, units, or
+      coefficients exist in the captured partition (server-computed, out of scope).
+    url: https://pubmed.ncbi.nlm.nih.gov/3928249/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {field: "mortalidade_esperada", partition: "frontend Ocupacao.d.ts"}
+      expected_reference: "APACHE II / SAPS 3 predicted mortality with documented units"
+      actual_legacy: "number; no computation, no unit annotation, display-only"
+      match: null
+    - inputs: {check: "backend formula location"}
+      expected_reference: "a documented scoring function with inputs/coefficients"
+      actual_legacy: "computation out of captured partition; not locatable here"
+      match: null
+    - inputs: {check: "unit disambiguation (0-1 vs 0-100)"}
+      expected_reference: "explicit unit required to render/threshold correctly"
+      actual_legacy: "unspecified; presumed % or probability per extraction"
+      match: null
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Cannot verify: the scoring formula feeding mortalidade_esperada is not present
+    in this partition (extraction AMBIGUOUS, confidence low). Presumed APACHE II /
+    SAPS-family. The unresolved unit (probability 0-1 vs percentage 0-100) is
+    exactly the kind of mismatch this audit targets and MUST be resolved by a
+    verifier with backend scoring-module access (utils.micro_indicadores / core).
+    Flag for internal review; do not treat as wrong.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-004
+  reference:
+    citation: >-
+      Composite assistencial panel. The two range-bearing scales it declares are
+      verifiable: RASS (Sessler et al., Am J Respir Crit Care Med 2002;166:1338-44)
+      spans +4 (combative) to -5 (unarousable); GCS total (Teasdale & Jennett,
+      Lancet 1974) spans 3-15. All other fields (BP, temp, diuresis, labs: WBC,
+      platelets, CRP, lactate, pH, HCO3, pO2, pCO2, P/F, creatinine, urea,
+      bilirubin) are raw measured values, not scored - no formula/coefficients apply.
+    url: https://pubmed.ncbi.nlm.nih.gov/12421743/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: ok
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {field: "rass", annotated_range: "-5..+4"}
+      expected_reference: "RASS +4 (combative) to -5 (unarousable), Sessler 2002"
+      actual_legacy: "rass: number, clinically -5..+4 (not enforced)"
+      match: true
+    - inputs: {field: "glasgow", annotated_range: "3..15"}
+      expected_reference: "GCS total 3 (deep coma) to 15 (normal), Teasdale & Jennett 1974"
+      actual_legacy: "glasgow: number, clinically 3..15 (not enforced)"
+      match: true
+    - inputs: {field: "pressao_arterial.sistolica/diastolica/media", type: "string"}
+      expected_reference: "numeric mmHg (consistent with sibling numeric labs)"
+      actual_legacy: "typed as string, unlike sibling numeric labs (type inconsistency)"
+      match: false
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    Only the RASS and GCS clinical ranges are checkable against published
+    references; both annotations are correct (RASS -5..+4 per Sessler 2002; GCS
+    3..15 per Teasdale & Jennett 1974). The panel is a display/type schema with no
+    computation, so equation/coefficient/cutoff checks are n/a. Two non-clinical
+    software notes preserved: BP sub-fields typed as string while sibling labs are
+    number (verbatim type inconsistency), and no numeric range validation is
+    enforced on any field. Neither affects a clinical calculation, hence impact none.
+
+- rule_id: RULE-MOVIMENTACAO-ADT-005
+  reference:
+    citation: >-
+      Internal data-model lookup key: MicroIndicadores row resolved by
+      (NR_ATENDIMENTO = bed.nr_atendimento, CD_UNIDADE = bed.nome) via .first().
+      Proprietary integration/business rule mapping Leito.nome to the external
+      Tasy/Oracle unit code CD_UNIDADE. No published clinical reference applies.
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {nr_atendimento: "A1", nome: "UTI-01", rows_matching: 1}
+      expected_reference: "n/a (business rule)"
+      actual_legacy: ".first() returns the single matching MicroIndicadores row"
+      match: null
+    - inputs: {nr_atendimento: "A1", nome: "UTI-01", rows_matching: 2}
+      expected_reference: "n/a"
+      actual_legacy: ".first() returns an arbitrary row per default ordering (silent)"
+      match: null
+    - inputs: {nr_atendimento: "A1", nome: "UTI-01", rows_matching: 0}
+      expected_reference: "n/a"
+      actual_legacy: "returns get_microindicadores(None) behavior (out of partition)"
+      match: null
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Proprietary integration mapping (Leito.nome assumed equal to legacy CD_UNIDADE)
+    with no authoritative external reference. Behavioral risks noted by extraction
+    are real but non-clinical: .first() silently picks an arbitrary row on duplicate
+    (NR_ATENDIMENTO, CD_UNIDADE) pairs, and a missing match yields whatever
+    get_microindicadores(None) returns (logic out of partition). Flag for internal
+    review of the Leito.nome == CD_UNIDADE assumption and duplicate-row handling;
+    not a clinical-formula defect.

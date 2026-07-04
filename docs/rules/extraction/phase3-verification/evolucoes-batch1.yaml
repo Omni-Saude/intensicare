@@ -1,0 +1,173 @@
+- rule_id: RULE-EVOLUCOES-001
+  reference:
+    citation: "Vincent JL, Moreno R, Takala J, Willatts S, De Mendonca A, Bruining H, et al. The SOFA (Sepsis-related Organ Failure Assessment) score to describe organ dysfunction/failure. On behalf of the Working Group on Sepsis-Related Problems of the ESICM. Intensive Care Med. 1996;22(7):707-710. Six organ systems (respiratory, coagulation, hepatic, cardiovascular, CNS, renal), each 0-4, total 0-24."
+    url: "https://link.springer.com/article/10.1007/BF01709751"
+  checks:
+    equation: n/a          # no SOFA sub-score formula present in this frontend partition; escore_sofa is an opaque server-computed number
+    coefficients: n/a      # not computed client-side
+    units: n/a
+    ranges: ok             # declared/expected clinical range 0-24 matches SOFA total (6 organ systems x 0-4); NOT enforced in the .d.ts type (plain number)
+    rounding: n/a          # SOFA sub-scores are integers 0-4, total integer 0-24; no rounding logic in this partition
+    cutoffs: ok            # 6 component inputs present (creatinina=renal, bilirrubinas=liver, plaquetas=coagulation, glasgow=CNS, pas/pad->MAP=cardiovascular, po2/paco2/fio2=respiratory) align with the 6 SOFA domains
+  test_vectors:
+    - inputs: {escore_sofa: 0}
+      expected_reference: "0 is the minimum valid SOFA total (all 6 domains normal)"
+      actual_legacy: "field accepts 0 (opaque number); no computation, no enforcement"
+      match: true
+    - inputs: {escore_sofa: 24}
+      expected_reference: "24 is the maximum valid SOFA total (all 6 domains = 4)"
+      actual_legacy: "field accepts 24; no enforcement"
+      match: true
+    - inputs: {escore_sofa: 25}
+      expected_reference: "25 is out of SOFA range (max 24) - clinically impossible"
+      actual_legacy: "plain `number` type accepts 25; no range guard in this partition"
+      match: false          # illustrates absence of range enforcement, not an active mis-computation
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    escore_sofa is a pre-computed opaque value; the actual SOFA sub-score algorithm
+    (respiratory/coagulation/liver/cardiovascular/CNS/renal, each 0-4) lives server-side and
+    is NOT in this partition, so there is nothing here to hand-trace against Vincent 1996.
+    The declared 0-24 band and the presence of all six SOFA component inputs in the same
+    DadosProntuario object are consistent with a genuine SOFA field. Range is not type-enforced
+    (plain `number`). REQUIRES backend verification of the real computation (unit handling for
+    PaO2/FiO2 fraction-vs-percent, creatinine mg/dL-vs-mmol/L, MAP/vasopressor dosing) - flagged
+    for the backend audit partition, not resolvable here.
+
+- rule_id: RULE-EVOLUCOES-002
+  reference:
+    citation: "Vincent JL et al. The SOFA score to describe organ dysfunction/failure. Intensive Care Med. 1996;22(7):707-710. SOFA total range 0-24 (integer)."
+    url: "https://link.springer.com/article/10.1007/BF01709751"
+  checks:
+    equation: n/a          # UI display gate, not a clinical calculation
+    coefficients: n/a
+    units: n/a
+    ranges: ok             # `escore_sofa >= 0` admits the entire clinically valid SOFA band [0,24] incl. the minimum score 0
+    rounding: n/a
+    cutoffs: ok            # threshold >= 0 correctly shows a present score of 0 and hides absent (undefined/null) values; only clinically-impossible negatives are hidden
+  test_vectors:
+    - inputs: {escore_sofa: 0}
+      expected_reference: "SOFA of 0 is a valid, clinically meaningful score (no organ dysfunction) and should be displayable"
+      actual_legacy: "0 >= 0 -> true -> badge shown"
+      match: true
+    - inputs: {escore_sofa: 24}
+      expected_reference: "SOFA of 24 (max) is valid and should display"
+      actual_legacy: "24 >= 0 -> true -> shown"
+      match: true
+    - inputs: {escore_sofa: undefined}
+      expected_reference: "no score -> nothing to display"
+      actual_legacy: "undefined >= 0 -> false -> hidden"
+      match: true
+    - inputs: {escore_sofa: -1}
+      expected_reference: "-1 is outside SOFA range (min 0); no clinical meaning"
+      actual_legacy: "-1 >= 0 -> false -> hidden"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    This is a UI display-gating rule (render a badge when a SOFA value is present), not a scored
+    clinical calculation with a published anchor. The >= 0 threshold is internally consistent with
+    the SOFA scale: it displays the full valid band [0,24] including a true score of 0, and hides
+    only absent values and clinically-impossible negatives. No discrepancy against the reference on
+    any checkable dimension; classified UNVERIFIABLE because the display decision itself derives from
+    no guideline.
+
+- rule_id: RULE-EVOLUCOES-003
+  reference:
+    citation: "Sessler CN, Gosnell MS, Grap MJ, Brophy GM, O'Neal PV, Keane KA, et al. The Richmond Agitation-Sedation Scale: validity and reliability in adult intensive care unit patients. Am J Respir Crit Care Med. 2002;166(10):1338-1344. 10-level integer ordinal scale, -5 (unarousable) to +4 (combative)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/12421743/"
+  checks:
+    equation: n/a          # type-declaration consistency issue, not a calculation
+    coefficients: n/a
+    units: n/a             # RASS is a unitless 10-level integer ordinal scale
+    ranges: ok             # both models cover the same clinical construct; RASS valid values are the 10 integers -5..+4 per Sessler 2002
+    rounding: n/a          # RASS values are integers by definition; no fractional levels
+    cutoffs: diff          # representation mismatch: Ocupacao.InformacoesAssistenciais.rass:number vs DadosProntuario.rass:string for the same integer ordinal
+  test_vectors:
+    - inputs: {rass: 0}
+      expected_reference: "RASS 0 = 'alert and calm'; single canonical integer value"
+      actual_legacy: "Ocupacao stores number 0; Prontuario stores string \"0\" -> 0 === \"0\" is false; merging without an explicit parse yields inequality"
+      match: false
+    - inputs: {rass: -5}
+      expected_reference: "RASS -5 = 'unarousable'; deepest sedation, ordinally the lowest"
+      actual_legacy: "number -5 vs string \"-5\"; string form breaks numeric ordering (lexical sort places \"-5\" AFTER \"-4\", inverting sedation depth)"
+      match: false
+    - inputs: {rass: 4}
+      expected_reference: "RASS +4 = 'combative'; ordinally the highest"
+      actual_legacy: "number 4 vs string \"4\"; string \"4\" sorts before string \"-1\" ('-' < '4' in char order), further inverting order"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Confirmed representational inconsistency (carried DISCREPANCY from extraction). Per Sessler 2002,
+    RASS is a single 10-level integer ordinal scale (-5 unarousable .. 0 alert-and-calm .. +4 combative);
+    `number` (Ocupacao) is the faithful representation while `string` (DadosProntuario) requires an explicit
+    cast and, critically, breaks numeric comparison and sorting of a scale whose entire clinical utility is
+    ordinal (deeper vs lighter sedation). No value is corrupted at rest - the same integers round-trip as text -
+    so impact is LOW rather than moderate/high, but any consumer that numerically compares/sorts or strict-equates
+    RASS across the two sources without a parseInt would mis-order or mis-match. Cross-ref Ocupacao.d.ts:115.
+    Per audit ground rules the legacy typing is documented, not corrected.
+
+- rule_id: RULE-EVOLUCOES-004
+  reference:
+    citation: "No authoritative published clinical reference governs the storage data-type of a cardiorespiratory-arrest occurrence flag. Utstein-style in-hospital cardiac arrest reporting (Jacobs I, Nadkarni V, et al. Circulation. 2004;110:3385-3397) specifies WHICH variables to record (occurrence, time of arrest) but not their software field type."
+    url: "https://www.ahajournals.org/doi/10.1161/01.CIR.0000147236.85306.15"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a            # no clinically-defined value domain for a yes/no occurrence flag
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {ocorreu_parada_cardiorespiratoria: "sim", horario_inicio: "2026-07-03 14:10"}
+      expected_reference: "occurrence + time recorded per Utstein data elements"
+      actual_legacy: "ParadaCardiorrespiratoria = {ocorreu_parada_cardiorespiratoria: string, horario_inicio: string} -> stored verbatim"
+      match: true
+    - inputs: {ocorreu_parada_cardiorespiratoria: "nao"}
+      expected_reference: "no arrest recorded"
+      actual_legacy: "string field accepts \"nao\"; horario_inicio omitted"
+      match: true
+    - inputs: {ocorreu_parada_cardiorespiratoria: true}
+      expected_reference: "boolean semantics implied by yes/no nature of the field"
+      actual_legacy: "field is typed `string`, inconsistent with sibling boolean flags (delirium, dpoc) in same object; documented, not reconciled"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Internal data-shape / typing-convention observation: a yes/no occurrence flag is typed as free-form
+    `string` while sibling clinical flags in the same DadosProntuario object are typed boolean. This is a code
+    consistency note with no published clinical anchor governing the field type. Exact accepted string literals
+    ("sim"/"nao" vs other) are not present in this partition. Flag for internal review; not a clinical defect.
+
+- rule_id: RULE-EVOLUCOES-005
+  reference:
+    citation: "No authoritative published clinical/standard reference - this is an internal ORM name-resolution business rule (look up Paciente by nr_atendimento, return .nome or None). Confirmed by the rule's own note that it is a trivial name lookup, not a clinical calculation."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {nr_atendimento: "A123 (patient exists, nome='Maria')"}
+      expected_reference: "return patient name 'Maria'"
+      actual_legacy: "getattr(Paciente.objects.filter(nr_atendimento='A123').first(), 'nome', None) -> 'Maria'"
+      match: true
+    - inputs: {nr_atendimento: "A999 (no matching patient)"}
+      expected_reference: "no patient -> null/None"
+      actual_legacy: "first() is None; getattr(None,'nome',None) -> None (no exception)"
+      match: true
+    - inputs: {nr_atendimento: "A123 (patient exists but has no 'nome' attribute)"}
+      expected_reference: "defensive fallback"
+      actual_legacy: "getattr default -> None rather than AttributeError"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Pure ORM lookup with a defensive getattr default; behaves exactly as described and handles both
+    'no matching patient' and 'missing nome attribute' by returning None. No clinical formula, no published
+    anchor - verify=true was set mechanically by Phase-1 type='formula'. Logic is internally sound;
+    UNVERIFIABLE strictly because there is no external authoritative source to check it against.

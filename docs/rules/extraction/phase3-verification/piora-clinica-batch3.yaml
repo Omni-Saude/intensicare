@@ -1,0 +1,66 @@
+- rule_id: RULE-PIORA-CLINICA-011
+  reference:
+    citation: >
+      Composite anchors (no single authoritative source governs the exact payload text).
+      (1) Evans L, et al. Surviving Sepsis Campaign: International Guidelines for Management of
+      Sepsis and Septic Shock 2021. Crit Care Med 2021;49(11):e1063-e1143 — >=30 mL/kg IV
+      crystalloid within first 3h for sepsis-induced hypoperfusion (weak rec), balanced
+      crystalloid preferred, open sepsis pathway on organ dysfunction (Sepsis-3).
+      (2) Standard fluid-challenge practice: ~500 mL crystalloid bolus triggered by hypotension
+      (LITFL / Messina et al. Ann Intensive Care systematic review 2022).
+    url: https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021
+  checks:
+    equation: n/a          # facade payload / workflow layer, not a computation
+    coefficients: n/a
+    units: ok              # embedded thresholds (TAX 38-38.2/>38.2/<35 C; PAS 81-99/150-189/>189 mmHg) internally consistent with predicates 002/003; fluid vol in mL
+    ranges: ok             # severity codes 2+/2-/3+/3- map onto the graded sub-scores of criterio_1..9
+    rounding: n/a
+    cutoffs: diff          # (a) criterio_8/9 grade-2 codes labelled "Alto risco" though 2==Moderado; (b) label "PAS <80" vs predicate pas<=80 (see RULE-003)
+  test_vectors:
+    - inputs: {lookup: "criterio_3 / 3- (hipotensao grave)"}
+      expected_reference: >
+        Severe hypotension -> fluid resuscitation + evaluate for sepsis. Published anchor:
+        crystalloid fluid challenge (>=500 mL, balanced solution) with sepsis pathway on
+        organ dysfunction. Legacy prescribes Ringer Lactato 1000 mL + open Protocolo de SEPSE
+        se suspeita de infeccao.
+      actual_legacy: >
+        alerta "Alto risco de piora clinica - hipotensao grave"; intervencoes "prova de
+        expansao volemica com Ringer Lactato 1000ml ... abertura do Protocolo de SEPSE".
+      match: true          # clinically sound / directionally consistent with SSC 2021 + fluid-challenge practice
+    - inputs: {lookup: "criterio_8 / 2- (dessaturacao moderada)"}
+      expected_reference: >
+        Per the rule's OWN severity semantics (code "2" = moderate = AMARELO), the alert prefix
+        should read "Moderado risco de piora clinica".
+      actual_legacy: 'alerta "Alto risco de piora clinica - dessaturacao moderada" (line 230)'
+      match: false         # grade-2 code carries "Alto risco" wording; also criterio_8 2+ (l235) and criterio_9 2- (l247)
+    - inputs: {lookup: "criterio_1 / 3+ (taquipneia grave)"}
+      expected_reference: >
+        Intervention narrative for tachypnea should reference the tachypnea ("causa base da
+        taquipnea").
+      actual_legacy: 'intervencoes text says "Tratar a suspeita de causa base da bradipnea" (line 16), copy-pasted from the 3- bradipneia entry.'
+      match: false         # copy-paste defect; descriptive string only, does not alter score
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    RULE-011 is a proprietary internal clinical-protocol payload (payload_trilha_piora_clinica):
+    per-(criterio, severity-code) UI alert labels + recomendacoes + intervencoes. No authoritative
+    published calculator or guideline defines this exact mapping, label wording, recommendation
+    lists, or the specific 500/1000 mL Ringer-Lactato tiering to specific PAS bands, so the payload
+    as a whole is UNVERIFIABLE (flag for internal clinical review, NOT wrong). Where the embedded
+    clinical actions CAN be anchored they are directionally sound: 500 mL crystalloid = the standard
+    hypotension-triggered fluid challenge; Ringer Lactato = balanced crystalloid preferred by SSC
+    2021; escalation to 1000 mL for PAS<80 vs 500 mL for PAS 81-99 is reasonable severity tiering;
+    "abertura do Protocolo de SEPSE se disfuncao organica" aligns with Sepsis-3 (organ dysfunction
+    defines sepsis) and SSC 2021 bundle. Embedded numeric thresholds (TAX 38-38.2/>38.2/<35 C;
+    PAS 81-99/150-189/>189 mmHg) match the scoring predicates (RULE-002/003) exactly.
+    Two internal defects confirmed verbatim in source (these justify the AMBIGUOUS extraction status):
+    (1) criterio_8 "2-"/"2+" and criterio_9 "2-" alerta strings use "Alto risco" though severity code
+    2 is nominally Moderado/AMARELO (lines 230,235,247) — cosmetic label inconsistency, no effect on
+    the computed alerta which is set by RULE-010, so clinical impact of THIS string is none;
+    (2) criterio_1 "3+" (taquipneia grave) intervencoes says "causa base da bradipnea" (line 16),
+    copy-paste from the 3- bradipneia entry — misleading free-text, no effect on computed output.
+    Also documentation-level: criterio_3 "3-" label "PAS <80 mmHg" vs predicate pas<=80 (boundary at
+    PAS=80; see RULE-PIORA-CLINICA-003 divergence). criterio_4..9 carry empty recomendacoes/intervencoes
+    (label-only). Only criterio_1..3 are surfaced by get_detalhe(). Because these are non-executable
+    descriptive strings, none of the discrepancies change any computed score, alert, or intervention
+    trigger — hence overall clinical_impact n/a for the audit's scoring-correctness purpose.

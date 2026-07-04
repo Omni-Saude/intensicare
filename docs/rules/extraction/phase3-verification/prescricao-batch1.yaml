@@ -1,0 +1,31 @@
+- rule_id: RULE-PRESCRICAO-001
+  reference:
+    citation: "No authoritative published clinical reference. This is an internal UI/data-capture business rule governing whether the medication-check modal renders a required 'Quantidade em ml' input for meds whose unit of measure is 'ml', for later fluid-balance (balanco hidrico) charting. Fluid balance (intake/output charting) is a general nursing concept with no equation, coefficient, or score-band; there is no calculator or guideline (Sepsis-3/KDIGO/ASPEN/etc.) that governs conditional form-field rendering."
+    url: null
+  checks:
+    equation: n/a          # no equation; conditional form-field render only
+    coefficients: n/a      # none
+    units: ok              # ml captured, ml consumed by balanco hidrico; internally unit-consistent within the ml branch
+    ranges: n/a            # InputNumber has no min/max/range constraint in source (only 'required')
+    rounding: n/a          # no rounding logic
+    cutoffs: n/a           # no score bands / thresholds
+  test_vectors:
+    - inputs: {check: true, unidadeMedida: "ml", qtd_exportada: 50}
+      expected_reference: "Required numeric ml field shown; captured value (50 ml) feeds balanco hidrico (per rule intent)"
+      actual_legacy: "check && unidadeMedida==='ml' true -> renders required InputNumber name=qtd_exportada with caption 'Valor em ml utilizado para o calculo de balanco hidrico' (CheckModalContent.tsx L117-132)"
+      match: true
+    - inputs: {check: true, unidadeMedida: "mg", qtd_exportada: null}
+      expected_reference: "Non-ml administered med: no ml input; qtd_exportada falls back to prescribed quantidade (per rule edge_cases + RULE-PRESCRICAO-025)"
+      actual_legacy: "check && unidadeMedida==='ml' false, !check false -> neither branch renders; no qtd_exportada input; downstream defaults qtd_exportada=quantidade"
+      match: true
+    - inputs: {check: false, unidadeMedida: "ml", qtd_exportada: null}
+      expected_reference: "Not administered: no ml field; required 'Motivo' (reason) select shown"
+      actual_legacy: "check false -> renders required Select name=motivo_nao_administrado (L134-146); no ml field"
+      match: true
+    - inputs: {check: true, unidadeMedida: "ml", qtd_exportada: 0}
+      expected_reference: "Boundary: field present and required; 0 is falsy so downstream fallback to prescribed quantidade may apply (RULE-PRESCRICAO-025)"
+      actual_legacy: "Field rendered/required; note qtd_exportada===0 is falsy in the JS ternary of RULE-PRESCRICAO-025 so an explicit 0 ml would be replaced by prescribed quantidade downstream (out of this partition)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy source (CheckModalContent.tsx L117-132) matches the rule's logic field byte-for-byte: `check && unidadeMedida === 'ml'` renders a required qtd_exportada InputNumber captioned 'Valor em ml utilizado para o calculo de balanco hidrico'; else if !check renders the required Motivo select. Rule status was OK; confirmed as internal business rule with no external clinical authority to check against — flag for internal review only, do NOT treat as wrong. Two internal-review observations (out of this rule's partition, no fix here): (1) UNIT-MISMATCH RISK for fluid balance — for administered meds whose unit != 'ml', no ml field is shown and qtd_exportada defaults to the prescribed `quantidade` in the med's own (non-ml) unit (e.g. mg, comprimido, gotas); if the balanco hidrico summation (BalancoHidricoItens/backend, RULE-PRESCRICAO-004) treats every qtd_exportada as milliliters, non-ml doses could be booked into the fluid ledger with an incorrect unit. This is exactly the class of unit issue this audit targets, but it lives in the downstream summation, not in this frontend render rule. (2) The ml InputNumber carries only a 'required' rule — no min/precision constraint — so 0 or fractional/negative ml is not blocked at the field; and an explicit 0 is falsy, so RULE-PRESCRICAO-025's ternary substitutes the prescribed quantidade instead of recording 0 ml."

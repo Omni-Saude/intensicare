@@ -67,6 +67,25 @@ rules:
     with access to core/models/reacao.py. | Reconciled during Phase-2: confirmed via direct inspection of core/models/reacao.py
     (Meta has no ordering) that the groupby-based endpoint''s correctness claim in its original note (''cannot confirm
     ... out of scope'') resolves to CONFIRMED DISCREPANCY, not merely a theoretical risk.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference:
+      citation: No authoritative published clinical reference. This is an internal data-aggregation (reaction-count-by-emoji)
+        business rule; correctness is defined only by the codebase's own intended semantics (a SQL GROUP BY over
+        reactions). Python stdlib docs for itertools.groupby are the only external authority relevant, and only
+        for the mechanism, not the clinical meaning.
+      url: https://docs.python.org/3/library/itertools.html#itertools.groupby
+    evidence: comunicacao-batch1.yaml
+    test_vectors: 2/4 match
+    summary: 'Confirmed in legacy source: core/api/v1/views/reacao.py get_queryset() has no .order_by() and core/models/reacao.py
+      Meta declares only db_table + unique_together (no ordering), so itertools.groupby only merges emoji runs that
+      happen to be contiguous in Postgres return order — the extraction''s DISCREPANCY vs the SQL-annotate path
+      (ObservacaoSerializer.get_reacoes, observacao.py:155-156) is a genuine, live code-correctness defect. But
+      it is a data-plumbing bug, not a clinical calculation, so there is no external published reference to verify
+      it against; verdict is UNVERIFIABLE (internal rule) rather than a clinical DISCREPANCY. Flag for engineering
+      review, not clinical review. Real-world blast radius is a UI reaction tally on chat messages — no patient-safety
+      pathway.'
 - id: RULE-COMUNICACAO-002
   name: Current user's own reaction id on an observation
   category: data-validation
@@ -105,6 +124,22 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference:
+      citation: No authoritative published clinical reference. Internal accessor returning the requesting user's
+        own reaction pk on an observation. Relevant external authority is only the Django ORM QuerySet.get() contract
+        (raises DoesNotExist / MultipleObjectsReturned).
+      url: https://docs.djangoproject.com/en/stable/ref/models/querysets/#get
+    evidence: comunicacao-batch1.yaml
+    test_vectors: 4/4 match
+    summary: 'Extraction status was OK and it holds up: get_pk is a @property (utils/models.py:26-28 -> return str(self.id)),
+      so the parenless .get_pk usages correctly yield the pk string; and Reacao Meta.unique_together=(''observacao'',''usuario'')
+      makes the .get() call incapable of raising MultipleObjectsReturned. No defect. No external clinical reference
+      exists for this accessor, so it is logged UNVERIFIABLE (internal rule), not VERIFIED — but note it is internally
+      self-consistent and carries no clinical risk. This same @property fact is decisive for RULE-COMUNICACAO-003
+      below.'
 - id: RULE-COMUNICACAO-003
   name: AcaoHomecare balanco_hidrico method-reference bug
   category: care-pathway
@@ -158,6 +193,26 @@ rules:
     \ is explicitly documented in its own docstring as \"Modelo do feed do homecare\" — i.e. this serializer bug\
     \ and RULE-COMUNICACAO-034's leito-validation bug are two different defects on the SAME homecare-feed model/serializer\
     \ family, confirmed in-cluster (not misrouted)."
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference:
+      citation: No authoritative published clinical reference. Internal serializer field meant to expose the fluid-balance
+        (balanco hidrico) record pk for a homecare-feed action. Relevant external authority is only Python/Django
+        attribute-access + property semantics.
+      url: https://docs.python.org/3/library/functions.html#property
+    evidence: comunicacao-batch1.yaml
+    test_vectors: 1/3 match
+    summary: 'DISCREPANCY confirmed present but the extraction''s MECHANISM is inaccurate on two points, which I
+      document (not correcting the rule): (1) get_pk is a @property (utils/models.py:26-28), NOT a bound method,
+      so if the attribute existed, parenless .get_pk would correctly return str(id) — there is no ''bound-method
+      repr leak''. (2) The deeper defect is that obj.balanco_hidrico is not a valid attribute at all: Entrada/Saida/SinaisVitais
+      each declare the FK as ''balanco'' (entradas.py:13, saidas.py:13, sinais_vitais.py:13), so the real runtime
+      behavior is an AttributeError / HTTP 500 whenever entrada/saida/sinal_vital is set, not a garbage string.
+      The intended value was almost certainly obj.balanco.get_pk (or obj.balanco_id). This is an internal serializer
+      bug with no external clinical reference, hence UNVERIFIABLE (internal rule) for this clinical audit; flag
+      for engineering review. Clinically the field only exposes a record id in a homecare feed payload, so no decision
+      cutoff or dosing is affected even though the endpoint likely errors.'
 - id: RULE-COMUNICACAO-004
   name: send_qtd_mensagens_to_firebase — per-user unread-message counter fanout
   category: alert-threshold
@@ -216,6 +271,10 @@ rules:
     role: primary
   notes: Called from Mensageiro.enviar_observacao/enviar_observacao_automatica_e_homecare (RULE-alert-BE-11-047/048)
     and referenced by reduzir_qtd (RULE-msg-BE-11-046) which computes the reduzir_qtd flag's eligibility.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-005
   name: reduzir_qtd (mensageiro) — eligibility to decrement an observation's unread badge
   category: alert-threshold
@@ -257,6 +316,10 @@ rules:
   notes: 'Function name is identical to the `reduzir_qtd` PARAMETER of send_qtd_mensagens_to_firebase (RULE-msg-BE-11-045)
     but they are different things: this one COMPUTES eligibility, that one CONSUMES a boolean flag with that name.
     Not shown in this partition is the call site that feeds this function''s result into that parameter.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-006
   name: Firebase unread-count decrement when an observation checagem is checked off
   category: alert-threshold
@@ -301,6 +364,10 @@ rules:
     just invoked with different trailing arguments for a different scenario. The ''different call signature/overload''
     concern flagged by Phase-1 is resolved: there is only one function, called with 2, 3, or 4 positional args depending
     on branch — no discrepancy.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-007
   name: Firebase message-count notification suppressed for reply messages
   category: alert-threshold
@@ -343,6 +410,10 @@ rules:
     role: primary
   notes: reduzir_qtd and send_qtd_mensagens_to_firebase implementations live in utils.firebase, out of this partition's
     scope; behavior recorded from call-site semantics and the explanatory code comment.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-008
   name: Chat message retention window - 48h default, 96h when filtering by leito
   category: alert-threshold
@@ -380,6 +451,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-009
   name: Popup notification throttled to one per 2 seconds
   category: alert-threshold
@@ -420,6 +495,10 @@ rules:
     role: primary
   notes: Misnamed variable ("trotthleNotification") suggests throttle was intended but debounce was used - recorded
     as implemented, not corrected.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-010
   name: Notification alert color only applied for leito-type messages
   category: alert-threshold
@@ -463,6 +542,10 @@ rules:
     role: primary
   notes: statusTrilha itself is defined in src/utils/statusTrilha.ts, out of this partition's scope; only the conditional
     use of it is verified here.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-011
   name: Notification click-through decision tree
   category: care-pathway
@@ -513,6 +596,10 @@ rules:
     RULE-COMUNICACAO-039) and core/models/observacao.py (tipo_mensagem = "leito" if self.leito else "setor", RULE-COMUNICACAO-019):
     the backend only ever emits "setor" or "leito", so this component''s else-branch (anything not "setor") always
     resolves to the leito/trilha routing path in practice — no divergence found.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-012
   name: Patient snapshot in observation branches by leito type
   category: data-validation
@@ -550,6 +637,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: Duplicated verbatim between ObservacaoRespostaSerializer.get_paciente and ObservacaoSerializer.get_paciente.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-013
   name: Observation dual-mode movimentacao/leito resolution
   category: care-pathway
@@ -597,6 +688,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: Same 'ocupacoes__pk means Movimentacao-or-Leito' overload pattern appears in views/assistido.py (RULE-assistido-BE-05-003).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-014
   name: Protocol-checklist item toggle authorization
   category: care-pathway
@@ -639,6 +734,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: onCheck callback (_patchChecagemMsg) lives in MessagesList.tsx, also in this partition.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-015
   name: Chat reaction removal restricted to its own author
   category: data-validation
@@ -680,6 +779,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-016
   name: Video-call join gated on detected video input device
   category: triage-eligibility
@@ -723,6 +826,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-017
   name: Notification fan-out to all sector users on creation
   category: scheduling-operational
@@ -757,6 +864,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-018
   name: Record interaction indicator on first notification view
   category: scheduling-operational
@@ -803,6 +914,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: page_size default 30 (connect, line 94); popover flag suppresses history stream (lines 95, 113).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-019
   name: Observation auto-creates a notification and routes by target
   category: scheduling-operational
@@ -845,6 +960,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-020
   name: Real-time notifications filter out the current user's own messages
   category: alert-threshold
@@ -886,6 +1005,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-021
   name: Chat message list pagination
   category: data-validation
@@ -933,6 +1056,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: Load-more UI condition rendered at lines 456-466 of the same file.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-022
   name: Auto-select first sector conversation
   category: care-pathway
@@ -970,6 +1097,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-023
   name: Unread-message badge sourced from Firestore, reset on open
   category: care-pathway
@@ -1009,6 +1140,10 @@ rules:
     unconditional reset to 0 on chat-drawer open, distinct from the backend''s incremental +1/-1-with-eligibility
     updates (RULE-COMUNICACAO-004/005) — an intentional ''mark all read'' UX shortcut, not a bug, but noted as a
     point where client and server can independently mutate the same counter.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-024
   name: WebSocket-driven feed auto-refresh policy
   category: care-pathway
@@ -1052,6 +1187,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-025
   name: Feed pagination thresholds
   category: scheduling-operational
@@ -1100,6 +1239,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-026
   name: Hardcoded neutral-alert mock pathways in feed drawer
   category: care-pathway
@@ -1145,6 +1288,10 @@ rules:
     do not pass this prop.
 
     '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-027
   name: Reaction hard-delete override
   category: care-pathway
@@ -1172,6 +1319,10 @@ rules:
     role: primary
   notes: force_delete kwarg implies the underlying model's default .delete() is a soft-delete; the model itself
     is out of this partition's scope.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-028
   name: Online-call roster filtered to users currently in call
   category: care-pathway
@@ -1207,6 +1358,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-029
   name: Video call auto-leaves on route change
   category: scheduling-operational
@@ -1247,6 +1402,10 @@ rules:
     recorded as implemented rather than corrected.
 
     '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-030
   name: Single-join guard and forced reload after leaving a call
   category: scheduling-operational
@@ -1290,6 +1449,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-031
   name: Video-call room exit confirmation guard
   category: scheduling-operational
@@ -1331,6 +1494,10 @@ rules:
     role: primary
   notes: Recorded verbatim; the double-confirm() behavior looks unintentional but is reproduced exactly as implemented,
     per ground rules.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-032
   name: Real-time telemedicine dependency stack (Agora RTC + Firebase + websocket)
   category: care-pathway
@@ -1372,6 +1539,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: Dependency-manifest-only evidence per task instructions ("dependency pins with business significance").
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-033
   name: checado_por_id always forced to the requesting user
   category: data-validation
@@ -1409,6 +1580,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-034
   name: Validacao de leito para acao de feed homecare
   category: data-validation
@@ -1459,6 +1634,10 @@ rules:
     \ AND (b) validar_leito() itself is never invoked anywhere in save() (save() only sets self.paciente and builds\
     \ self.mensagem) — so BOTH the outer 'must be homecare bed' and inner 'must be occupied' guards are entirely\
     \ unenforced at the model layer, not merely the inner one. Same model/serializer family as RULE-COMUNICACAO-003."
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-035
   name: Homecare feed action-type vocabulary — acaoDict render map vs Feed.Acao TS union
   category: data-validation
@@ -1518,6 +1697,10 @@ rules:
     seen in BalancoHidrico and Evolucao.Status. | Reconciled during Phase-2: the Models.Feed.Acao type definition
     (out of the original FE-05 partition''s scope) was located and compared directly against acaoDict''s literal
     keys — divergence confirmed, not merely inferred.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-036
   name: Chat/feed emoji-reaction enumeration
   category: data-validation
@@ -1556,6 +1739,10 @@ rules:
   notes: ' | RECONCILED: cross-checked against backend core/models/choices/reacao.py (ReacaoChoices.emoji()) — both
     enumerate the identical 7 values in the identical order (sorriso, choro, aprovacao, reprovacao, forca, gratidao,
     coracao). No divergence.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-037
   name: One reaction per user per observation + unread-counter side effect
   category: scheduling-operational
@@ -1602,6 +1789,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: Emoji enum from ReacaoChoices.emoji().
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-038
   name: Reaction usuario/observacao always server-injected
   category: data-validation
@@ -1647,6 +1838,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-039
   name: Message scope enumeration
   category: data-validation
@@ -1682,6 +1877,10 @@ rules:
     role: primary
   notes: ' | RECONCILED: cross-checked against backend core/models/observacao.py (tipo_mensagem = "leito" if self.leito
     else "setor") — matches this 2-value union exactly, no divergence.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-040
   name: Conditional rendering of trilha-criteria checklist in send-observation modal
   category: care-pathway
@@ -1719,6 +1918,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-041
   name: Observation setor_id is always forced from the URL
   category: data-validation
@@ -1760,6 +1963,10 @@ rules:
     the bare except/ValidationError path is not reachable via a missing URL kwarg alone; it would only fire for
     pathological cases (e.g. an immutable request.data). Status set to AMBIGUOUS per Phase-1''s own flagged concern
     (preserved verbatim, not corrected).'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-042
   name: Observation responsavel_id is always forced to the authenticated user
   category: data-validation
@@ -1792,6 +1999,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-043
   name: Observation reply field rename
   category: data-validation
@@ -1821,6 +2032,10 @@ rules:
     commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-044
   name: Video-call online-presence flag derivation
   category: scheduling-operational
@@ -1858,6 +2073,10 @@ rules:
     commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
     role: primary
   notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 - id: RULE-COMUNICACAO-045
   name: FilePicker only reconciles local file list on removal
   category: data-validation
@@ -1897,6 +2116,10 @@ rules:
     it.
 
     '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    summary: Non-formula rule; correctness defined by legacy behavior itself (see sources).
 dropped: []
 integrated_misroutes:
 - id: RULE-upload-FE-05-003

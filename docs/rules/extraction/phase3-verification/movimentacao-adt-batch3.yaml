@@ -1,0 +1,46 @@
+- rule_id: RULE-MOVIMENTACAO-ADT-011
+  reference:
+    citation: "No authoritative published clinical reference exists. This is a proprietary internal business rule: an aggregation of IntensiCare care-pathway (trilha) alert states into a per-bed boolean 'assistido' (attended-by-care-team) flag. It is not a validated clinical score, equation, or standard calculator (not APACHE/SAPS/SOFA/etc.), and no clinical guideline governs how a bed-management UI derives an 'attended' boolean from internal traffic-light alert levels."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {tipo: automatica, ocupado: true, trilhas: "all non-NEUTRO and all assistido=True"}
+      expected_reference: "n/a (no clinical reference); legacy commented algorithm -> assistido=True (neutro=False, all trilha.assistido True)"
+      actual_legacy: "active code returns instance.get_assistido (model property, out of partition, unread); commented dead-code path yields True"
+      match: true
+    - inputs: {tipo: automatica, ocupado: true, trilhas: "one non-NEUTRO trilha with assistido=False"}
+      expected_reference: "n/a; legacy commented algorithm -> assistido=False (short-circuits: not trilha.assistido => assistido=False; break)"
+      actual_legacy: "commented dead-code path yields False"
+      match: true
+    - inputs: {tipo: automatica, ocupado: true, trilhas: "all trilhas NEUTRO"}
+      expected_reference: "n/a; legacy commented algorithm -> False (neutro stays True => 'return assistido if not neutro else False' => False). Consistent with confirmed manual-path RULE-013 all-neutral->False."
+      actual_legacy: "commented dead-code path yields False for all-neutral bed"
+      match: true
+    - inputs: {tipo: homecare, ocupado: true, trilhas: "non-NEUTRO list present, no False"}
+      expected_reference: "n/a; legacy commented algorithm -> True (bool(assistidos and not assistidos.count(False)))"
+      actual_legacy: "commented dead-code path yields True; empty non-NEUTRO list -> False"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Confirmed at core/api/v1/serializers/leito.py:191-200: the ACTIVE get_assistido simply
+    returns instance.get_assistido, a Leito model property defined in core/models/leito.py
+    (OUT OF PARTITION and not present in this verification scope), so the true live algorithm
+    could not be read directly here. The docstring (lines 192-198) and a large commented-out
+    dead-code block (cited lines 365-395) describe the intended algorithm hand-traced in the
+    test vectors above. No authoritative external reference governs this flag, so per the
+    ground rules it is flagged UNVERIFIABLE (proprietary/internal business rule) and NOT treated
+    as wrong; the pre-existing status was AMBIGUOUS (unread model property + dead-code-only
+    evidence), which this verification preserves. Recommend INTERNAL REVIEW to (a) confirm the
+    live Leito.get_assistido model property matches the commented algorithm and the confirmed
+    manual-path RULE-013 (get_assistido_por_trilha), and (b) confirm the intended clinical
+    semantics of the all-neutral->False case (an all-neutral bed reported as NOT attended),
+    which is internally consistent with RULE-013 but is a product-design decision, not a
+    clinically-referenced one. No unit/coefficient/cutoff mismatch is applicable: this rule
+    contains no numeric clinical computation.

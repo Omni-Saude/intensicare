@@ -1,0 +1,156 @@
+- rule_id: RULE-SEPSE-036
+  reference:
+    citation: "No authoritative published equation defines a fixed catheter/venous-access dwell-time threshold as a scored sepsis-screening criterion. Prolonged invasive-device dwell is a recognized CRBSI/HAI risk factor (CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections, 2011; INICC), but the >7-day cutoff and its use as a minor sepsis criterion are institutional. Internal business rule."
+    url: "https://www.cdc.gov/infection-control/hcp/intravascular-catheter-related-infection/index.html"
+  checks:
+    equation: n/a
+    coefficients: "7-day threshold is institutional, not from a published sepsis criterion"
+    units: "days; diferenca_dias(entrada)=timezone.now().date()-entrada -> .days (whole calendar days). data_insercao parsed strptime '%Y-%m-%d' (date only)"
+    ranges: n/a
+    rounding: "date-only subtraction truncates time-of-day; '>7' therefore requires >=8 whole calendar days between insertion date and today"
+    cutoffs: "strict > 7 (i.e. >=8 calendar days)"
+  test_vectors:
+    - inputs: {avp_em_uso: true, avp_data_insercao: "8 calendar days ago", dl: null}
+      expected_reference: "n/a (no published cutoff)"
+      actual_legacy: "diferenca_dias=8 > 7 -> True"
+      match: true
+    - inputs: {avp_em_uso: true, avp_data_insercao: "7 calendar days ago", dl: null}
+      expected_reference: "n/a"
+      actual_legacy: "diferenca_dias=7 > 7 -> False (boundary excluded)"
+      match: true
+    - inputs: {avp_em_uso: false, avp_data_insercao: "20 days ago", dl_em_uso: false}
+      expected_reference: "n/a"
+      actual_legacy: "any([all([False,...]), all([False,...])]) -> False (device not in use)"
+      match: true
+    - inputs: {formulario: null}
+      expected_reference: "n/a"
+      actual_legacy: "no evolucao_enfermagem/dispositivos -> implicit return None (falsy, counted not-True)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal infection-risk business rule; no authoritative sepsis-criterion source for the 7-day dwell threshold. Logic hand-traces correctly and consistently. diferenca_dias (utils/handlers.py:63-65) confirmed to use date-only subtraction, so '>7 days' effectively means the insertion calendar date is >=8 days before today. Flag for internal clinical review, not a defect."
+
+- rule_id: RULE-SEPSE-037
+  reference:
+    citation: "No clinical reference: criterio_11 is an unimplemented placeholder (calcular_criterio_11 -> return False, sepse.py:332-333). The intended minor criterion is unknown, so there is nothing to verify against a guideline. Pre-existing DISCREPANCY carried from extraction."
+    url: "n/a"
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "hard-coded constant False; no cutoff implemented"
+  test_vectors:
+    - inputs: {any: "any patient state"}
+      expected_reference: "unknown (criterion never specified/implemented)"
+      actual_legacy: "return False"
+      match: false
+    - inputs: {menores_group: "c8=True, c9=True, c10=True"}
+      expected_reference: "menores could reach 4 if c11 implementable"
+      actual_legacy: "c11 always False -> menores caps at 3"
+      match: false
+    - inputs: {alert_condition: "menores == 4 (RULE-sepse-BE-06-013)"}
+      expected_reference: "reachable"
+      actual_legacy: "UNREACHABLE (max menores = 3)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  clinical_impact_reason: "A permanently-False minor criterion caps the minor-criteria count at 3/4, making the downstream 'menores == 4' alert branch dead code and risking under-alerting for the four-minor-criteria pathway; severity is bounded because major-criteria and 3-minor pathways still fire."
+  notes: "Software-completeness defect, not a clinical-equation mismatch. Characterized per instruction: unimplemented placeholder with the documented consequence that the menores==4 alert branch is unreachable. Requires internal implementation decision on the intended 11th criterion."
+
+- rule_id: RULE-SEPSE-038
+  reference:
+    citation: "Levy MM, Fink MP, Marshall JC, et al. 2001 SCCM/ESICM/ACCP/ATS/SIS International Sepsis Definitions Conference. Crit Care Med 2003;31(4):1250-1256 (also Intensive Care Med 2003). Diagnostic criteria for sepsis, general variables: Fever = core temperature > 38.3 C."
+    url: "https://pubmed.ncbi.nlm.nih.gov/12682500/"
+  checks:
+    equation: ok
+    coefficients: "38.3 threshold matches 2001 definitions fever cutoff exactly"
+    units: "Celsius, matches reference (core temperature in C)"
+    ranges: "temperatura 0 or 20-43 C; 0/None treated as missing -> False"
+    rounding: "none; strict > comparison"
+    cutoffs: "strict > 38.3 matches reference (>38.3 C)"
+  test_vectors:
+    - inputs: {temperatura: 37.0}
+      expected_reference: "not fever (<=38.3) -> criterion negative"
+      actual_legacy: "37.0 > 38.3 -> False"
+      match: true
+    - inputs: {temperatura: 38.3}
+      expected_reference: "boundary: reference fever is strictly >38.3, so 38.3 is negative"
+      actual_legacy: "38.3 > 38.3 -> False"
+      match: true
+    - inputs: {temperatura: 38.5}
+      expected_reference: "fever (>38.3) -> positive"
+      actual_legacy: "38.5 > 38.3 -> True"
+      match: true
+    - inputs: {temperatura: 0}
+      expected_reference: "missing/invalid -> not scored"
+      actual_legacy: "falsy 0 -> False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Matches 2001 sepsis definitions fever threshold on cutoff, direction, and units. Scope note (not a discrepancy): legacy scores only the fever limb; the reference also lists hypothermia (<36 C) as a general variable, but that is handled by separate criteria outside this rule."
+
+- rule_id: RULE-SEPSE-039
+  reference:
+    citation: "SIRS/sepsis general variables (1992 ACCP/SCCM Consensus; retained in 2001 SCCM/ESICM/ACCP/ATS/SIS conference, Levy et al. Crit Care Med 2003;31:1250-1256): tachypnea = respiratory rate > 20 breaths/min. SpO2 < 96% is an institutional oxygenation screen; exclusion of mechanically-ventilated patients is institutional (spontaneous respiratory distress)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/12682500/"
+  checks:
+    equation: ok
+    coefficients: "FR>20 matches SIRS tachypnea threshold (>20 ipm). SatO2<96 is institutional, no single canonical source."
+    units: "fr in ipm (breaths/min) matches; sato2 in percent"
+    ranges: "fr 0-50, falsy fr/sato2 -> that disjunct False"
+    rounding: none
+    cutoffs: "FR>20 (strict) matches SIRS; SatO2<96 (strict); ANDed with NOT on mechanical ventilation"
+  test_vectors:
+    - inputs: {fr: 22, sato2: 98, vm: false}
+      expected_reference: "tachypnea (>20) present, not ventilated -> positive"
+      actual_legacy: "any([True, False]) and not False -> True"
+      match: true
+    - inputs: {fr: 22, sato2: 98, vm: true}
+      expected_reference: "ventilated -> spontaneous-distress criterion excluded"
+      actual_legacy: "any([True,...]) and not True -> False"
+      match: true
+    - inputs: {fr: 18, sato2: 94, vm: false}
+      expected_reference: "RR not tachypneic but SpO2<96 -> positive by oxygenation limb"
+      actual_legacy: "any([False, True]) and not False -> True"
+      match: true
+    - inputs: {fr: 20, sato2: 96, vm: false}
+      expected_reference: "boundary: RR not >20, SpO2 not <96 -> negative"
+      actual_legacy: "any([False, False]) -> False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "The verifiable core (tachypnea FR>20) matches the SIRS/2001 sepsis tachypnea threshold exactly. SatO2<96% and the mechanical-ventilation exclusion are institutional additions consistent with a spontaneous-respiratory-distress screen; no unit/coefficient mismatch found."
+
+- rule_id: RULE-SEPSE-040
+  reference:
+    citation: "No authoritative published equation defines a fixed <24h-from-ventilation-start window as a sepsis criterion. New acute respiratory failure requiring mechanical ventilation is a recognized organ-dysfunction/sepsis marker (Sepsis-3, Singer et al. JAMA 2016; SOFA respiratory component; Surviving Sepsis Campaign 2021), but the specific '<1 day since ventilation start' cutoff is institutional. Internal business rule."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903338/"
+  checks:
+    equation: n/a
+    coefficients: "1-day (24h) window is institutional, not from a published sepsis criterion"
+    units: "timedelta(days=1) = 24h; horario_inicio is a datetime; timezone.now() aware comparison"
+    ranges: n/a
+    rounding: "none; exact datetime comparison"
+    cutoffs: "strict > (horario_inicio > now - 1day); exactly 24h ago -> False"
+  test_vectors:
+    - inputs: {vm_exists: true, horario_inicio: "23h ago"}
+      expected_reference: "n/a (no published cutoff)"
+      actual_legacy: "23h-ago > now-24h -> True"
+      match: true
+    - inputs: {vm_exists: true, horario_inicio: "24h ago exactly"}
+      expected_reference: "n/a"
+      actual_legacy: "now-24h > now-24h -> False (boundary excluded)"
+      match: true
+    - inputs: {vm_exists: true, horario_inicio: "2 days ago"}
+      expected_reference: "n/a"
+      actual_legacy: "48h-ago > now-24h -> False"
+      match: true
+    - inputs: {vm_exists: false}
+      expected_reference: "n/a"
+      actual_legacy: "verificar_objeto_existe False -> False"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal business rule capturing recently-initiated mechanical ventilation as an acute organ-dysfunction trigger. Logic hand-traces correctly against its documented strict-> boundary (contrast RULE-SEPSE-041 noradrenalina which uses inclusive >=). No authoritative source fixes the 24h window; flag for internal clinical review, not a defect."

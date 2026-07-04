@@ -1,0 +1,43 @@
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-001
+  reference:
+    citation: "ISO 8601:2004 calendar date format (YYYY-MM-DD); Brazilian date convention DD/MM/YYYY (ABNT NBR 5892 / pt-BR locale); Python 3 datetime.strftime/strptime format-code semantics (%Y=4-digit year, %m=zero-padded month, %d=zero-padded day)."
+    url: "https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes"
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: n/a
+    ranges: "ok — %m accepts 01-12, %d accepts 01-31 with calendar validation; invalid month/day (e.g. 2026-13-01) raises ValueError as documented in edge_cases"
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {dia: "2026-07-03"}
+      expected_reference: "03/07/2026"
+      actual_legacy: "03/07/2026"
+      match: true
+    - inputs: {dia: "2026-01-01"}
+      expected_reference: "01/01/2026 (boundary: first day of year, single-digit day/month must zero-pad)"
+      actual_legacy: "01/01/2026"
+      match: true
+    - inputs: {dia: "2026-12-31"}
+      expected_reference: "31/12/2026 (boundary: last day of year)"
+      actual_legacy: "31/12/2026"
+      match: true
+    - inputs: {dia: "2026-13-01"}
+      expected_reference: "ValueError (month 13 out of range; ISO/calendar invalid)"
+      actual_legacy: "ValueError (uncaught) — matches documented edge_case"
+      match: true
+    - inputs: {dia: "03/07/2026"}
+      expected_reference: "ValueError (input not in YYYY-MM-DD form)"
+      actual_legacy: "ValueError (uncaught)"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Mechanical string date-format conversion (type=formula), not a clinical calculation.
+    Legacy logic `datetime.strptime(dia, "%Y-%m-%d").date().strftime("%d/%m/%Y")` confirmed
+    verbatim at trilha_homecare/api/v1/views/pdf_prescricao.py:59. Hand-traced against Python 3
+    datetime semantics: correctly parses ISO 8601 YYYY-MM-DD and emits Brazilian DD/MM/YYYY with
+    proper zero-padding. All 5 vectors (incl. year boundaries and the two invalid-input edge cases)
+    match reference. The documented uncaught-ValueError behavior on malformed input is accurate but
+    is a robustness note, not a correctness discrepancy — output value is correct whenever input is
+    well-formed. No unit/coefficient/cutoff dimensions apply to a formatting rule.

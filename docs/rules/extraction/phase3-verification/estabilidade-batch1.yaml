@@ -1,0 +1,196 @@
+- rule_id: RULE-ESTABILIDADE-001
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49(11):e1063-e1143) —
+      fluid resuscitation/de-resuscitation; Malbrain ML et al. Ann Intensive Care 2018;8:66 (ROSE
+      concept, conservative/negative fluid balance after stabilization). No published standard
+      fixes a specific "-2000 mL" cumulative-balance cutoff — that intent value is institutional.
+    url: https://pubmed.ncbi.nlm.nih.gov/34605781/
+  checks:
+    equation: diff
+    coefficients: "intended -2000 mL negative-balance target is institutional (not a published constant)"
+    units: "mL (balance); mmol/L (lactate) — plausible"
+    ranges: "cumulative balance summed over ENTIRE history, not the documented 6h/4h window"
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - inputs: {nora_6h: present, sum_ganhos_minus_perdas_mL: -3200, diurna_lactato: 2.0}
+      expected_reference: "fire (truly negative balance < -2000 mL, on vasopressor)"
+      actual_legacy: "fires (-3200 < 2000 True; lactate 2.0 > 0.5 True) — right output, wrong logic"
+      match: true
+    - inputs: {nora_6h: present, sum_ganhos_minus_perdas_mL: 1000, diurna_lactato: 1.0}
+      expected_reference: "no fire (net +1000 mL is a POSITIVE balance, not negative)"
+      actual_legacy: "fires (+1000 < 2000 True; lactate 1.0 > 0.5 True) — false positive from sign error"
+      match: false
+    - inputs: {nora_6h: present, sum_ganhos_minus_perdas_mL: -3200, diurna_lactato: 0.4}
+      expected_reference: "fire (negative balance; documented 3rd clause is absence of >=500 mL Ringer/saline bolus, unrelated to lactate)"
+      actual_legacy: "no fire (lactate 0.4 > 0.5 False blocks it) — third clause tests lactate, not fluid bolus"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Three code-vs-docstring divergences confirmed against the source (lines 364-396): (1) SIGN —
+    code `< 2000` (positive) vs documented `< -2000`, so it fires for essentially any balance below
+    +2000 mL including positive balances (clinically inverted — would mislabel over-resuscitated
+    patients as needing a fluid challenge); (2) WINDOW — code Sum() aggregates all balancos with no
+    time window vs documented last-6h; (3) THIRD CLAUSE — code tests `diurna_lactato > 0.5` vs the
+    documented "no >=500 mL Ringer/saline bolus in 4h". The specific -2000 mL target is institutional
+    (UNVERIFIABLE component), but the sign inversion is an unambiguous defect against the rule's own
+    clinical intent. Impact rated moderate on logic; mitigated to none in production because the
+    criterion is UNWIRED (commented out in calcular_criterios).
+
+- rule_id: RULE-ESTABILIDADE-002
+  reference:
+    citation: >
+      Shock Index — Allgower M, Burri C. Dtsch Med Wochenschr 1967 (original); normal SI = HR/SBP
+      0.5-0.7, >0.9-1.0 associated with higher transfusion/ICU/mortality (Rady MY, Ann Emerg Med
+      1994; Koch E et al., Open Access Emerg Med 2019, PMC6698590). Modified Shock Index = HR/MAP,
+      commonly cited normal band 0.7-1.3.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC6698590/
+  checks:
+    equation: ok
+    coefficients: ok
+    units: "HR bpm / BP mmHg (dimensionless) — correct"
+    ranges: "division guarded by truthiness of PAS/PAM (no ZeroDivision)"
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - inputs: {antibiotico: '>0', fc: 120, pas: 100, betablockers: none, nora: absent}
+      expected_reference: "flag (SI = 1.20 >> 0.7 upper-normal limit, abnormal)"
+      actual_legacy: "fires (120/100 = 1.2 > 0.7 True)"
+      match: true
+    - inputs: {antibiotico: '>0', fc: 60, pas: 120, pam: 85, betablockers: none, nora: absent}
+      expected_reference: "no flag (SI = 0.50 normal; MSI = 0.71 within normal band)"
+      actual_legacy: "no fire (0.50 > 0.7 False; 0.706 > 0.9 False)"
+      match: true
+    - inputs: {antibiotico: '>0', fc: 70, pas: 100, pam: 77, betablockers: none, nora: absent}
+      expected_reference: "borderline/normal (SI = 0.70 at upper-normal; MSI = 0.909 within normal 0.7-1.3)"
+      actual_legacy: "fires via MSI branch (70/77 = 0.909 > 0.9 True; SI 0.70 > 0.7 False)"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: low
+  notes: >
+    SI branch (FC/PAS > 0.7) matches the published upper limit of normal exactly. The MSI branch
+    (FC/PAM > 0.9) is BELOW the commonly cited MSI abnormal/mortality threshold (~1.3) but is the
+    algebraic MAP-equivalent of SI 0.7 (since SBP/MAP ~= 1.3, SI 0.7 -> MSI ~= 0.9), so the dual
+    cutoffs are internally coherent as an early "above-upper-normal" screen rather than a
+    mortality-prediction cutoff. Beta-blocker + noradrenaline absence gate is clinically sensible
+    (excludes rate-controlled / already-vasopressed patients). Only caveat: the MSI 0.9 screen is
+    more sensitive than a strict MSI>1.3 rule would be. Criterion is UNWIRED, so no production impact.
+
+- rule_id: RULE-ESTABILIDADE-003
+  reference:
+    citation: >
+      Sepsis-3 (Singer M et al., JAMA 2016;315(8):801-810) — hyperlactatemia lactate >2 mmol/L
+      anchor for septic shock; ANDROMEDA-SHOCK (Hernandez G et al., JAMA 2019;321(7):654-664) —
+      capillary refill time normalization target < 3 s (CRT >3 s = abnormal hypoperfusion).
+    url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+  checks:
+    equation: ok
+    coefficients: ok
+    units: "mmol/L (lactate), seconds (CRT) — correct"
+    ranges: "6h vasopressor window; guarded by balanco_6h and ultima_evolucao presence"
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - inputs: {nora_6h: present, diurna_lactato: 2.0, tempo_enchimento_capilar: 2}
+      expected_reference: "flag (lactate >= Sepsis-3 hyperlactatemia anchor, vasopressor present)"
+      actual_legacy: "fires (lactate 2.0 >= 2 True)"
+      match: true
+    - inputs: {nora_6h: present, diurna_lactato: 1.5, tempo_enchimento_capilar: 4}
+      expected_reference: "flag (CRT 4 s > 3 s = abnormal peripheral perfusion, ANDROMEDA target <3s)"
+      actual_legacy: "fires (TEC 4 > 3 True)"
+      match: true
+    - inputs: {nora_6h: present, diurna_lactato: 1.9, tempo_enchimento_capilar: 3}
+      expected_reference: "no flag (lactate < 2; CRT = 3 s is the normalization target, not abnormal)"
+      actual_legacy: "no fire (TEC 3 > 3 False; lactate 1.9 >= 2 False)"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Both anchors match authoritative sources: lactate cutoff on the Sepsis-3 >2 mmol/L
+    hyperlactatemia value, CRT >3 s on the ANDROMEDA-SHOCK <3 s normalization target. Minor boundary
+    nuance: code uses lactate `>= 2` (inclusive) whereas Sepsis-3 wording is strictly `> 2`, so at
+    exactly 2.0 mmol/L the legacy fires while a strict-Sepsis-3 reading would not — negligible
+    clinical impact (2.0 is at/above the abnormality threshold either way). Criterion is UNWIRED.
+
+- rule_id: RULE-ESTABILIDADE-004
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 Hour-1 bundle (Evans L et al., Crit Care Med 2021;49(11):
+      e1063-e1143): obtain blood cultures BEFORE antibiotics, administer broad-spectrum antibiotics,
+      give 30 mL/kg crystalloid within 3 h, measure/remeasure lactate, start vasopressors for
+      MAP >=65. ANDROMEDA-SHOCK-2 defines septic shock after a >=1000 mL fluid load.
+    url: https://pubmed.ncbi.nlm.nih.gov/34605781/
+  checks:
+    equation: n/a
+    coefficients: "1000 mL Ringer anchor is below SSC 30 mL/kg (~2100 mL for 70 kg); matches ANDROMEDA >=1000 mL fluid-load reference instead"
+    units: mL
+    ranges: "24h window; single-record (not aggregate) Ringer test"
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - inputs: {nora_24h: present, new_antibiotic: none, cultures: any, ringer: any}
+      expected_reference: "flag workup gap (no antibiotic within Hour-1 bundle)"
+      actual_legacy: "fires (not antibiotico.exists() True)"
+      match: true
+    - inputs: {nora_24h: present, antibiotic: given, blood_cultures: none, ringer: any}
+      expected_reference: "flag workup gap (no cultures — SSC requires cultures before/with antibiotics)"
+      actual_legacy: "fires (not hemocultura_bacterias.exists() True)"
+      match: true
+    - inputs: {nora_24h: present, antibiotic: given, blood_cultures: ordered, ringer_lactato_mL: 2000, soro: none}
+      expected_reference: "no flag (full bundle: antibiotics + cultures + adequate fluids)"
+      actual_legacy: "fires — filter(ringer<1000 OR soro>0) matches no record, so `not exists()` is True, any() True"
+      match: false
+  verdict: VERIFIED
+  clinical_impact: low
+  notes: >
+    Component mapping to the SSC Hour-1 bundle is sound (cultures, antibiotics, fluids, vasopressor
+    window). Two reference caveats, neither a code-vs-docstring defect (code faithfully implements
+    its docstring): (1) the 1000 mL Ringer anchor is below the SSC 30 mL/kg resuscitation target
+    (~2100 mL/70 kg), aligning instead with the ANDROMEDA-SHOCK-2 >=1000 mL fluid-load definition;
+    (2) the fluid sub-clause is a convoluted negation — `not exists(ringer<1000 OR soro>0)` fires
+    when a fully-resuscitated patient has NO under-1000 mL Ringer record and no saline (test vector 3
+    false positive). Rated low impact / VERIFIED because it is a bundle-completeness heuristic (no
+    single published equation to violate) and is UNWIRED in production.
+
+- rule_id: RULE-ESTABILIDADE-005
+  reference:
+    citation: >
+      Sepsis-3 (Singer M et al., JAMA 2016;315(8):801-810) — hyperlactatemia >2 mmol/L; concept of
+      cryptic/occult septic shock = hyperlactatemia WITHOUT hypotension/vasopressor requirement
+      (normotensive hyperlactatemia). Facade alert text (RULE-015 criterio_3) states "Lactato
+      >2mmol/L sem DVA e VM. Choque oculto?" (i.e. occult shock = ABSENCE of vasopressor).
+    url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+  checks:
+    equation: n/a
+    coefficients: ok
+    units: "mmol/L (lactate) — correct"
+    ranges: "4h vasopressor window, 24h MV window"
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - inputs: {diurna_lactato: 3.0, antibiotico: '>0', nora_4h: absent, mecanica_vent_24h: absent}
+      expected_reference: "flag occult shock (high lactate, on antibiotics, NO vasopressor, no MV)"
+      actual_legacy: "no fire (requires nora_4h.exists(); nora absent -> False)"
+      match: false
+    - inputs: {diurna_lactato: 3.0, antibiotico: '>0', nora_4h: present, mecanica_vent_24h: absent}
+      expected_reference: "no flag (patient ON vasopressor = overt, not occult, shock)"
+      actual_legacy: "fires (nora_4h.exists() True, lactate 3>=2, antibiotic, no MV)"
+      match: false
+    - inputs: {diurna_lactato: 2.0, antibiotico: '>0', nora_4h: absent, mecanica_vent_24h: absent}
+      expected_reference: "flag boundary occult shock (lactate at threshold, no vasopressor)"
+      actual_legacy: "no fire (nora absent blocks; also lactate>=2 inclusive vs Sepsis-3 strict >2)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Lactate anchor (>=2 mmol/L) matches Sepsis-3 (minor inclusive-vs-strict boundary at 2.0). The
+    load-bearing discrepancy is the noradrenaline direction: the code requires vasopressor PRESENCE
+    (`balanco_4h.filter(qt_vol_nora__gt=0).exists()`, line 308) while both the docstring ("ausencia
+    de noradrenalina ... nas ultimas 4h") AND the facade alert text ("sem DVA ... Choque oculto?")
+    and the published cryptic/occult-shock concept require vasopressor ABSENCE. The code thus flags
+    the exact opposite population (patients already on vasopressors) from the intended occult-shock
+    cohort. Extraction kept this AMBIGUOUS because the criterion is unwired; characterized here as a
+    DISCREPANCY since two independent documentation layers plus the clinical concept agree the check
+    is inverted. Impact moderate on logic; none in production (UNWIRED).

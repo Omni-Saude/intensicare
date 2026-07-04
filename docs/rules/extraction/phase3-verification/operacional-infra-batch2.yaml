@@ -1,0 +1,178 @@
+- rule_id: RULE-OPERACIONAL-INFRA-006
+  reference:
+    citation: "No authoritative published clinical reference. 'Length of stay' is a
+      standard operational metric but its exact computation (calendar-date difference
+      in whole days vs elapsed 24h periods) is an internal definitional choice with
+      no governing paper/guideline/calculator."
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "days (integer); computed as (timezone.now().date() - DT_ENTRADA).days"
+    ranges: "no lower bound guard; DT_ENTRADA in future yields negative; None -> TypeError"
+    rounding: "integer days via timedelta.days (truncates toward zero at date granularity;
+      operates on .date(), so intra-day time is discarded)"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {DT_ENTRADA: today, now: today}
+      expected_reference: "0 (definitional, no authority)"
+      actual_legacy: 0
+      match: true
+    - inputs: {DT_ENTRADA: 5 days before today, now: today}
+      expected_reference: "5 (definitional)"
+      actual_legacy: 5
+      match: true
+    - inputs: {DT_ENTRADA: tomorrow (future), now: today}
+      expected_reference: "n/a (no authority; negative is unguarded legacy behavior)"
+      actual_legacy: -1
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy confirmed at trilha_automatica/models/microindicadores.py:46-48 ->
+    handlers.diferenca_dias (utils/handlers.py:63-65): dias = timezone.now().date() -
+    entrada; return dias.days. Internally consistent. Flag for internal review: no
+    null guard (TypeError if DT_ENTRADA None) and no non-negative guard (future admission
+    -> negative LOS). Uses .date() so a patient admitted 23:59 and measured 00:01 next
+    day counts as 1 day. Not a clinical-scale error; flag for product/internal review."
+
+- rule_id: RULE-OPERACIONAL-INFRA-007
+  reference:
+    citation: "No authoritative published reference. ceil(count/page_size) is standard
+      pagination arithmetic; default page size 20 is an arbitrary internal UI constant."
+    url: n/a
+  checks:
+    equation: "ok (page_count = ceil(count/page_size) is mathematically correct)"
+    coefficients: "default limit=20 (arbitrary internal constant, initialPaginator.ts)"
+    units: "records / records-per-page -> pages"
+    ranges: "returns 0 when count or page_size is falsy (0/undefined/NaN)"
+    rounding: "Math.ceil (round up) — correct for page counting"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {count: 100, page_size: 20}
+      expected_reference: 5
+      actual_legacy: 5
+      match: true
+    - inputs: {count: 21, page_size: 20}
+      expected_reference: 2
+      actual_legacy: 2
+      match: true
+    - inputs: {count: 0, page_size: 20}
+      expected_reference: "0 (no pages)"
+      actual_legacy: 0
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy confirmed at src/utils/Page.ts:16-20 (getter returns Math.ceil(count/page_size),
+    else 0) and default limit=20 in src/utils/initialPaginator.ts. Pure UI pagination,
+    no clinical content. Math is correct; the falsy-guard means page_size=0 yields 0
+    rather than a divide error. Nothing to flag beyond it being an internal rule."
+
+- rule_id: RULE-OPERACIONAL-INFRA-008
+  reference:
+    citation: "No authoritative published reference. Whole-minutes-between-two-instants
+      via floored millisecond difference is a generic time primitive."
+    url: n/a
+  checks:
+    equation: "ok (diffMins = floor((d1 - d2) / 60000))"
+    coefficients: "1000 ms/s, 60 s/min (correct)"
+    units: "milliseconds -> minutes"
+    ranges: "no NaN/null guard; invalid Date -> NaN result"
+    rounding: "Math.floor -> rounds toward -Infinity; negative diffs round away from
+      zero (e.g. -0.5 min -> -1)"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {date1: "2026-07-03T10:00:00Z", date2: "2026-07-03T09:00:00Z"}
+      expected_reference: 60
+      actual_legacy: 60
+      match: true
+    - inputs: {date1: "2026-07-03T09:00:00Z", date2: "2026-07-03T10:00:00Z"}
+      expected_reference: "-60 (sign convention date1-date2)"
+      actual_legacy: -60
+      match: true
+    - inputs: {date1: "2026-07-03T09:00:00Z", date2: "2026-07-03T09:00:30Z"}
+      expected_reference: "-0.5 min -> floor -> -1"
+      actual_legacy: -1
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy confirmed at src/utils/minutesBetweenDates.ts:1-9. Sign convention
+    (date1 minus date2) and Math.floor (toward -Infinity) are load-bearing: for
+    negative intervals a sub-minute gap floors to -1, and positive sub-minute gaps
+    floor to 0. Flag for internal review only insofar as a caller expecting symmetric
+    rounding or absolute elapsed time must account for the floor/sign; no clinical
+    scale is implicated."
+
+- rule_id: RULE-OPERACIONAL-INFRA-009
+  reference:
+    citation: "No authoritative published reference. Hour-only-to-HH:MM padding is an
+      internal string-normalization helper."
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "time-of-day string"
+    ranges: "any presence of ':' anywhere marks input as already-formatted"
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {horario: "8"}
+      expected_reference: "'8:00' (definitional)"
+      actual_legacy: "8:00"
+      match: true
+    - inputs: {horario: "08:30"}
+      expected_reference: "'08:30' (contains ':', left untouched)"
+      actual_legacy: "08:30"
+      match: true
+    - inputs: {horario: " 8 "}
+      expected_reference: "'8:00' (strip then pad)"
+      actual_legacy: "8:00"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy confirmed at utils/handlers.py:221-223: horario.strip(); return
+    (horario + ':00') if horario.find(':') == -1 else horario. Internally consistent.
+    Edge behavior (any ':' -> treated as formatted; does not validate HH:MM shape,
+    does not zero-pad the hour) is documented and matches source. Internal utility;
+    no clinical reference exists."
+
+- rule_id: RULE-OPERACIONAL-INFRA-010
+  reference:
+    citation: "No authoritative published reference. Multi-format date parsing with a
+      fixed separator-count precedence is an internal parsing helper (Python
+      datetime.strptime + dateutil.parser fallback)."
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "date string -> datetime"
+    ranges: "precedence checks '/' count before '-' count; a string with exactly one
+      '/' plus '-' chars still routes to the %m/%Y branch and may raise ValueError
+      instead of falling through to dateutil"
+    rounding: n/a
+    cutoffs: "count('/')==1 -> %m/%Y; count('-')==1 -> %Y-%m; count('/')==2 -> %d/%m/%Y;
+      count('-')==2 -> %Y-%m-%d; else dateutil.parser.parse"
+  test_vectors:
+    - inputs: {date: "03/2026"}
+      expected_reference: "datetime(2026,3,1) via %m/%Y"
+      actual_legacy: "datetime(2026,3,1)"
+      match: true
+    - inputs: {date: "15/03/2026"}
+      expected_reference: "datetime(2026,3,15) via %d/%m/%Y"
+      actual_legacy: "datetime(2026,3,15)"
+      match: true
+    - inputs: {date: "2026-03-15"}
+      expected_reference: "datetime(2026,3,15) via %Y-%m-%d"
+      actual_legacy: "datetime(2026,3,15)"
+      match: true
+    - inputs: {date: "03/15 (one slash, invalid for %m/%Y)"}
+      expected_reference: "n/a (no authority)"
+      actual_legacy: "ValueError raised (does not fall through to dateutil)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy confirmed at utils/handlers.py:48-60. Note the DD/MM ordering (%d/%m/%Y,
+    day-first) is a locale choice (Brazilian pt-BR), correct for this codebase but
+    would mis-parse US MM/DD/YYYY input silently for ambiguous days (e.g. '03/04/2026'
+    -> April 3, not March 4). Separator-count precedence ('/' before '-') means mixed
+    strings can raise ValueError rather than reaching the dateutil fallback. Flag for
+    internal review of upstream callers' expected locale; not a clinical-scale error."

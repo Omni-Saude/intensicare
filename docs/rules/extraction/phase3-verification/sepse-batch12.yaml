@@ -1,0 +1,95 @@
+- rule_id: RULE-SEPSE-056
+  reference:
+    citation: "No validated published equation/cutoff. Directional support: CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections (2011) — femoral CVC site carries higher colonization/CLABSI risk; and Sepsis-3 (Singer et al., JAMA 2016) uses source identification but no femoral-dwell-time criterion. The specific '>5 days femoral CVC = minor sepsis screening criterion' is an institutional (Albert Einstein / trilhas) screening rule."
+    url: "https://www.cdc.gov/infection-control/hcp/intravascular-catheter-related-infection/index.html"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a (boolean flag; the '5 dias' threshold is applied upstream in the data layer, out of this rule's scope)"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "unverifiable — 5-day femoral dwell cutoff is institutional, no authoritative source"
+  test_vectors:
+    - {inputs: {cvc_cdl_femoral_5_dias: false}, expected_reference: "false (institutional passthrough)", actual_legacy: false, match: true}
+    - {inputs: {cvc_cdl_femoral_5_dias: true}, expected_reference: "true (institutional passthrough)", actual_legacy: true, match: true}
+    - {inputs: {cvc_cdl_femoral_5_dias: null}, expected_reference: "n/a (no null handling; predicate out of scope)", actual_legacy: "null (returns flag unchanged)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy calcular_criterio_19 (trilha_sepse.py:477-482) is a pure boolean passthrough of dados_prontuario.cvc_cdl_femoral_5_dias; the passthrough logic is trivially faithful to source. The clinical validity lies entirely in the upstream 5-day femoral-catheter flag, which is an institutional infection-source screening criterion with no primary published derivation. Flag for internal clinical review, not a defect."
+
+- rule_id: RULE-SEPSE-057
+  reference:
+    citation: "No validated published equation/cutoff. Directional support: recent abdominal/GI surgery is an established intra-abdominal infection source (Surviving Sepsis Campaign 2021, source-control section) but no published rule defines 'recent abdominal surgery' as a discrete numeric sepsis-screening criterion. The RULE-SEPSE-058 label pins it at '<20 dias' — an institutional definition."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a (boolean flag; any day-count window applied upstream)"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "unverifiable — 'recent' (<20 days per v3 label) is institutional"
+  test_vectors:
+    - {inputs: {historico_cirurgia_abdominal_recente: false}, expected_reference: "false (institutional passthrough)", actual_legacy: false, match: true}
+    - {inputs: {historico_cirurgia_abdominal_recente: true}, expected_reference: "true (institutional passthrough)", actual_legacy: true, match: true}
+    - {inputs: {historico_cirurgia_abdominal_recente: null}, expected_reference: "n/a (no null handling)", actual_legacy: "null (returns flag unchanged)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Legacy calcular_criterio_20 (trilha_sepse.py:484-489) is a pure boolean passthrough of historico_cirurgia_abdominal_recente. Passthrough faithful to source. The '<20 dias' recency window is institutional; no authoritative reference. Flag for internal review."
+
+- rule_id: RULE-SEPSE-058
+  reference:
+    citation: "Sepsis-3 (Singer et al., The Third International Consensus Definitions, JAMA 2016;315:801-810) for SOFA/qSOFA cutoffs; ACCP/SCCM 1992 SIRS criteria (Bone et al., Chest 1992) for temp/RR/PaCO2; Vincent et al. 1996 SOFA (Intensive Care Med) for platelet & P/F organ-dysfunction bands. Cross-checked internally against v3 model predicates RULE-SEPSE-007..026."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC4968574/"
+  checks:
+    equation: "n/a (display-label threshold catalog, all recomendacoes lists empty; no computation performed here)"
+    coefficients: n/a
+    units: "ok — units internally consistent per label (degC, ipm, mmol/L, mg/dl, /mm3); lactate correctly in mmol/L (contrast variant B which mislabels mg/dl)"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "diff — (A) INTERNAL: display labels diverge from firing model predicates: Plaquetopenia label '<150.000' vs model RULE-SEPSE-012 fires at <100000; Febre label 'TAX>=38,2' vs model RULE-SEPSE-007 uses >38.2; Hipotensao label 'PAS<90 ou PAM<60' vs model RULE-SEPSE-011 adds PAD<60/PAM<65; Oliguria label '<=0,5' vs model <0.5; CVC labels '>=7d'/'>=5d' vs model >7d/>5d; criterion numbering differs from model. (B) EXTERNAL: Febre 38.2 vs SIRS 38.0; GCS<14 vs qSOFA altered-mentation GCS<15; lactato>=3 mmol/L vs Sepsis-3 septic-shock threshold >2 mmol/L; FR>20 and PaCO2<32 match SIRS; platelets<150k and P/F<300 match SOFA=1-2pt bands."
+  test_vectors:
+    - {inputs: {criterion: platelets, plaquetas: 120000}, expected_reference: "flag (label '<150.000' true; SOFA platelets<150=1pt supports <150k)", actual_legacy: "label predicate fires (plaquetas<150000 true) BUT model RULE-SEPSE-012 predicate does NOT fire (<100000); label/predicate mismatch at 100k-150k", match: false}
+    - {inputs: {criterion: lactato, lactato_mmol_L: 2.5}, expected_reference: "flag per Sepsis-3 hyperlactatemia >2 mmol/L", actual_legacy: "no flag (label '>=3 mmol/L' not met)", match: false}
+    - {inputs: {criterion: GCS, gcs: 14}, expected_reference: "flag per qSOFA altered mentation (GCS<15)", actual_legacy: "no flag (label 'GCS<14' not met)", match: false}
+    - {inputs: {criterion: TAX, tax_C: 38.1}, expected_reference: "flag per SIRS fever >38.0 degC", actual_legacy: "no flag (label '>=38,2' not met)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Rationale for moderate: this is a display/alert-label catalog (get_payload_trilha_sepse, trilha_sepse_v3.py:1-85) so it drives what clinicians SEE, not the firing decision. Two distinct issues: (1) internal label-vs-predicate mismatch — the Plaquetopenia alert reads '<150.000' but only fires when the model detects <100.000, so a displayed threshold does not describe the condition that triggered it (mislabels severity); (2) external divergences (lactate >=3 vs Sepsis-3 >2 mmol/L; GCS<14 vs qSOFA<15; fever 38.2 vs SIRS 38.0) are stricter institutional variants that could delay recognition of the 2-3 mmol/L lactate / GCS-14 / 38.0-38.1 zones. Impact capped at moderate because these are screening prompts within a multi-criterion pathway, not automated dosing. Carries DISCREPANCY from extraction — confirmed and characterized, not dismissed."
+
+- rule_id: RULE-SEPSE-059
+  reference:
+    citation: "Surviving Sepsis Campaign: International Guidelines 2021 (Evans et al., Crit Care Med 2021;49:e1063-e1143) — 30 mL/kg IV crystalloid within 3h, balanced crystalloid preferred, >=2 blood culture sets before empiric broad-spectrum antibiotics, lactate-guided resuscitation, source control including removal of infected intravascular devices. SOFA per Sepsis-3 (JAMA 2016)."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "diff — hypoperfusion trigger written 'lactato > 2,5 mg/dl'; lactate is measured in mmol/L, not mg/dl. 2.5 mg/dL ~= 0.28 mmol/L (physiologically below normal, nonsensical as a hyperlactatemia cutoff). Value is consistent only if read as 2.5 mmol/L (approx SSC's >2 mmol/L). Unit label is wrong."
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "SOFA>6 (criterio_12) is an institutional severity marker, not the Sepsis-3 diagnostic cutoff (Sepsis-3 defines sepsis as acute SOFA rise >=2); device >10d / femoral >7d institutional. Resuscitation cutoffs otherwise align with SSC."
+  test_vectors:
+    - {inputs: {weight_kg: 70, fluid_order: "30 ml/kg Ringer Lactato"}, expected_reference: "2100 mL crystalloid within 3h (SSC 2021 >=30 mL/kg, balanced fluid)", actual_legacy: "30 ml/kg Ringer Lactato = 2100 mL", match: true}
+    - {inputs: {workup: "hemocultura x2 + broad-spectrum antibiotic"}, expected_reference: ">=2 blood culture sets before empiric broad-spectrum antibiotics (SSC 2021)", actual_legacy: "hemocultura x2 perifericas + antibiotico amplo espectro", match: true}
+    - {inputs: {lactate_actual_mmol_L: 2.5, label: "lactato > 2,5 mg/dl"}, expected_reference: "hyperlactatemia trigger at >2 mmol/L (SSC/Sepsis-3)", actual_legacy: "label uses mg/dl unit (should be mmol/L); numerically ~correct only if reinterpreted as mmol/L", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Care-pathway text (trilha_sepse.py facade, payload_sepse_automatica). Core resuscitation content matches SSC 2021 exactly: 30 mL/kg Ringer Lactato bolus, blood cultures x2, broad-spectrum antibiotics, gram-negative double coverage with noradrenaline, catheter change/removal >7d, USG fluid-responsiveness then dobutamine. Sole defect is the lactate hypoperfusion trigger labeled 'mg/dl' instead of 'mmol/L' — exactly the unit-mismatch class this audit targets. Impact rated low because it is a narrative trigger listed alongside redundant hypoperfusion signs (oliguria, TEC aumentado, alt. consciencia, livedo) and does not gate an automated dose; but the mislabel could confuse a clinician reading the value. SOFA>6 is an institutional severity flag, not misaligned with any specific SSC dosing."
+
+- rule_id: RULE-SEPSE-060
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021) — weight-based 30 mL/kg IV crystalloid within 3h; remeasure lactate to guide resuscitation; empiric broad-spectrum antibiotics within 1h (agent not specified by guideline). Fixed-volume bolus is not a guideline construct."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: "diff — fixed 1500 mL Ringer Lactato bolus vs SSC weight-based 30 mL/kg (no per-kg scaling)"
+    coefficients: n/a
+    units: "ok (mL, g); lactate re-check 'apos 3h' consistent with SSC lactate-guided remeasurement"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "Meropenem 1 g EV is a specific institutional empiric choice; SSC recommends broad-spectrum but names no agent/dose. Trigger 'hipotensao OU oliguria OU alt. consciencia -> bolus' broadly aligns with sepsis-induced hypoperfusion concept."
+  test_vectors:
+    - {inputs: {weight_kg: 50}, expected_reference: "1500 mL (SSC 30 mL/kg x 50)", actual_legacy: "1500 mL fixed bolus", match: true}
+    - {inputs: {weight_kg: 70}, expected_reference: "2100 mL (SSC 30 mL/kg x 70)", actual_legacy: "1500 mL fixed bolus (under-resuscitates by 600 mL)", match: false}
+    - {inputs: {weight_kg: 100}, expected_reference: "3000 mL (SSC 30 mL/kg x 100)", actual_legacy: "1500 mL fixed bolus (under-resuscitates by 1500 mL)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Care-pathway text (core/facade/sepse.py:1-34, variant A). Fixed 1500 mL Ringer Lactato bolus diverges from SSC 2021 weight-based 30 mL/kg: coincides only at ~50 kg and progressively under-resuscitates heavier adults (600 mL short at 70 kg, 1500 mL short at 100 kg) — moderate impact because under-dosing initial fluid can delay perfusion restoration, though vasopressors and reassessment follow. Lactate remeasurement after 3h aligns with SSC lactate-guided approach; cultures/imaging/catheter change align. Meropenem 1 g is an institutional empiric choice (not guideline-specified). Rule status AMBIGUOUS from extraction: consumer not evident within scope (facade/sepse.py aliases the 27-criterion variant B instead), so this payload appears deprecated/unwired — the fluid discrepancy is characterized against SSC but may not reach patients if the payload is dead code. Not dismissing; flag for internal confirmation of wiring."

@@ -1,0 +1,133 @@
+- rule_id: RULE-NUTRICAO-001
+  reference:
+    citation: "WHO / standard Body Mass Index (Quetelet index): BMI = weight(kg) / height(m)^2"
+    url: "https://www.who.int/data/gho/data/themes/topics/topic-details/GHO/body-mass-index"
+  checks:
+    equation: ok
+    coefficients: "n/a (ratio form, no coefficients)"
+    units: "ok - peso kg, altura meters, imc kg/m^2 (matches standard)"
+    ranges: "altura constrained [0,3] m by RULE-NUTRICAO-008; peso unconstrained"
+    rounding: "ok - toFixed(2); reference imposes no rounding rule (display-only)"
+    cutoffs: "n/a (raw value, no band classification in this rule)"
+  test_vectors:
+    - {inputs: {peso: 70, altura: 1.75}, expected_reference: 22.86, actual_legacy: "22.86 (70/3.0625=22.857 -> toFixed(2))", match: true}
+    - {inputs: {peso: 100, altura: 2.0}, expected_reference: 25.00, actual_legacy: "25.00 (100/4=25)", match: true}
+    - {inputs: {peso: 50, altura: 1.60}, expected_reference: 19.53, actual_legacy: "19.53 (50/2.56=19.531)", match: true}
+    - {inputs: {peso: 70, altura: 0}, expected_reference: "undefined / division-by-zero (not computable)", actual_legacy: "'Infinity' (70/0=Infinity; Infinity||0=Infinity -> 'Infinity' string, unguarded)", match: false}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Formula, units and rounding match the standard Quetelet/WHO BMI exactly. Only divergence is the
+    unguarded altura==0 & peso>0 edge producing the literal string "Infinity" (documented in rule
+    edge_cases). Display robustness edge, not a formula error; altura range-capped [0,3] with 0
+    clinically implausible -> no clinical impact.
+
+- rule_id: RULE-NUTRICAO-002
+  reference:
+    citation: "Crary MA, Mann GD, Groher ME. Initial psychometric assessment of a Functional Oral Intake Scale for dysphagia in stroke patients. Arch Phys Med Rehabil. 2005;86(8):1516-20."
+    url: "https://www.archives-pmr.org/article/S0003-9993(05)00196-6/abstract"
+  checks:
+    equation: "n/a (ordinal classification, no computation)"
+    coefficients: "n/a"
+    units: "n/a"
+    ranges: "ok - 7 ordinal levels, level1 (NPO, worst) to level7 (full oral, best); matches published direction"
+    rounding: "n/a"
+    cutoffs: "ok - all 7 level definitions map to published Crary 2005 wording"
+  test_vectors:
+    - {inputs: {level: nivel1}, expected_reference: "Nothing by mouth (NPO)", actual_legacy: "Nada por via oral", match: true}
+    - {inputs: {level: nivel3}, expected_reference: "Tube dependent with consistent oral intake of food or liquid", actual_legacy: "Dependente de via alternativa com consistente via oral de alimento ou liquido", match: true}
+    - {inputs: {level: nivel5}, expected_reference: "Total oral diet with multiple consistencies but requiring special preparation or compensations", actual_legacy: "Via oral total com multiplas consistencias, porem com necessidade de preparo especial ou compensacoes", match: true}
+    - {inputs: {level: nivel7}, expected_reference: "Total oral diet with no restrictions", actual_legacy: "Via oral total sem restricoes", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All 7 levels match the published Crary 2005 FOIS in ordinal direction and per-level meaning
+    (levels 1-3 non-oral/tube-dependent, 4-7 oral). The nivel6 label carries a source typo
+    ("especial oucompensacoes") preserved verbatim; display-string artifact only, does not alter
+    level meaning or ordering -> no clinical impact.
+
+- rule_id: RULE-NUTRICAO-003
+  reference:
+    citation: "McClave SA et al. ASPEN/SCCM Guidelines for Provision and Assessment of Nutrition Support Therapy in the Adult Critically Ill Patient (2016) - hold EN only for GRV >500 mL. Villanueva C et al. NEJM 2013;368:11-21 - restrictive RBC transfusion at Hb <7 g/dL in acute upper GI bleed."
+    url: "https://www.nejm.org/doi/full/10.1056/NEJMoa1211801"
+  checks:
+    equation: "n/a (decision-tree pathway text)"
+    coefficients: "n/a"
+    units: "diff - noradrenaline equivalence 30 ml/h = 0,05 mcg/kg/min is dilution- and weight-dependent (only holds for ~4 mg/500 mL ~= 8 mcg/mL at ~70-80 kg); institution-specific, not a universal conversion"
+    ranges: "ok - GRV cutoff 500 ml/6h matches ASPEN/SCCM 2016 (hold feeds >500 mL; do not hold <500 mL)"
+    rounding: "n/a"
+    cutoffs: >
+      GRV 500 ml/6h ok (ASPEN). RBC transfusion Hb<7 ok (Villanueva/TRICC). BUT criterio_8 gates
+      transfusion on 'Hb < 7 AND plaquetas < 150000' - the platelet<150000 AND-condition has no
+      published anchor (150000 is the normal platelet lower limit; GI-bleed platelet transfusion
+      target is ~50000, and it should not gate RBC transfusion).
+  test_vectors:
+    - {inputs: {VRG: 520, window: "6h"}, expected_reference: "hold/interrupt EN (GRV >500 mL, ASPEN)", actual_legacy: "criterio_5: VRG>500 ml/6h -> interrupt dieta 2h e reavaliar", match: true}
+    - {inputs: {VRG: 480, window: "6h"}, expected_reference: "do NOT hold EN for GRV <500 mL (ASPEN)", actual_legacy: "criterio_1 'nao suspender' list includes VRG<500ml/6h -> continue", match: true}
+    - {inputs: {GI_bleed: true, Hb: 6.5, platelets: 200000}, expected_reference: "transfuse RBC (Hb <7, Villanueva) regardless of platelet count", actual_legacy: "criterio_8: Hb<7 AND plaquetas<150000 required -> platelets 200000>=150000 fails AND -> NO transfusion advised", match: false}
+    - {inputs: {GI_bleed: true, Hb: 6.5, platelets: 100000}, expected_reference: "transfuse RBC (Hb <7)", actual_legacy: "criterio_8: Hb<7 AND plaquetas<150000 both true -> transfusion advised", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Two published anchors verify correctly: GRV 500 ml/6h (ASPEN/SCCM 2016) and the Hb<7 RBC
+    transfusion trigger value (Villanueva NEJM 2013). Discrepancy: criterio_8 conditions blood
+    transfusion on 'Hb<7 AND plaquetas<150000', so a Hb<7 GI-bleed patient with platelets >=150000
+    would NOT be flagged for RBC transfusion despite meeting the guideline Hb<7 trigger -> moderate
+    impact (potential under-transfusion), mitigated because this is advisory pathway text and
+    criterio_8 is not among the surfaced automatic criteria [4,7,10] (see RULE-NUTRICAO-004).
+    Separately, the noradrenaline '30 ml/h = 0,05 mcg/kg/min' equivalence is institution-dilution-
+    specific (unverifiable as a universal conversion), not a clean unit error. Diarrhea cutoff
+    (>=5 total OR >=3 liquid/24h) and trophic feed 30 ml/h are internal protocol values without a
+    single citable anchor.
+
+- rule_id: RULE-NUTRICAO-005
+  reference:
+    citation: "ASHP Therapeutic Guidelines on Stress Ulcer Prophylaxis (1999) - classic SUP indication is mechanical ventilation >48h or coagulopathy; SCCM/ASHP 2024 update de-emphasizes MV-alone. UI numeric ranges have no clinical-threshold anchor."
+    url: "https://pubmed.ncbi.nlm.nih.gov/10233206/"
+  checks:
+    equation: "n/a"
+    coefficients: "n/a"
+    units: "ok - vomitos/residuo_gastrico in mL (0-10000), hgt_max/min in mg/dL (0-1000); glucose mg/dL plausible, no unit mismatch"
+    ranges: "n/a as clinical thresholds - UI input caps only (explicitly not decision thresholds); max>=min not cross-validated (documented)"
+    rounding: "n/a"
+    cutoffs: "diff - indicacao_profilaxia option vm_mais_72h encodes MV >72h; classic ASHP anchor is MV >48h"
+  test_vectors:
+    - {inputs: {mech_vent_hours: 50}, expected_reference: "SUP-eligible by MV criterion (>48h, ASHP 1999)", actual_legacy: "vm_mais_72h NOT satisfied (50<72) -> not captured by this option", match: false}
+    - {inputs: {mech_vent_hours: 80}, expected_reference: "SUP-eligible (MV >48h)", actual_legacy: "vm_mais_72h satisfied (80>72) -> captured", match: true}
+    - {inputs: {mech_vent_hours: 30}, expected_reference: "not eligible by MV criterion alone", actual_legacy: "vm_mais_72h not satisfied -> not captured", match: true}
+    - {inputs: {hgt_max: 500, unit: "mg/dL"}, expected_reference: "valid glucose value (<=1000 mg/dL cap plausible)", actual_legacy: "accepted (range 0-1000 mg/dL)", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Block is predominantly UI field definitions (diet-route booleans, acceptance enum, mL/mg-dL
+    numeric caps) with no clinical decision anchors - those verify OK with correct units (no
+    mg/dL vs mmol/L or mL-scale mismatch). Single clinical-anchor element is the shared prophylaxis
+    enum value vm_mais_72h (MV >72h), stricter than the classic ASHP-1999 anchor of MV >48h, leaving
+    patients ventilated 48-72h uncategorized under this option. Low impact: categorical eligibility
+    label (not an automated gate) and the 2024 SCCM/ASHP update itself no longer firmly endorses
+    MV-alone as an indication, so the "correct" threshold is contested. Same enum as RULE-NUTRICAO-006.
+
+- rule_id: RULE-NUTRICAO-006
+  reference:
+    citation: "ASHP Therapeutic Guidelines on Stress Ulcer Prophylaxis (1999): mechanical ventilation >48h and coagulopathy are the two primary independent SUP indications; SCCM/ASHP 2024 update revises MV-alone recommendation."
+    url: "https://pubmed.ncbi.nlm.nih.gov/10233206/"
+  checks:
+    equation: "n/a (categorical enum)"
+    coefficients: "n/a"
+    units: "n/a (categorical labels)"
+    ranges: "ok - 8-value enum {dva,tce,avc,queimado,jejum_prolongado,nao_indicado,terapeutico,vm_mais_72h}; matches frontend copy (RULE-NUTRICAO-005) verbatim"
+    rounding: "n/a"
+    cutoffs: "diff - vm_mais_72h encodes MV >72h threshold vs classic ASHP MV >48h"
+  test_vectors:
+    - {inputs: {selection: "vm_mais_72h", mech_vent_hours: 72}, expected_reference: "MV-based SUP indication threshold is >48h (ASHP 1999)", actual_legacy: "label = 'VM por mais de 72hs' -> threshold is 72h, not 48h", match: false}
+    - {inputs: {selection: "dva"}, expected_reference: "shock/vasoactive drugs = recognized SUP risk (SCCM/ASHP 2024 lists shock)", actual_legacy: "DVA (vasoactive drugs) present as indication", match: true}
+    - {inputs: {selection: "queimado"}, expected_reference: "major burn = classic Curling-ulcer SUP indication", actual_legacy: "Queimado (burn) present as indication", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Enum category set aligns well with recognized stress-ulcer risk factors (vasopressors/shock, TBI,
+    stroke, burn, prolonged fasting). The one threshold-bearing value vm_mais_72h uses MV >72h,
+    diverging from the classic ASHP-1999 anchor of MV >48h (the audit's flagged discrepancy). Low
+    impact: categorical eligibility label, not a computed gate, and the 2024 guideline update no
+    longer firmly endorses MV duration alone. Backend enum is byte-identical to the frontend copy
+    (RULE-NUTRICAO-005) -> no backend/frontend divergence.

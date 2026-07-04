@@ -1,0 +1,146 @@
+- rule_id: RULE-OPERACIONAL-INFRA-011
+  reference:
+    citation: "No authoritative published clinical reference. get_number is a generic Python
+      float-coercion helper (utils/handlers.py:68-73) that returns 0 on ValueError/TypeError.
+      Not a clinical scale, equation, or guideline-derived rule."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: "n/a (float() default IEEE-754 parse; no clinical rounding)"
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {value: "12.5"}
+      expected_reference: "n/a (no reference)"
+      actual_legacy: 12.5
+      match: true
+    - inputs: {value: "abc"}
+      expected_reference: "n/a (no reference)"
+      actual_legacy: 0
+      match: true
+    - inputs: {value: null}
+      expected_reference: "n/a (no reference)"
+      actual_legacy: 0
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal utility rule with no external authoritative source. Behavior confirmed
+    verbatim against utils/handlers.py:68-73. Flag for internal review only: the silent
+    coerce-to-0 fallback could mask a missing/invalid clinical value as a real 0 if get_number
+    is ever applied to a clinical numeric field, but that is a design concern, not a
+    reference discrepancy. No correction made."
+
+- rule_id: RULE-OPERACIONAL-INFRA-012
+  reference:
+    citation: "Sessler CN, Gosnell MS, Grap MJ, et al. The Richmond Agitation-Sedation Scale:
+      validity and reliability in adult intensive care unit patients. Am J Respir Crit Care Med.
+      2002;166(10):1338-1344. Also Ely EW et al. JAMA 2003;289(22):2983-2991. Standard RASS is a
+      10-point ordinal scale from -5 (unarousable) through 0 (alert and calm) to +4 (combative)."
+    url: "https://doi.org/10.1164/rccm.2107138"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a (ordinal categorical levels)"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok — exactly the 10 canonical levels -5,-4,-3,-2,-1,0,+1,+2,+3,+4 present, no
+      out-of-range or missing level"
+  test_vectors:
+    - inputs: {randint_index: 0}
+      expected_reference: "-5 (unarousable, RASS minimum)"
+      actual_legacy: "-5"
+      match: true
+    - inputs: {randint_index: 5}
+      expected_reference: "0 (alert and calm, RASS neutral)"
+      actual_legacy: "0"
+      match: true
+    - inputs: {randint_index: 9}
+      expected_reference: "+4 (combative, RASS maximum)"
+      actual_legacy: "+4"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Legacy source utils/popular_banco.py:71,134 confirmed: rass = ['-5','-4','-3','-2','-1',
+    '0','+1','+2','+3','+4']; index drawn via randint(0,9) covers all 10 levels exactly. Full RASS
+    domain reproduced with no gaps or spurious levels. This is a synthetic test-data generator, not a
+    production validator, but its RASS domain matches the authoritative Richmond scale exactly."
+
+- rule_id: RULE-OPERACIONAL-INFRA-013
+  reference:
+    citation: "ARDS Definition Task Force; Ranieri VM, Rubenfeld GD, Thompson BT, et al. Acute
+      respiratory distress syndrome: the Berlin Definition. JAMA. 2012;307(23):2526-2533. Berlin
+      stratifies ARDS into three mutually exclusive severity categories by PaO2/FiO2 (on PEEP/CPAP
+      >=5 cmH2O): mild (200 < P/F <= 300), moderate (100 < P/F <= 200), severe (P/F <= 100)."
+    url: "https://doi.org/10.1001/jama.2012.5669"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a (categorical severity labels; P/F cutoffs live in the classifier, not this seed table)"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok — exactly three tiers, matching the Berlin mild/moderate/severe triad
+      (PT: leve/moderada/grave)"
+  test_vectors:
+    - inputs: {randint_index: 0}
+      expected_reference: "mild / leve (Berlin tier 1)"
+      actual_legacy: "leve"
+      match: true
+    - inputs: {randint_index: 1}
+      expected_reference: "moderate / moderada (Berlin tier 2)"
+      actual_legacy: "moderada"
+      match: true
+    - inputs: {randint_index: 2}
+      expected_reference: "severe / grave (Berlin tier 3)"
+      actual_legacy: "grave"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Legacy source utils/popular_banco.py:72,135 confirmed: sdra = ['leve','moderada','grave'];
+    index via randint(0,2) covers all three. Matches the Berlin Definition 3-tier severity naming
+    verbatim (the older AECC 'ALI' tier was retired by Berlin — correctly absent here). Synthetic
+    seed generator only; category labels align with the authoritative reference."
+
+- rule_id: RULE-OPERACIONAL-INFRA-032
+  reference:
+    citation: "No external authoritative published reference defines a numeric data-entry cap for
+      PEEP; PEEP (cmH2O) is a set ventilator parameter, not a validated scale/equation. The only
+      governing authority is the internal production validator PeepValidator (utils/validators.py:73-81,
+      RULE-vitais-BE-11-009), which enforces 0 <= peep <= 40. Clinically, applied PEEP is typically
+      5-15 cmH2O and rarely exceeds ~24 (up to ~30 in severe ARDS), so both 40 and 41 are non-physiologic
+      sanity ceilings well above real use (cf. ARDSNet/Berlin high-PEEP tables)."
+    url: "https://doi.org/10.1001/jama.2012.5669"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "cmH2O (consistent across both files)"
+    ranges: "diff — seed table valores_maximos_atributos['peep']=(0,41); PeepValidator=(0,40).
+      All other 17 attributes match their validators."
+    rounding: n/a
+    cutoffs: "diff — upper bound off by 1 (41 vs 40) between the seed generator and the production
+      validator"
+  test_vectors:
+    - inputs: {atributo: peep, randint_draw: 0}
+      expected_reference: "accepted by PeepValidator (0 within 0..40)"
+      actual_legacy: "generates 0; passes validation"
+      match: true
+    - inputs: {atributo: peep, randint_draw: 40}
+      expected_reference: "accepted by PeepValidator (40 == upper bound, inclusive)"
+      actual_legacy: "generates 40; passes validation"
+      match: true
+    - inputs: {atributo: peep, randint_draw: 41}
+      expected_reference: "REJECTED by PeepValidator (41 > 40 -> ValidationError)"
+      actual_legacy: "randint(0,41) CAN generate 41 -> synthetic record fails real validation"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: "Confirmed verbatim: utils/popular_banco.py:39 peep=(0,41) vs utils/validators.py:76
+    PeepValidator enforcing 0<=peep<=40. Internal inconsistency (off-by-one upper bound) is real and
+    reproducible — randint(0,41) can emit peep=41 which the production validator rejects. No external
+    authoritative source governs a PEEP data cap, so the discrepancy is internal (seed-vs-validator),
+    not seed-vs-guideline. Clinical impact none: this is a test/seed-data generator that does not gate
+    real user input; both caps sit far above physiologic PEEP. Secondary confirmed bug (not a range
+    issue): sorteia_dados uses randint(0,16) against an 18-item atributos list, so index 17 'dobutamina'
+    is unreachable and never populated. Rule status DISCREPANCY preserved and characterized, not
+    downgraded."

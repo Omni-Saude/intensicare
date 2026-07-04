@@ -1,0 +1,122 @@
+- rule_id: RULE-INDICADORES-ETL-001
+  reference:
+    citation: "No authoritative clinical/published reference. Proprietary UI display rule (percent-of-total = part/whole*100, the universal arithmetic definition of a percentage)."
+    url: null
+  checks:
+    equation: ok        # part/whole*100 is a correct percentage; div-by-zero guarded
+    coefficients: ok    # *100 scaling only
+    units: ok           # count/count*100 -> % (dimensionless proportion)
+    ranges: ok          # alert>=0, counts>=0; output 0-100 when alert<=total
+    rounding: n/a        # no rounding in this rule (Math.floor applied downstream for display only)
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {alert: 5, NEUTRO: 2, AMARELO: 3, VERMELHO: 5}, expected_reference: 50, actual_legacy: 50, match: true}
+    - {inputs: {alert: 10, NEUTRO: 5, AMARELO: 3, VERMELHO: 2}, expected_reference: 100, actual_legacy: 100, match: true}
+    - {inputs: {alert: 3, NEUTRO: 0, AMARELO: 0, VERMELHO: 0}, expected_reference: 0, actual_legacy: 0, match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Confirmed verbatim against DashboardCard.tsx lines 54-67. This is an internal alert-bar sizing
+    proportion, not a clinical calculator; no external guideline governs it. Arithmetic is
+    self-consistent and the explicit total!==0 guard prevents NaN. Flagged for internal review only,
+    not treated as wrong.
+
+- rule_id: RULE-INDICADORES-ETL-002
+  reference:
+    citation: "No authoritative clinical/published reference. Proprietary UI display rule (assisted-share = assist/(AMARELO+VERMELHO)*100)."
+    url: null
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok           # count/count*100 -> %
+    ranges: ok          # guard on total==0
+    rounding: n/a
+    cutoffs: n/a        # ===100 threshold consumed by ETL-006 ASSISTIDO override, out of scope here
+  test_vectors:
+    - {inputs: {assist: 4, AMARELO: 3, VERMELHO: 1}, expected_reference: 100, actual_legacy: 100, match: true}
+    - {inputs: {assist: 1, AMARELO: 1, VERMELHO: 1}, expected_reference: 50, actual_legacy: 50, match: true}
+    - {inputs: {assist: 2, AMARELO: 0, VERMELHO: 0}, expected_reference: "0 (guard; NOT 100)", actual_legacy: 0, match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Confirmed verbatim against DashboardCard.tsx lines 69-79. Denominator is AMARELO+VERMELHO only
+    (excludes NEUTRO), unlike ETL-001. The documented edge case (assist>0 but zero yellow/red alerts
+    yields 0%, so the ASSISTIDO override never fires) is a deliberate consequence of the div-by-zero
+    guard and is reproduced exactly. Internal business rule; no clinical reference exists.
+
+- rule_id: RULE-INDICADORES-ETL-003
+  reference:
+    citation: "Standardized Mortality/Lethality Ratio (SMR = observed deaths / expected deaths). TLP = 'taxa de letalidade padronizada'. SMR is a dimensionless ratio conventionally reported either as a ratio (~1.0) or scaled x100; ratio*100 = percentage is a correct, standard unit conversion."
+    url: "https://en.wikipedia.org/wiki/Standardized_mortality_ratio"
+  checks:
+    equation: ok        # TLP = letalidade_tlp * 100
+    coefficients: ok    # single *100 scaling
+    units: diff-caveat  # ratio -> % is correct ONLY if letalidade_tlp is stored as a fraction; the populating ETL is not in this partition so the stored unit cannot be independently confirmed
+    ranges: n/a
+    rounding: ok        # no rounding; null passthrough preserved in ArrayAgg
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {letalidade_tlp: 0.85}, expected_reference: 85, actual_legacy: 85, match: true}
+    - {inputs: {letalidade_tlp: 1.0}, expected_reference: 100, actual_legacy: 100, match: true}
+    - {inputs: {letalidade_tlp: null}, expected_reference: "null (preserved in array)", actual_legacy: null, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Confirmed identical in indicadores_assistenciais.py line 82 and indicadores_controle_Infeccao.py
+    line 82 (ArrayAgg(F("letalidade_tlp") * 100)). The ratio->percent conversion is arithmetically and
+    conventionally correct for an SMR-type metric. Only residual caveat: the raw stored unit of
+    letalidade_tlp is not visible in this partition; if it were already a percentage, *100 would
+    double-scale. No evidence of that here (field typed 'ratio'), so verified with a documented
+    unit-provenance caveat.
+
+- rule_id: RULE-INDICADORES-ETL-004
+  reference:
+    citation: "No external guideline mandates the representation; this is an internal cross-view consistency defect. Clinical framing: sedation exposure in the ICU (PADIS 2018 guideline emphasis on minimizing sedation) is meaningfully different as a rate/% vs as absolute days, so a shared label across differing units is a genuine interpretation hazard."
+    url: "https://journals.lww.com/ccmjournal/fulltext/2018/09000/clinical_practice_guidelines_for_the_prevention.29.aspx"
+  checks:
+    equation: diff      # assistenciais: taxa_uso_sedacao*100 ; controle_infeccao: raw dias_sedacao (no *100)
+    coefficients: diff  # *100 present in one view, absent in the other
+    units: diff         # '%' (rate) vs 'dias' (days) under identical series label "Tx. sedação"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {view: assistenciais, taxa_uso_sedacao: 0.30}, expected_reference: "30% on y1 (rate)", actual_legacy: "30 (taxa_uso_sedacao*100, eixo y1)", match: true}
+    - {inputs: {view: controle_infeccao, dias_sedacao: 5}, expected_reference: "if label 'Tx. sedação' implies a rate, should be a %/rate on y1", actual_legacy: "5 raw days on eixo y (dias_sedacao, no *100)", match: false}
+    - {inputs: {cross_view: "same label 'Tx. sedação'"}, expected_reference: "same field/unit/axis for identical label", actual_legacy: "different source field (taxa_uso_sedacao vs dias_sedacao), unit (% vs days), and axis (y1 vs y)", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirmed: indicadores_assistenciais.py lines 105-111 -> ArrayAgg(F("taxa_uso_sedacao")*100), eixo y1;
+    indicadores_controle_Infeccao.py lines 112-118 -> ArrayAgg("dias_sedacao"), eixo y. Identical series
+    label "Tx. sedação" ("Tx." = taxa/rate) applied to two different quantities: a percentage rate vs an
+    absolute day-count, on different axes. A viewer reading "Tx. sedação = 5" in the infection-control
+    dashboard sees 5 days, not a 5% rate. Additional confirmed field drift in chart2: assistenciais uses
+    tx_mortalidade_observada / tx_mortalidade_esperada, while controle_Infeccao uses tx_mortalidade /
+    mortalidade_esperada (lines 75, 89) — same "canonical field set" question the extraction flagged.
+    Impact rated moderate: mislabeled unit on a clinical exposure metric is exactly the class of defect
+    this audit targets, though the two charts live in separate dashboards so no single view shows both
+    simultaneously. Recorded verbatim; not corrected.
+
+- rule_id: RULE-INDICADORES-ETL-010
+  reference:
+    citation: "No authoritative clinical/published reference. Chart.js dual-axis configuration (scales.y always present; scales.y1 conditionally added when a secondary series label exists). Pure front-end presentation logic."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: ok         # conditional presence keyed on truthiness of grafico.y1
+  test_vectors:
+    - {inputs: {"grafico.y": "Vidas salvas", "grafico.y1": "Tx. de ocupação (%)"}, expected_reference: "right-side secondary axis rendered", actual_legacy: "scales.y1 = {position: right, grid.drawOnChartArea:false, ...}", match: true}
+    - {inputs: {"grafico.y": "Tempo permanência", "grafico.y1": undefined}, expected_reference: "no secondary axis", actual_legacy: "scales.y1 = undefined", match: true}
+    - {inputs: {"grafico.y": "X", "grafico.y1": ""}, expected_reference: "empty string is falsy -> no secondary axis", actual_legacy: "scales.y1 = undefined", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Confirmed against setor dashboard index.tsx lines 89-113. Purely a Chart.js scales-config toggle;
+    chart values and per-dataset types are supplied by the backend. No clinical or published reference
+    applies. Logic transcription is exact (y always present, y1 conditional on grafico.y1 truthiness).
+    Flagged for internal review only; not treated as wrong.

@@ -1,0 +1,172 @@
+- rule_id: RULE-CLINICAL-SCORING-006
+  reference:
+    citation: >
+      Vincent JL, Moreno R, Takala J, et al. The SOFA (Sepsis-related Organ Failure
+      Assessment) score to describe organ dysfunction/failure. Intensive Care Med.
+      1996;22(7):707-710. Neurological component (Glasgow Coma Scale): GCS 15=0,
+      13-14=1, 10-12=2, 6-9=3, <6=4. Confirmed via MDCalc/Medscape SOFA calculator.
+    url: https://reference.medscape.com/calculator/268/sequential-organ-failure-assessment-sofa
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {glasgow: 15}, expected_reference: 0, actual_legacy: 0, match: true}
+    - {inputs: {glasgow: 13}, expected_reference: 1, actual_legacy: 1, match: true}
+    - {inputs: {glasgow: 11}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {glasgow: 9}, expected_reference: 3, actual_legacy: 3, match: true}
+    - {inputs: {glasgow: 6}, expected_reference: 3, actual_legacy: 3, match: true}   # caught by [6,7,8,9] branch before the <=6 branch
+    - {inputs: {glasgow: 3}, expected_reference: 4, actual_legacy: 4, match: true}   # 0<3<=6 -> 4
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Legacy bands (15=0, 13-14=1, 10-12=2, 6-9=3, 1-5=4) map exactly onto the original
+    SOFA CNS cutoffs across the valid GCS range 3-15. The `0 < glasgow <= 6` branch is
+    partly dead (glasgow==6 is already captured by the prior [6,7,8,9] branch, correctly
+    yielding 3), so only glasgow 1-5 reach it -> 4, which is correct. Out-of-range
+    sentinels (glasgow==0 default / >15) fall to else -> 0 points, i.e. treated as "no
+    data"; benign because valid GCS is 3-15 (RULE-013). No numeric discrepancy.
+
+- rule_id: RULE-CLINICAL-SCORING-007
+  reference:
+    citation: >
+      Vincent JL, et al. SOFA score, Intensive Care Med. 1996;22(7):707-710. Renal
+      component (serum creatinine, mg/dL, OR urine output): <1.2=0, 1.2-1.9=1,
+      2.0-3.4=2, 3.5-4.9=3, >=5.0 (>440 umol/L)=4; urine <500 mL/day=3, <200 mL/day=4.
+      Confirmed via MDCalc/Medscape SOFA calculator.
+    url: https://reference.medscape.com/calculator/268/sequential-organ-failure-assessment-sofa
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: diff
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {creatinina: 6.0, debito_urinario_24h: 0}, expected_reference: 4, actual_legacy: 4, match: true}
+    - {inputs: {creatinina: 5.0, debito_urinario_24h: 0}, expected_reference: 4, actual_legacy: 0, match: false}   # 5.0 not >5, not 3.5-4.9, not 2-4, not 1.2-1.9, not <1.2 -> else -> 0
+    - {inputs: {creatinina: 4.95, debito_urinario_24h: 0}, expected_reference: 4, actual_legacy: 0, match: false}  # dead gap (4.9, 5.0]
+    - {inputs: {creatinina: 3.7, debito_urinario_24h: 0}, expected_reference: 3, actual_legacy: 3, match: true}    # 3.5<=3.7<=4.9 -> 3 (checked before the 2-4 band)
+    - {inputs: {creatinina: 2.5, debito_urinario_24h: 0}, expected_reference: 2, actual_legacy: 2, match: true}
+    - {inputs: {creatinina: 0, debito_urinario_24h: 450}, expected_reference: 3, actual_legacy: 3, match: true}    # any(): 0<450<500 -> 3
+    - {inputs: {creatinina: 0, debito_urinario_24h: 50}, expected_reference: 4, actual_legacy: 4, match: true}     # 0<50<200 -> 4
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    Two deviations from standard SOFA renal. (1) The 4-point creatinine test is strict
+    (`creatinina > 5`) while standard is >=5.0, and no band covers (4.9, 5.0], so a
+    creatinine of exactly 5.0 mg/dL - a commonly reported exact value denoting severe
+    renal failure (standard 4 points) - falls through every branch to else and scores 0
+    renal points. That is a 4-point undercount at the top of the scale. (2) The nominal
+    2-point band is written 2.0-4.0 (standard 2.0-3.4), but because the 3-point branch
+    (3.5-4.9) is evaluated first via elif, creatinine 3.5-4.0 correctly resolves to 3;
+    the practical 2-point range is 2.0 to <3.5, effectively equivalent to standard, so
+    (2) causes no wrong scores except a hairline reference gap at (3.4, 3.5). Urine-output
+    cutoffs (<200=4, <500=3, strict) match standard; debito==0 is ignored (open-low
+    bound), treated as no data. Impact rated high because Cr=5.0 mg/dL is a realistic,
+    frequently-reported exact value and the failure silently zeroes the renal subscore,
+    lowering total SOFA and potentially mis-triaging a patient in severe renal failure.
+
+- rule_id: RULE-CLINICAL-SCORING-008
+  reference:
+    citation: >
+      PaO2/FiO2 (P/F) oxygenation ratio. Vincent JL, et al. SOFA, Intensive Care Med.
+      1996 (respiratory component thresholds 400/300/200/100) and Berlin Definition of
+      ARDS (ARDS Definition Task Force, JAMA 2012;307:2526-2533). In every authoritative
+      use PaO2 is in mmHg and FiO2 is a FRACTION (0.21-1.0), so a P/F of 300 corresponds
+      to e.g. PaO2 150 mmHg at FiO2 0.5.
+    url: https://www.mdcalc.com/calc/2378/horowitz-index-p-f-ratio
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: diff
+    ranges: diff
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {po2: 100, fio2: 1.0}, expected_reference: 100, actual_legacy: 100.0, match: true}    # fraction FiO2 (tests bypass validator) -> correct
+    - {inputs: {po2: 100, fio2: 50}, expected_reference: 200, actual_legacy: 2.0, match: false}       # FiO2=50% per FiO2Validator: ref wants 0.5 -> 200; legacy divides by 50 -> ~100x too small
+    - {inputs: {po2: 80, fio2: 40}, expected_reference: 200, actual_legacy: 2.0, match: false}        # FiO2=40% -> ref 80/0.4=200; legacy 80/40=2
+    - {inputs: {po2: 0, fio2: 1.0}, expected_reference: "no-data/undefined", actual_legacy: false, match: true}   # sentinel False for non-positive input; acceptable design
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    The equation (PaO2/FiO2) and the non-positive-input guard are correct. The defect is
+    a unit inconsistency, not an arithmetic one: DadosProntuario.FiO2Validator constrains
+    fio2 to 0 or 21..100 (a PERCENTAGE), yet all downstream thresholds (SOFA respiratory
+    400/300/200/100; ventilacao 150-300; ARDS/Berlin) and every unit test assume FiO2 as
+    a FRACTION 0.21-1.0. If a validator-conformant percentage FiO2 ever reaches this
+    property the ratio is ~100x too small, which would drive the SOFA respiratory subscore
+    to the maximum 4 points and spuriously classify severe ARDS. Tests set attributes
+    directly (fio2=1.0), masking the bug. The codebase is internally inconsistent (same
+    ratio elsewhere assumes fraction <0.4, and a FiO2xPEEP table divides FiO2 by 100). The
+    False sentinel (==0 numerically) is a benign no-data convention. Impact high given the
+    potential for maximal, silent mis-scoring if percentage FiO2 is ever used at runtime.
+
+- rule_id: RULE-CLINICAL-SCORING-009
+  reference:
+    citation: >
+      Standard estimated mean arterial pressure: MAP = (SBP + 2*DBP)/3, weighting
+      diastole 2:1 because diastole occupies ~2/3 of the cardiac cycle. StatPearls,
+      Physiology, Mean Arterial Pressure; MDCalc MAP calculator.
+    url: https://www.mdcalc.com/calc/74/mean-arterial-pressure-map
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok
+    ranges: n/a
+    rounding: ok
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {pas: 120, pad: 80}, expected_reference: 93.33, actual_legacy: 93.33, match: true}   # (2*80+120)/3 = 280/3
+    - {inputs: {pas: 100, pad: 60}, expected_reference: 73.33, actual_legacy: 73.33, match: true}   # 220/3
+    - {inputs: {pas: 90, pad: 50}, expected_reference: 63.33, actual_legacy: 63.33, match: true}    # 190/3
+    - {inputs: {pas: 0, pad: 80}, expected_reference: "undefined/no-data", actual_legacy: 0, match: true}   # falsy guard -> 0
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    `((2*pad)+pas)/3` is exactly the standard estimated MAP formula with correct 2:1
+    diastolic weighting. No rounding is applied (full float), matching the reference
+    calculator. When either PAS or PAD is falsy (0/None) the result is 0, a reasonable
+    no-data sentinel that never produces a spurious mid-range MAP. Feeds SOFA
+    cardiovascular scoring (RULE-005) where MAP<70 -> 1 point.
+
+- rule_id: RULE-CLINICAL-SCORING-010
+  reference:
+    citation: >
+      Standard chronological age = completed calendar years between birthdate and the
+      current date, i.e. (current_year - birth_year) minus 1 if the birthday has not yet
+      occurred this year; the mean Gregorian year is 365.2425 days (leap-year rule). No
+      single primary paper; this is the universal calendar-age definition (ISO 8601 /
+      dateutil.relativedelta convention).
+    url: https://en.wikipedia.org/wiki/Age_of_a_person
+  checks:
+    equation: diff
+    coefficients: diff
+    units: ok
+    ranges: diff
+    rounding: diff
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {data_nascimento: "1986-07-03", today: "2026-07-03"}, expected_reference: 40, actual_legacy: 40, match: true}    # 40*365 + 10 leap days = 14610 days //365 = 40
+    - {inputs: {data_nascimento: "1986-07-04", today: "2026-07-03"}, expected_reference: 39, actual_legacy: 40, match: false}    # 1 day before 40th birthday: 14609 days //365 = 40, but birthday not reached -> true age 39
+    - {inputs: {data_nascimento: null, today: "2026-07-03"}, expected_reference: "undefined/error", actual_legacy: null, match: false}   # returns None (return-type inconsistency vs int 0)
+    - {inputs: {data_nascimento: "2027-07-03", today: "2026-07-03"}, expected_reference: "0/invalid", actual_legacy: -1, match: false}    # future date: -365 days, Python floor //365 = -1, truthy -> returned as -1
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Dividing elapsed days by a fixed 365 (vs the true 365.2425-day mean year) makes each
+    birthday register early: the code reaches the next integer age roughly 0.2425 days per
+    year-of-age BEFORE the true anniversary, so within a narrow pre-birthday window the
+    computed age is 1 year higher than the true completed-years age (e.g. reported 40 the
+    day before the 40th birthday). It does not accumulate to a full extra year within a
+    human lifespan (real elapsed days already include leap days, so ~1460 years would be
+    needed to overcount by one). Additional deviations: (a) return-type inconsistency -
+    falsy birthdate returns None while a computed age of 0 returns int 0; (b) a future
+    birthdate yields a negative age (Python floor division toward -inf) returned as-is,
+    with no guard. Clinical impact low: age used for scoring thresholds rarely changes
+    management on a one-year, narrow-window boundary, but the None/negative return paths
+    could break downstream numeric consumers.
