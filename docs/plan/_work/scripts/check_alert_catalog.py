@@ -107,11 +107,14 @@ def main() -> int:
                 problems.append(f"{aid}: no boundary vector")
             if not (a.get("response") or {}).get("required"):
                 problems.append(f"{aid}: response.required missing")
-            rec = a.get("reconciliation") or {}
-            if rec.get("status") not in RECON_STATUS:
-                problems.append(f"{aid}: reconciliation.status {rec.get('status')}")
-            if rec.get("existing_id"):
-                recon_seen[str(rec["existing_id"])] = aid
+            recs = a.get("reconciliation") or {}
+            recs = recs if isinstance(recs, list) else [recs]
+            for rec in recs:
+                if not isinstance(rec, dict) or rec.get("status") not in RECON_STATUS:
+                    problems.append(f"{aid}: reconciliation.status "
+                                    f"{rec.get('status') if isinstance(rec, dict) else rec}")
+                elif rec.get("existing_id"):
+                    recon_seen[str(rec["existing_id"])] = aid
         g.add(f"AC-{d}", not problems, f"all {len(alerts)} alerts complete",
               f"{len(problems)} problems", problems)
 

@@ -29,7 +29,7 @@ PHASE_E_EXTRA = [
     "clinical/alert-catalog.md", "clinical/hazard-log.md",
     "design/screens/command-center.md", "design/screens/patient-timeline.md",
     "design/screens/handoff.md", "design/screens/alert-routing.md",
-    "delivery/roadmap.md",
+    "delivery/roadmap.md", "delivery/build-orchestrator-blueprint.md",
 ]
 MIN_BYTES = {".md": 2000, ".yaml": 800}
 
