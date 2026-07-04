@@ -1,16 +1,17 @@
 """Integration tests for threshold configuration CRUD API."""
 
-import pytest
+from datetime import datetime, timezone
+
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.threshold_config import ThresholdConfig
 
-
 # ════════════════════════════════════════════════════════════════════════════
 # Authorization tests
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestThresholdAuth:
     """Verify that only admin users can access threshold endpoints."""
@@ -20,9 +21,7 @@ class TestThresholdAuth:
         response = await client.get("/api/v1/thresholds", headers=no_auth_headers)
         assert response.status_code == 401
 
-    async def test_list_requires_admin_role(
-        self, client: AsyncClient, user_headers
-    ):
+    async def test_list_requires_admin_role(self, client: AsyncClient, user_headers):
         """User role (non-admin) = 403."""
         response = await client.get("/api/v1/thresholds", headers=user_headers)
         assert response.status_code == 403
@@ -41,9 +40,7 @@ class TestThresholdAuth:
             "urgent_threshold": 5,
             "critical_threshold": 7,
         }
-        response = await client.post(
-            "/api/v1/thresholds", json=payload, headers=user_headers
-        )
+        response = await client.post("/api/v1/thresholds", json=payload, headers=user_headers)
         assert response.status_code == 403
 
 
@@ -51,12 +48,11 @@ class TestThresholdAuth:
 # CRUD tests
 # ════════════════════════════════════════════════════════════════════════════
 
+
 class TestThresholdCRUD:
     """Test full CRUD lifecycle for threshold configurations."""
 
-    async def test_create_threshold(
-        self, client: AsyncClient, db_session: AsyncSession, admin_headers
-    ):
+    async def test_create_threshold(self, client: AsyncClient, admin_headers):
         """Create a new threshold configuration."""
         payload = {
             "tenant_id": "tenant-1",
@@ -68,9 +64,7 @@ class TestThresholdCRUD:
             "rate_limit_per_hour": 10,
             "cooldown_minutes": 30,
         }
-        response = await client.post(
-            "/api/v1/thresholds", json=payload, headers=admin_headers
-        )
+        response = await client.post("/api/v1/thresholds", json=payload, headers=admin_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["tenant_id"] == "tenant-1"
@@ -94,9 +88,7 @@ class TestThresholdCRUD:
             "urgent_threshold": 6,
             "critical_threshold": 8,
         }
-        response = await client.post(
-            "/api/v1/thresholds", json=payload, headers=admin_headers
-        )
+        response = await client.post("/api/v1/thresholds", json=payload, headers=admin_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["unit"] is None
@@ -125,13 +117,9 @@ class TestThresholdCRUD:
         assert isinstance(data, list)
         assert len(data) >= 3
 
-    async def test_list_thresholds_filter_by_tenant(
-        self, client: AsyncClient, admin_headers
-    ):
+    async def test_list_thresholds_filter_by_tenant(self, client: AsyncClient, admin_headers):
         """Filter thresholds by tenant_id query param."""
-        response = await client.get(
-            "/api/v1/thresholds?tenant_id=tenant-0", headers=admin_headers
-        )
+        response = await client.get("/api/v1/thresholds?tenant_id=tenant-0", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
         for item in data:
@@ -153,9 +141,7 @@ class TestThresholdCRUD:
         )
         threshold_id = create_resp.json()["id"]
 
-        response = await client.get(
-            f"/api/v1/thresholds/{threshold_id}", headers=admin_headers
-        )
+        response = await client.get(f"/api/v1/thresholds/{threshold_id}", headers=admin_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == threshold_id
@@ -203,9 +189,7 @@ class TestThresholdCRUD:
         assert data["tenant_id"] == "tenant-update"  # Unchanged
         assert data["score_type"] == "MEWS"  # Unchanged
 
-    async def test_update_threshold_not_found(
-        self, client: AsyncClient, admin_headers
-    ):
+    async def test_update_threshold_not_found(self, client: AsyncClient, admin_headers):
         """404 on update of non-existent threshold."""
         response = await client.put(
             "/api/v1/thresholds/99999",
@@ -253,22 +237,16 @@ class TestThresholdCRUD:
         threshold_id = create_resp.json()["id"]
 
         # Delete
-        response = await client.delete(
-            f"/api/v1/thresholds/{threshold_id}", headers=admin_headers
-        )
+        response = await client.delete(f"/api/v1/thresholds/{threshold_id}", headers=admin_headers)
         assert response.status_code == 204
 
         # Verify gone
-        response = await client.get(
-            f"/api/v1/thresholds/{threshold_id}", headers=admin_headers
-        )
+        response = await client.get(f"/api/v1/thresholds/{threshold_id}", headers=admin_headers)
         assert response.status_code == 404
 
     async def test_delete_not_found(self, client: AsyncClient, admin_headers):
         """404 for delete of non-existent threshold."""
-        response = await client.delete(
-            "/api/v1/thresholds/99999", headers=admin_headers
-        )
+        response = await client.delete("/api/v1/thresholds/99999", headers=admin_headers)
         assert response.status_code == 404
 
     async def test_delete_requires_admin(self, client: AsyncClient, admin_headers, user_headers):
@@ -286,14 +264,10 @@ class TestThresholdCRUD:
         )
         threshold_id = create_resp.json()["id"]
 
-        response = await client.delete(
-            f"/api/v1/thresholds/{threshold_id}", headers=user_headers
-        )
+        response = await client.delete(f"/api/v1/thresholds/{threshold_id}", headers=user_headers)
         assert response.status_code == 403
 
-    async def test_validation_rejects_negative_thresholds(
-        self, client: AsyncClient, admin_headers
-    ):
+    async def test_validation_rejects_negative_thresholds(self, client: AsyncClient, admin_headers):
         """Pydantic validation rejects negative threshold values."""
         payload = {
             "tenant_id": "tenant-1",
@@ -302,9 +276,7 @@ class TestThresholdCRUD:
             "urgent_threshold": 5,
             "critical_threshold": 7,
         }
-        response = await client.post(
-            "/api/v1/thresholds", json=payload, headers=admin_headers
-        )
+        response = await client.post("/api/v1/thresholds", json=payload, headers=admin_headers)
         assert response.status_code == 422
 
 
@@ -313,8 +285,6 @@ class TestThresholdConfigModel:
 
     async def test_create_model_instance(self, db_session: AsyncSession):
         """Verify model can be created and persisted."""
-        from datetime import datetime, timezone
-
         config = ThresholdConfig(
             tenant_id="model-test",
             unit="ICU-B",

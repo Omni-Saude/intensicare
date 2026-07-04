@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-
-AVPU_VALUES = frozenset({"A", "V", "P", "U"})
+# ACVPU consciousness scale: Alert, Confusion (new), Voice, Pain, Unresponsive.
+# "C" (new-onset Confusion) is the NEWS2 addition to classic AVPU; the NEWS2
+# scorer already grades C/V/P/U as altered (3 points), so the input schema must
+# admit it. Adds no scoring value/threshold — only widens accepted input.
+AVPU_VALUES = frozenset({"A", "C", "V", "P", "U"})
 
 
 class VitalSignCreate(BaseModel):
@@ -27,63 +29,44 @@ class VitalSignCreate(BaseModel):
         ...,
         description="Momento da coleta do sinal vital (ISO 8601 com timezone)",
     )
-    heart_rate: int | None = Field(
-        None, ge=0, le=300, description="Frequência cardíaca (bpm)"
-    )
-    systolic_bp: int | None = Field(
-        None, ge=0, le=350, description="Pressão sistólica (mmHg)"
-    )
-    diastolic_bp: int | None = Field(
-        None, ge=0, le=250, description="Pressão diastólica (mmHg)"
-    )
-    temperature: float | None = Field(
-        None, ge=25.0, le=45.0, description="Temperatura (°C)"
-    )
-    spo2: int | None = Field(
-        None, ge=0, le=100, description="Saturação de O2 (%)"
-    )
+    heart_rate: int | None = Field(None, ge=0, le=300, description="Frequência cardíaca (bpm)")
+    systolic_bp: int | None = Field(None, ge=0, le=350, description="Pressão sistólica (mmHg)")
+    diastolic_bp: int | None = Field(None, ge=0, le=250, description="Pressão diastólica (mmHg)")
+    temperature: float | None = Field(None, ge=25.0, le=45.0, description="Temperatura (°C)")
+    spo2: int | None = Field(None, ge=0, le=100, description="Saturação de O2 (%)")
     respiratory_rate: int | None = Field(
         None, ge=0, le=80, description="Frequência respiratória (rpm)"
     )
     avpu: str | None = Field(
         None,
         max_length=4,
-        description="Nível de consciência: A(Alert), V(Voice), P(Pain), U(Unresponsive)",
+        description=(
+            "Nível de consciência (ACVPU): A(Alert), C(Confusion), "
+            "V(Voice), P(Pain), U(Unresponsive)"
+        ),
     )
-    supplemental_o2: bool | None = Field(
-        None, description="Uso de oxigênio suplementar"
-    )
+    supplemental_o2: bool | None = Field(None, description="Uso de oxigênio suplementar")
     source_system: str | None = Field(
         None, max_length=32, description="Sistema de origem (ex: tasy, philips_monitor)"
     )
     # ── Lab values for SOFA scoring (all optional) ─────────────────
-    pao2_fio2: float | None = Field(
-        None, ge=0, le=800, description="PaO2/FiO2 ratio (mmHg)"
-    )
-    mechanical_ventilation: bool = Field(
-        False, description="Paciente em ventilação mecânica"
-    )
-    platelets: float | None = Field(
-        None, ge=0, description="Plaquetas (×10³/µL)"
-    )
-    bilirubin: float | None = Field(
-        None, ge=0, description="Bilirrubina total (mg/dL)"
-    )
+    pao2_fio2: float | None = Field(None, ge=0, le=800, description="PaO2/FiO2 ratio (mmHg)")
+    mechanical_ventilation: bool = Field(False, description="Paciente em ventilação mecânica")
+    platelets: float | None = Field(None, ge=0, description="Plaquetas (×10³/µL)")  # noqa: RUF001  # multiplication sign is intended unit notation for platelet count
+    bilirubin: float | None = Field(None, ge=0, description="Bilirrubina total (mg/dL)")
     map_value: float | None = Field(
         None, ge=0, le=250, description="Pressão arterial média — MAP (mmHg)"
     )
     vasopressor_type: str | None = Field(
-        None, max_length=32, description="Tipo de vasopressor (dopamine, dobutamine, epinephrine, norepinephrine)"
+        None,
+        max_length=32,
+        description="Tipo de vasopressor (dopamine, dobutamine, epinephrine, norepinephrine)",
     )
     vasopressor_dose_mcg_kg_min: float | None = Field(
         None, ge=0, description="Dose do vasopressor (µg/kg/min)"
     )
-    gcs: int | None = Field(
-        None, ge=3, le=15, description="Glasgow Coma Scale (3-15)"
-    )
-    creatinine: float | None = Field(
-        None, ge=0, description="Creatinina sérica (mg/dL)"
-    )
+    gcs: int | None = Field(None, ge=3, le=15, description="Glasgow Coma Scale (3-15)")
+    creatinine: float | None = Field(None, ge=0, description="Creatinina sérica (mg/dL)")
     urine_output_ml_day: float | None = Field(
         None, ge=0, description="Débito urinário 24h (mL/dia)"
     )
@@ -96,9 +79,7 @@ class VitalSignCreate(BaseModel):
             return None
         upper = v.upper().strip()
         if upper not in AVPU_VALUES:
-            raise ValueError(
-                f"avpu deve ser um de {sorted(AVPU_VALUES)}, recebido: {v!r}"
-            )
+            raise ValueError(f"avpu deve ser um de {sorted(AVPU_VALUES)}, recebido: {v!r}")
         return upper
 
 
@@ -109,9 +90,7 @@ class VitalSignResponse(BaseModel):
     mpi_id: str = Field(..., description="Master Patient Identifier")
     recorded_at: datetime = Field(..., description="Momento da coleta")
     ingested_at: datetime = Field(..., description="Timestamp de ingestão")
-    mews_score: int | None = Field(
-        None, description="MEWS calculado (None se dados insuficientes)"
-    )
+    mews_score: int | None = Field(None, description="MEWS calculado (None se dados insuficientes)")
     news2_score: int | None = Field(
         None, description="NEWS2 calculado (None se dados insuficientes)"
     )

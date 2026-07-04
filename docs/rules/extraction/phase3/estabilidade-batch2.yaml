@@ -1,0 +1,216 @@
+# Phase-3 clinical verification — cluster "estabilidade" batch 2 (rules 006-010)
+# Backend legacy @ 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+# trilha_automatica/models/trilhas_v3/trilha_estabilidade.py (v3 predicates, confirmed by direct read)
+#
+# CROSS-CUTTING AUDIT FINDING (applies to 007/008/009):
+#   The v3 predicates fire on qt_vol_nora / qt_vol_vaso / qt_vol_dobuta expressed in ml/h
+#   (raw infusion-pump volume rate). Every published dosing anchor (SSC-2021) and the paired
+#   facade alert-text (RULE-016) are expressed in mcg/kg/min. ml/h -> mcg/kg/min is not
+#   convertible without the institutional drug concentration and patient weight, so the ml/h
+#   cutoffs are NOT directly verifiable against the published mcg/kg/min anchors and the
+#   displayed text overstates a dose the trigger never measured. Plausibility conversion used
+#   below assumes a common Brazilian ICU dilution of noradrenaline 16 mg / 250 mL = 64 mcg/mL
+#   and a 70 kg patient (illustrative only; the real values are unknown/institution-specific).
+
+- rule_id: RULE-ESTABILIDADE-006
+  reference:
+    citation: >
+      Sepsis-3 (Singer et al., JAMA 2016 — septic shock: vasopressor + serum lactate >2 mmol/L);
+      ANDROMEDA-SHOCK (Hernandez et al., JAMA 2019 — abnormal capillary refill time >3 s);
+      SIRS respiratory criterion RR >20/min (qSOFA uses RR >=22).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC4968574/ , https://pmc.ncbi.nlm.nih.gov/articles/PMC6439620/
+  checks:
+    equation: ok        # composite AND of 4 clauses, guarded; matches documented intent
+    coefficients: ok    # lactate cutoff 2, CRT cutoff 3, RR cutoff 20
+    units: n/a          # lactate mmol/L, CRT s, RR ipm all correct; nora clause is ml/h (institution-specific, not a published anchor)
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok         # lactate >2 (strict) = Sepsis-3 septic-shock lactate; CRT >3 (strict) = ANDROMEDA abnormal; RR >20 (strict) = SIRS
+  test_vectors:
+    - inputs: {FR: 22, qt_vol_nora_mlh: 15, diurna_lactato: 2.5, TEC_s: 2, diurna_ventilacao: "ar ambiente"}
+      expected_reference: "septic-shock hypoperfusion (lactate>2) in spontaneous ventilation -> FLAG"
+      actual_legacy: "fr>20 T, nora>10 T, any(2.5>2 T) T, vent in room-air/spontaneous T -> True"
+      match: true
+    - inputs: {FR: 25, qt_vol_nora_mlh: 12, diurna_lactato: 2.0, TEC_s: 3, diurna_ventilacao: "ar ambiente"}
+      expected_reference: "lactate 2.0 is NOT >2 (Sepsis-3 strict) and CRT 3.0 is NOT >3 (ANDROMEDA strict) -> no perfusion marker -> NO flag"
+      actual_legacy: "any([2.0>2 F, 3>3 F]) -> False -> criterion False"
+      match: true
+    - inputs: {FR: 20, qt_vol_nora_mlh: 15, diurna_lactato: 3.0, TEC_s: 2, diurna_ventilacao: "cateter nasal"}
+      expected_reference: "RR 20 is NOT >20 (SIRS strict boundary) -> respiratory clause fails -> NO flag"
+      actual_legacy: "balanco_4h.filter(fr__gt=20) empty -> False -> criterion False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All three published anchors match on value AND boundary direction: lactate >2 mmol/L (Sepsis-3
+    septic-shock threshold, strict), capillary refill time >3 s (ANDROMEDA-SHOCK abnormal, strict),
+    RR >20/min (SIRS, strict). Room-air / spontaneous-ventilation gate is clinically coherent (the
+    alert targets septic shock not yet intubated). The qt_vol_nora >10 ml/h clause is an
+    institution-specific pump-volume threshold with no published anchor (not convertible to
+    mcg/kg/min without concentration+weight); it does not contradict any reference, so verdict stays
+    VERIFIED. Predicate is UNWIRED (calcular_criterios never calls criterio_4), so no live impact.
+
+- rule_id: RULE-ESTABILIDADE-007
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin when
+      norepinephrine is 0.25-0.5 mcg/kg/min instead of escalating; give IV hydrocortisone
+      (50 mg q6h) when norepinephrine/epinephrine >=0.25 mcg/kg/min for >=4 h.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: ok        # all([nora>threshold, any(no-vaso, no-hydro)]) — flags high-dose vasopressor missing an adjunct
+    coefficients: diff  # code threshold 20 (ml/h); guideline anchors 0.25-0.5 / >=0.25 (mcg/kg/min) — not comparable
+    units: diff         # CODE fires on qt_vol_nora ml/h; SSC anchor AND paired facade text (RULE-016) are mcg/kg/min
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff       # facade displays "Noradrenalina >0.5 mcg/kg/min"; predicate tests >20 ml/h
+  test_vectors:
+    - inputs: {qt_vol_nora_mlh: 25, qt_vol_vaso: 0, hidrocortisona: 0}
+      expected_reference: "SSC: at ~0.38 mcg/kg/min (25 ml/h @64 mcg/mL,70 kg) adding vasopressin/hydrocortisone is reasonable, but the facade-displayed '>0.5 mcg/kg/min' is NOT met"
+      actual_legacy: "nora>20 T, any([not vaso>0 T]) T -> True; alert text asserts >0.5 mcg/kg/min"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 21, qt_vol_vaso: 8, hidrocortisona: 0}
+      expected_reference: "SSC hydrocortisone anchor is >=0.25 mcg/kg/min sustained >=4 h; 21 ml/h ~0.32 mcg/kg/min but the >=4 h duration is never checked and units differ"
+      actual_legacy: "nora>20 T (strict boundary just above 20), any([not hydro>0 T]) T -> True"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 20, qt_vol_vaso: 0, hidrocortisona: 0}
+      expected_reference: "20 ml/h ~0.30 mcg/kg/min exceeds SSC 0.25 hydrocortisone anchor -> reference would prompt an adjunct"
+      actual_legacy: "balanco_4h.filter(qt_vol_nora__gt=20) empty (strict >20) -> False -> criterion False (misses a case the mcg/kg/min anchor catches)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    The CLINICAL CONCEPT (add vasopressin and/or hydrocortisone as adjuncts in high-dose vasopressor
+    septic shock; flag when either adjunct is absent) is consistent with SSC-2021. The DISCREPANCY is
+    a unit/threshold mismatch: the executed predicate fires on noradrenaline infusion volume >20 ml/h,
+    while both the guideline anchor and the paired displayed facade text (RULE-016 criterio_7) are in
+    mcg/kg/min (>0.5 displayed; 0.25-0.5 guideline). Under a plausible dilution the ml/h trigger fires
+    at ~0.3-0.4 mcg/kg/min, below the 0.5 the clinician is shown. Moderate impact: the alert can fire
+    at a materially different actual dose than the displayed threshold and misses the SSC 4-hour
+    duration qualifier — a clinician may act on an unverified mcg/kg/min claim. WIRED (contributes to
+    VERMELHO), so this is live. The ml/h cutoff itself is institution-specific/unverifiable.
+
+- rule_id: RULE-ESTABILIDADE-008
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add epinephrine
+      (adrenaline) as a third agent when MAP remains inadequate despite norepinephrine + vasopressin
+      (refractory septic shock).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: ok        # all([nora>70 AND vaso>5 same record, no adrenaline]) -> refractory shock not yet on epinephrine
+    coefficients: diff  # code 70 / 5 (ml/h); facade anchor 1.5 (mcg/kg/min) — not comparable
+    units: diff         # qt_vol_nora & qt_vol_vaso ml/h vs facade "Noradrenalina >1.5 mcg/kg/min"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff       # facade displays >1.5 mcg/kg/min; predicate tests nora>70 ml/h AND vaso>5 ml/h
+  test_vectors:
+    - inputs: {qt_vol_nora_mlh: 75, qt_vol_vaso_mlh: 6, qt_vol_adre_mlh: 0}
+      expected_reference: "SSC: on NE+vasopressin with inadequate MAP -> add epinephrine (concept OK); facade '>1.5 mcg/kg/min' but 75 ml/h ~1.14 mcg/kg/min @64 mcg/mL,70 kg -> displayed dose NOT met"
+      actual_legacy: "filter(nora>70, vaso>5) T, not adre>0 T -> True; alert asserts >1.5 mcg/kg/min"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 70, qt_vol_vaso_mlh: 6, qt_vol_adre_mlh: 0}
+      expected_reference: "no published ml/h anchor exists; 70 ml/h ~1.07 mcg/kg/min still below facade 1.5 either way"
+      actual_legacy: "nora>70 is strict -> 70 not >70 -> filter empty -> False"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 80, qt_vol_vaso_mlh: 6, qt_vol_adre_mlh: 2}
+      expected_reference: "patient already on adrenaline -> 'add adrenaline' alert correctly suppressed"
+      actual_legacy: "not balanco_4h.filter(qt_vol_adre__gt=0).exists() -> False -> criterion False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Concept matches SSC-2021 escalation ladder (epinephrine as third agent for refractory shock on
+    NE+vasopressin, gated by absence of adrenaline — verified correct in vector 3). DISCREPANCY is the
+    same unit mismatch as RULE-007: predicate uses ml/h (nora>70, vaso>5) while guideline/facade
+    (RULE-016 criterio_8) use mcg/kg/min (>1.5 displayed). Under a plausible dilution >70 ml/h maps to
+    ~1.1 mcg/kg/min, not the 1.5 shown. The nora>70 AND vaso>5 must co-occur in the SAME balance record
+    (Django comma = AND), a reasonable "on both agents" proxy. Moderate impact: displayed dose overstates
+    actual by design and depends on unknown concentration/weight. Predicate is UNWIRED (not in
+    calcular_criterios), so no live alert. ml/h cutoffs are institution-specific/unverifiable.
+
+- rule_id: RULE-ESTABILIDADE-009
+  reference:
+    citation: >
+      Surviving Sepsis Campaign 2021 (Evans et al.): for septic shock with cardiac dysfunction and
+      persistent hypoperfusion despite adequate volume and arterial pressure, add dobutamine (or
+      switch to epinephrine). Rationale for facade FC>130 note: tachycardia shortens diastolic LV
+      filling and can reduce cardiac output.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: diff      # predicate = all([nora>50 AND dobuta>10 same record]); facade recommendation is conditioned on FC>130, which the predicate never tests
+    coefficients: diff  # code 50 / 10 (ml/h); facade FC cutoff 130 bpm not implemented
+    units: diff         # qt_vol_nora / qt_vol_dobuta ml/h; facade escalation framed in mcg/kg/min + FC bpm
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff       # FC>130 bpm displayed-but-untested; ml/h dose cutoffs vs mcg/kg/min
+  test_vectors:
+    - inputs: {qt_vol_nora_mlh: 55, qt_vol_dobuta_mlh: 12, FC: 140}
+      expected_reference: "SSC: high-dose vasopressor + dobutamine = refractory shock on inotrope; facade advises suspend dobutamine IF FC>130 — here FC=140 so advice fits, but predicate never verified FC"
+      actual_legacy: "filter(nora>50, dobuta>10) T -> True (FC ignored)"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 55, qt_vol_dobuta_mlh: 12, FC: 90}
+      expected_reference: "at FC 90 (no tachycardia) the 'suspend dobutamine for FC>130' advice is inappropriate"
+      actual_legacy: "filter(nora>50, dobuta>10) T -> True and displays the FC>130-conditional advice regardless of FC=90"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 50, qt_vol_dobuta_mlh: 15, FC: 140}
+      expected_reference: "no published ml/h anchor; nora at exactly 50 is not high-dose per this rule"
+      actual_legacy: "nora>50 strict -> 50 not >50 -> filter empty -> False"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Two divergences from the paired facade recommendation (RULE-016 criterio_9): (1) the displayed
+    advice is conditioned on FC >130 bpm (physiologically sound — suspend dobutamine when tachycardia
+    impairs filling), but the predicate tests ONLY nora>50 ml/h AND dobuta>10 ml/h and never reads FC,
+    so the FC-conditional recommendation is shown irrespective of actual heart rate (vector 2);
+    (2) same ml/h-vs-mcg/kg/min unit issue as 007/008. The underlying concept (dobutamine used with
+    high-dose vasopressor = cardiac dysfunction in shock) aligns with SSC-2021. Moderate impact:
+    clinician may see 'suspend dobutamine' framed around a tachycardia threshold that was not checked.
+    Predicate is UNWIRED. ml/h cutoffs institution-specific/unverifiable.
+
+- rule_id: RULE-ESTABILIDADE-010
+  reference:
+    citation: >
+      No authoritative published clinical score/guideline defines a "scheduled antihypertensive
+      present WITH active vasopressor" conflict alert or its specific drug enumeration — this is an
+      internal medication-safety business rule (TASY drug list). SSC-2021 concept of avoiding agents
+      that lower MAP during shock resuscitation is directionally supportive but does not specify a list.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: ok        # all([nora>50 ml/h in 4h, any(antihypertensive prescribed)])
+    coefficients: n/a   # internal drug enum + institution ml/h threshold, no external anchor
+    units: n/a          # qt_vol_nora ml/h; no published dose anchor for this rule
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff       # CONFIRMED internal code-vs-docstring gap: docstring 18 drugs, code any([]) checks 16
+  test_vectors:
+    - inputs: {qt_vol_nora_mlh: 60, losartan: 1}
+      expected_reference: "internal intent: antihypertensive + active vasopressor -> FLAG (losartan is in both the 18-drug docstring and the 16-drug code list)"
+      actual_legacy: "nora>50 T, any([losartan>0 T]) T -> True"
+      match: true
+    - inputs: {qt_vol_nora_mlh: 60, anlodipino: 1}
+      expected_reference: "docstring lists anlodipino (amlodipine) as an antihypertensive -> should FLAG"
+      actual_legacy: "code any([]) has NO anlodipino key -> no clause True -> False (missed alert)"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 60, metoprolol: 1}
+      expected_reference: "docstring lists metoprolol -> should FLAG"
+      actual_legacy: "code any([]) has NO metoprolol key -> False (missed alert)"
+      match: false
+    - inputs: {qt_vol_nora_mlh: 50, losartan: 1}
+      expected_reference: "boundary: nora exactly 50 is not >50"
+      actual_legacy: "balanco_4h.filter(qt_vol_nora__gt=50) empty (strict) -> False"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    No external authoritative reference governs this rule's drug enumeration or its ml/h vasopressor
+    threshold — it is a proprietary medication-conflict safety rule; flagged for internal review, not
+    treated as wrong. However the extraction-flagged DISCREPANCY is CONFIRMED by direct source read
+    (lines 544-590): the docstring enumerates 18 antihypertensives (…anlodipino…metoprolol…) but the
+    any([...]) evaluates only 16, omitting anlodipino (amlodipine) and metoprolol. Consequence: a patient
+    on active high-dose vasopressor whose ONLY prescribed antihypertensive is amlodipine or metoprolol
+    would NOT trigger this WIRED VERMELHO alert (vectors 2-3). Amlodipine and metoprolol are common
+    agents, so the gap is clinically relevant as a missed-safety-alert, but because no published source
+    mandates the list, impact is recorded n/a and the finding is routed to internal review. The ml/h
+    cutoff (>50) is likewise institution-specific and unverifiable against published anchors.

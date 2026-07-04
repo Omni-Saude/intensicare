@@ -1,0 +1,179 @@
+- rule_id: RULE-SEDACAO-006
+  reference:
+    citation: "ARDS Definition Task Force. Acute Respiratory Distress Syndrome: The Berlin Definition. JAMA 2012;307(23):2526-2533. (moderate ARDS PaO2/FiO2 100-200, severe <=100, on PEEP>=5). Devlin JW et al. PADIS Guidelines. Crit Care Med 2018 (light sedation)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/22797452/"
+  checks:
+    equation: n/a  # composite boolean decision rule, not a calculator
+    coefficients: ok
+    units: "ok - P/F in mmHg, FiO2 as percent (<50), PEEP in cmH2O (<=10); all internally consistent, no unit mismatch"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok - P/F>200 threshold matches Berlin moderate/severe upper boundary (moderate is 100-200); FiO2<50% and PEEP<=10 are consistent low-support cutoffs"
+  test_vectors:
+    - inputs: {sedative_mid: 5, diurna_pf: 250, diurna_fio2: 40, diurna_peep: 8, diurna_sedoanalgesia: "SDRA moderada ou grave"}
+      expected_reference: "P/F 250 = mild/resolved ARDS (no longer moderate/severe per Berlin) while sedated for ARDS -> reconsider sedation -> flag TRUE"
+      actual_legacy: "presenca_sedativos=True, 250>200 True, 40<50 True, 8<=10 True, justification match True -> criterio_2=True"
+      match: true
+    - inputs: {sedative_mid: 5, diurna_pf: 180, diurna_fio2: 40, diurna_peep: 8, diurna_sedoanalgesia: "SDRA moderada ou grave"}
+      expected_reference: "P/F 180 = moderate ARDS still present -> sedation justified -> no flag FALSE"
+      actual_legacy: "180>200 False -> all() False -> criterio_2=False"
+      match: true
+    - inputs: {sedative_mid: 5, diurna_pf: 200, diurna_fio2: 40, diurna_peep: 8, diurna_sedoanalgesia: "outros"}
+      expected_reference: "P/F=200 boundary is still moderate ARDS (Berlin moderate 100-200 inclusive) -> sedation reasonable -> no flag FALSE"
+      actual_legacy: "strict 200>200 False -> criterio_2=False"
+      match: true
+    - inputs: {sedative_mid: 5, diurna_pf: 250, diurna_fio2: 55, diurna_peep: 8, diurna_sedoanalgesia: "outros"}
+      expected_reference: "FiO2 55% -> still meaningful support -> no flag FALSE"
+      actual_legacy: "55<50 False -> criterio_2=False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Composite institutional decision rule; numeric cutoffs align with the Berlin ARDS definition (moderate/severe
+    boundary at P/F 200) and PADIS light-sedation principle. Units are internally consistent (FiO2 percent, not the
+    fraction/percent confusion seen in criterio_12). Method is DEFINED but UNWIRED (not called by calcular_criterios),
+    so any issue would be inert; none found.
+
+- rule_id: RULE-SEDACAO-007
+  reference:
+    citation: "Papazian L et al. Early Neuromuscular Blockade in ARDS (ACURASYS). NEJM 2010;363:1107-1116 (cisatracurium benefit shown only in severe ARDS PaO2/FiO2 <150). Moss M et al. ROSE trial, NEJM 2019 (no benefit in moderate-severe)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/20843245/"
+  checks:
+    equation: n/a
+    coefficients: ok
+    units: "ok - P/F in mmHg; NMBA presence flags (qt_vol_roc/cis, ml/h) used only as boolean presence here"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok - P/F>150 threshold to reconsider stopping continuous NMBA is the exact complement of the ACURASYS severe-ARDS entry cutoff (<150), where NMBA benefit is established"
+  test_vectors:
+    - inputs: {diurna_pf: 200, ultimo: {qt_vol_roc: 5}, anterior: {qt_vol_roc: 5}}
+      expected_reference: "P/F 200 >150 -> above severe-ARDS threshold, NMBA benefit questionable -> flag TRUE"
+      actual_legacy: "200>150 True, any([roc])True, any([roc])True -> criterio_3=True"
+      match: true
+    - inputs: {diurna_pf: 140, ultimo: {qt_vol_roc: 5}, anterior: {qt_vol_roc: 5}}
+      expected_reference: "P/F 140 <150 = severe ARDS -> NMBA justified (ACURASYS) -> no flag FALSE"
+      actual_legacy: "140>150 False -> criterio_3=False"
+      match: true
+    - inputs: {diurna_pf: 150, ultimo: {qt_vol_roc: 5}, anterior: {qt_vol_roc: 5}}
+      expected_reference: "P/F=150 = ACURASYS boundary (severe is <150); at 150 NMBA still reasonable -> no flag FALSE"
+      actual_legacy: "strict 150>150 False -> criterio_3=False"
+      match: true
+    - inputs: {diurna_pf: 200, ultimo: {qt_vol_roc: 5}, anterior: {qt_vol_roc: 0, qt_vol_cis: 0}}
+      expected_reference: "NMBA not present in BOTH of last 2 balances -> criterion requires 2 consecutive -> no flag FALSE"
+      actual_legacy: "any([anterior roc0,cis0])=False -> criterio_3=False"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Cutoff P/F>150 matches ACURASYS/ROSE evidence that continuous NMBA benefit is confined to severe ARDS (<150).
+    Consistent with the facade recommendation text (RULE-SEDACAO-024 crit3: 'beneficio questionavel sem PRONA e P/F>150').
+    Method DEFINED but UNWIRED; inert. No discrepancy.
+
+- rule_id: RULE-SEDACAO-008
+  reference:
+    citation: "Devlin JW et al. PADIS Guidelines. Crit Care Med 2018;46(9):e825-e873 (light sedation defined RASS +1 to -2). Berlin Definition, JAMA 2012 (moderate ARDS P/F 100-200)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/30113379/"
+  checks:
+    equation: n/a
+    coefficients: ok
+    units: "ok - RASS integer, P/F mmHg, PINS cmH2O, FiO2 percent (>=60); units internally consistent"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok - RASS>=-2 is exactly the PADIS light-sedation upper boundary; P/F<200 = moderate/severe ARDS (Berlin); FiO2>=60% and PINS>=20 are high-support cutoffs"
+  test_vectors:
+    - inputs: {rass: 0, diurna_ventilacao: "VM invasiva", diurna_pf: 180, ultimo: {qt_vol_mid: 0, qt_vol_pro: 0, qt_vol_cet: 0}, anterior: {qt_vol_mid: 0, qt_vol_pro: 0, qt_vol_cet: 0}}
+      expected_reference: "Lightly sedated (RASS0), invasive VM, moderate ARDS (P/F180), NO sedatives -> undersedated with high needs -> flag TRUE"
+      actual_legacy: "rass0>=-2 T; vent T; any([180<200,..]) T; any([not0,not0,not0])=T both -> criterio_4=True"
+      match: true
+    - inputs: {rass: 0, diurna_ventilacao: "VM invasiva", diurna_pf: 180, ultimo: {qt_vol_mid: 10, qt_vol_pro: 0, qt_vol_cet: 0}, anterior: {qt_vol_mid: 10, qt_vol_pro: 0, qt_vol_cet: 0}}
+      expected_reference: "Midazolam IS running (10 ml/h) -> patient IS receiving sedation -> 'absence of midazolam OU propofol OU cetamina' not satisfied -> no flag FALSE"
+      actual_legacy: "any([not 10, not 0, not 0])=any([False,True,True])=True (propofol/cetamina absent) -> criterio_4=True (FLAGS despite active midazolam)"
+      match: false
+    - inputs: {rass: -3, diurna_ventilacao: "VM invasiva", diurna_pf: 180, ultimo: {qt_vol_mid: 0, qt_vol_pro: 0, qt_vol_cet: 0}, anterior: {qt_vol_mid: 0}}
+      expected_reference: "RASS -3 = deep sedation, below the >=-2 light threshold -> not undersedated -> no flag FALSE"
+      actual_legacy: "int(-3)>=-2 False -> criterio_4=False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Clinical THRESHOLDS verify against reference (RASS>=-2 = PADIS light-sedation boundary; P/F<200 = Berlin moderate;
+    FiO2>=60, PINS>=20 high-support). The discrepancy is an internal code-vs-intent boolean-logic defect, NOT a
+    reference-numeric mismatch: the 'absence of sedatives' clauses use any([not mid, not pro, not cet]), which is TRUE
+    whenever ANY ONE of the three sedatives is absent, so the criterion fires even while another sedative is actively
+    infusing (see vector 2). Intended semantics ('ausencia de midazolam OU propofol OU cetamina' -> none present)
+    would require all([not mid, not pro, not cet]). Impact low: method is UNWIRED (not called by calcular_criterios),
+    and even if wired it is an advisory over-trigger (false positives), not an automated dosing action.
+
+- rule_id: RULE-SEDACAO-009
+  reference:
+    citation: "Devlin JW et al. PADIS Guidelines. Crit Care Med 2018 (daily awakening trials / spontaneous awakening trials, target light sedation). Kress JP et al. Daily interruption of sedative infusions. NEJM 2000;342:1471-1477."
+    url: "https://pubmed.ncbi.nlm.nih.gov/30113379/"
+  checks:
+    equation: "diff - implemented reduction test is logically inverted vs its documented intent"
+    coefficients: "n/a (reduction threshold 'half' is an institutional protocol value, no published numeric anchor)"
+    units: "ok - all volumes ml/h, same drug compared across the 06:00-10:00 window"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "diff - operator precedence makes the alert fire on the OPPOSITE condition (see notes/vectors)"
+  test_vectors:
+    - inputs: {drug: midazolam, primeiro_06h: 10, ultimo_ate_10h: 10, ultimo_latest: 10}
+      expected_reference: "Docstring example: 10 ml/h at 06h still 10 ml/h later, NO reduction -> should FLAG (AMARELO: sedation not weaned)"
+      actual_legacy: "reduction=10-10=0; not(0<=10/2=5)=not True=False; cond = 10 and False = False -> criterio_5=False (does NOT flag)"
+      match: false
+    - inputs: {drug: midazolam, primeiro_06h: 10, ultimo_ate_10h: 4, ultimo_latest: 4}
+      expected_reference: "Reduced 10->4 (below half, adequate weaning) -> should NOT flag"
+      actual_legacy: "reduction=6; not(6<=5)=not False=True; cond = 4 and True = True -> criterio_5=True (FLAGS a well-weaned patient)"
+      match: false
+    - inputs: {drug: midazolam, primeiro_06h: 10, ultimo_ate_10h: 5, ultimo_latest: 5}
+      expected_reference: "Reduced exactly to half (adequate) -> should NOT flag"
+      actual_legacy: "reduction=5; not(5<=5)=not True=False; cond=5 and False=False -> criterio_5=False (agrees only by boundary coincidence)"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    WIRED AMARELO criterion (calcular_alerta_v2 amarelo=[criterio_5, criterio_7]; criterio_5 IS computed by
+    calcular_criterios), so the defect is live, not inert. Per Python precedence the per-drug clause parses as
+    `present and (not ((primeiro - ultimo_ate_10) <= primeiro/2))` = present AND (reduction > half). Intended alert
+    ('ausencia de reducao >=1/2' -> flag when the drug was NOT reduced by at least half) is reduction < half. The
+    implementation is INVERTED: it stays silent when there was no reduction (the exact case it should catch, vector 1)
+    and fires when the infusion was appropriately reduced by more than half (vector 2). The 'reduce by half by 06h'
+    threshold itself is an institutional protocol value (no published numeric anchor), but the daily-sedation-reduction
+    concept aligns with PADIS daily awakening trials / Kress 2000. Impact moderate: as a wired advisory yellow alert
+    the inversion causes missed 'not-weaned' alerts and false alarms on well-managed patients; it prompts clinician
+    review rather than triggering automated dosing. Extraction status AMBIGUOUS is here characterized as a directional
+    inversion of a wired alert.
+
+- rule_id: RULE-SEDACAO-010
+  reference:
+    citation: "No published ml/h anchor. Standard NMBA maintenance dosing is expressed in mcg/kg/min (cisatracurium ~1-3 mcg/kg/min; rocuronium ~8-12 mcg/kg/min) with TOF monitoring (PADIS 2018 / Murray MJ et al. Clinical practice guidelines for sustained neuromuscular blockade, Crit Care Med 2016). ml/h thresholds depend on local drug concentration."
+    url: "https://pubmed.ncbi.nlm.nih.gov/27635478/"
+  checks:
+    equation: n/a
+    coefficients: "unverifiable - roc>16 / cis>10 are ml/h, concentration-dependent; cannot be mapped to published mcg/kg/min without the institution's dilution and patient weight"
+    units: "unverifiable - ml/h (infusion volume) vs published mcg/kg/min; no concentration provided to reconcile"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: "unverifiable - 16 and 10 ml/h have no published anchor (institutional/concentration-specific)"
+  test_vectors:
+    - inputs: {ultimo: {qt_vol_roc: 18}, anterior: {qt_vol_roc: 17}}
+      expected_reference: "unverifiable ml/h threshold; LOGIC check only: high-dose roc in both consecutive balances -> flag TRUE"
+      actual_legacy: "any([18>16])T and any([17>16])T -> criterio_6=True"
+      match: true  # logic trace only; numeric threshold not reference-verifiable
+    - inputs: {ultimo: {qt_vol_roc: 16, qt_vol_cis: 0}, anterior: {qt_vol_roc: 18}}
+      expected_reference: "LOGIC check: roc exactly 16 (strict > required) -> ultimo clause False -> no flag FALSE"
+      actual_legacy: "any([16>16=False, 0>10=False])=False -> criterio_6=False"
+      match: true
+    - inputs: {ultimo: {qt_vol_cis: 12}, anterior: {qt_vol_cis: 8}}
+      expected_reference: "LOGIC check: cis high only in latest, not in previous balance -> requires BOTH -> no flag FALSE"
+      actual_legacy: "ultimo any([roc0>16,12>10=T])=T; anterior any([0>16,8>10=F])=F -> criterio_6=False"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    The two-consecutive-balance structure and the strict-'>' boundary handling trace correctly (vectors above), but the
+    core numeric thresholds (rocuronium >16 ml/h, cisatracurium >10 ml/h) are volumetric infusion rates whose clinical
+    meaning depends on local drug concentration and patient weight; standard NMBA dosing references are in mcg/kg/min,
+    so these ml/h cutoffs cannot be verified against an authoritative published source. Flag for internal clinical
+    review to confirm the ml/h values correspond to the intended high-dose (overdose) mcg/kg/min range for the
+    institution's standard dilutions. Method is DEFINED but UNWIRED (not in calcular_criterios), so any threshold
+    mis-setting would currently be inert.

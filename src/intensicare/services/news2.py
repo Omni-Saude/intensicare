@@ -3,7 +3,20 @@
 Implements the Royal College of Physicians NEWS2 protocol with all 7 parameters.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Published NEWS2 thresholds (Royal College of Physicians, NEWS2, 2017). The
+# current implementation's values are authoritative and MUST NOT change; these
+# named constants only replace inline literals with no behavior change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Aggregate-score risk thresholds
+NEWS2_HIGH_RISK_MIN = 7  # aggregate >= 7 -> high risk
+NEWS2_MEDIUM_RISK_MIN = 5  # aggregate >= 5 -> medium risk / urgent response
+
+# A single parameter scoring this value ("red score") triggers urgent assessment
+NEWS2_RED_SCORE = 3
 
 
 @dataclass
@@ -30,17 +43,18 @@ class NEWS2Result:
     @property
     def risk_category(self) -> str:
         """Classify the total score into risk category."""
-        if self.total_score >= 7:
+        if self.total_score >= NEWS2_HIGH_RISK_MIN:
             return "high"
-        if self.total_score >= 5:
+        if self.total_score >= NEWS2_MEDIUM_RISK_MIN:
             return "medium"
         return "low"
 
     @property
     def requires_urgent_assessment(self) -> bool:
         """Whether an urgent clinical assessment is recommended."""
-        return self.total_score >= 5 or any(
-            score == 3 for score in [
+        return self.total_score >= NEWS2_MEDIUM_RISK_MIN or any(
+            score == NEWS2_RED_SCORE
+            for score in [
                 self.components.respiratory_rate,
                 self.components.spo2,
                 self.components.systolic_bp,
@@ -51,7 +65,9 @@ class NEWS2Result:
         )
 
 
-def _score_numeric(value: int | float | None, thresholds: list[tuple[float | None, float | None, int]]) -> int:
+def _score_numeric(
+    value: int | float | None, thresholds: list[tuple[float | None, float | None, int]]
+) -> int:
     """Score a numeric value against a list of (min, max, score) thresholds.
 
     Each threshold is (min_inclusive, max_inclusive, score).
@@ -74,13 +90,16 @@ def score_respiratory_rate(rr: int | None) -> int:
 
     ≤8 = 3, 9-11 = 1, 12-20 = 0, 21-24 = 2, ≥25 = 3
     """
-    return _score_numeric(rr, [
-        (None, 8, 3),
-        (9, 11, 1),
-        (12, 20, 0),
-        (21, 24, 2),
-        (25, None, 3),
-    ])
+    return _score_numeric(
+        rr,
+        [
+            (None, 8, 3),
+            (9, 11, 1),
+            (12, 20, 0),
+            (21, 24, 2),
+            (25, None, 3),
+        ],
+    )
 
 
 def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
@@ -93,20 +112,26 @@ def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
         return 0
 
     if hypercapnic:
-        return _score_numeric(spo2, [
-            (93, None, 0),
-            (88, 92, 1),
-            (86, 87, 2),
-            (84, 85, 2),
-            (None, 83, 3),
-        ])
+        return _score_numeric(
+            spo2,
+            [
+                (93, None, 0),
+                (88, 92, 1),
+                (86, 87, 2),
+                (84, 85, 2),
+                (None, 83, 3),
+            ],
+        )
 
-    return _score_numeric(spo2, [
-        (96, None, 0),
-        (94, 95, 1),
-        (92, 93, 2),
-        (None, 91, 3),
-    ])
+    return _score_numeric(
+        spo2,
+        [
+            (96, None, 0),
+            (94, 95, 1),
+            (92, 93, 2),
+            (None, 91, 3),
+        ],
+    )
 
 
 def score_supplemental_o2(on_o2: bool | None) -> int:
@@ -119,13 +144,16 @@ def score_systolic_bp(sbp: int | None) -> int:
 
     ≤90=3, 91-100=2, 101-110=1, 111-219=0, ≥220=3
     """
-    return _score_numeric(sbp, [
-        (None, 90, 3),
-        (91, 100, 2),
-        (101, 110, 1),
-        (111, 219, 0),
-        (220, None, 3),
-    ])
+    return _score_numeric(
+        sbp,
+        [
+            (None, 90, 3),
+            (91, 100, 2),
+            (101, 110, 1),
+            (111, 219, 0),
+            (220, None, 3),
+        ],
+    )
 
 
 def score_heart_rate(hr: int | None) -> int:
@@ -133,14 +161,17 @@ def score_heart_rate(hr: int | None) -> int:
 
     ≤40=3, 41-50=1, 51-90=0, 91-110=1, 111-130=2, ≥131=3
     """
-    return _score_numeric(hr, [
-        (None, 40, 3),
-        (41, 50, 1),
-        (51, 90, 0),
-        (91, 110, 1),
-        (111, 130, 2),
-        (131, None, 3),
-    ])
+    return _score_numeric(
+        hr,
+        [
+            (None, 40, 3),
+            (41, 50, 1),
+            (51, 90, 0),
+            (91, 110, 1),
+            (111, 130, 2),
+            (131, None, 3),
+        ],
+    )
 
 
 def score_consciousness(avpu: str | None) -> int:
@@ -162,13 +193,16 @@ def score_temperature(temp: float | None) -> int:
 
     ≤35.0=3, 35.1-36.0=1, 36.1-38.0=0, 38.1-39.0=1, ≥39.1=2
     """
-    return _score_numeric(temp, [
-        (None, 35.0, 3),
-        (35.1, 36.0, 1),
-        (36.1, 38.0, 0),
-        (38.1, 39.0, 1),
-        (39.1, None, 2),
-    ])
+    return _score_numeric(
+        temp,
+        [
+            (None, 35.0, 3),
+            (35.1, 36.0, 1),
+            (36.1, 38.0, 0),
+            (38.1, 39.0, 1),
+            (39.1, None, 2),
+        ],
+    )
 
 
 def calculate_news2(
@@ -207,14 +241,16 @@ def calculate_news2(
         temperature=score_temperature(temperature),
     )
 
-    total = sum([
-        components.respiratory_rate,
-        components.spo2,
-        components.supplemental_o2,
-        components.systolic_bp,
-        components.heart_rate,
-        components.consciousness,
-        components.temperature,
-    ])
+    total = sum(
+        [
+            components.respiratory_rate,
+            components.spo2,
+            components.supplemental_o2,
+            components.systolic_bp,
+            components.heart_rate,
+            components.consciousness,
+            components.temperature,
+        ]
+    )
 
     return NEWS2Result(total_score=total, components=components)

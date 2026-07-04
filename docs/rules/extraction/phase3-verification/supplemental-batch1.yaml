@@ -1,0 +1,232 @@
+# Phase 3 clinical-verification — supplemental batch 1
+# Rules: RULE-CADASTROS-UI-016, RULE-DOCUMENTACAO-FATURAMENTO-027/028, RULE-FORMULARIOS-CLINICOS-042
+# Legacy READ-ONLY: ahlabs-trilhas@8166c07, trilhas-frontend@f9656be
+# Verifier note: legacy behavior is NEVER corrected; discrepancies are recorded as-written.
+
+- rule_id: RULE-CADASTROS-UI-016
+  reference:
+    citation: >
+      Brazilian identifier/postal display masks. CPF/CNPJ are governed by Receita
+      Federal (11-digit CPF displayed 000.000.000-00; 14-digit CNPJ displayed
+      00.000.000/0000-00). CEP is governed by Correios: official display is the
+      5-3 form NNNNN-NNN with a single hyphen and NO period ("...não deverão ser
+      sublinhados ou separados por ponto"). Mobile phone (11-digit) is governed by
+      ANATEL's numbering plan: the ninth digit (always 9) is prepended to the
+      original 8-digit subscriber number, conventionally displayed as (XX) 9XXXX-XXXX.
+      BRL currency: Intl/ICU pt-BR currency format (R$ 1.234,56). Byte sizing: 1024
+      base with SI/JEDEC labels KB/MB/GB (IEC would use KiB/MiB for 1024 base).
+    url: https://www.correios.com.br/enviar/precisa-de-ajuda/tudo-sobre-cep
+  checks:
+    equation: "ok for CPF, CNPJ, BRL; diff for CEP; minor-diff for tel(11); n/a for bytes label"
+    coefficients: >
+      CPF regex (3)(3)(3)(2)->$1.$2.$3-$4 MATCHES official. CNPJ regex (2)(3)(3)(4)(2)
+      ->$1.$2.$3/$4-$5 MATCHES official. CEP regex (2)(3)(3)->$1.$2-$3 produces the
+      2-3-3 grouping NN.NNN-NNN (spurious leading period) instead of official 5-3
+      NNNNN-NNN. tel len=11 regex (2)(1)(4)(4)->($1) $2 $3-$4 splits the ninth digit
+      out as "(XX) 9 XXXX-XXXX" rather than the ANATEL-conventional "(XX) 9XXXX-XXXX".
+    units: "CPF=11 digits, CNPJ=14, CEP=8, tel=8/9/10/11, real=BRL, bytes=1024-base"
+    ranges: >
+      All mask regexes are UNANCHORED and assume the raw digit count already matches;
+      malformed/short input passes through partially unchanged. tel branches only on
+      exact lengths 8/9/10/11 (all other lengths returned as-is). bytes: exponent can
+      exceed the 9-element sizes array for absurd inputs (undefined unit); negative/NaN
+      bytes unguarded (only 0 special-cased). Matches catalog edge_cases.
+    rounding: "bytes uses parseFloat(x.toFixed(2)); real delegates to Intl.NumberFormat"
+    cutoffs: "tel length switch: 11=mobile+DDD, 10=landline+DDD, 9=mobile no DDD, 8=landline no DDD"
+  test_vectors:
+    - inputs: {type: cpf, value: "12345678900"}
+      expected_reference: "123.456.789-00 (Receita Federal 000.000.000-00)"
+      actual_legacy: "123.456.789-00"
+      match: true
+    - inputs: {type: cnpj, value: "11222333444455"}
+      expected_reference: "11.222.333/4444-55 (Receita Federal 00.000.000/0000-00)"
+      actual_legacy: "11.222.333/4444-55"
+      match: true
+    - inputs: {type: cep, value: "01310100"}
+      expected_reference: "01310-100 (Correios NNNNN-NNN, hyphen only, no period)"
+      actual_legacy: "01.310-100"
+      match: false
+    - inputs: {type: cep, value: "20010000"}
+      expected_reference: "20010-000 (Correios)"
+      actual_legacy: "20.010-000"
+      match: false
+    - inputs: {type: tel, value: "11987654321"}
+      expected_reference: "(11) 98765-4321 (ANATEL nono digito, 9XXXX-XXXX block)"
+      actual_legacy: "(11) 9 8765-4321"
+      match: false
+    - inputs: {type: tel, value: "1133334444"}
+      expected_reference: "(11) 3333-4444 (landline + DDD)"
+      actual_legacy: "(11) 3333-4444"
+      match: true
+    - inputs: {type: real, value: "1234.56"}
+      expected_reference: "R$ 1.234,56 (pt-BR BRL)"
+      actual_legacy: "R$ 1.234,56"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Legacy confirmed at src/utils/formatter.ts:3-61. CPF, CNPJ and BRL masks match the
+    authoritative Receita Federal / pt-BR standards exactly. DISCREPANCY on CEP: the
+    regex (\d{2})(\d{3})(\d{3}) -> "$1.$2-$3" inserts a period after the first two
+    digits, yielding NN.NNN-NNN (e.g. 01.310-100), whereas the Correios official format
+    is the 5-3 form NNNNN-NNN with a hyphen and explicitly no period. Secondary minor
+    divergence: 11-digit mobile is rendered "(XX) 9 XXXX-XXXX" (ninth digit split off
+    with a space) vs the ANATEL-conventional "(XX) 9XXXX-XXXX". Clinical impact NONE:
+    these are administrative/display masks only, not clinical calculations; underlying
+    value integrity is preserved because unformat() strips '.', '-', '/', '(', ')', '_'
+    and spaces before submit (RULE-CADASTROS-UI-009/010), so the CEP period and phone
+    spacing never reach the stored digits. Administrative impact LOW (cosmetic
+    non-conformance to the Correios/ANATEL display convention). bytes labels KB/MB with
+    a 1024 base is the common JEDEC convention (IEC-strict would be KiB/MiB); not a
+    Brazilian-standard issue, recorded as-written.
+
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-027
+  reference:
+    citation: >
+      No authoritative published reference. This is proprietary integration/routing
+      code: get_nr_atendimento resolves a bed's encounter number by primary-key lookup
+      on the internal Leito model (Django ORM get_object_or_404). "nr_atendimento"
+      (encounter/attendance number) is an internal Tasy/AMHDocs identifier, not a
+      standardized code governed by any external body. Marked type=formula in the
+      catalog only because it is a mechanical field derivation, not a clinical formula.
+    url: n/a
+  checks:
+    equation: "n/a (str(leito.nr_atendimento); a field read, no arithmetic)"
+    coefficients: n/a
+    units: "string (encounter number)"
+    ranges: "pk not found -> HTTP 404 via get_object_or_404; no other guard"
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {"kwargs.ocupacoes__pk": "uuid of Leito with nr_atendimento=12345"}
+      expected_reference: "n/a (no authority) — internal contract returns the bed's encounter no."
+      actual_legacy: "\"12345\""
+      match: true
+    - inputs: {"kwargs.ocupacoes__pk": "unknown/absent uuid"}
+      expected_reference: "n/a (no authority)"
+      actual_legacy: "HTTP 404 (get_object_or_404)"
+      match: true
+    - inputs: {"kwargs.ocupacoes__pk": "uuid of Leito with nr_atendimento=None"}
+      expected_reference: "n/a (no authority)"
+      actual_legacy: "\"None\" (str(None); passed into AMHDocs URL as literal None)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy confirmed at core/api/v1/views/integracao_amhdocs.py:23-33
+    (ArquivosAMHDocsViewSet.get_nr_atendimento). Behavior matches the catalog: the
+    'ocupacoes__pk' kwarg is ALWAYS treated as a Leito pk directly (no Movimentacao
+    fallback, unlike the observacao/assistido views). Internally consistent. No external
+    authority exists to validate the derivation. Flag for internal review only: a Leito
+    with nr_atendimento=None stringifies to the literal "None" and is interpolated into
+    the AMHDocs proxy URL (get_amhocs_url), which would produce a malformed upstream
+    request rather than a clean error — recorded, not corrected.
+
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-028
+  reference:
+    citation: >
+      No authoritative clinical/standards reference for the rewrite policy itself
+      (proprietary DRF proxy behavior). Adjacent standards used only to confirm the
+      documented edge case: RFC 3986 sec. 3.4 defines the URI query component as
+      OPTIONAL (introduced by '?'), so a next/previous URL need not contain '?';
+      Django REST Framework pagination (LimitOffset/PageNumber) in practice always
+      emits absolute next/previous URLs that DO carry a '?<query>'.
+    url: https://datatracker.ietf.org/doc/html/rfc3986#section-3.4
+  checks:
+    equation: "ok as-written (proxy URL rewrite; not a numeric formula)"
+    coefficients: n/a
+    units: "URL string -> URL string"
+    ranges: >
+      split('?')[1] assumes the external next/previous URL always contains exactly one
+      '?'. Per RFC 3986 the query is optional, so a URL with no '?' raises an uncaught
+      IndexError (matches catalog edge_cases). A URL with >1 '?' takes only the segment
+      after the FIRST '?' (later '?' chars, though legal literal query data, are kept).
+    rounding: n/a
+    cutoffs: "rewrite applied only when payload.get('next'/'previous') is truthy"
+  test_vectors:
+    - inputs: {"payload.next": "https://amhdocs.host/api/v1/integracao/123/arquivos/?page=2", "original_url": "https://myapi.host/.../arquivos/"}
+      expected_reference: "n/a (no authority) — intended: proxy host + external query"
+      actual_legacy: "https://myapi.host/.../arquivos/?page=2"
+      match: true
+    - inputs: {"payload.next": "https://amhdocs.host/.../arquivos/", "original_url": "https://myapi.host/.../arquivos/"}
+      expected_reference: "n/a (no authority); RFC 3986: query optional -> no '?' is legal"
+      actual_legacy: "IndexError (split('?')[1] out of range) — uncaught"
+      match: true
+    - inputs: {"payload.previous": null}
+      expected_reference: "n/a — falsy, rewrite skipped"
+      actual_legacy: "previous left unchanged (None)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy confirmed at core/api/v1/views/integracao_amhdocs.py:29-30 (get_original_url,
+    build_absolute_uri().split('?')[0]) and 41-66 (list() next/previous rewrite). The
+    rewrite policy is internal/proprietary with no governing standard, hence UNVERIFIABLE.
+    RFC 3986 is cited only to confirm the catalog's noted latent bug is real: a
+    query-less next/previous URL would raise IndexError. In practice DRF-backed
+    pagination always includes a '?<query>', so the bug is dormant under the current
+    AMHDocs backend but remains a reimplementation hazard. Recorded as-written.
+
+- rule_id: RULE-FORMULARIOS-CLINICOS-042
+  reference:
+    citation: >
+      Critical-care continuous-infusion dose ranges (drug monographs / SCCM Surviving
+      Sepsis Campaign; NHS critical-care formulary; ICU sedation references).
+      Approximate adult ranges: DOBUTAMINE 2.5-10 mcg/kg/min, up to ~20 (rarely 40);
+      NOREPINEPHRINE (noradrenalina) 0.01-3.3 mcg/kg/min, i.e. up to ~200 mcg/min in a
+      70 kg adult for refractory shock; PROPOFOL 5-50 mcg/kg/min (0.3-3 mg/kg/h);
+      MIDAZOLAM 0.02-0.25 mg/kg/h; FENTANYL ~0.7-10 mcg/kg/h (commonly 25-200+ mcg/h);
+      KETAMINE (cetamina) ~0.06-1.5 mg/kg/h for analgosedation. Crucially, the legacy
+      form specifies NO UNIT for any of these numeric fields.
+    url: https://www.sccm.org/survivingsepsiscampaign/guidelines-and-resources/surviving-sepsis-campaign-adult-guidelines
+  checks:
+    equation: "n/a (no dose calculation; only min/max input-validation bounds)"
+    coefficients: >
+      dobutamina max=30; noradrenalina.quantidade max=200; sedativos[].quantidade max=30
+      (single shared bound for fentanil|midazolam|propofol|cetamina). All min=0.
+    units: >
+      NONE declared in source (catalog edge_cases: "Units not specified in code"). This
+      is the load-bearing gap: the 0-200 vs 0-30 split implies at least two incompatible
+      unit bases in one form (noradrenaline consistent with mcg/min; dobutamine with
+      mcg/kg/min), and a single 0-30 cap is applied across four sedatives whose clinical
+      units differ by orders of magnitude (fentanyl mcg vs propofol mg vs mg/kg/h).
+    ranges: >
+      Bounds are antd InputNumber min/max guards (values outside are rejected/clamped by
+      the widget), NOT clinical decision thresholds and NOT tied to any unit. anulavel
+      groups (Noradrenalina, Sedativos) may be nulled entirely (drug not in use).
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {field: noradrenalina.quantidade, value: 150}
+      expected_reference: "plausible ONLY if unit=mcg/min (~150 mcg/min occurs in refractory shock); absurd if mcg/kg/min"
+      actual_legacy: "accepted (0-200 bound); no unit shown to disambiguate"
+      match: true
+    - inputs: {field: dobutamina, value: 40}
+      expected_reference: "clinically valid high dose (up to ~40 mcg/kg/min occasionally used)"
+      actual_legacy: "REJECTED (max=30) — form blocks the 30-40 mcg/kg/min extreme"
+      match: false
+    - inputs: {field: "sedativos[].quantidade (nome_sedativo=fentanil)", value: 100}
+      expected_reference: "routine ICU fentanyl infusion ~100 mcg/h"
+      actual_legacy: "REJECTED (max=30) — impossible unless unit is mcg/kg/h (not stated)"
+      match: false
+    - inputs: {field: "sedativos[].quantidade (nome_sedativo=propofol)", value: 40}
+      expected_reference: "valid propofol 40 mcg/kg/min (within 5-50)"
+      actual_legacy: "REJECTED (max=30) — impossible unless unit is mg/kg/h (not stated)"
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy confirmed at src/utils/dataForms/dataFormMovimentacao.ts:234-262 (dobutamina
+    max 30; Noradrenalina anulavel group quantidade max 200 + horario_inicio) and
+    353-385 (Sedativos anulavel list: nome_sedativo enum {fentanil,midazolam,propofol,
+    cetamina,""} + quantidade max 30). UNVERIFIABLE because the source declares NO units,
+    so the numeric bounds cannot be bound to any monograph's dose units for an exact
+    reference match — a range check requires a unit. Plausibility findings for internal
+    review (would be MODERATE data-capture risk if reimplemented without adding units):
+    (1) noradrenalina 0-200 only makes clinical sense in mcg/min (or ml/h), while
+    dobutamina 0-30 fits mcg/kg/min — two different unit bases in one form; (2) the
+    single 0-30 sedative cap cannot be simultaneously correct for all four drugs: it
+    would REJECT typical fentanyl (mcg/h) and propofol (mcg/kg/min) infusion rates unless
+    each drug is silently entered in a weight-normalized-per-hour unit, which the UI does
+    not indicate. These bounds are input guards, not clinical thresholds, and nothing
+    downstream computes an alert from them. Recorded as-written; not corrected.

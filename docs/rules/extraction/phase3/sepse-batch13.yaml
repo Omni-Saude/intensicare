@@ -1,0 +1,99 @@
+- rule_id: RULE-SEPSE-061
+  reference:
+    citation: "Evans L, et al. Surviving Sepsis Campaign: International Guidelines for Management of Sepsis and Septic Shock 2021. Crit Care Med 2021;49(11):e1063-e1143 (>=30 mL/kg IV crystalloid, balanced/Ringer's preferred, within first 3h; hypoperfusion markers incl. lactate >2 mmol/L, prolonged capillary refill, mottling, oliguria, altered mentation; early norepinephrine; secure central access)."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: n/a
+    coefficients: "30 mL/kg dose matches SSC-2021; 20 mL/kg reduced-dose caveat for cardiac dysfunction / oligo-anuric AKI is a reasonable institutional refinement (not an explicit SSC figure)."
+    units: "diff - lactate written in mg/dl; SSC uses mmol/L. 30 mg/dl = 3.33 mmol/L (mg/dl = mmol/L x 9.008), not the SSC hypoperfusion marker of 2 mmol/L = 18 mg/dl."
+    ranges: "TEC >3 s, diuresis <0.5 mL/kg/h over 6h, livedo/mottling, altered consciousness all match standard hypoperfusion markers."
+    rounding: n/a
+    cutoffs: "diff - lactate trigger 30 mg/dl vs 18 mg/dl equivalent of the 2 mmol/L reference marker."
+  test_vectors:
+    - {inputs: "lactato_arterial = 20 mg/dl (2.2 mmol/L), no other signs", expected_reference: "hypoperfusion marker POSITIVE (>2 mmol/L) -> consider fluid resuscitation", actual_legacy: "20 > 30 FALSE -> lactate criterion does NOT fire", match: false}
+    - {inputs: "lactato_arterial = 36 mg/dl (4 mmol/L)", expected_reference: "positive (well above 2 mmol/L)", actual_legacy: "36 > 30 TRUE -> fires; 30 mL/kg Ringer Lactato", match: true}
+    - {inputs: "hipotensao_persistente = true, cardiac dysfunction known", expected_reference: "resuscitate; volume judgement in cardiac dysfunction", actual_legacy: "fires; dose reduced to 20 mL/kg", match: true}
+    - {inputs: "diurese = 0.4 mL/kg/h x6h, lactate normal", expected_reference: "oliguria = hypoperfusion -> resuscitate", actual_legacy: "oliguria <0.5 fires -> 30 mL/kg", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Core dose (30 mL/kg Ringer Lactate; 20 mL/kg reduced for cardiac/renal), early norepinephrine and 6h central-access target all match SSC-2021. Sole discrepancy: lactate hypoperfusion trigger written as 30 mg/dl (~3.3 mmol/L), higher than the SSC marker of 2 mmol/L (18 mg/dl). Impact low - lactate is one of many OR-linked perfusion triggers (hypotension, TEC>3s, mottling, oliguria, altered consciousness), so resuscitation still fires on other signs; the higher lactate bar only under-triggers on the isolated-lactate path. Verbatim clinician-facing guidance text, not executable code; may be an intentional institutional threshold. Legacy already recorded verbatim, not corrected."
+
+- rule_id: RULE-SEPSE-062
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49:e1063): restrictive RBC transfusion, Hb trigger 7 g/dL (strong rec); bicarbonate not recommended for lactic acidosis pH>=7.15; dobutamine for persistent hypoperfusion/myocardial dysfunction. Perfusion-adequacy markers: ScvO2 and venoarterial PCO2 gap (Pcv-aCO2 >6 mmHg indicates inadequate flow; ScvO2 low <70%)."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: n/a
+    coefficients: "Hb target >7 matches SSC restrictive threshold (7.0 g/dL); dobutamine trigger set (rising lactate, TEC>3s, ScvO2<60, dPCO2>6) consistent with recognised perfusion-inadequacy markers."
+    units: "diff (cosmetic) - hemoglobin written 'mg/dl'; Hb is conventionally g/dL. Value 7 is correct and unambiguous. SVcO2 in % (implied), delta PCO2 in mmHg (implied)."
+    ranges: "ScvO2 <60% is below normal (SSC/EGDT reference ~70%); dPCO2 >6 mmHg is the standard venoarterial-gap threshold. Both consistent with literature."
+    rounding: n/a
+    cutoffs: "Hb >7 g/dL matches; do-not-transfuse-above-7 phrasing aligns with restrictive strategy."
+  test_vectors:
+    - {inputs: "Hb = 6.5 g/dL", expected_reference: "below 7 g/dL -> transfuse (restrictive)", actual_legacy: "6.5 < 7 -> transfuse; do not transfuse above 7", match: true}
+    - {inputs: "Hb = 8 g/dL, no active bleeding", expected_reference: "above 7 -> do NOT transfuse (restrictive)", actual_legacy: "do not transfuse above 7", match: true}
+    - {inputs: "lactate rising + ScvO2 = 55%", expected_reference: "poor perfusion / low ScvO2 -> consider inotrope (dobutamine)", actual_legacy: "lactato ascensao OR ScvO2<60 -> consider dobutamina", match: true}
+    - {inputs: "metabolic acidosis pH 7.20", expected_reference: "do not give bicarbonate routinely (pH>=7.15)", actual_legacy: "nao repor bicarbonato de rotina", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "All numeric targets match SSC-2021: restrictive Hb trigger 7 g/dL, no routine bicarbonate, dobutamine for hypoperfusion. Perfusion thresholds (ScvO2<60, dPCO2>6 mmHg) match established critical-care references. Only defect is a cosmetic unit-label typo 'mg/dl' for hemoglobin (should be g/dL); zero clinical impact because Hb is never expressed in mg/dL, so no dosing/decision error results. Verbatim guidance text; recorded, not corrected."
+
+- rule_id: RULE-SEPSE-063
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (dynamic fluid-responsiveness assessment; fluid challenge technique) + Sessler CN, et al. The Richmond Agitation-Sedation Scale (RASS). Am J Respir Crit Care Med 2002;166:1338 (RASS -2 = light sedation). Intubation to reduce work of breathing / VO2 in shock with respiratory distress is standard ICU practice."
+    url: "https://www.sccm.org/clinical-resources/guidelines/guidelines/surviving-sepsis-guidelines-2021"
+  checks:
+    equation: n/a
+    coefficients: "RASS target -2 is a valid point on the -5..+4 RASS scale (light sedation, briefly awakens to voice)."
+    units: "Fluid-challenge aliquot 250 mL (volume); RASS -2 dimensionless scale value."
+    ranges: "250 mL fluid-challenge aliquot is within the accepted 250-500 mL range; SSC endorses fluid-responsiveness assessment (ultrasound/passive leg raise) to guide additional fluids."
+    rounding: n/a
+    cutoffs: "Intubation gated on mal-perfusao AND taquidispneia AND (confusao OR sonolencia) - clinical composite, no guideline-defined numeric cutoff."
+  test_vectors:
+    - {inputs: "mal-perfusao=T, taquidispneia=T, sonolencia=T", expected_reference: "reasonable to consider intubation + light sedation to reduce VO2", actual_legacy: "considerar IOT + sedoanalgesia alvo RASS -2", match: true}
+    - {inputs: "usg_disponivel=T, fluid-responsive", expected_reference: "give guided fluid challenge (250-500 mL crystalloid)", actual_legacy: "desafio volemico 250 mL Ringer Lactato", match: true}
+    - {inputs: "mal-perfusao=T, taquidispneia=F", expected_reference: "intubation composite not met -> no forced intubation on this criterion", actual_legacy: "AND not satisfied -> no intubation prompt", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "RASS -2 is a valid light-sedation target (Sessler 2002 RASS scale); 250 mL fluid-challenge aliquots are within accepted practice and consistent with SSC-2021 dynamic-assessment guidance. Intubation to reduce VO2/optimize DO2 in perfusion failure with tachydyspnea is standard. Verbatim clinician-facing text; no numeric conflict with references."
+
+- rule_id: RULE-SEPSE-065
+  reference:
+    citation: "Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49:e1063): norepinephrine first-line; add vasopressin when NE ~0.25-0.5 mcg/kg/min; add epinephrine if inadequate MAP on NE+vasopressin; hydrocortisone 200 mg/d = 50 mg IV q6h (or infusion) with ongoing vasopressor requirement (NE/epi >=0.25 mcg/kg/min). Shock index (HR/SBP) normal 0.5-0.7 (Allgower & Burri 1967; Rady 1994)."
+    url: "https://dig.pharmacy.uic.edu/faqs/2022-2/march-2022-faqs/update-what-are-the-2021-pharmacotherapy-updates-to-the-surviving-sepsis-campaign-international-guidelines-for-management-of-sepsis-and-septic-shock/"
+  checks:
+    equation: "indice_de_choque = FC / PA_sistolica -> correct shock-index definition (HR/SBP)."
+    coefficients: "NE >0.3 mcg/kg/min add vasopressin+hydrocortisone lies inside SSC vasopressin window 0.25-0.5 and >=0.25 hydrocortisone trigger; hydrocortisone 50 mg IV q6h = 200 mg/day exactly matches SSC."
+    units: "NE in mcg/kg/min (matches SSC dosing unit); shock index dimensionless; hydrocortisone mg."
+    ranges: "Shock index >0.7 as 'positivo' matches upper bound of normal (0.5-0.7); NE 0.3 and 1.0 mcg/kg/min are plausible escalation points."
+    rounding: n/a
+    cutoffs: "Two NE thresholds 0.3 (add vasopressin/steroid) and 1.0 (prefer epinephrine) - 0.3 within SSC range; 1.0 and shock-index>0.7 are reasonable escalation triggers; epinephrine is the SSC add-on after NE+vasopressin."
+  test_vectors:
+    - {inputs: "NE = 0.35 mcg/kg/min", expected_reference: "in vasopressin-initiation window (0.25-0.5); start vasopressin + hydrocortisone 50 mg q6h (200 mg/d)", actual_legacy: "0.35 > 0.3 -> vasopressina EV continua + hidrocortisona 50 mg 6/6h, dieta trofica, reavaliar 24h", match: true}
+    - {inputs: "NE = 0.2 mcg/kg/min", expected_reference: "below typical vasopressin/steroid initiation (<0.25)", actual_legacy: "0.2 > 0.3 FALSE -> no add-on", match: true}
+    - {inputs: "NE = 1.2 mcg/kg/min", expected_reference: "high-dose refractory shock -> add epinephrine (3rd agent)", actual_legacy: "1.2 > 1 -> preferir epinefrina", match: true}
+    - {inputs: "FC = 120, PA_sistolica = 100 -> SI = 1.2", expected_reference: "shock index >0.7 abnormal (normal 0.5-0.7)", actual_legacy: "1.2 > 0.7 -> indice de choque positivo -> preferir epinefrina", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Escalation figures match SSC-2021: NE 0.3 add-vasopressin threshold sits inside the 0.25-0.5 mcg/kg/min window; hydrocortisone 50 mg IV q6h = 200 mg/day is the exact SSC dose; epinephrine as third-line add-on is SSC-recommended. Shock index HR/SBP with >0.7 = abnormal matches classic normal range 0.5-0.7. Verbatim clinician-facing text; all numeric thresholds consistent with references."
+
+- rule_id: RULE-SEPSE-069
+  reference:
+    citation: "Surviving Sepsis Campaign Hour-1 Bundle (Levy MM, Evans LE, Rhodes A. The Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997) - initial sepsis interventions to begin within the first hour. The exact overdue-flag windows (1h primeira_hora, 3h reavaliacao) are internal operational parameters."
+    url: "https://www.sccm.org/survivingsepsiscampaign/guidelines-and-resources/surviving-sepsis-campaign-adult-guidelines"
+  checks:
+    equation: "Overdue = (now - deadline > criado_em) AND not checado - correct threshold logic."
+    coefficients: "1h deadline for primeira_hora aligns with SSC Hour-1 Bundle; 3h for reavaliacao is an internal operational choice (loosely echoes the retired SSC 3-hour bundle)."
+    units: "hours (timedelta) vs datetime criado_em - consistent."
+    ranges: n/a
+    rounding: "strict > comparison - item overdue only strictly past the deadline."
+    cutoffs: "1h / 3h windows; returns None for any other pacote value (neither True nor False)."
+  test_vectors:
+    - {inputs: "pacote=primeira_hora, criado_em=90 min ago, checado=False", expected_reference: "past 1h Hour-1 Bundle deadline, not done -> overdue", actual_legacy: "now-1h > criado_em(90m) TRUE and not checado -> True", match: true}
+    - {inputs: "pacote=primeira_hora, criado_em=30 min ago, checado=False", expected_reference: "within first hour -> not overdue", actual_legacy: "now-1h > criado_em(30m) FALSE -> False", match: true}
+    - {inputs: "pacote=reavaliacao, criado_em=4h ago, checado=False", expected_reference: "past reassessment window -> overdue", actual_legacy: "now-3h > criado_em(4h) TRUE -> True", match: true}
+    - {inputs: "pacote=reavaliacao, criado_em=2h ago, checado=True", expected_reference: "already checked -> not overdue", actual_legacy: "not checado FALSE -> False", match: true}
+    - {inputs: "pacote=other value", expected_reference: "n/a (no bundle deadline)", actual_legacy: "returns None (implicit) - neither overdue nor not-overdue", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "The 1h deadline for the primeira_hora package correctly anchors to the SSC Hour-1 Bundle (Levy 2018). The 3h reavaliacao window and the exact UI overdue-flag mechanics are internal operational parameters with no conflicting guideline value. Threshold logic (strict > deadline AND not checado) is sound; implicit None return for any pacote other than primeira_hora/reavaliacao is a documented edge case, not a reference discrepancy."

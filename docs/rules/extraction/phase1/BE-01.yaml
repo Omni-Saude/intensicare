@@ -1,0 +1,1083 @@
+meta:
+  partition: BE-01
+  repo: ahlabs-trilhas
+  commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+  scope_note: >
+    core/facade/* and trilha_automatica/{facade,trilha_schema,tasks}/* hold the
+    ALERT + RECOMMENDATION payload catalogs, abstract data schemas, celery tasks,
+    and facade wiring for the care-pathway ("trilha") engine. The predicate logic
+    that actually evaluates patient data and SETS each criterio_N flag lives in
+    trilha_automatica/models/trilhaN.py and trilha_automatica/models/trilhas_v3/*
+    (OUTSIDE this partition). Consequently the numeric thresholds captured below
+    are the authoritative trigger DEFINITIONS as encoded in each criterion's
+    "alerta" label and "recomendacoes" text (the string served to the clinician),
+    reproduced verbatim; the comparison operators themselves are executed in the
+    out-of-scope model layer. Rules are framed as: "when criterio_N of trilha X is
+    flagged, surface this alert and these recommendations."
+  files_examined:
+    - path: core/facade/__init__.py
+      rule_bearing: no
+      note: Empty file (0 lines).
+    - path: core/facade/movimentacao.py
+      rule_bearing: no
+      note: Generic ORM/serializer helpers (get by pk, extract user id, save serializer); no predicate.
+    - path: core/facade/piora_clinica.py
+      rule_bearing: yes
+      note: Graded clinical-deterioration alert catalog, 9 criteria x severity codes (2+/2-/3+/3-) with embedded TAX/PAS thresholds.
+    - path: core/facade/sepse.py
+      rule_bearing: yes
+      note: Sepsis pathway variant A - 11 qualitative criteria + single global recommendation (Meropenem 1g, 1500ml Ringer bolus).
+    - path: core/facade/trilha_sepse.py
+      rule_bearing: yes
+      note: Sepsis pathway variant B (=sepse_automatica) - 27 criteria + global recommendation (30ml/kg Ringer, lactato>2.5, SOFA).
+    - path: core/facade/trilha_sepse_v3.py
+      rule_bearing: yes
+      note: Sepsis pathway variant C (=sepse_automatica_v3) - 20 criteria, EACH with explicit numeric threshold in alerta label.
+    - path: core/facade/trilha_antimicrobiano.py
+      rule_bearing: yes
+      note: Antimicrobial stewardship alert catalog, 12 criteria (duration >7d, spectrum, renal/weight dose adj, candidemia).
+    - path: core/facade/trilha_eficiencia.py
+      rule_bearing: yes
+      note: TWO payloads in one file - module dict (sedation/analgesia, 12 criteria) and get_ fn (efficiency/de-escalation, 10 criteria = eficiencia_automatica).
+    - path: core/facade/trilha_equilibrio.py
+      rule_bearing: yes
+      note: Fluid/electrolyte balance catalog, 10 criteria (BH>3000ml/24h, K>6 protocol, Na>160 protocol, morphine renal).
+    - path: core/facade/trilha_estabilidade.py
+      rule_bearing: yes
+      note: Hemodynamic stability catalog (get_ fn = estabilidade_automatica), 13 criteria (vasopressor escalation nora>0.5/>1.5, bicarb pH<7.15).
+    - path: core/facade/trilha_estabilizacao.py
+      rule_bearing: yes
+      note: Older stabilization catalog (=estabilizacao_automatica, used by trilha2 model), criteria 1-7 & 10; criteria 8-9 missing.
+    - path: core/facade/trilha_glosa_zero.py
+      rule_bearing: yes
+      note: Billing/glosa-prevention administrative catalog, 16 criteria (med-check delay >1h/>2h, evolution/signature timing, VM filter <72h).
+    - path: core/facade/trilha_nutricao.py
+      rule_bearing: yes
+      note: Nutrition therapy catalog, 10 criteria (VRG>500ml/6h, diarrhea >=5 evac, nora>30ml/h contraindication, NPT vitamins).
+    - path: core/facade/trilha_profilaxia.py
+      rule_bearing: yes
+      note: Prophylaxis catalog v1 (=profilaxia_automatica), 11 criteria (TEV enoxaparin/heparin dosing, insulin NPH dosing, device>10d).
+    - path: core/facade/trilha_profilaxia_v3.py
+      rule_bearing: yes
+      note: Prophylaxis catalog v3 (get_ fn, used by trilhas_v3/trilha_profilaxia model) - only criterio_1 & criterio_9 active; 2-8 commented out.
+    - path: core/facade/trilha_sedacao.py
+      rule_bearing: yes
+      note: TWO payloads - module dict (12 criteria) and get_ fn (12 criteria = sedacao_automatica); RASS targets, PRIS, analgesia ladder.
+    - path: core/facade/trilha_ventilacao.py
+      rule_bearing: yes
+      note: Ventilation/weaning catalog (=ventilacao_automatica), 10 criteria (VC 4ml/kg, PEEPxFiO2 tables, TOT>10d traqueo, PRONA, SatO2 targets).
+    - path: trilha_automatica/facade/__init__.py
+      rule_bearing: yes
+      note: Config mapping - selects which payload VARIANT is active as *_automatica for each trilha (some pick get_ fn vs module dict).
+    - path: trilha_automatica/facade/antimicrobiano.py
+      rule_bearing: no
+      note: Alias - payload_antimicrobiano_automatica = payload_trilha_antimicrobiano.
+    - path: trilha_automatica/facade/eficiencia.py
+      rule_bearing: no
+      note: Alias - selects the get_ (efficiency) variant, NOT the module (sedation) dict. Captured in config rule.
+    - path: trilha_automatica/facade/equilibrio.py
+      rule_bearing: no
+      note: Alias - payload_equilibrio_automatica = payload_trilha_equilibrio.
+    - path: trilha_automatica/facade/estabilidade_v3.py
+      rule_bearing: no
+      note: Alias - payload_estabilidade_automatica = get_payload_trilha_estabilidade().
+    - path: trilha_automatica/facade/estabilizacao.py
+      rule_bearing: no
+      note: Alias - payload_estabilizacao_automatica = payload_trilha_estabilizacao (consumed by trilha2 model). Not re-exported in facade __init__.
+    - path: trilha_automatica/facade/glosa_zero.py
+      rule_bearing: no
+      note: Alias - payload_glosa_zero_automatica = payload_trilha_glosa_zero.
+    - path: trilha_automatica/facade/nutricao.py
+      rule_bearing: no
+      note: Alias - payload_nutricao_automatica = payload_trilha_nutricao.
+    - path: trilha_automatica/facade/profilaxia.py
+      rule_bearing: no
+      note: Alias - selects the v1 module dict (payload_trilha_profilaxia), NOT the v3 get_ fn.
+    - path: trilha_automatica/facade/sedacao.py
+      rule_bearing: no
+      note: Alias - selects the get_ (v2) sedation variant, NOT the module dict.
+    - path: trilha_automatica/facade/sepse.py
+      rule_bearing: no
+      note: Alias - payload_sepse_automatica = payload_trilha_sepse (variant B, 27 criteria).
+    - path: trilha_automatica/facade/sepse_v3.py
+      rule_bearing: no
+      note: Alias - payload_sepse_automatica_v3 = get_payload_trilha_sepse() (variant C, 20 criteria).
+    - path: trilha_automatica/facade/ventilacao.py
+      rule_bearing: no
+      note: Alias - payload_ventilacao_automatica = payload_trilha_ventilacao.
+    - path: trilha_automatica/trilha_schema/__init__.py
+      rule_bearing: no
+      note: Re-exports the 9 abstract schema mixins.
+    - path: trilha_automatica/trilha_schema/trilha1.py
+      rule_bearing: no
+      note: Abstract Django model - captured vars for sedation trilha (ie_rass, qt_fio2, qt_peep, qt_rel_pao2_fio2, sedativo, 6 criteria); no predicate.
+    - path: trilha_automatica/trilha_schema/trilha2.py
+      rule_bearing: no
+      note: Abstract model - stabilization trilha vars (nora, vaso, lactato, hidrocortisona/vasopressina/norepinefrina/cultura prescr, 6 criteria).
+    - path: trilha_automatica/trilha_schema/trilha3.py
+      rule_bearing: no
+      note: Abstract model - ventilation trilha vars (dp, qt_vci, qt_pip, qt_fio2, qt_peep, ie_rass, cd_mod_vent, 7 criteria).
+    - path: trilha_automatica/trilha_schema/trilha4.py
+      rule_bearing: no
+      note: Abstract model - antimicrobial/sepse trilha vars (antibiotico d1/d6, nora, vaso, cultura, qt_temp, extubacao, qt_tot, checagem_fora_horario, 6 criteria).
+    - path: trilha_automatica/trilha_schema/trilha5.py
+      rule_bearing: no
+      note: Abstract model - nutrition trilha vars (dieta susp counts, evacuacao, vol_gastrico, vol_npt, glicemia, glicose, 8 criteria).
+    - path: trilha_automatica/trilha_schema/trilha6.py
+      rule_bearing: no
+      note: Abstract model - prophylaxis trilha vars (ie_mobilidade, lamgd, secrecao_sanguinolenta, heparina, omeprazol, 6 criteria).
+    - path: trilha_automatica/trilha_schema/trilha7.py
+      rule_bearing: no
+      note: Abstract model - fluid balance trilha vars (qt_bh_24h, qt_sm, qt_diurese_24h/6h, edema, sedativo, qt_svd, 7 criteria).
+    - path: trilha_automatica/trilha_schema/trilha8.py
+      rule_bearing: no
+      note: Abstract model - glosa/antimicrobial-parecer trilha vars (parecer, tc, cultura, omeprazol, medic_oral, proc_suspenso, criteria 1-4 & 6).
+    - path: trilha_automatica/trilha_schema/trilha9.py
+      rule_bearing: no
+      note: Abstract model - invasive-procedure bundle trilha vars (procedimento, proc_checados_adep, 1 criterio).
+    - path: trilha_automatica/tasks/__init__.py
+      rule_bearing: no
+      note: Re-exports task functions.
+    - path: trilha_automatica/tasks/atualizar_assistido.py
+      rule_bearing: yes
+      note: Time-window rule - un-marks trilhas as "assistido" based on 1-minute update windows.
+    - path: trilha_automatica/tasks/checagem_trilha_interativa.py
+      rule_bearing: yes
+      note: Interactive-sepsis delayed-item check - filters occupied/accepted/unfinished trilhas, flags overdue item checks.
+    - path: trilha_automatica/tasks/dados_brutos_trilhas_v3.py
+      rule_bearing: no
+      note: Entire task body commented out (V3 raw-data ETL disabled); only dead code.
+    - path: trilha_automatica/tasks/estabelecimento_setor_leito.py
+      rule_bearing: no
+      note: Celery task delegating to out-of-scope etl_estabelecimento_setor_leito; no predicate.
+    - path: trilha_automatica/tasks/macroindicadores.py
+      rule_bearing: no
+      note: Celery task delegating to out-of-scope etl_schema_macroindicadores; no predicate.
+    - path: trilha_automatica/tasks/microindicadores.py
+      rule_bearing: no
+      note: Celery task delegating to out-of-scope etl_schema_microindicadores; no predicate.
+    - path: trilha_automatica/tasks/trilhas.py
+      rule_bearing: no
+      note: Orchestration task - all trilha ETLs commented out ("disabled, updated only via KAFKA"); only calls etl_estabelecimento_setor_leito.
+
+rules:
+  # ============================ SEPSE VARIANT C (v3) — explicit thresholds ============================
+  - id: RULE-sepse-BE-01-001
+    name: Sepse v3 automatica - trigger threshold table (20 criteria)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: >
+      Sepsis screening pathway variant "v3" (payload_sepse_automatica_v3). Each of 20
+      criteria, when flagged by the model layer, surfaces an alert whose label encodes the
+      exact clinical threshold that defines that criterion. This payload documents the full
+      threshold set for the v3 sepsis trigger engine.
+    inputs:
+      - {name: TAX (axillary temperature), type: float, unit: degC, range: null}
+      - {name: FR (respiratory rate), type: float, unit: ipm, range: null}
+      - {name: VMI onset time, type: float, unit: hours, range: null}
+      - {name: DVA (vasoactive) onset time, type: float, unit: hours, range: null}
+      - {name: PAS / PAM, type: float, unit: mmHg, range: null}
+      - {name: TEC (capillary refill), type: float, unit: s, range: null}
+      - {name: arterial lactate, type: float, unit: mmol/L, range: null}
+      - {name: diurese, type: float, unit: ml/Kg/h, range: null}
+      - {name: creatinina (trend), type: float, unit: mg/dl, range: null}
+      - {name: GCS, type: int, unit: points, range: 3-15}
+      - {name: bilirrubinas, type: float, unit: mg/dl, range: null}
+      - {name: FC, type: float, unit: bpm, range: null}
+      - {name: PCO2 / P/F ratio, type: float, unit: null, range: null}
+      - {name: plaquetas, type: int, unit: /mm3, range: null}
+      - {name: CVC dwell time (central / femoral), type: float, unit: days, range: null}
+      - {name: abdominal surgery recency, type: float, unit: days, range: null}
+    outputs:
+      - {name: alerta text per criterion, type: string, unit: null}
+    logic: |
+      criterio_1  Febre:                  TAX >= 38.2 degC
+      criterio_2  Taquipnea:              FR > 20 ipm
+      criterio_3  Falencia respiratoria:  VMI started < 24h ago
+      criterio_4  Hipotensao refrataria:  DVA started < 6h ago
+      criterio_5  Hipotensao:             PAS < 90  OR  PAM < 60
+      criterio_6  Ma perfusao:            TEC > 3 s
+      criterio_7  Hiperlactatemia:        lactato >= 3 mmol/L
+      criterio_8  Oliguria:               diurese <= 0.5 ml/Kg/h over last 12h
+      criterio_9  Piora funcao renal:     creatinina rising (no numeric cutoff given)
+      criterio_10 Alt. nivel consciencia: GCS < 14
+      criterio_11 Ictericia:              bilirrubinas > 2 mg/dl
+      criterio_12 Hipotermia:             TAX < 36 degC
+      criterio_13 Taquicardia:            FC > 100 bpm
+      criterio_14 Disturbio respiratorio: PCO2 < 32  OR  P/F < 300
+      criterio_15 Piora infecciosa:       Leucocitos & PCR altered (no numeric cutoff)
+      criterio_16 Plaquetopenia:          plaquetas < 150000
+      criterio_17 Necessidade de SNE:     low oral diet acceptance (qualitative)
+      criterio_18 CVC:                    central venous catheter >= 7 days
+      criterio_19 CVC femoral:            femoral central venous catheter >= 5 days
+      criterio_20 Cirurgia abdominal:     recent abdominal surgery (< 20 days)
+    edge_cases: >
+      recomendacoes list is empty for every criterion in v3 (only the alerta label carries
+      content). Thresholds use mixed inclusive/exclusive operators exactly as written
+      (>=, >, <=, <). No null handling in this payload (predicate lives out of scope).
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_sepse_v3.py
+      lines: "1-85"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Wired via trilha_automatica/facade/sepse_v3.py -> payload_sepse_automatica_v3.
+      DISCREPANCY vs variant B (RULE-sepse-BE-01-002): femoral CVC threshold is 5 days here
+      vs "femoral >7 dias" text elsewhere; CVC threshold >=7d here vs >10d in variant B
+      criterio_22; hipotermia <36 here. Cross-ref RULE-sepse-BE-01-002/003.
+
+  # ============================ SEPSE VARIANT B (trilha_sepse.py) ============================
+  - id: RULE-sepse-BE-01-002
+    name: Sepse automatica variant B - 27-criterion alert catalog + global recommendation
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      Sepsis pathway variant B (payload_sepse_automatica). 27 flagged-criterion alert labels
+      plus one shared "recomendacao" block prescribing the sepsis work-up and resuscitation.
+    inputs:
+      - {name: criterio_1..criterio_27 (flags set by model layer), type: bool, unit: null, range: null}
+    outputs:
+      - {name: alerta per criterion, type: string, unit: null}
+      - {name: shared recomendacao block, type: "list[string]", unit: null}
+    logic: |
+      Flagged-criterion -> alert label mapping (qualitative unless noted):
+      1 taquipneico; 2 falencia respiratoria c/ necessidade de suporte ventilatorio;
+      3 hipotenso; 4 oligurico (disfuncao renal); 5 ictericia (disfuncao hepatica);
+      6 febre; 7 taquicardico; 8 hipocapnia/hiperventilacao; 9 P/F baixa (troca gasosa);
+      10 hiperlactatemia; 11 aumento TEC; 12 SOFA > 6; 13 piora do SOFA;
+      14 piora disfuncao respiratoria c/ aumento FiO2; 15 elevacao da pressao positiva;
+      16 conversao p/ modo ventilatorio controlado; 17 leucocitose OU leucopenia;
+      18 plaquetopenia; 19 prejuizo nivel consciencia; 20 piora nivel consciencia;
+      21 baixa aceitacao dieta VO; 22 dispositivo invasivo > 10 dias;
+      23 dispositivo vascular femoral > 7 dias; 24 inicio antibiotico nas ultimas 24h;
+      25 cirurgia abdominal recente; 26 instabilidade + uso de noradrenalina;
+      27 piora funcao renal nas ultimas 24h.
+      GLOBAL RECOMMENDATION when pathway opens: hemocultura x2 perifericas; cultura secrecao
+      traqueal; urocultura; hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA;
+      RX torax. Antibiotico amplo espectro; se necessidade de noradrenalina -> dupla cobertura
+      GRAM negativo. Se hipotensao + hipoperfusao (lactato > 2.5 mg/dl, oliguria, TEC aumentado,
+      alt. consciencia, livedo) -> ressuscitacao volemica 30 ml/kg Ringer Lactato. Trocar/retirar
+      cateter vascular se > 7 dias ou hiperemia/secrecao. USG p/ fluido-responsividade -> dobutamina.
+      Cuidados de fim de vida -> descontinuar protocolo.
+    edge_cases: "All per-criterion recomendacoes lists are empty; content only in shared block."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_sepse.py
+      lines: "1-108"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      = sepse_automatica (facade/sepse.py). SOFA>6 (criterio_12) is the only explicit score
+      threshold. Lactate threshold here is 2.5 mg/dl (note unit mg/dl, unusual for lactate;
+      v3 uses 3 mmol/L). Fluid bolus 30 ml/kg vs variant A 1500ml fixed. Cross-ref -001, -003.
+
+  # ============================ SEPSE VARIANT A (sepse.py) ============================
+  - id: RULE-sepse-BE-01-003
+    name: Sepse pathway variant A - 11-criterion catalog + Meropenem/1500ml recommendation
+    category: care-pathway
+    type: decision-tree
+    status: AMBIGUOUS
+    description: >
+      Sepsis pathway variant A: nested {"criterios": {...}} structure with 11 qualitative
+      alert flags and a single global recommendation naming a specific empiric antibiotic and
+      fixed fluid bolus. Structure differs from variants B/C (criterios nested under a key).
+    inputs:
+      - {name: criterio_1..criterio_11 flags, type: bool, unit: null, range: null}
+    outputs:
+      - {name: alerta per criterion, type: string, unit: null}
+      - {name: recomendacao block, type: "list[string]", unit: null}
+    logic: |
+      Alerts: 1 Febre; 2 Taquipneia; 3 Falencia respiratoria; 4 Perfusao tecidual prejudicada;
+      5 Hipotensao; 6 Oliguria; 7 Alteracao do nivel de consciencia; 8 Hipotermia;
+      9 Taquicardia; 10 Cateter antigo; 11 Cateter femoral.
+      RECOMMENDATION: abrir protocolo SEPSE; solicitar hemocultura aerobica x2 perifericas;
+      cultura secrecao traqueal (se traqueostomia); urocultura (se diurese);
+      hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA; RX torax;
+      lactato arterial apos 3h. Considerar Meropenem 1 g EV. Se hipotensao OU oliguria OU
+      alt. consciencia -> ressuscitacao volemica 1500 ml Ringer Lactato em bolus. Se hipotensao
+      refrataria -> noradrenalina (mesmo em acesso periferico). Trocar/retirar cateter se > 7 dias
+      ou hiperemia/secrecao. Cuidados de fim de vida -> descontinuar.
+    edge_cases: "Recommendation strings are concatenated without separators (implicit joins)."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/sepse.py
+      lines: "1-34"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: >
+      AMBIGUOUS: this variant's consumer is not evident within scope (facade/sepse.py aliases
+      the 27-criterion trilha_sepse instead). Appears to be an older/alternate sepsis payload.
+      Distinct dosing: Meropenem 1g + fixed 1500ml bolus (vs 30ml/kg in variant B). Cross-ref
+      -001, -002.
+
+  # ============================ PIORA CLINICA — graded severity ============================
+  - id: RULE-piora-BE-01-004
+    name: Piora clinica - graded deterioration severity map (9 criteria x 2+/2-/3+/3-)
+    category: alert-threshold
+    type: scoring
+    status: OK
+    description: >
+      Clinical-deterioration ("piora clinica") pathway. Each of 9 physiologic criteria is keyed
+      by a severity code: "2" = moderate risk, "3" = high (alto) risk; trailing "+" = high-value
+      deviation, "-" = low-value deviation. The payload maps each (criterio, severity-code) pair
+      to an alert label, recommendations, and interventions. Several labels embed explicit
+      thresholds (temperature and blood pressure ranges).
+    inputs:
+      - {name: criterio index (1-9), type: int, unit: null, range: 1-9}
+      - {name: severity code, type: enum, unit: null, range: "2+,2-,3+,3-"}
+      - {name: TAX, type: float, unit: degC, range: null}
+      - {name: PAS, type: float, unit: mmHg, range: null}
+    outputs:
+      - {name: alerta, type: string, unit: null}
+      - {name: recomendacoes, type: "list[string]", unit: null}
+      - {name: intervencoes, type: "list[string]", unit: null}
+    logic: |
+      criterio_1 (freq. respiratoria): 3+ = taquipneia grave (ALTO); 3- = bradipneia (ALTO).
+      criterio_2 (temperatura):        2+ = febre baixa TAX 38 - 38.2 degC (MODERADO);
+                                       3+ = febre alta TAX > 38.2 degC (ALTO);
+                                       3- = hipotermia TAX < 35 degC (ALTO).
+      criterio_3 (pressao arterial):   2- = hipotensao PAS 81-99 mmHg (MODERADO);
+                                       2+ = hipertensao PAS 150-189 mmHg (MODERADO);
+                                       3- = hipotensao grave PAS < 80 mmHg (ALTO);
+                                       3+ = hipertensao grave PAS > 189 mmHg (ALTO).
+      criterio_4 (freq. cardiaca):     2+ taquicardia moderada; 3+ taquicardia grave; 3- bradicardia.
+      criterio_5 (consciencia):        2+ reage a estimulo tatil; 2- agitacao/confusao;
+                                       3- convulsao; 3+ nao responde/reage.
+      criterio_6 (dor):                2+ dor moderada; 3+ dor intensa.
+      criterio_7 (dor):                2+ dor moderada; 3+ dor intensa.
+      criterio_8 (saturacao):          2- dessaturacao moderada; 2+ hiperoxia; 3- dessaturacao grave.
+      criterio_9 (saturacao):          2- dessaturacao moderada; 3+ hiperoxia; 3- dessaturacao grave.
+      Interventions (only criterio_1..3 populated) include escalation to Pronto Atendimento on
+      new motor deficit/pupillary change/chest pain, fluid challenge Ringer 500ml (PAS 81-99) or
+      1000ml (PAS<80), antipyretic (IV if TAX>38.2), enteral antihypertensive reassessed at 1h.
+    edge_cases: >
+      criterio_4 through criterio_9 have EMPTY recomendacoes and intervencoes (label only). Note
+      inconsistency: criterio_8/criterio_9 saturation sub-levels use "Alto risco" wording even for
+      the "2" (nominally moderate) codes - reproduced verbatim, treat labels as authoritative.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/piora_clinica.py
+      lines: "1-262"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Consumed by trilha_homecare/models/piora_clinica.py (out of scope). Severity-code semantics
+      inferred from label wording (2->Moderado, 3->Alto) and are internally consistent except the
+      saturation criteria noted above (AMBIGUOUS labelling there).
+
+  # ============================ PROFILAXIA (v1) ============================
+  - id: RULE-profilaxia-BE-01-005
+    name: Prophylaxis v1 - VTE anticoagulation dosing by renal function and BMI
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: >
+      TEV (venous thromboembolism) pharmacologic prophylaxis dosing surfaced by profilaxia v1
+      criteria 4 and 5.
+    inputs:
+      - {name: creatinina, type: float, unit: mg/dl, range: null}
+      - {name: TRS (renal replacement), type: bool, unit: null, range: null}
+      - {name: IMC (BMI), type: float, unit: kg/m2, range: null}
+    outputs:
+      - {name: anticoagulant regimen, type: string, unit: null}
+    logic: |
+      criterio_4 (alto risco TEV): enoxaparina 40 mg 1x/dia;
+        IF creatinina > 2.0 OR paciente em TRS -> heparina 5000 U 8/8h;
+        IF IMC > 40 -> enoxaparina 60 mg 1x/dia.
+      criterio_5 (indicacao formal sem profilaxia): enoxaparina 40 mg 1x/dia;
+        IF creatinina > 2.0 OR TRS -> heparina 5000 U 12/12h.
+    edge_cases: "Creatinine cutoff strictly > 2.0. BMI cutoff strictly > 40."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_profilaxia.py
+      lines: "23-36"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      DISCREPANCY: heparin frequency differs between the two TEV criteria for the same renal
+      condition - 8/8h (criterio_4) vs 12/12h (criterio_5). Recorded verbatim; do not reconcile.
+
+  - id: RULE-profilaxia-BE-01-006
+    name: Prophylaxis v1 - hyperglycemia insulin NPH sliding regimen
+    category: drug-dosing
+    type: formula
+    status: OK
+    description: >
+      Subcutaneous insulin regimen for recurrent hyperglycemia (profilaxia v1 criterio_7).
+    inputs:
+      - {name: peso, type: float, unit: kg, range: null}
+      - {name: HGT (capillary glucose), type: float, unit: mg/dl, range: null}
+    outputs:
+      - {name: NPH total daily dose, type: float, unit: U, range: null}
+      - {name: regular insulin correction, type: float, unit: U, range: null}
+    logic: |
+      Insulin NPH: 0.3 to 0.5 U/kg/day, divided 3x/day (before meals).
+      Correction (regular insulin): +1 U for each 50 mg/dl of HGT above 150 mg/dl measured over
+      the last 24h, divided 3x/day.
+      criterio_8 alternative: recurrent hyperglycemia -> "Insulina em BIC - Protocolo de controle
+      glicemico UTI" (IV insulin per institutional protocol) instead of NPH.
+    edge_cases: "Correction reference point is 150 mg/dl; increment step is 50 mg/dl."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_profilaxia.py
+      lines: "46-59"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "criterio_8 duplicates the IV-insulin recommendation also present in nutricao criterio_10."
+
+  - id: RULE-profilaxia-BE-01-007
+    name: Prophylaxis v1 - LAMGD (stress ulcer) prophylaxis and invasive-device catalog
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      Remaining profilaxia v1 criteria: stress-ulcer (LAMGD) prophylaxis start/stop, early
+      mobilization, insertion bundles, and device-dwell reassessment.
+    inputs:
+      - {name: criterio flags 1,2,3,6,9,10,11, type: bool, unit: null, range: null}
+      - {name: cateter vascular dwell time, type: float, unit: days, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 ausencia de profilaxia LAMGD -> IBP (esomeprazol/pantoprazol/omeprazol VO/SNE).
+      criterio_2 alto risco lesao gastrica sem profilaxia -> IBP or cimetidina EV.
+      criterio_3 profilaxia LAMGD sem indicacao formal -> avaliar SUSPENDER (PPI raises nosocomial
+                 & VAP pneumonia risk); enteral/oral diet in stable patients dispenses prophylaxis.
+      criterio_6 indicacao de mobilizacao precoce -> deambular, sedestacao, cicloergometro.
+      criterio_9 procedimento invasivo -> aplicar bundle de prevencao de IRAs.
+      criterio_10 reavaliar retirada de cateter vascular implantado > 10 dias; SVD sem sedacao ->
+                 preferir sondagem de alivio 4/4h-6/6h.
+      criterio_11 monitorar bundles de insercao a distancia (teleUTI).
+    edge_cases: "Device reassessment cutoff strictly > 10 days (criterio_10)."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_profilaxia.py
+      lines: "1-22, 37-84"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "= profilaxia_automatica (facade/profilaxia.py). Criteria 7/8 covered in RULE-006."
+
+  - id: RULE-profilaxia-BE-01-008
+    name: Prophylaxis v3 - reduced active criteria set (LAMGD + insertion bundle only)
+    category: care-pathway
+    type: decision-tree
+    status: AMBIGUOUS
+    description: >
+      Prophylaxis v3 variant returns ONLY criterio_1 (LAMGD prophylaxis) and criterio_9 (invasive
+      procedure insertion bundle); criteria 2-8 are commented out in source.
+    inputs:
+      - {name: criterio_1 / criterio_9 flags, type: bool, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 ausencia de profilaxia LAMGD -> esomeprazol/pantoprazol/cimetidina/omeprazol.
+      criterio_9 procedimento invasivo -> preencher Bundle de prevencao de IRAs.
+    edge_cases: >
+      Commented-out criteria 3-8 in this file are copy-pasted SEPSE thresholds (Falencia
+      respiratoria VMI<24h, Hipotensao PAS<90/PAM<60, TEC>3s, lactato>=3, oliguria<=0.5) that do
+      not belong to prophylaxis - dead code, ignored by runtime.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_profilaxia_v3.py
+      lines: "1-51"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: >
+      Consumed by trilha_automatica/models/trilhas_v3/trilha_profilaxia.py (out of scope). AMBIGUOUS
+      because the v3 catalog is far sparser than v1 (RULE-007) yet is the active payload for the v3
+      model - unclear whether intentional narrowing or incomplete migration.
+
+  # ============================ EQUILIBRIO ============================
+  - id: RULE-equilibrio-BE-01-009
+    name: Fluid balance - positive fluid balance and maintenance-fluid limits
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: >
+      Fluid-balance ("equilibrio") criteria 1-4 governing very-positive fluid balance,
+      accumulated positive balance, unnecessary maintenance fluids, and falling diuresis.
+    inputs:
+      - {name: balanco hidrico 24h, type: float, unit: ml/24h, range: null}
+      - {name: diurese trend, type: float, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 balanco hidrico > 3000 ml/24h -> reduzir/suspender soroterapia, concentrar
+                 drogas de infusao continua, considerar diureticos p/ zerar BH.
+      criterio_2 BH acumulado muito positivo -> suspender soroterapia; se manter reduzir p/ 5 ml/h;
+                 evitar expansao volemica/bolus de cristaloide.
+      criterio_3 soroterapia desnecessaria -> reduzir p/ 5 ml/h; preferir agua VO/SNE ate ~2400 ml/dia.
+      criterio_4 reducao da diurese nas ultimas 6h -> avaliar funcao renal, hidratacao, risco de
+                 SEPSE, retencao urinaria/obstrucao SVD, status volemico por USG.
+    edge_cases: "Very-positive BH cutoff strictly > 3000 ml/24h. Maintenance floor 5 ml/h."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_equilibrio.py
+      lines: "1-36"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "= equilibrio_automatica."
+
+  - id: RULE-equilibrio-BE-01-010
+    name: Fluid balance - severe hyperkalemia (K>6) rescue protocol
+    category: drug-dosing
+    type: workflow
+    status: OK
+    description: >
+      Emergency treatment protocol for severe hyperkalemia (equilibrio criterio_9), including a
+      timed reassessment and escalation.
+    inputs:
+      - {name: potassio serico, type: float, unit: mEq/L (labelled mg/dl in source), range: null}
+      - {name: peso, type: float, unit: kg, range: null}
+    outputs:
+      - {name: medication protocol, type: string, unit: null}
+    logic: |
+      IF K > 6 (grave): Gluconato de Calcio 1 ampola EV; Furosemida 20 mg 3 ampolas EV bolus;
+        solucao polarizante (insulina + soro glicofisiologico); fenoterol OU salbutamol inalatorio
+        10 gotas, 3 doses de 15 em 15 min.
+      Reavaliar K serico apos 4h: IF K > 5.5 -> repetir esquema anterior + Bicarbonato de sodio
+        8.4% 1 ml/kg + Sorcal (via oral apenas) 1 envelope 15 g 8/8h.
+    edge_cases: >
+      Initial trigger K > 6; reassessment threshold K > 5.5 at +4h. Source writes potassium unit
+      as "mg/dl"/"mg/dl" (should be mEq/L or mmol/L) - reproduced verbatim.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_equilibrio.py
+      lines: "64-73"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "Bicarbonate dose 1 ml/kg of 8.4% solution. Sorcal restricted to oral route."
+
+  - id: RULE-equilibrio-BE-01-011
+    name: Fluid balance - hypernatremia (Na>160) correction and renal/morphine cautions
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: >
+      Equilibrio criteria 5-8 and 10: nephrotoxic drug substitution on worsening renal function,
+      morphine avoidance in renal impairment, and hypernatremia correction.
+    inputs:
+      - {name: sodio serico, type: float, unit: mEq/L, range: null}
+      - {name: clearance de creatinina, type: float, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_5/6 piora funcao renal + drogas nefrotoxicas -> substituir Cefepime->Tazocin,
+                 Vancomicina->Linezolida, losartan/captopril/enalapril->bloqueador de canal de calcio.
+      criterio_7/8 clearance de creatinina prejudicado -> suspender/substituir Morfina por fentanil,
+                 cetamina, metadona (risco de acumulo de metabolitos, coma).
+      criterio_10 hipernatremia Na > 160 -> agua filtrada 400 ml 6/6h VO/SNE;
+                 Cloreto de sodio 0.22% a 84 ml/h; Hidroclorotiazida 25 mg 2 comp 1x/dia (refrataria).
+    edge_cases: "Hypernatremia cutoff strictly Na > 160."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_equilibrio.py
+      lines: "37-63, 74-81"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  # ============================ ESTABILIDADE (v3) ============================
+  - id: RULE-estabilidade-BE-01-012
+    name: Hemodynamic stability - vasopressor / inotrope escalation ladder
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: >
+      Septic-shock vasopressor and inotrope escalation thresholds (estabilidade criteria 7-9),
+      surfaced when noradrenaline dose crosses fixed cutoffs or dobutamine-induced tachycardia.
+    inputs:
+      - {name: noradrenalina dose, type: float, unit: mcg/kg/min, range: null}
+      - {name: FC, type: float, unit: bpm, range: null}
+    outputs:
+      - {name: escalation regimen, type: string, unit: null}
+    logic: |
+      criterio_7 noradrenalina > 0.5 mcg/kg/min -> Hidrocortisona 50 mg EV 6/6h (or switch current
+        corticoid to hydrocortisone) + Vasopressina EV continua 6 ml/h (dose maxima; diluicao
+        institucional: Vasopressina 2 amp em SG5% 98 ml).
+      criterio_8 noradrenalina > 1.5 mcg/kg/min -> associar Adrenalina (1 mg/mL, 1 amp 10 mL em
+        SG5% 90 mL = 0.1 mg/mL; iniciar 10 ml/h, progredir ate 100 ml/h).
+      criterio_9 choque refratario + altas doses de dobutamina: se FC > 130 bpm considerar SUSPENDER
+        dobutamina (taquicardia reduz enchimento de VE e debito cardiaco) e associar Adrenalina
+        (mesma diluicao/titulacao acima).
+    edge_cases: "Noradrenaline cutoffs strictly >0.5 and >1.5 mcg/kg/min; tachycardia cutoff FC>130."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_estabilidade.py
+      lines: "58-85"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      = estabilidade_automatica. Note noradrenaline unit is mcg/kg/MIN here vs mcg/kg/H in the
+      estabilizacao variant criterio_3 (RULE-015) - cross-ref; likely a units inconsistency.
+
+  - id: RULE-estabilidade-BE-01-013
+    name: Hemodynamic stability - perfusion/shock triggers and bicarbonate restriction
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: >
+      Estabilidade criteria 1-6 and 11: myocardiopathy/perfusion triggers, occult shock, fluid
+      challenge on negative balance, shock index, and restricted bicarbonate use in sepsis.
+    inputs:
+      - {name: lactato arterial, type: float, unit: mmol/L, range: null}
+      - {name: ScVO2 (saturacao venosa central), type: float, unit: '%', range: null}
+      - {name: delta PCO2, type: float, unit: mmHg, range: null}
+      - {name: balanco hidrico acumulado, type: float, unit: ml, range: null}
+      - {name: pH, type: float, unit: null, range: null}
+      - {name: bicarbonato (BIC), type: float, unit: mEq/L, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 miocardiopatia septica -> prova volemica + dobutamina SE lactato > 2 mmol/L
+                 OR ScVO2 < 70% OR delta PCO2 > 6; solicitar ecocardiograma.
+      criterio_2 inicio de noradrenalina fora do protocolo SEPSE -> checar ressuscitacao, culturas,
+                 dispositivos > 5 dias, abertura da ficha; garantir PAI + noradrenalina via CVC.
+      criterio_3 lactato > 2 mmol/L sem DVA e sem VM (choque oculto) -> abrir ficha, prova volemica,
+                 dobutamina; se refratario IOT + sedoanalgesia RASS -2 a -3.
+      criterio_4 choque septico em ventilacao espontanea -> IOT p/ otimizar DO2/VO2, RASS -2 a -3.
+      criterio_5 BH acumulado negativo > 2000 ml -> desafio hidrico 500 ml Ringer bolus ate 30 ml/kg.
+      criterio_6 indice de choque positivo -> checar disfuncao organica, abrir SEPSE, 500ml Ringer ate 30ml/kg.
+      criterio_11 bicarbonato na SEPSE: indicar APENAS se pH < 7.15 E BIC < 16.
+    edge_cases: "Cutoffs: lactato>2, ScVO2<70, deltaPCO2>6, BH negativo>2000ml, bicarb pH<7.15 AND BIC<16."
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_estabilidade.py
+      lines: "1-57, 92-101"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "criteria 10,12,13 are qualitative antihypertensive-management alerts (no numeric cutoffs)."
+
+  # ============================ ESTABILIZACAO (older variant) ============================
+  - id: RULE-estabilizacao-BE-01-014
+    name: Stabilization (trilha2) - shock work-up and vasopressor escalation catalog
+    category: care-pathway
+    type: decision-tree
+    status: AMBIGUOUS
+    description: >
+      Older stabilization payload (payload_estabilizacao_automatica, consumed by trilha2 model).
+      Criteria for malperfusion, noradrenaline initiation, high-dose noradrenaline, hyperlactatemia,
+      antihypertensives in shock, and refractory shock with dobutamine.
+    inputs:
+      - {name: noradrenalina dose, type: float, unit: mcg/kg/h (as labelled), range: null}
+      - {name: FC, type: float, unit: bpm, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 ma perfusao (TEC prolongado) -> checar lactato/ScVO2/deltaPCO2, prova volemica ou inotropico.
+      criterio_2 noradrenalina iniciada nas ultimas 24h -> checar ressuscitacao/culturas/dispositivos/SEPSE;
+                 garantir PAI e noradrenalina via CVC.
+      criterio_3 noradrenalina dose alta > 0.5 mcg/kg/h -> Hidrocortisona 50 mg EV 6/6h + Vasopressina EV continua.
+      criterio_4 hiperlactatemia -> checar TEC/ScVO2/deltaPCO2, prova volemica + dobutamina.
+      criterio_5 choque + anti-hipertensivos -> suspender anti-hipertensivo/beta-bloqueador.
+      criterio_6 choque refratario + altas doses nora+dobutamina: FC > 130 bpm -> reduzir/suspender dobutamina.
+      criterio_7 (alerta "Noradrenalina >0,5mcg/kg/min, associar corticoide e vasopressina") - EMPTY recomendacoes.
+      criterio_10 (alerta "Noradrenalina e anti-hipertensivos na prescricao") - EMPTY recomendacoes.
+    edge_cases: >
+      Structural gap: keys jump criterio_6 -> criterio_7 -> criterio_10 (criteria 8 and 9 absent).
+      criterio_7 alerta contains a stray smart-quote after "vasopressina". noradrenaline dose unit
+      is mcg/kg/H (criterio_3) which conflicts with mcg/kg/MIN used in estabilidade v3.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_estabilizacao.py
+      lines: "1-54"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: medium
+    notes: >
+      AMBIGUOUS: overlaps heavily with estabilidade v3 (RULE-012/013) but with sparser content,
+      missing criteria, and a units discrepancy on the noradrenaline threshold. Both are live (this
+      one feeds trilha2). Cross-ref RULE-012.
+
+  # ============================ SEDACAO ============================
+  - id: RULE-sedacao-BE-01-015
+    name: Sedation/analgesia - RASS targets, BNM, PRIS, analgesia ladder (v2 = sedacao_automatica)
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: >
+      Sedation/analgesia pathway (get_payload_trilha_sedacao, the active automatica variant).
+      Governs sedation depth targets, neuromuscular blocker (BNM) use, propofol PRIS monitoring,
+      and the pain-management drug ladder.
+    inputs:
+      - {name: RASS, type: float, unit: points, range: -5 to 4}
+      - {name: P/F ratio, type: float, unit: null, range: null}
+      - {name: propofol duration, type: float, unit: days, range: null}
+      - {name: creatinina, type: float, unit: mg/dl, range: null}
+      - {name: FR, type: float, unit: ipm, range: null}
+    outputs:
+      - {name: sedation/analgesia recommendation, type: string, unit: null}
+    logic: |
+      criterio_2 reavaliar sedacao: suspender sedoanalgesia continua FORA das indicacoes: 1-EME,
+        2-PCR <24h, 3-SHIC, 4-SDRA moderada/grave, 5-fase aguda choque septico, 6-cuidados paliativos.
+      criterio_3 P/F > 150 + uso de BNM -> interromper BNM continuo (beneficio questionavel sem PRONA e P/F>150).
+      criterio_4 altos parametros de VM -> alvo RASS <= -2 (iniciar/aprofundar sedacao).
+      criterio_5 despertar diario: reduzir sedoanalgesia pela METADE da velocidade de infusao as 06h.
+      criterio_7 dor moderada -> tramal 100mg / metadona 10mg / paracetamol+codeina 750+30mg ate 4x/dia
+        +/- dipirona 1g / paracetamol 750mg; reavaliar em 2h.
+      criterio_8 dor intensa -> Morfina 2 mg EV, reavaliar a cada 1h ate max 10 mg; se refrataria OU
+        creatinina > 2.5 mg/dl -> Fentanil BIC a 2 ml/h (50 mcg/h); reavaliar em 2h.
+      criterio_9 RASS < -2 sem indicacao -> reduzir >= metade da infusao ou suspender; RASS profundo
+        justificado apenas em EME, PCR<24h, SHIC, SDRA com P/F < 150.
+      criterio_11 propofol > 4 dias (risco PRIS) -> TG/CK/TGO/TGP 72/72h; suspender ou trocar por
+        midazolam/cetamina.
+      criterio_12 TRE + taquidispneia FR > 22 ipm -> Morfina 2mg EV + Haldol EV ou Dexmedetomidina.
+    edge_cases: >
+      Cutoffs: P/F>150, RASS<=-2 target / RASS<-2 excess, creatinina>2.5, propofol>4d, FR>22.
+      Morphine titration ceiling 10 mg. Daily-awakening reduction is exactly one half the infusion rate.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_sedacao.py
+      lines: "94-185"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      The module-level payload_trilha_sedacao (lines 1-91) is a near-identical v1 with a few label
+      differences (criterio_5 "Nao realizado despertar diario" vs v2 "considerar despertar diario";
+      criterio_1 "Overdose" vs "Overdose... considerar reducao"; criterio_7/8 label wording). v1 is
+      NOT the active automatica variant. Same analgesia numbers in both.
+
+  # ============================ EFICIENCIA ============================
+  - id: RULE-eficiencia-BE-01-016
+    name: Efficiency/de-escalation - transfusion thresholds and resource-use catalog (automatica)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: >
+      Active efficiency payload (get_payload_trilha_eficiencia = eficiencia_automatica): flags
+      redundant exams, UTI discharge readiness, and evidence-based transfusion restriction
+      thresholds, plus delirium/mobilization/palliative/restraint alerts.
+    inputs:
+      - {name: hemoglobina (Hb), type: float, unit: g/dl, range: null}
+      - {name: plaquetas (Plq), type: int, unit: /mm3, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 exame redundante -> reavaliar beneficio de repetir em curto periodo.
+      criterio_2 alta da UTI por melhora clinica (estavel, bom padrao respiratorio, afebril).
+      criterio_3 reavaliar transfusao de hemacias SE Hb >= 7 (sem sangramento ativo / lesao cerebral
+                 aguda / sindrome coronariana aguda -> sem beneficio).
+      criterio_4 reavaliar 2a unidade de hemacias SE Hb > 6 (sem as excecoes acima -> prescrever apenas 1u).
+      criterio_5 reavaliar transfusao de plaquetas SE Plq > 25000 (sem procedimento invasivo/sangramento).
+      criterio_6 considerar inicio de cuidados paliativos.
+      criterio_7 alto risco de delirium -> medidas de controle.
+      criterio_8 indicar mobilizacao (deambular, poltrona, banheiro).
+      criterio_9 suspeita de morte encefalica -> manutencao do potencial doador.
+      criterio_10 reavaliar indicacao de contencao mecanica.
+    edge_cases: >
+      Transfusion cutoffs written as Hb>=7 in the label of criterio_3 but body text says Hb>=7; Hb>6
+      for a second RBC unit; platelets >25000. Reproduced verbatim.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_eficiencia.py
+      lines: "94-155"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      DISCREPANCY/naming hazard: the SAME file also defines a module-level dict
+      payload_trilha_eficiencia (lines 1-92) whose content is SEDATION/analgesia (identical to
+      trilha_sedacao module dict: overdose de sedoanalgesia, BNM, PRIS, dor moderada/intensa),
+      NOT efficiency. Only the get_ function (this rule) is wired as eficiencia_automatica; the
+      module dict appears mislabeled/unused for efficiency. Cross-ref RULE-015.
+
+  # ============================ NUTRICAO ============================
+  - id: RULE-nutricao-BE-01-017
+    name: Nutrition therapy - enteral tolerance, gastric residual and contraindication thresholds
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      Nutrition pathway (= nutricao_automatica): diet prescription, SNE need, tolerance/gastric
+      residual limits, diarrhea management, malperfusion feeding, prokinetics, GI bleed, NPT, and
+      hyperglycemia.
+    inputs:
+      - {name: volume residual gastrico (VRG), type: float, unit: ml/6h, range: null}
+      - {name: numero de evacuacoes, type: int, unit: count/24h, range: null}
+      - {name: noradrenalina rate, type: float, unit: ml/h, range: null}
+      - {name: Hb / plaquetas, type: float, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 sem dieta prescrita -> prescrever dieta ou "Dieta Zero" justificada. Do NOT suspend
+        nutrition merely for: vomito, diarreia, reducao de RHA, exames (com TOT), VRG < 500ml/6h,
+        DVA, prona, pancreatite aguda grave, encefalopatia hepatica, varizes esofagicas, pre-traqueo.
+      criterio_2 necessidade de SNE -> passar SNE, iniciar infusao apos conferir posicionamento.
+      criterio_3 dieta interrompida sem justificativa -> checar contraindicacoes: perfusao muito
+        reduzida, noradrenalina > 30 ml/h (= 0.05 mcg/kg/min), melena/hematemese/enterorragia,
+        cirurgia media/grande porte pendente, VRG > 500 ml nas ultimas 6h.
+      criterio_4 diarreia >= 5 evacuacoes OR >= 3 "liquidas" em 24h -> Saccharomyces boulardii,
+        loperamida (se sem febre/distensao); se >48h com febre/piora -> pesquisar toxina A/B
+        C. difficile + Metronidazol 500 mg 8/8h.
+      criterio_5 intolerancia (VRG aumentado) -> procineticos; se VRG > 500 ml nas ultimas 6h,
+        interromper dieta por 2h e reavaliar.
+      criterio_6 dieta em paciente mal perfundido -> procineticos + infundir dieta a 30 ml/h (trofismo).
+      criterio_7 VM sem procineticos -> iniciar metoclopramida/bromoprida/domperidona/simeticona.
+      criterio_8 hemorragia digestiva -> Dieta Zero, suspender heparina profilatica/AAS/clopidogrel,
+        EDA, omeprazol 40 mg EV 12/12h; hemotransfusao SO se Hb < 7 e plaquetas < 150000.
+      criterio_9 NPT -> acesso venoso profundo dedicado + reposicao vitaminica programada.
+      criterio_10 hiperglicemia em paciente instavel -> Insulina em BIC (protocolo UTI).
+    edge_cases: >
+      Gastric residual cutoff 500 ml/6h (interrupt for 2h). Diarrhea cutoff >=5 total OR >=3 liquid /
+      24h. Vasopressor feeding contraindication noradrenaline >30 ml/h equated to 0.05 mcg/kg/min.
+      GI-bleed transfusion trigger Hb<7 AND platelets<150000.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_nutricao.py
+      lines: "1-87"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  # ============================ VENTILACAO ============================
+  - id: RULE-ventilacao-BE-01-018
+    name: Ventilation/weaning - protective settings, tracheostomy timing, PRONA, O2 targets
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      Ventilation pathway (= ventilacao_automatica): lung-protective ventilation, PEEP/FiO2 table
+      titration, spontaneous-breathing readiness, tracheostomy timing, PRONA indication, and
+      oxygen-target de-escalation.
+    inputs:
+      - {name: peso ideal, type: float, unit: kg, range: null}
+      - {name: P/F ratio, type: float, unit: null, range: null}
+      - {name: TOT dwell time, type: float, unit: days, range: null}
+      - {name: idade, type: float, unit: years, range: null}
+      - {name: SatO2, type: float, unit: '%', range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 VM nao protetora -> VC 4 ml/kg do peso ideal, acidose respiratoria permissiva.
+      criterio_2 titulacao PEEP inadequada p/ SDRA leve-moderada -> tabela PEEPxFiO2 (SDRA mod/grave;
+                 se COVID -> tabela SDRA leve, PEEP baixa).
+      criterio_3 titulacao PEEP p/ P/F < 150 -> tabela PEEPxFiO2 SDRA mod/grave (PEEP alta);
+                 COVID -> tabela SDRA leve (PEEP baixa).
+      criterio_4 bom nivel de consciencia + baixos parametros -> teste de prontidao -> TRE.
+      criterio_5 dependente de VM por TOT > 10 dias sem progressao -> solicitar Traqueostomia.
+      criterio_6 COVID-19 dependente de VM > 14 dias sem progressao -> Traqueostomia.
+      criterio_7 SDRA moderada-grave -> PRONA 16 a 20h (tecnica envelope), RASS -4 a -5, +/- BNM continuo.
+      criterio_8/9 oportunidade de TRE -> se DPOC/ICC/falha de extubacao previa/idade > 75 anos ->
+                 VNI facilitadora por ate 2h imediatamente apos extubacao.
+      criterio_10 reducao de O2: algoritmo 1 SatO2 > 96% -> reduzir O2 (evitar hiperoxia);
+                 algoritmo 2 DPOC com SatO2 > 92% -> reduzir para manter 88-92%.
+    edge_cases: >
+      Cutoffs: VC 4 ml/kg ideal weight; P/F<150; TOT>10d (14d if COVID); age>75; SatO2>96% general
+      target de-escalation; DPOC target band 88-92%. PRONA duration 16-20h, RASS -4 to -5. VNI <=2h.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_ventilacao.py
+      lines: "1-104"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "PEEPxFiO2 tables referenced but not defined in this payload (external protocol)."
+
+  # ============================ ANTIMICROBIANO ============================
+  - id: RULE-antimicrobiano-BE-01-019
+    name: Antimicrobial stewardship - duration, spectrum, dose-adjustment and candidemia catalog
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: >
+      Antimicrobial pathway (= antimicrobiano_automatica): 12 stewardship criteria on duration,
+      spectrum de-/escalation, weight/renal dose adjustment, CVC-related infection, empiric
+      candidemia, culture solicitation, and CAP/COVID de-escalation.
+    inputs:
+      - {name: antibiotic duration, type: float, unit: days, range: null}
+      - {name: internacao time, type: float, unit: hours, range: null}
+      - {name: CVC dwell time, type: float, unit: days, range: null}
+      - {name: TAX, type: float, unit: degC, range: null}
+      - {name: PCR, type: float, unit: null, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 mesmo antibiotico > 7 dias -> considerar suspensao.
+      criterio_2 antibiotico de curto espectro iniciado com internacao > 48h -> suspender OU
+                 escalonar (Tazocin/Cefepime) + parecer infectologia.
+      criterio_3 ajuste de dose pelo PESO (tabela via imagem). SEM ajuste renal: Polimixina B,
+                 Linezolida, Oxacilina, Tigeciclina, Clindamicina.
+      criterio_4 ajuste de dose pela FUNCAO RENAL / clearance reduzido (tabela via imagem); mesmas
+                 excecoes de nao-ajuste renal.
+      criterio_5 reavaliar duracao (suspender por tempo/melhora; se refratario coletar culturas +
+                 imagem + escalonar).
+      criterio_6 atraso na administracao -> acionar enfermeiro/plantonista.
+      criterio_7 CVC > 7 dias evoluindo com febre -> avaliar retirada/troca + hemocultura x2.
+      criterio_8 Febre > 38.3 degC + CVC > 7 dias -> considerar retirada + hemocultura x2.
+      criterio_9 risco de candidemia -> Anidulafungina/Micafungina/Caspofungina + parecer + culturas
+                 (sangue x2, traqueal, urina, RX, EAS).
+      criterio_10 risco de candidemia -> equinocandina + parecer + 2 amostras de cultura p/ FUNGOS.
+      criterio_11 iniciado antimicrobiano -> solicitar culturas.
+      criterio_12 antibioticoterapia p/ PAC com PCR < 100 OU COVID-19 confirmado -> considerar
+                 suspensao; considerar DPOC/congestao/broncoaspiracao.
+    edge_cases: >
+      Cutoffs: same-antibiotic >7d; short-spectrum start with internacao >48h; CVC >7d; fever
+      >38.3 degC; PCR <100. Dose-adjustment tables are external images (S3 URLs) not inline.
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_antimicrobiano.py
+      lines: "1-94"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      criterio_9 and criterio_10 share the identical alerta label ("Paciente grave com risco de
+      candidemia") but differ in recommended cultures (bacteria+fungi work-up vs fungi-only).
+
+  # ============================ GLOSA ZERO ============================
+  - id: RULE-glosa-BE-01-020
+    name: Glosa-zero - billing/documentation timing and compliance catalog
+    category: billing-administrative
+    type: threshold
+    status: OK
+    description: >
+      Billing-integrity ("glosa zero", = glosa_zero_automatica) pathway: 16 criteria flagging late
+      medication checks, missing/late signatures and physician notes, VM filter change compliance,
+      antimicrobial-parecer requirements, and dispensed-not-prescribed items.
+    inputs:
+      - {name: atraso na checagem, type: float, unit: hours, range: null}
+      - {name: atraso na assinatura, type: float, unit: hours, range: null}
+      - {name: troca de filtro VM interval, type: float, unit: hours, range: null}
+      - {name: hora do dia (evolucao diurna), type: float, unit: hour-of-day, range: null}
+    outputs:
+      - {name: alerta + recomendacoes, type: string, unit: null}
+    logic: |
+      criterio_1 checagem de medicacao atrasada > 1h -> verificar cancelamento ou administrar/registrar.
+      criterio_2 checagem de medicacao atrasada > 2h -> administrar de imediato e registrar.
+      criterio_3 ausencia de assinatura do registro > 1h E < 6h apos liberacao -> assinar digitalmente.
+      criterio_4 troca do filtro umidificador da VM com < 72h sem justificativa (formulario TASY).
+      criterio_5 ausencia de evolucao medica diurna ate 14h -> realizar antes do fim do plantao de 12h.
+      criterio_6 ausencia de evolucao medica noturna do periodo anterior -> comunicar coordenador.
+      criterio_7 filtro umidificador de VM usado sem indicacao -> registrar inicio de VM.
+      criterio_8 ausencia de assinatura -> relogar, digitar PIN, liberar.
+      criterio_9 ausencia de assinatura (plantao anterior) -> envolver coordenacao.
+      criterio_10/11 inicio de antimicrobiano sem parecer de infectologista -> registrar/parecer.
+      criterio_12 ausencia de parecer apos solicitacao ao inicio do ciclo de antimicrobiano
+                 (especialmente > 7 dias de duracao).
+      criterio_13 ausencia de evolucao medica diurna (matutino) -> realizar/envolver coordenacao.
+      criterio_14 ausencia de evolucao medica noturna -> realizar/envolver coordenacao.
+      criterio_15 ausencia de evolucao do medico intensivista (diaria) -> realizar/envolver coordenacao.
+      criterio_16 material/medicamento dispensado e nao prescrito -> realizar prescricao do item.
+    edge_cases: >
+      Timing cutoffs: med check >1h (c1) / >2h (c2); signature window >1h AND <6h (c3); VM filter
+      change <72h flagged (c4); daytime physician note deadline 14h / within 12h shift (c5);
+      antimicrobial-parecer emphasis when duration >7 days (c12).
+    source:
+      repo: ahlabs-trilhas
+      path: core/facade/trilha_glosa_zero.py
+      lines: "1-101"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: "criteria 1&2 form a graded med-check delay escalation; 3,8,9 and 5,6,13,14,15 are documentation-signature/evolution duplicates."
+
+  # ============================ CONFIG / VARIANT SELECTION ============================
+  - id: RULE-config-BE-01-021
+    name: Automatica facade - active payload variant selection per trilha
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: >
+      The facade __init__ binds each trilha's "_automatica" alert payload to a SPECIFIC variant.
+      For several trilhas two variants coexist (module dict vs get_ function, or v1 vs v3) and this
+      mapping determines which one the automatic engine actually serves.
+    inputs:
+      - {name: trilha name, type: string, unit: null, range: null}
+    outputs:
+      - {name: bound payload symbol, type: reference, unit: null}
+    logic: |
+      payload_sepse_automatica       = payload_trilha_sepse            (variant B, 27 criteria)
+      payload_sepse_automatica_v3    = get_payload_trilha_sepse()      (variant C, 20 criteria + thresholds)
+      payload_sedacao_automatica     = get_payload_trilha_sedacao()    (v2 fn, NOT the module dict)
+      payload_eficiencia_automatica  = get_payload_trilha_eficiencia() (efficiency fn, NOT the sedation module dict)
+      payload_estabilidade_automatica= get_payload_trilha_estabilidade()
+      payload_trilha_profilaxia_automatica = payload_trilha_profilaxia (v1 module dict, NOT the v3 fn)
+      payload_equilibrio_automatica  = payload_trilha_equilibrio
+      payload_ventilacao_automatica  = payload_trilha_ventilacao
+      payload_antimicrobiano_automatica = payload_trilha_antimicrobiano
+      payload_nutricao_automatica    = payload_trilha_nutricao
+      payload_glosa_zero_automatica  = payload_trilha_glosa_zero
+      # estabilizacao is NOT re-exported here; imported directly by trilha2 model
+      # from trilha_automatica.facade.estabilizacao
+    edge_cases: >
+      "from .equilibrio import payload_equilibrio_automatica" appears twice (lines 2 and 7) - a
+      harmless duplicate import. estabilizacao_automatica is intentionally absent from __init__.
+    source:
+      repo: ahlabs-trilhas
+      path: trilha_automatica/facade/__init__.py
+      lines: "1-12"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Load-bearing wiring: choosing get_ vs module payloads changes which criterion set and which
+      thresholds are active. Cross-ref RULE-015/016 (sedacao/eficiencia dual payloads),
+      RULE-007/008 (profilaxia v1 vs v3), RULE-001/002/003 (sepse variants).
+
+  # ============================ OPERATIONAL TASKS ============================
+  - id: RULE-ops-BE-01-022
+    name: Assistido flag reset - 1-minute update window
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: >
+      Celery task that clears the "assistido" (attended) flag on automatic trilhas that were
+      updated in the last minute but not themselves assisted in the last minute.
+    inputs:
+      - {name: dt_atualizacao, type: datetime, unit: null, range: null}
+      - {name: assistido_em, type: datetime, unit: null, range: null}
+    outputs:
+      - {name: assistido / assistido_por / assistido_em reset, type: fields, unit: null}
+    logic: |
+      now = datetime.now().astimezone()
+      For each trilha in Leito.get_trilhas_automaticas_v2():
+        rows = trilha.objects
+          .exclude(assistido_em__gte = now - 1 minute)
+          .filter(dt_atualizacao__gte = now - 1 minute, dt_atualizacao__lte = now)
+        rows.update(assistido=False, assistido_por=None, assistido_em=None)
+      limpar_todos_os_assistidos(): over Leito.get_trilhas_automaticas() (v1 set) resets ALL rows
+        unconditionally.
+    edge_cases: >
+      Window is exactly timedelta(minutes=1), timezone-aware (astimezone()). Boundary uses >= for
+      lower bound and <= for upper. Uses v2 trilha set for the windowed reset but the v1 set for the
+      full wipe.
+    source:
+      repo: ahlabs-trilhas
+      path: trilha_automatica/tasks/atualizar_assistido.py
+      lines: "12-34"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null
+
+  - id: RULE-ops-BE-01-023
+    name: Interactive sepsis - overdue item auto-check and alert message
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: >
+      Celery task scanning interactive sepsis trilhas for overdue checklist items and emitting a
+      delay observation message from the system user.
+    inputs:
+      - {name: trilha.leito.ocupado, type: bool, unit: null, range: null}
+      - {name: finalizado / aceito flags, type: bool, unit: null, range: null}
+      - {name: item.atraso_item_interativa, type: bool, unit: null, range: null}
+    outputs:
+      - {name: observacao message, type: string, unit: null}
+    logic: |
+      For each TrilhaInterativaSpese WHERE trilha.leito.ocupado = True
+          AND finalizado = False AND aceito = True:
+        For each item in itens_trilha_interativa:
+          checagem_envio_automatico(item)   # out-of-scope: computes atraso flag
+          IF item.atraso_item_interativa:
+            message = f"A checagem do item {item.nome_item} esta atrasada"
+            enviar_observacao_trilha_interativa(message, tipo_trilha="sepse",
+              trilha_interativa=item.trilha_interativa,
+              responsavel=Usuario(username="sistema").get_pk)
+    edge_cases: >
+      Only occupied beds and accepted, non-finalized interactive trilhas are scanned. The overdue
+      predicate itself (atraso_item_interativa / checagem_envio_automatico) is computed in
+      core.utils (out of scope). tipo_trilha hard-coded to "sepse".
+    source:
+      repo: ahlabs-trilhas
+      path: trilha_automatica/tasks/checagem_trilha_interativa.py
+      lines: "12-28"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: null

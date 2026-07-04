@@ -1,0 +1,98 @@
+- rule_id: RULE-SEPSE-051
+  reference:
+    citation: "Bone RC et al. ACCP/SCCM Consensus Conference (1992) Chest 101:1644; Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS International Sepsis Definitions Conference, Crit Care Med 2003;31:1250. SIRS WBC criterion: >12,000/mm3 OR <4,000/mm3 OR >10% immature (band) forms."
+    url: "https://www.mdcalc.com/calc/1096/sirs-sepsis-septic-shock-criteria"
+  checks:
+    equation: ok
+    coefficients: "leukocytosis cutoff 12,000/mm3 matches SIRS exactly"
+    units: "/mm3 (cells/uL) - correct, no unit mismatch"
+    ranges: "0-40000 plausible; strict > comparison"
+    rounding: "n/a (integer count, strict >)"
+    cutoffs: "> 12000 strict matches SIRS leukocytosis arm; leukopenia (<4000) and bandemia (>10%) arms of the SIRS WBC criterion are NOT implemented (commented out) - scoped to leukocytosis only"
+  test_vectors:
+    - {inputs: {leucocitos: 12000}, expected_reference: "not leukocytosis (>12000 strict) -> False", actual_legacy: "12000>12000 -> False", match: true}
+    - {inputs: {leucocitos: 12001}, expected_reference: "leukocytosis -> True", actual_legacy: "12001>12000 -> True", match: true}
+    - {inputs: {leucocitos: 13000}, expected_reference: "leukocytosis -> True", actual_legacy: "True", match: true}
+    - {inputs: {leucocitos: 3000}, expected_reference: "SIRS WBC criterion POSITIVE via leukopenia (<4000)", actual_legacy: "3000>12000 -> False (leukopenia arm not implemented)", match: false}
+  verdict: VERIFIED
+  clinical_impact: low
+  notes: "Leukocytosis threshold 12,000/mm3 matches the SIRS/Sepsis-2 WBC criterion exactly (equation, units, cutoff all correct). The rule is deliberately scoped to leukocytosis as a single MINOR criterion; the full SIRS WBC criterion also fires on WBC<4000 or >10% bands, which this active version omits (older leukopenia/delta variant present but commented out, lines 427-456). Missing the leukopenia arm could under-detect neutropenic/immunosuppressed sepsis, but as one minor among many two-axis criteria the impact is low. Falsy guard: leucocitos 0/None -> False. Test test_trilha_sepse.py:226-238."
+
+- rule_id: RULE-SEPSE-052
+  reference:
+    citation: "Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS International Sepsis Definitions Conference (Crit Care Med 2003;31:1250) - thrombocytopenia (platelet <100,000/uL) listed as an organ-dysfunction variable; Vincent JL et al. SOFA score (Intensive Care Med 1996;22:707) coagulation subscore = 2 points at platelets <100 x10^3/uL."
+    url: "https://www.mdcalc.com/calc/691/sequential-organ-failure-assessment-sofa-score"
+  checks:
+    equation: ok
+    coefficients: "platelet cutoff 100,000/mm3 matches severe-sepsis organ-dysfunction / SOFA coag-2 threshold"
+    units: "/mm3 (cells/uL) - correct"
+    ranges: "0-700000 plausible; strict < comparison"
+    rounding: "n/a"
+    cutoffs: "< 100000 strict matches reference"
+  test_vectors:
+    - {inputs: {plaquetas: 100000}, expected_reference: "not thrombocytopenic at threshold (<100000 strict) -> False", actual_legacy: "100000<100000 -> False", match: true}
+    - {inputs: {plaquetas: 99999}, expected_reference: "thrombocytopenia -> True", actual_legacy: "99999<100000 -> True", match: true}
+    - {inputs: {plaquetas: 50000}, expected_reference: "thrombocytopenia -> True", actual_legacy: "True", match: true}
+    - {inputs: {plaquetas: 0}, expected_reference: "profound thrombocytopenia -> POSITIVE", actual_legacy: "0 is falsy -> False (not flagged)", match: false}
+  verdict: VERIFIED
+  clinical_impact: low
+  notes: "Cutoff, units and strict-< direction match the recognized platelet <100,000/uL organ-dysfunction threshold. Only mismatch is the falsy-guard edge: a recorded platelet value of exactly 0 (or None) returns False instead of positive; a true platelet count of 0 is not physiologically real, so impact is low. Test test_trilha_sepse.py:240-252 confirms 100000->False, 99999->True."
+
+- rule_id: RULE-SEPSE-053
+  reference:
+    citation: "No authoritative published sepsis criterion. 'Baixa aceitacao de dieta VO' (reduced oral intake) with preserved consciousness (Glasgow>=13) is an institutional early-warning/homecare screening observation, not part of SIRS, Sepsis-3, SOFA or qSOFA."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: "Glasgow>=13 inclusive - institutional; no reference equation"
+    units: "GCS points (3-15) - internally consistent"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "AND of reduced-intake flag and GCS>=13 - no published cutoff to compare"
+  test_vectors:
+    - {inputs: {baixa_aceitacao_dieta_vo: true, glasgow: 13}, expected_reference: "n/a (no reference)", actual_legacy: "all([True, True]) -> True", match: true}
+    - {inputs: {baixa_aceitacao_dieta_vo: true, glasgow: 12}, expected_reference: "n/a", actual_legacy: "all([True, False]) -> False", match: true}
+    - {inputs: {baixa_aceitacao_dieta_vo: false, glasgow: 15}, expected_reference: "n/a", actual_legacy: "all([False, True]) -> False", match: true}
+    - {inputs: {baixa_aceitacao_dieta_vo: true, glasgow: 0}, expected_reference: "n/a", actual_legacy: "glasgow falsy -> all([True, False]) -> False", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal/institutional business rule with no authoritative published source - flagged for internal clinical review, NOT treated as wrong. Legacy logic (all([reduced_intake, GCS>=13])) is internally consistent and matches its own test (test_trilha_sepse.py:254-259). GCS>=13 inclusive; glasgow 0/None coerces the second condition to False."
+
+- rule_id: RULE-SEPSE-054
+  reference:
+    citation: "Singer M et al. Sepsis-3 (JAMA 2016;315:801) qSOFA - altered mentation = any GCS <15; Vincent JL et al. SOFA (Intensive Care Med 1996;22:707) neurological subscore = 1 point at GCS 13-14 (i.e. any GCS <15 is abnormal)."
+    url: "https://www.mdcalc.com/calc/2654/qsofa-quick-sofa-score-sepsis"
+  checks:
+    equation: ok
+    coefficients: "diff - legacy uses GCS<=13; qSOFA/SOFA use GCS<15 (i.e. <=14)"
+    units: "GCS points - correct"
+    ranges: "12h lookback window (vs 24h for the lab minors)"
+    rounding: "n/a (inclusive <=)"
+    cutoffs: "diff - legacy threshold GCS<=13 is one point stricter than the reference altered-mentation threshold (GCS<15); legacy misses GCS=14"
+  test_vectors:
+    - {inputs: {glasgow: 15}, expected_reference: "not altered (GCS not <15) -> False", actual_legacy: "15<=13 -> False", match: true}
+    - {inputs: {glasgow: 14}, expected_reference: "altered mentation (GCS<15) -> POSITIVE (qSOFA/SOFA)", actual_legacy: "14<=13 -> False", match: false}
+    - {inputs: {glasgow: 13}, expected_reference: "altered -> True", actual_legacy: "13<=13 -> True", match: true}
+    - {inputs: {glasgow: 10}, expected_reference: "altered -> True", actual_legacy: "True", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Exact difference: legacy fires only at GCS<=13, whereas both qSOFA (Sepsis-3) and the SOFA neuro subscore treat any GCS<15 (i.e. GCS 14) as abnormal altered mentation. Legacy therefore misses an isolated GCS of 14 (mild confusion). Clinical impact low: this is one MINOR criterion in a multi-criteria two-axis screen, GCS 14 represents only mild depression, and other majors/minors can still trigger the alert; but it is a genuine one-point-stricter cutoff vs the authoritative reference. The active criterio_17 is Glasgow-based (an older leukocyte-based version is commented out, lines 427-456); 12h window; glasgow 0/None -> False. Test test_trilha_sepse.py:261-272."
+
+- rule_id: RULE-SEPSE-055
+  reference:
+    citation: "No authoritative published scoring reference. Central venous catheter dwell time >7 days is a CLABSI infection-source RISK FACTOR (CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections, O'Grady NP et al. 2011), not a physiological sepsis-score criterion. The >7-day duration is judged by the clinician at data entry and passed as a boolean."
+    url: "https://www.cdc.gov/infection-control/hcp/intravascular-catheter-related-infection/index.html"
+  checks:
+    equation: n/a
+    coefficients: "n/a - boolean passthrough, no computed threshold"
+    units: "days (7) captured by human, not computed"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "7-day threshold is an institutional risk-factor convention; no scored-criterion reference to verify against"
+  test_vectors:
+    - {inputs: {presenca_cvc_cdl_7_dias: false}, expected_reference: "n/a", actual_legacy: "returns False", match: true}
+    - {inputs: {presenca_cvc_cdl_7_dias: true}, expected_reference: "n/a", actual_legacy: "returns True", match: true}
+    - {inputs: {presenca_cvc_cdl_7_dias: null}, expected_reference: "n/a", actual_legacy: "returns None (else-False guard commented out; None is falsy downstream)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Infection-source risk-factor business rule, not a published/computed sepsis scale - flagged for internal review, NOT treated as wrong. Duration (>7d) is captured by the human at data entry rather than computed, so there is no equation/unit/rounding to audit. Implementation note (not a reference discrepancy): direct passthrough of presenca_cvc_cdl_7_dias with the else-False guard commented out, so a NULL field returns None rather than False; harmless because None is falsy where the criterion is counted. Test test_trilha_sepse.py:274-277."

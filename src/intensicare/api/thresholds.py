@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from intensicare.auth import require_admin
 from intensicare.core.database import get_db
 from intensicare.models.threshold_config import ThresholdConfig
+from intensicare.models.user import User
 from intensicare.schemas import (
     ThresholdConfigCreate,
     ThresholdConfigResponse,
@@ -22,9 +23,7 @@ router = APIRouter(
 )
 
 
-async def _get_threshold_or_404(
-    session: AsyncSession, threshold_id: int
-) -> ThresholdConfig:
+async def _get_threshold_or_404(session: AsyncSession, threshold_id: int) -> ThresholdConfig:
     """Fetch a threshold config by ID or raise 404."""
     result = await session.execute(
         select(ThresholdConfig).where(ThresholdConfig.id == threshold_id)
@@ -78,7 +77,7 @@ async def get_threshold(
 async def create_threshold(
     body: ThresholdConfigCreate,
     session: AsyncSession = Depends(get_db),
-    current_user: dict[str, str] = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ) -> ThresholdConfig:
     """Create a new threshold configuration (admin-only)."""
     threshold = ThresholdConfig(
@@ -91,7 +90,7 @@ async def create_threshold(
         rate_limit_per_hour=body.rate_limit_per_hour,
         cooldown_minutes=body.cooldown_minutes,
         updated_at=datetime.now(timezone.utc),
-        updated_by=current_user["sub"],
+        updated_by=current_user.username,
     )
     session.add(threshold)
     await session.commit()
@@ -108,7 +107,7 @@ async def update_threshold(
     threshold_id: int,
     body: ThresholdConfigUpdate,
     session: AsyncSession = Depends(get_db),
-    current_user: dict[str, str] = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ) -> ThresholdConfig:
     """Update an existing threshold configuration (admin-only)."""
     threshold = await _get_threshold_or_404(session, threshold_id)
@@ -118,7 +117,7 @@ async def update_threshold(
         setattr(threshold, field, value)
 
     threshold.updated_at = datetime.now(timezone.utc)
-    threshold.updated_by = current_user["sub"]
+    threshold.updated_by = current_user.username
 
     await session.commit()
     await session.refresh(threshold)
@@ -133,7 +132,7 @@ async def update_threshold(
 async def delete_threshold(
     threshold_id: int,
     session: AsyncSession = Depends(get_db),
-    _: dict[str, str] = Depends(require_admin),
+    _: User = Depends(require_admin),
 ) -> None:
     """Delete a threshold configuration (admin-only)."""
     threshold = await _get_threshold_or_404(session, threshold_id)

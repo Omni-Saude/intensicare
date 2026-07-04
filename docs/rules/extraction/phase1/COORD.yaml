@@ -1,0 +1,76 @@
+meta:
+  partition: COORD
+  repo: mixed
+  commit: "ahlabs-trilhas@8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f / trilhas-frontend@f9656be2660ec2048ce6240b4ac418b7fe7d5a5b"
+  note: >
+    Coordinator-audited residue: the 8 files remaining after all partition agents
+    reported. Examined directly by the audit coordinator.
+  files_examined:
+    - path: .github/workflows/trilhas.yml
+      rule_bearing: "yes"
+      note: CI pipeline (repo ahlabs-trilhas); see RULE-ops-COORD-001
+    - path: .gitignore
+      rule_bearing: "no"
+      note: ahlabs-trilhas ignore list; no domain rules
+    - path: geoip/GeoLite2-City.mmdb
+      rule_bearing: "no"
+      note: MaxMind GeoLite2 city database (binary); data source for log geolocation enrichment (see BE-13 log rules)
+    - path: geoip/GeoLite2-Country.mmdb
+      rule_bearing: "no"
+      note: MaxMind GeoLite2 country database (binary); same as above
+    - path: .babelrc
+      rule_bearing: "no"
+      note: trilhas-frontend babel config; antd modular import with style:true (design-relevant, covered by design inventory D-01)
+    - path: .eslintrc
+      rule_bearing: "no"
+      note: trilhas-frontend; extends next + core-web-vitals only
+    - path: .gitignore
+      rule_bearing: "no"
+      note: trilhas-frontend ignore list; no domain rules
+    - path: .vscode/launch.json
+      rule_bearing: "no"
+      note: trilhas-frontend dev-only browser launch config (localhost:3500)
+rules:
+  - id: RULE-ops-COORD-001
+    name: Backend CI gate covers only trilha_manual tests
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: >
+      Continuous integration for the backend runs on pushes to master and
+      homologacao, provisions Python 3.8 + Postgres 10 + RabbitMQ, runs
+      makemigrations+migrate, and then executes ONLY the trilha_manual test
+      suite. No other app (core, trilha_automatica, trilha_homecare, log) is
+      tested in CI; migration generation happens at CI time rather than being
+      committed.
+    inputs:
+      - name: push event branch
+        type: string
+        unit: null
+        range: "master | homologacao"
+    outputs:
+      - name: CI pass/fail
+        type: boolean
+        unit: null
+    logic: |
+      on push to [master, homologacao]:
+        setup python 3.8, postgres:10 (db 'dev-trilhas'), rabbitmq
+        pip install -r requirements.txt + psycopg2-binary
+        python manage.py makemigrations && python manage.py migrate
+        python manage.py test trilha_manual        # ONLY this app
+    edge_cases: >
+      makemigrations at CI time can generate migrations that differ from any
+      committed state; a hardcoded Postgres password ('DA-amh-2019') is
+      embedded in the workflow file (security observation for the escalation
+      report, not a functional rule).
+    source:
+      repo: ahlabs-trilhas
+      path: .github/workflows/trilhas.yml
+      lines: "1-63"
+      commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    confidence: high
+    notes: >
+      Clinical-risk relevance: the automated ICU pathway engine
+      (trilha_automatica) and homecare scoring engines (trilha_homecare) have
+      NO CI test gate; only the manual-pathway app is regression-tested.
+      Cross-reference BE-10 (trilha_manual tests encode parameter-range rules).

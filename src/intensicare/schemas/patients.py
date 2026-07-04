@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +32,7 @@ class ScoreSummary(BaseModel):
     score_type: str
     score_value: int
     calculated_at: datetime
-    components: dict | None = None
+    components: dict[str, Any] | None = None
     trend: str | None = None
     delta_from_previous: int | None = None
 
@@ -46,7 +47,7 @@ class TrendSummary(BaseModel):
         description="Últimos valores de score em ordem cronológica",
     )
     current_trend: str | None = Field(
-        None, description="Tendência atual: increasing, decreasing, stable"
+        default=None, description="Tendência atual: increasing, decreasing, stable"
     )
 
 
@@ -66,26 +67,20 @@ class FHIREnrichment(BaseModel):
     primary_condition: str | None = None
     condition_list: list[str] = Field(default_factory=list)
     allergy_list: list[str] = Field(default_factory=list)
-    latest_observations: dict = Field(default_factory=dict)
+    latest_observations: dict[str, Any] = Field(default_factory=dict)
 
 
 class PatientStatusResponse(BaseModel):
     """Resposta completa do status do paciente."""
 
     mpi_id: str = Field(..., description="Master Patient Identifier")
-    latest_vitals: VitalSignSummary | None = Field(
-        None, description="Sinais vitais mais recentes"
-    )
-    latest_mews: ScoreSummary | None = Field(
-        None, description="Último score MEWS calculado"
-    )
+    latest_vitals: VitalSignSummary | None = Field(None, description="Sinais vitais mais recentes")
+    latest_mews: ScoreSummary | None = Field(None, description="Último score MEWS calculado")
     trend: TrendSummary = Field(
-        default_factory=lambda: TrendSummary(),
+        default_factory=TrendSummary,
         description="Tendência de scores",
     )
-    last_updated: datetime | None = Field(
-        None, description="Timestamp da última atualização"
-    )
+    last_updated: datetime | None = Field(None, description="Timestamp da última atualização")
     fhir: FHIREnrichment | None = Field(
         None,
         description="FHIR enrichment data (only when enrich=true is requested "

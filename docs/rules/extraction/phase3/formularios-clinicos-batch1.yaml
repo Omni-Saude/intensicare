@@ -1,0 +1,134 @@
+- rule_id: RULE-FORMULARIOS-CLINICOS-001
+  reference:
+    citation: "NPUAP/EPUAP/PPPIA Pressure Injury Staging System (Edsberg LE et al., Revised NPUAP Pressure Injury Staging System, J Wound Ostomy Continence Nurs 2016;43(6):585-597). Original 6-category NPUAP set: Stage I-IV + Suspected Deep Tissue Injury + Unstageable."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC5098472/"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok   # 6 categories exactly = NPUAP I-IV + SDTI + Unstageable
+  test_vectors:
+    - {inputs: {estagio_lpp: estagio_i}, expected_reference: "Stage I (non-blanchable erythema, intact skin)", actual_legacy: "\"I\"", match: true}
+    - {inputs: {estagio_lpp: suspeita_de_lesao}, expected_reference: "Suspected Deep Tissue Injury (intact purple/maroon skin or blood-filled blister)", actual_legacy: "\"Suspeita de lesão profunda dos tecidos\"", match: true}
+    - {inputs: {estagio_lpp: nao_graduavel}, expected_reference: "Unstageable (depth obscured by slough/eschar)", actual_legacy: "\"Não graduável ou inclassificável\"", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Enum reproduces the canonical NPUAP 6-category staging set (I-IV plus SDTI plus Unstageable) faithfully.
+    This is the pre-2016 naming ("suspeita de lesão profunda"/SDTI, "não graduável"/Unstageable); the 2016
+    revision renamed "ulcer"->"injury" and dropped the word "suspected" from DTI but kept the same 6 clinical
+    tiers, so no clinical divergence. No numeric score computed. Categories and labels match reference.
+
+- rule_id: RULE-FORMULARIOS-CLINICOS-002
+  reference:
+    citation: "Bates-Jensen Wound Assessment Tool (BWAT), item 'Peripheral Tissue Edema' (5-level, 4 cm boundary) and item 'Exudate Amount' (5-level: none/scant/small/moderate/large); plus NPUAP staging as in RULE-001. Bates-Jensen BM, formerly Pressure Sore Status Tool."
+    url: "https://aci.health.nsw.gov.au/__data/assets/pdf_file/0010/388243/22.-Bates-Jensen-wound-assessment-tool-BWAT.pdf"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok           # edema extent in cm; 4 cm boundary matches BWAT
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff       # exudate reduced from 5 (BWAT) to 4 options in this FE form; edema top-tier code string diverges from backend
+  test_vectors:
+    - {inputs: {estagio_lpp: estagio_iii}, expected_reference: "NPUAP Stage III (full-thickness, fat visible)", actual_legacy: "estagio_iii accepted -> \"III\"", match: true}
+    - {inputs: {exsudato: "small/pequeno amount"}, expected_reference: "BWAT Exudate Amount score 3 = 'small' is a valid recordable level", actual_legacy: "FE exsudato options = {nada, escasso, moderado, grande} -> NO 'pequeno' option; small exudate cannot be recorded (must round to escasso or moderado)", match: false}
+    - {inputs: {edema: "crepitus + pitting extending 5 cm"}, expected_reference: "BWAT Peripheral Edema score 5 = crepitus and/or pitting >4 cm", actual_legacy: "stored as \"crepitacao_edema_com_sulco_maior_4cm\" (clinically correct tier, but code string differs from backend canonical \"crepitacao_maior_4cm\")", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Clinical content matches the published references: NPUAP staging is faithful and the peri-wound edema
+    4 cm boundary reproduces the BWAT Peripheral Tissue Edema item. The extraction-flagged DISCREPANCY is
+    IMPLEMENTATION-LEVEL, not a deviation from the clinical reference: (1) the edema top-tier stored CODE
+    ("crepitacao_edema_com_sulco_maior_4cm") differs from the backend/TecEnfermagem canonical code
+    ("crepitacao_maior_4cm") for the identical clinical label -> cross-discipline data-aggregation
+    inconsistency; (2) the exsudato/exudate option list is reduced 5->4 (the "pequeno"/small level is
+    dropped), which DOES deviate from the 5-level BWAT Exudate Amount scale and forces small exudate to be
+    mis-binned. Impact low: affects data granularity/reporting consistency, no patient-facing calculation or
+    auto-decision. Verdict DISCREPANCY preserved per extraction.
+
+- rule_id: RULE-FORMULARIOS-CLINICOS-003
+  reference:
+    citation: "Bates-Jensen Wound Assessment Tool (BWAT), 'Peripheral Tissue Edema' item (5-level, 4 cm boundary); NPUAP staging as RULE-001."
+    url: "https://aci.health.nsw.gov.au/__data/assets/pdf_file/0010/388243/22.-Bates-Jensen-wound-assessment-tool-BWAT.pdf"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok   # edema categories + 4 cm boundary match BWAT; staging matches NPUAP
+  test_vectors:
+    - {inputs: {edema: "crepitus + pitting extending 5 cm"}, expected_reference: "BWAT Peripheral Edema score 5 (crepitus and/or pitting >4 cm)", actual_legacy: "stored \"crepitacao_maior_4cm\" (matches backend canonical)", match: true}
+    - {inputs: {estagio_lpp: estagio_iv}, expected_reference: "NPUAP Stage IV (full-thickness, exposed fascia/muscle/bone)", actual_legacy: "\"IV\"", match: true}
+    - {inputs: {edema: "non-pitting extending exactly 4 cm"}, expected_reference: "BWAT scores 2 (<4 cm) vs 3 (>4 cm) leave =4 cm undefined", actual_legacy: "edema_sem_sulco_maior_4cm (>=4 cm) -> legacy closes the BWAT boundary gap at exactly 4 cm", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Against the published references the clinical content is correct: edema categories/4 cm boundary match
+    BWAT and staging matches NPUAP. The extraction DISCREPANCY is an internal cross-implementation code-drift
+    only: this TecEnfermagem form stores the edema top tier as "crepitacao_maior_4cm" (AGREES with backend
+    canonical, avaliacao_global.py:110) but DIFFERS from the nursing/dietitian FE forms
+    (RULE-002, "crepitacao_edema_com_sulco_maior_4cm"). Same clinical finding, inconsistent stored code across
+    discipline forms -> data-consistency defect, no clinical-reference deviation. Impact low. Verdict
+    DISCREPANCY preserved per extraction.
+
+- rule_id: RULE-FORMULARIOS-CLINICOS-004
+  reference:
+    citation: "Bates-Jensen Wound Assessment Tool (BWAT), item 'Peripheral Tissue Edema': 1=none; 2=non-pitting <4 cm; 3=non-pitting >4 cm; 4=pitting <4 cm; 5=crepitus and/or pitting >4 cm."
+    url: "https://aci.health.nsw.gov.au/__data/assets/pdf_file/0010/388243/22.-Bates-Jensen-wound-assessment-tool-BWAT.pdf"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok            # cm extent around wound; 4 cm boundary matches BWAT
+    ranges: ok
+    rounding: diff       # BWAT uses '<4 cm' / '>4 cm' (leaves =4 undefined); legacy uses '<4 cm' / '>=4 cm'
+    cutoffs: ok          # 5 categories map 1:1 to BWAT edema item
+  test_vectors:
+    - {inputs: {finding: "non-pitting edema extending 3 cm"}, expected_reference: "BWAT score 2 (non-pitting <4 cm)", actual_legacy: "edema_sem_sulco_menor_4cm", match: true}
+    - {inputs: {finding: "non-pitting edema extending exactly 4 cm"}, expected_reference: "BWAT undefined at =4 cm (score 2 says <4, score 3 says >4)", actual_legacy: "edema_sem_sulco_maior_4cm (>=4 cm) -> legacy resolves the =4 cm gap into the higher tier", match: true}
+    - {inputs: {finding: "pitting edema extending 2 cm"}, expected_reference: "BWAT score 4 (pitting <4 cm)", actual_legacy: "edema_com_sulco_menor_4cm", match: true}
+    - {inputs: {finding: "crepitus + pitting extending 5 cm"}, expected_reference: "BWAT score 5 (crepitus and/or pitting >4 cm)", actual_legacy: "crepitacao_maior_4cm", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The backend canonical enum reproduces the BWAT Peripheral Tissue Edema item EXACTLY: 5 tiers, the 4 cm
+    boundary, and the non-pitting/pitting/crepitus progression all match the reference. Only nuance vs the
+    reference: BWAT labels use '<4 cm' and '>4 cm' (leaving exactly 4 cm undefined), whereas legacy uses
+    '<4 cm' and '>=4 cm', which actually closes that ambiguity - not a clinical error. The extraction-flagged
+    DISCREPANCY is the cross-implementation stored-VALUE drift: backend + TecEnfermagem use
+    "crepitacao_maior_4cm" while nursing/dietitian FE use "crepitacao_edema_com_sulco_maior_4cm" for the same
+    top tier -> internal data inconsistency, not a deviation from the published scale. Impact low
+    (data-consistency/reporting only; category labels stored, no numeric score computed). Verdict DISCREPANCY
+    preserved per extraction.
+
+- rule_id: RULE-FORMULARIOS-CLINICOS-005
+  reference:
+    citation: "Capillary refill time (CRT). Standard reference: normal CRT <2 s (adults; up to ~3 s in elderly); prolonged/abnormal >2-3 s indicates impaired peripheral perfusion. Sepsis resuscitation literature (ANDROMEDA-SHOCK, Hernandez et al. JAMA 2019) uses CRT >3 s as the abnormal target. StatPearls, Capillary Refill Time."
+    url: "https://www.ncbi.nlm.nih.gov/books/NBK557753/"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok            # seconds
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff        # legacy alert fires only at >5 s; reference abnormal threshold is >2-3 s
+  test_vectors:
+    - {inputs: {crt_seconds: 1.5}, expected_reference: "normal (<2 s), no perfusion alert", actual_legacy: "tec_maior_5s = false (no alert)", match: true}
+    - {inputs: {crt_seconds: 2.5}, expected_reference: "prolonged/abnormal (>2 s) -> perfusion concern", actual_legacy: "tec_maior_5s = false (NO alert; under-triggers)", match: false}
+    - {inputs: {crt_seconds: 4.0}, expected_reference: "prolonged (>3 s), abnormal by sepsis-resuscitation criteria", actual_legacy: "tec_maior_5s = false (NO alert; under-triggers)", match: false}
+    - {inputs: {crt_seconds: 6.0}, expected_reference: "markedly prolonged, abnormal", actual_legacy: "tec_maior_5s = true (alert)", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The capillary-refill (TEC) alert boolean fires only at >5 s, which is substantially more lenient than the
+    published abnormal threshold (>2-3 s; sepsis literature uses >3 s). Consequently it does NOT flag the
+    3-5 s prolonged-refill window that reference standards already consider abnormal/hypoperfused ->
+    under-triggering. Impact assessed LOW rather than moderate because this is a manual nursing screening flag,
+    not an automatic clinical-decision gate, and the same cardiovascular block independently captures
+    hemodynamic instability (pressao_arterial 'instavel'/'hipotensao'); a delayed refill in the 3-5 s range
+    would rarely be the sole perfusion signal. Still a genuine threshold-leniency discrepancy of the exact
+    kind this audit targets. Note: no single published scale defines a '>5 s' CRT cutoff, but the reference
+    standard for abnormal CRT is well established, so this is characterizable (not UNVERIFIABLE).

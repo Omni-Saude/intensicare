@@ -1,0 +1,54 @@
+- rule_id: RULE-AUDITORIA-LOGS-001
+  reference:
+    citation: >-
+      No authoritative clinical/published reference applies. This is an internal
+      software date-range-filter boundary convention (inclusive start-of-day /
+      end-of-day). Only cross-checkable against the Python standard library
+      datetime documentation (datetime.time.min = 00:00:00, datetime.time.max =
+      23:59:59.999999, datetime.combine(date, time)).
+    url: https://docs.python.org/3/library/datetime.html#datetime.time.max
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: >-
+      ok — lower bound combined with time.min (00:00:00.000000), upper bound with
+      time.max (23:59:59.999999); inclusive of the entire day on both ends,
+      consistent with the rule description. Verified against legacy source
+      log/views/log.py lines 41-45 and utils/handlers.py parse_date_to_iso.
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {criado_em__gte: "2026-07-03 (YYYY-MM-DD)"}
+      expected_reference: "start-of-day inclusive -> 2026-07-03 00:00:00.000000"
+      actual_legacy: "datetime.combine(2026-07-03, time.min) = 2026-07-03 00:00:00.000000"
+      match: true
+    - inputs: {criado_em__lte: "2026-07-03 (YYYY-MM-DD)"}
+      expected_reference: "end-of-day inclusive -> 2026-07-03 23:59:59.999999"
+      actual_legacy: "datetime.combine(2026-07-03, time.max) = 2026-07-03 23:59:59.999999"
+      match: true
+    - inputs: {criado_em__lte: "03/07/2026 (DD/MM/YYYY)"}
+      expected_reference: "parsed to 2026-07-03, end-of-day inclusive 2026-07-03 23:59:59.999999"
+      actual_legacy: "parse_date_to_iso('03/07/2026')=2026-07-03; combine time.max = 2026-07-03 23:59:59.999999"
+      match: true
+    - inputs: {boundary: "log row at exactly 2026-07-03 23:59:59.999999, filter criado_em__lte=2026-07-03"}
+      expected_reference: "included (<= end-of-day)"
+      actual_legacy: "included; a row at 2026-07-04 00:00:00 would be excluded"
+      match: true
+    - inputs: {edge_quirk: "criado_em__gte='07/2026' (MM/YYYY)"}
+      expected_reference: "n/a — no reference defines month-only semantics"
+      actual_legacy: "strptime('%m/%Y') yields day=1 -> 2026-07-01 00:00:00; a month filter resolves to only the FIRST day of the month, not the whole month (documented quirk, no reference to violate)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Internal business rule (audit-log date-range filter), not a clinical scale or
+    calculator — no authoritative published clinical reference exists, so flagged
+    for internal review rather than treated as wrong. Legacy behavior confirmed
+    verbatim against log/views/log.py (lines 41-45) and utils/handlers.py
+    parse_date_to_iso. Technically consistent with documented Python datetime
+    semantics: inclusive of the full day on both bounds. One non-clinical quirk
+    worth internal note: because parse_date_to_iso maps MM/YYYY and YYYY-MM to
+    the first day of the month (day=1), a month-granularity filter collapses to a
+    single day rather than the whole month; and dateutil.parse fallback on a
+    garbled string is best-effort. Neither affects any clinical computation.

@@ -12,7 +12,6 @@ Cobre:
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,7 +24,6 @@ from intensicare.fhir.client import (
     get_fhir_client,
 )
 from intensicare.schemas.patients import FHIREnrichment
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Mock FHIR bundles (realistic HAPI FHIR R4 JSON)
@@ -252,15 +250,15 @@ class TestFHIRPatientData:
 
     def test_empty_bundle(self) -> None:
         """Empty bundle yields placeholder data."""
-        data = FHIRPatientData.from_fhir_bundle("MPI-EMPTY", {"resourceType": "Bundle", "entry": []})
+        data = FHIRPatientData.from_fhir_bundle(
+            "MPI-EMPTY", {"resourceType": "Bundle", "entry": []}
+        )
         assert data.mpi_id == "MPI-EMPTY"
         assert data.display_name is None
 
     def test_non_bundle_resource(self) -> None:
         """Non-Bundle resource is handled gracefully."""
-        data = FHIRPatientData.from_fhir_bundle(
-            "MPI-X", {"resourceType": "Patient", "id": "x"}
-        )
+        data = FHIRPatientData.from_fhir_bundle("MPI-X", {"resourceType": "Patient", "id": "x"})
         assert data.mpi_id == "MPI-X"
         assert data.display_name is None
 
@@ -328,9 +326,7 @@ class TestFHIRClientConfigured:
 
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 404
-        http_error = httpx.HTTPStatusError(
-            "Not Found", request=MagicMock(), response=mock_response
-        )
+        http_error = httpx.HTTPStatusError("Not Found", request=MagicMock(), response=mock_response)
         mock_response.raise_for_status.side_effect = http_error
 
         mock_http = AsyncMock(spec=httpx.AsyncClient)
@@ -414,7 +410,10 @@ class TestPatientServiceFHIREnrichment:
     @pytest.mark.anyio
     async def test_enrich_skipped_when_fhir_not_configured(self) -> None:
         """When FHIR_BASE_URL is empty, enrichment returns None."""
-        from intensicare.services.patients import _enrich_from_fhir
+        # Deliberately deferred: a module-level import of intensicare.services.patients
+        # breaks collection of this file, because intensicare.models does not re-export
+        # ClinicalScore/VitalSign (pre-existing, out of scope for this test-only change).
+        from intensicare.services.patients import _enrich_from_fhir  # noqa: PLC0415
 
         # Patch settings so fhir_base_url is empty
         with patch("intensicare.services.patients.settings") as mock_settings:
@@ -423,11 +422,10 @@ class TestPatientServiceFHIREnrichment:
             assert result is None
 
     @pytest.mark.anyio
-    async def test_get_patient_status_without_enrich(
-        self, mock_db_session: AsyncMock
-    ) -> None:
+    async def test_get_patient_status_without_enrich(self, mock_db_session: AsyncMock) -> None:
         """When enrich=False, fhir field stays None."""
-        from intensicare.services.patients import get_patient_status
+        # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.
+        from intensicare.services.patients import get_patient_status  # noqa: PLC0415
 
         result = await get_patient_status(
             db=mock_db_session, mpi_id="MPI-12345", score_type="MEWS", enrich=False
@@ -437,11 +435,10 @@ class TestPatientServiceFHIREnrichment:
         assert result.mpi_id == "MPI-12345"
 
     @pytest.mark.anyio
-    async def test_get_patient_status_with_enrich_success(
-        self, mock_db_session: AsyncMock
-    ) -> None:
+    async def test_get_patient_status_with_enrich_success(self, mock_db_session: AsyncMock) -> None:
         """When enrich=True and FHIR returns data, fhir field is populated."""
-        from intensicare.services.patients import get_patient_status
+        # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.
+        from intensicare.services.patients import get_patient_status  # noqa: PLC0415
 
         with patch(
             "intensicare.services.patients._enrich_from_fhir",
@@ -475,10 +472,7 @@ class TestPatientServiceFHIREnrichment:
 class TestPatientStatusAPI:
     """Test the /patients/{mpi_id}/status endpoint with enrich parameter."""
 
-    @pytest.mark.anyio
-    async def test_status_without_enrich(
-        self, mock_client: httpx.AsyncClient
-    ) -> None:
+    async def test_status_without_enrich(self, mock_client: httpx.AsyncClient) -> None:
         """GET without enrich returns no fhir field."""
         response = await mock_client.get("/api/v1/patients/MPI-NOEXIST/status")
         assert response.status_code == 200
@@ -487,7 +481,6 @@ class TestPatientStatusAPI:
         # When enrich is False (default), fhir should be null
         assert data.get("fhir") is None
 
-    @pytest.mark.anyio
     async def test_status_with_enrich_fhir_not_configured(
         self, mock_client: httpx.AsyncClient
     ) -> None:
@@ -501,10 +494,7 @@ class TestPatientStatusAPI:
         data = response.json()
         assert data.get("fhir") is None
 
-    @pytest.mark.anyio
-    async def test_status_with_enrich_configured(
-        self, mock_client: httpx.AsyncClient
-    ) -> None:
+    async def test_status_with_enrich_configured(self, mock_client: httpx.AsyncClient) -> None:
         """GET with enrich=true and FHIR configured — enrichment is attempted."""
         mock_fhir = FHIREnrichment(
             display_name="Test Patient",

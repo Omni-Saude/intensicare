@@ -1,0 +1,83 @@
+- rule_id: RULE-TENANCY-ORGANIZACAO-038
+  reference:
+    citation: "None. SetorViewSet.indicadores is a proprietary data-aggregation routine that counts internal VERMELHO/AMARELO alert flags (the `alerta` and `assistido` fields already stored on each trilha/care-pathway model) across every pathway type applicable to the sector, scoped to occupied beds. The VERMELHO/AMARELO alert bands are internal to the trilhas product; their derivation is outside this rule, and no published clinical guideline or MDCalc-documented calculator defines how to sum red/yellow attended-alert counts across pathway tables. Not a clinical equation despite the 'clinical-scoring' category tag."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: "n/a - no equation; only Case/When flag counting (1/0) and Sum aggregation"
+    units: "n/a - dimensionless integer counts"
+    ranges: "n/a - no clinical input ranges; inputs are booleans (assistido) and enum (alerta)"
+    rounding: "n/a - integer counts, no rounding"
+    cutoffs: "n/a - VERMELHO/AMARELO are pre-assigned internal flags, not computed score-band cutoffs in this rule"
+  test_vectors:
+    - inputs: {setor.tipo: "manual"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "raises ValidationError('Indicadores da manuais ainda nao foi configurado!') - manual sectors explicitly unsupported"
+      match: true
+    - inputs: {setor.tipo: "homecare", occupied_bed_atendimento: "X", trilha_rows_for_X: "[{criado_em: t1, alerta: AMARELO, assistido: false}, {criado_em: t2>t1, alerta: VERMELHO, assistido: true}]"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "DISTINCT ON (nr_atendimento) ORDER BY -criado_em selects only the most-recent row (t2: VERMELHO, assistido). Aggregate -> vermelhos=1, vermelhos_assistidos=1, amarelos=0, amarelos_assistidos=0. The older AMARELO row is not counted."
+      match: true
+    - inputs: {setor.tipo: "automatica", trilha_type_with_zero_matching_rows: true}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "ids_trilhas = nrs_atendimentos (assumes trilha pk == nr_atendimento). When a pathway table has zero matching rows, Sum() returns {vermelhos_assistidos: None, ...}; payload[...] += None raises TypeError (latent null-handling defect noted in edge_cases). Verified as a direct reading of the code, not a reference discrepancy."
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal/proprietary multi-tenancy aggregation logic; flag for internal review. No published clinical reference exists. The 'clinical-scoring' category is a misnomer here - this counts pre-existing alert flags rather than computing any clinical score. Latent TypeError null-handling risk (empty-queryset Sum returns None) and the unconfirmed automatica 'pk == nr_atendimento' assumption are internal-correctness concerns for engineering review, independent of any clinical reference."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-041
+  reference:
+    citation: "None. EmpresaViewSet.indicadores is a multi-tenancy access-scoping query: it returns per-establishment status breakdowns for a company's establishments where the requesting user belongs to at least one sector, using active (atual=True), occupied (leito__ocupado=True) movimentacoes scoped identically, ordered by establishment name. Pure authorization/query-scoping business logic with no clinical calculation."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a - no clinical units; identifiers and booleans only"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {empresa: E, user_member_of: "sector in estab A only", estabs_in_E: "[A, B]"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "Estabelecimento filter (empresa=pk, setores__usuarios=user) returns only A; B excluded. Ordered by nome."
+      match: true
+    - inputs: {estab_A: "user is member but zero occupied beds"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "A still appears - the 'setores__leitos__ocupado=True' filter is commented out; membership alone qualifies the establishment."
+      match: true
+    - inputs: {movimentacao: "atual=False OR leito.ocupado=False OR sector not user's"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "Excluded from movimentacoes context - filter requires atual=True AND leito__ocupado=True AND leito__setor__usuarios=user."
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal/proprietary access-control and query-scoping rule; flag for internal review. No clinical reference. Source carries an explicit TODO ('Filtrar pelo usuario ... baseado em vinculo') indicating the author viewed the setores__usuarios membership filter as coarser than a finer 'vinculo'-based scope used elsewhere; this is an acknowledged internal-completeness concern, not a reference discrepancy."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-042
+  reference:
+    citation: "None. EstabelecimentoViewSet.indicadores is a multi-tenancy access-scoping query: it builds a per-sector status breakdown for the sectors of one establishment where the requesting user is a member, using active (atual=True) movimentacoes scoped identically, ordered by sector name. Pure authorization/query-scoping business logic with no clinical calculation."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a - no clinical units; identifiers and booleans only"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {estab: X, user_member_of: "S1 only", sectors_in_X: "[S1, S2]"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "Setor filter (estabelecimento=X, usuarios=user) returns only S1; S2 excluded. Ordered by nome."
+      match: true
+    - inputs: {sector_S1: "user is member but zero occupied beds"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "S1 still appears - the 'leitos__ocupado=True' filter is commented out; membership alone qualifies the sector."
+      match: true
+    - inputs: {movimentacao: "atual=False OR sector not user's"}
+      expected_reference: "n/a - no authoritative source"
+      actual_legacy: "Excluded from qs context - filter requires atual=True AND leito__setor__estabelecimento=X AND leito__setor__usuarios=user. Note: unlike RULE-041, this movimentacoes query does NOT filter on leito__ocupado=True."
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal/proprietary access-control and query-scoping rule; flag for internal review. No clinical reference. Establishment-level instance of the same 'indicadores' scoping pattern as RULE-041 (company level) and RULE-038 (sector level). Observed internal inconsistency worth an engineering note: RULE-041's movimentacoes query filters leito__ocupado=True whereas this establishment-level query omits that filter - a scoping asymmetry between sibling endpoints, not a clinical-reference discrepancy."

@@ -264,9 +264,7 @@ class TestWebSocketBroadcast:
 
         await manager.connect(ws)
         await manager.send_error(ws, "Something went wrong")
-        ws.send_json.assert_called_once_with(
-            {"type": "error", "message": "Something went wrong"}
-        )
+        ws.send_json.assert_called_once_with({"type": "error", "message": "Something went wrong"})
 
         manager.disconnect(ws)
 
@@ -283,9 +281,7 @@ class TestAlertBroadcastAfterIngestion:
         """After vitals ingestion that exceeds thresholds, alerts should be
         broadcast to connected WebSocket clients via the manager."""
         # Setup: patient + threshold config
-        await create_test_patient(
-            db_session, mpi_id="MPI-WS-001", tenant_id="austa", unit="ICU"
-        )
+        await create_test_patient(db_session, mpi_id="MPI-WS-001", tenant_id="austa", unit="ICU")
         await create_threshold_for_test(
             db_session, score_type="MEWS", watch=1, urgent=3, critical=5
         )
@@ -319,8 +315,7 @@ class TestAlertBroadcastAfterIngestion:
         # Verify that the WebSocket client received at least one alert
         # (MEWS score should be high enough to trigger at watch level)
         assert mock_ws.send_json.call_count >= 1, (
-            f"Expected at least 1 alert broadcast, got "
-            f"{mock_ws.send_json.call_count}"
+            f"Expected at least 1 alert broadcast, got {mock_ws.send_json.call_count}"
         )
 
         # Verify alert structure
@@ -345,12 +340,8 @@ class TestAlertBroadcastAfterIngestion:
         """When a client subscribes to a specific patient, they should only
         receive alerts for that patient after ingestion."""
         # Setup two patients
-        await create_test_patient(
-            db_session, mpi_id="MPI-WS-SUB", tenant_id="austa", unit="ICU"
-        )
-        await create_test_patient(
-            db_session, mpi_id="MPI-WS-OTHER", tenant_id="austa", unit="ICU"
-        )
+        await create_test_patient(db_session, mpi_id="MPI-WS-SUB", tenant_id="austa", unit="ICU")
+        await create_test_patient(db_session, mpi_id="MPI-WS-OTHER", tenant_id="austa", unit="ICU")
         # Thresholds for both MEWS and NEWS2
         await create_threshold_for_test(
             db_session, score_type="MEWS", watch=1, urgent=3, critical=5
@@ -406,8 +397,7 @@ class TestAlertBroadcastAfterIngestion:
         # Since client only subscribed to MPI-WS-SUB, should NOT receive
         # alerts for MPI-WS-OTHER
         assert mock_ws.send_json.call_count == 0, (
-            f"Expected 0 alerts for unsubscribed patient, got "
-            f"{mock_ws.send_json.call_count}"
+            f"Expected 0 alerts for unsubscribed patient, got {mock_ws.send_json.call_count}"
         )
 
         # Cleanup
@@ -447,6 +437,7 @@ class TestSingletonFunctions:
 
 
 # ── Test helpers ────────────────────────────────────────────────────────────
+
 
 def _make_alert(
     mpi_id: str = "MPI-TEST",

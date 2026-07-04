@@ -1,0 +1,143 @@
+- rule_id: RULE-TENANCY-ORGANIZACAO-011
+  reference:
+    citation: "No authoritative published clinical reference. Internal/proprietary business logic: per-sector alert-level tally (VERMELHO/AMARELO/NEUTRO) that sums manual Movimentacao alerts with automatica-pathway bed alerts. This is an application-specific aggregation, not a validated clinical scale, scoring system, or guideline-defined algorithm."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {manual_movimentacoes: "[] (none atual=True)", alertas_automaticos: {VERMELHO: 2, AMARELO: 1, NEUTRO: 0}}
+      expected_reference: "{VERMELHO: 2, AMARELO: 1, NEUTRO: 0} (intent: manual + automatic per level)"
+      actual_legacy: "update() with empty queryset leaves {0,0,0}; loop adds automatic -> {VERMELHO:2, AMARELO:1, NEUTRO:0}"
+      match: true
+    - inputs: {manual_movimentacoes: "[(VERMELHO,3),(AMARELO,1)]", alertas_automaticos: {VERMELHO: 1, AMARELO: 0, NEUTRO: 2}}
+      expected_reference: "{VERMELHO: 4, AMARELO: 1, NEUTRO: 2}"
+      actual_legacy: "update() sets VERMELHO=3, AMARELO=1; loop adds automatic -> VERMELHO=4, AMARELO=1, NEUTRO=2"
+      match: true
+    - inputs: {manual_movimentacoes: "[(null_or_unknown_level, 5)]", alertas_automaticos: {VERMELHO: 0, AMARELO: 0, NEUTRO: 0}}
+      expected_reference: "only the 3 defined keys should exist; unexpected alerta value should be ignored/handled"
+      actual_legacy: "update() inserts an extra key (e.g. None:5); the subsequent `for key in alertas` then indexes self.alertas_automaticos[<extra key>] -> KeyError. Any alerta_movimentacao value outside {VERMELHO,AMARELO,NEUTRO} raises."
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "No published clinical source governs this counter; flag for internal review, do NOT treat as wrong. Behavioral observation for the internal reviewer only: the merge is arithmetically correct for the three expected levels, but an unexpected/null alerta_movimentacao value would add an out-of-schema dict key and cause a KeyError on self.alertas_automaticos[key]. Robustness of the alerta_movimentacao domain is enforced upstream (out of this partition's scope)."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-012
+  reference:
+    citation: "No authoritative published clinical reference. Internal/proprietary business logic: SetorSerializer.get_leitos counts active beds (ativo=True) and the occupied subset (ocupado=True) within that active set. This is bed-inventory bookkeeping, not a clinical calculator; general ICU-occupancy definition (occupied/available beds) is the only conceptual anchor and it is not a coefficient/cutoff-bearing published equation."
+    url: null
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: n/a
+    ranges: ok
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {beds: "10 ativo=True (4 also ocupado=True), 0 inactive"}
+      expected_reference: "{total: 10, ocupados: 4}; ocupados is a subset of total"
+      actual_legacy: "queryset = active beds (10); total=10; ocupados = active AND ocupado = 4 -> {total:10, ocupados:4}"
+      match: true
+    - inputs: {beds: "10 ativo=True (4 ocupado), 2 ativo=False but ocupado=True"}
+      expected_reference: "{total: 10, ocupados: 4}; inactive-occupied beds excluded from both -> no >100% occupancy"
+      actual_legacy: "queryset filters ativo=True first, so the 2 inactive-occupied beds are excluded from BOTH count and ocupados -> {total:10, ocupados:4}"
+      match: true
+    - inputs: {beds: "0 active beds"}
+      expected_reference: "{total: 0, ocupados: 0}"
+      actual_legacy: "queryset empty -> {total:0, ocupados:0}"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "No published clinical source governs this count; flag for internal review, do NOT treat as wrong. Behavioral observation: unlike the SetorStatusSerializer numerator (RULE-TENANCY-ORGANIZACAO-004, DISCREPANCY), this method derives ocupados by further filtering the already-ativo=True queryset, so ocupados is guaranteed a subset of total and the >100% occupancy inflation cannot occur here. Internally consistent."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-013
+  reference:
+    citation: "No authoritative published clinical reference. Internal/proprietary business logic: per-sector patient-gender tally (M/F/N/O) merging active Movimentacao patient genders with automatica-leito genders. The gender code set (M/F/N/O, N likely 'nao informado') is an application enum, not an HL7/FHIR/ISO-5218-conformant published value set with defined semantics/cutoffs."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {manual_movimentacoes: "[(M,3),(F,2)]", generos_automaticos: {M: 1, F: 0, N: 0, O: 1}}
+      expected_reference: "{M: 4, F: 2, N: 0, O: 1}"
+      actual_legacy: "update() sets M=3,F=2; loop adds automatic -> {M:4, F:2, N:0, O:1}"
+      match: true
+    - inputs: {manual_movimentacoes: "[]", generos_automaticos: {M: 0, F: 0, N: 2, O: 0}}
+      expected_reference: "{M: 0, F: 0, N: 2, O: 0}"
+      actual_legacy: "update() no-op on empty queryset; loop adds automatic -> {M:0, F:0, N:2, O:0}"
+      match: true
+    - inputs: {manual_movimentacoes: "[(null_genero, 5)]", generos_automaticos: {M: 0, F: 0, N: 0, O: 0}}
+      expected_reference: "only M/F/N/O keys; unexpected/null genero ignored or mapped"
+      actual_legacy: "update() inserts an out-of-schema key (e.g. None:5); loop then indexes self.generos_automaticos[<extra key>] -> KeyError. Also structurally depends on self.generos_automaticos having been populated by get_alertas() first (implicit DRF field-ordering coupling)."
+      match: false
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "No published clinical source governs this counter; flag for internal review, do NOT treat as wrong. Behavioral observations for internal reviewer: (1) same out-of-schema-key KeyError exposure as RULE-011 if paciente__genero is null/unexpected; (2) implicit cross-field ordering dependency on generos_automaticos being set by get_alertas before get_generos runs (safe only under DRF declaration-order serialization, alertas declared before generos)."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-014
+  reference:
+    citation: "No authoritative published clinical reference. Internal/proprietary UI/data-presentation logic: SetorChatsSerializer.get_ultima_mensagem returns instance.observacoes.first().texto. Chat-preview 'latest message' selection is application behavior, not a clinical algorithm. Correctness hinges on Observacao.Meta.ordering, which is outside this partition's scope."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {observacoes: "3 rows, Observacao.Meta.ordering = ['-criado_em']"}
+      expected_reference: "text of the most recent observacao (field name 'ultima_mensagem' = last message)"
+      actual_legacy: ".first() returns the newest row (desc ordering) -> correct latest message"
+      match: true
+    - inputs: {observacoes: "3 rows, Observacao.Meta.ordering absent or ascending by criado_em/pk"}
+      expected_reference: "text of the most recent observacao"
+      actual_legacy: ".first() returns the OLDEST/insertion-order row -> shows wrong (stale) preview despite 'ultima_mensagem' name"
+      match: false
+    - inputs: {observacoes: "empty (exists() == False)"}
+      expected_reference: "\"\" (empty string)"
+      actual_legacy: "returns \"\""
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Already carries extraction status AMBIGUOUS. No published clinical source applies; flag for internal review, do NOT treat as wrong. Correctness is entirely contingent on Observacao's default Meta.ordering (must be descending by creation timestamp). A verifier with access to core/models/observacao.py should confirm the default ordering; if it is not descending-by-created, the preview shows the wrong message."
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-015
+  reference:
+    citation: "No authoritative published clinical reference. Internal/proprietary business logic: current-calendar-month count of AssistidoPor (audit/intervention) records for a sector, appended as a fifth indicator. Calendar-month boundary math (calendar.monthrange, first/last day) is standard library behavior, not a clinical guideline; the only checkable dimension is the date-range boundary correctness."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: diff
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {now: "2026-07-03", record_criado_em: "2026-07-15 12:00"}
+      expected_reference: "counted (mid-month record in July)"
+      actual_legacy: "num_days=31; range=(date(2026,7,1), date(2026,7,31)); 2026-07-15 12:00 is within range -> counted"
+      match: true
+    - inputs: {now: "2026-07-03", record_criado_em: "2026-07-31 09:00"}
+      expected_reference: "counted (rule states 1st through last day INCLUSIVE)"
+      actual_legacy: "criado_em is a DateTimeField; upper bound date(2026,7,31) coerces to 2026-07-31 00:00:00, so 09:00 on the last day is EXCLUDED -> not counted"
+      match: false
+    - inputs: {now: "2026-07-03", record_criado_em: "2026-06-30 23:59"}
+      expected_reference: "not counted (previous month)"
+      actual_legacy: "before lower bound 2026-07-01 -> not counted"
+      match: true
+    - inputs: {now: "2026-07-03", record_criado_em: "2026-07-01 00:00:00"}
+      expected_reference: "counted (first day inclusive)"
+      actual_legacy: "equals lower bound (>=) -> counted"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "No published clinical source governs this count; flag for internal review, do NOT treat as wrong. Two behavioral observations for the internal reviewer, both outside clinical-reference scope: (1) the well-known Django gotcha — __range with a date() upper bound against a DateTimeField coerces to 00:00:00 of the last day, so intervention records created at any time after midnight on the LAST calendar day are silently excluded despite the rule's stated 'inclusive' intent (undercount on month-end days). (2) timezone.now() is used without .astimezone(), so month/year boundaries are computed in Django's USE_TZ timezone (typically UTC), which can misclassify records near midnight month boundaries relative to the user's local calendar. Source lines 148-149 also carry swapped inline comments (primeiro/ultimo dia), a verbatim comment/code mismatch, not a logic bug. These are internal-review items, not clinical discrepancies."

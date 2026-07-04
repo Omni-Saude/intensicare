@@ -1,0 +1,99 @@
+- rule_id: RULE-SEPSE-031
+  reference:
+    citation: "Surviving Sepsis Campaign / Sepsis-2 severe-sepsis criteria - sepsis-induced hypotension = SBP < 90 mmHg (or MAP < 70/65 mmHg, or SBP drop > 40 mmHg). Dellinger RP et al., SSC 2012, Crit Care Med."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC7095153/"
+  checks:
+    equation: ok         # OR of two BP thresholds
+    coefficients: ok     # 90 mmHg matches SSC sepsis-induced hypotension
+    units: ok            # mmHg for both PAS and PAD
+    ranges: ok
+    rounding: n/a        # strict inequalities, no rounding
+    cutoffs: diff        # PAS<90 matches SSC; PAD<60 has NO published sepsis reference (added institutional branch)
+  test_vectors:
+    - {inputs: {pas: 85, pad: 70}, expected_reference: "hypotensive (SBP<90) = True", actual_legacy: "branch_A 85<90 True -> True", match: true}
+    - {inputs: {pas: 95, pad: 55}, expected_reference: "SBP not <90; isolated PAD<60 not a recognized sepsis hypotension criterion = False", actual_legacy: "branch_B 55<60 True -> True", match: false}
+    - {inputs: {pas: 90, pad: 60}, expected_reference: "boundary, SBP<90 strict not met = False", actual_legacy: "90<90 False, 60<60 False -> False", match: true}
+    - {inputs: {pas: 0, pad: 0}, expected_reference: "n/a (invalid/absent)", actual_legacy: "pas/pad falsy -> both branches False", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Primary threshold SBP<90 mmHg and units match the SSC/Sepsis-2 sepsis-induced-hypotension definition exactly (strict <). The added disjunct PAD<60 mmHg has no direct published-guideline analogue but is clinically defensible (low diastolic ~ vasodilation) and only broadens sensitivity in a screening MAJOR criterion; it is not a unit/coefficient error, so overall VERIFIED. tempo_criacao()<=24h window is effectively always-true per RULE-balanco-BE-06-006 (documented elsewhere)."
+
+- rule_id: RULE-SEPSE-032
+  reference:
+    citation: "KDIGO AKI 2012 & SSC severe-sepsis organ-dysfunction criteria - oliguria = urine output < 0.5 mL/kg/h for >=2 consecutive hours (weight- and time-normalized). NEWS2 SpO2 target range 94-98%."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/"
+  checks:
+    equation: diff       # absolute single-void volume vs weight*time-normalized RATE
+    coefficients: diff   # fixed 100 mL vs 0.5 mL/kg/h
+    units: diff          # mL (absolute) vs mL/kg/h (rate)
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff        # 100 mL/last-void vs 0.5 mL/kg/h*2h (=70 mL/2h at 70 kg); SpO2<96 on O2 ~ NEWS2 band
+  test_vectors:
+    - {inputs: {peso_kg: 70, ultima_saida_tipo: diurese_sonda, quantidade_mL: 90, idade_saida_h: 1, ventilacao: null}, expected_reference: "90 mL over 2h at 70 kg = 0.64 mL/kg/h, NOT oliguric = False", actual_legacy: "90<=100 True and recency<2 True -> branch_A True -> True", match: false}
+    - {inputs: {peso_kg: 100, ultima_saida_tipo: diurese_sonda, quantidade_mL: 100, idade_saida_h: 1, ventilacao: null}, expected_reference: "0.5 mL/kg/h*2h = 100 mL, strict < not met -> NOT oliguric = False", actual_legacy: "100<=100 True -> branch_A True -> True", match: false}
+    - {inputs: {peso_kg: 70, ultima_saida_tipo: diurese_sonda, quantidade_mL: 150, idade_saida_h: 1, ventilacao: null}, expected_reference: "150 mL/2h at 70 kg = 1.07 mL/kg/h, NOT oliguric = False", actual_legacy: "150<=100 False -> branch_A False, no O2 -> False", match: true}
+    - {inputs: {ventilacao: suporte_o2, saturacao_o2: 93}, expected_reference: "desaturation on O2 (SpO2<94 NEWS2) -> supportive of hypoperfusion", actual_legacy: "branch_B suporte_o2 & 93<96 True -> True", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Oliguria branch_A diverges from the KDIGO/SSC definition on THREE audited dimensions: (a) uses a fixed absolute volume (<=100 mL) instead of a weight-normalized rate (0.5 mL/kg/h); (b) evaluates only the single last catheter void, not summed output over 2 consecutive hours; (c) recency test uses timedelta.seconds/3600 (0-86399 s, intra-day only) so a void older than 24h wraps and can spuriously satisfy '<2h' (same .seconds bug family as RULE-balanco-BE-06-006). Net effect: firing depends on the raw last-void volume rather than true UO rate -> both false positives (low single void in a non-oliguric patient; null quantidade default 0<=100) and false negatives. Moderate impact: it is a MAJOR screening criterion and the mismatch is systematic. The SpO2<96%-on-O2 desaturation branch_B is a reasonable NEWS2-consistent supportive threshold and is not the source of the discrepancy."
+
+- rule_id: RULE-SEPSE-033
+  reference:
+    citation: "Sepsis-3 (Singer M et al., JAMA 2016) & qSOFA - altered mental status / DECLINE in level of consciousness (e.g. GCS < 15) is a marker of sepsis-associated organ dysfunction; the deterioration is the signal to detect."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2492881"
+  checks:
+    equation: diff       # comparison direction inverted vs stated worsening intent
+    coefficients: n/a    # institutional ordinal hierarchy (see RULE-SEPSE-005), not a published scale
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff        # fires when previous rank > current rank (improvement), not current > previous (deterioration)
+  test_vectors:
+    - {inputs: {previous_nv: acordado, current_nv: coma}, expected_reference: "deterioration (1->6) -> worsening consciousness should FIRE = True", actual_legacy: "anterior(1) > atual(6)? False -> returns False", match: false}
+    - {inputs: {previous_nv: coma, current_nv: acordado}, expected_reference: "improvement (6->1) -> should NOT fire = False", actual_legacy: "anterior(6) > atual(1)? True -> returns True", match: false}
+    - {inputs: {previous_nv: sonolencia, current_nv: sonolencia}, expected_reference: "no change -> False", actual_legacy: "2 > 2? False -> False", match: true}
+    - {inputs: {previous_nv: null, current_nv: coma}, expected_reference: "single reading, cannot compute delta", actual_legacy: "anterior None -> guard fails -> False", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Confirms the extraction-flagged inversion. In hierarquia_consciencia higher rank = worse (coma=6, acordado=1). Legacy returns `anterior > atual`, i.e. it fires when the PREVIOUS state was worse than the current - clinical IMPROVEMENT - and stays silent on true deterioration. A worsening level of consciousness, which Sepsis-3/qSOFA treat as a key organ-dysfunction sign, will NOT trigger this MAJOR criterion, while a recovering patient spuriously will. Impact moderate rather than high because the homecare alert requires >2 majors (RULE-SEPSE-003), partially mitigating one inverted criterion. The ordinal hierarchy itself is institutional (no published scale), so only the comparison DIRECTION is judged against the reference intent."
+
+- rule_id: RULE-SEPSE-034
+  reference:
+    citation: "SIRS criteria (ACCP/SCCM Consensus, Bone 1992; Sepsis-2) - hypothermia = core temperature < 36 C."
+    url: "https://reference.medscape.com/calculator/522/sirs-criteria-systemic-inflammatory-response-syndrome"
+  checks:
+    equation: ok
+    coefficients: ok     # 36 C matches SIRS hypothermia
+    units: ok            # Celsius
+    ranges: ok
+    rounding: n/a        # strict <
+    cutoffs: ok          # strict < 36
+  test_vectors:
+    - {inputs: {temperatura: 35.5}, expected_reference: "35.5 < 36 -> hypothermia True", actual_legacy: "35.5<36 True (window<=24) -> True", match: true}
+    - {inputs: {temperatura: 36.0}, expected_reference: "boundary, strict <36 not met -> False", actual_legacy: "36<36 False -> False", match: true}
+    - {inputs: {temperatura: 37.0}, expected_reference: "not hypothermic -> False", actual_legacy: "37<36 False -> False", match: true}
+    - {inputs: {temperatura: 0.0}, expected_reference: "n/a invalid/absent", actual_legacy: "temperatura falsy -> False", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "criterio_8 hypothermia matches the SIRS hypothermia threshold (<36 C) exactly, including strict inequality and Celsius units. Symmetric with criterio_1 fever (>38 C, RULE-SEPSE-027) which likewise matches SIRS >38 C. The 0.0-is-falsy edge and always-true tempo_criacao()<=24 window are documented elsewhere and do not affect agreement with the reference."
+
+- rule_id: RULE-SEPSE-035
+  reference:
+    citation: "SIRS criteria (ACCP/SCCM Consensus, Bone 1992; Sepsis-2) - tachycardia = heart rate > 90 bpm. (NEWS2 scores HR 111-130 as 2 points.)"
+    url: "https://reference.medscape.com/calculator/522/sirs-criteria-systemic-inflammatory-response-syndrome"
+  checks:
+    equation: ok
+    coefficients: diff   # 110 bpm vs SIRS 90 bpm
+    units: ok            # bpm (frequencia_cardiaca), correct column
+    ranges: ok
+    rounding: n/a        # strict >
+    cutoffs: diff        # >110 vs SIRS >90
+  test_vectors:
+    - {inputs: {frequencia_cardiaca: 95, window_h: 6}, expected_reference: "95 > 90 -> SIRS tachycardia True", actual_legacy: "95>110 False -> False", match: false}
+    - {inputs: {frequencia_cardiaca: 115, window_h: 6}, expected_reference: "115 > 90 -> True", actual_legacy: "115>110 True (window<=12) -> True", match: true}
+    - {inputs: {frequencia_cardiaca: 110, window_h: 6}, expected_reference: "110 > 90 -> True", actual_legacy: "110>110 False -> False", match: false}
+    - {inputs: {frequencia_cardiaca: 0}, expected_reference: "n/a invalid/absent", actual_legacy: "fc falsy -> False", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Correct column (frequencia_cardiaca, bpm) - no fc/fr swap here, unlike the v3 counterpart RULE-SEPSE-019. Threshold differs from SIRS: legacy fires only at HR>110, whereas the SIRS tachycardia cutoff is >90 bpm; HR 91-110 (SIRS-positive) will not fire this criterion. The 110 cutoff instead aligns with a higher-acuity band (NEWS2 111-130 = 2 pts). Impact low: it is a MINOR criterion within a multi-criterion screen, so the higher threshold reduces sensitivity but is a deliberate specificity choice rather than a unit error. Also uses a 12h window (vs 24h elsewhere), a real filter given tempo_criacao() seconds/3600 behavior; institutional, not a reference dimension."

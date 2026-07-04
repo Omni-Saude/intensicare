@@ -1,0 +1,102 @@
+- rule_id: RULE-EQUILIBRIO-002
+  reference:
+    citation: >
+      Sterns RH. Treatment of hypernatremia (UpToDate); Adrogué HJ, Madias NE.
+      Hypernatremia. N Engl J Med 2000;342:1493-1499. Corroborated by AAFP
+      "Diagnosis and Management of Sodium Disorders" (Am Fam Physician 2015;91(5):299-307)
+      for the Na>160 mEq/L severe-symptom threshold and hypotonic free-water correction.
+      Morphine-in-renal-impairment substitution corroborated by pharmacology of active
+      metabolites M3G/M6G accumulation (Dean M. J Pain Symptom Manage 2004;28:497-504).
+    url: https://www.aafp.org/afp/2015/0301/p299
+  checks:
+    equation: n/a          # qualitative decision-tree, no scoring equation
+    coefficients: n/a
+    units: ok              # sodio serico in mEq/L; Na>160 threshold uses correct unit (contrast criterio_9 in RULE-EQUILIBRIO-004)
+    ranges: ok             # Na>160 mEq/L matches the >160 severe-hypernatremia symptom threshold in the reference
+    rounding: n/a
+    cutoffs: ok            # strict Na>160 aligns with reference "concentrations greater than 160 mEq/L"
+  test_vectors:
+    - inputs: {sodio_serico_mEq_L: 165}
+      expected_reference: severe hypernatremia (>160), initiate free-water / hypotonic correction
+      actual_legacy: criterio_10 fires (Na>160) -> water 400ml q6h + NaCl 0.22% @84ml/h + HCTZ 25mg 2cp/d
+      match: true
+    - inputs: {sodio_serico_mEq_L: 160}
+      expected_reference: at exactly 160 not yet in the >160 severe band (boundary)
+      actual_legacy: strict >160 is false -> criterio_10 does not fire
+      match: true
+    - inputs: {sodio_serico_mEq_L: 158}
+      expected_reference: below severe threshold, not flagged
+      actual_legacy: strict >160 false -> no fire
+      match: true
+    - inputs: {clearance_creatinina: impaired, drug: morphine}
+      expected_reference: renal impairment -> M3G/M6G accumulate -> avoid morphine, prefer fentanyl
+      actual_legacy: criterio_7/8 -> suspend/substitute morphine to fentanil, cetamina, metadona
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Verifiable anchors all match the reference: Na>160 mEq/L severe-hypernatremia cutoff (units
+    correct here, in mEq/L), morphine avoidance under impaired creatinine clearance (metabolite
+    accumulation), and vancomycin/nephrotoxic substitution rationale. The remaining specifics -
+    exact agent choices (Cefepime->Tazocin, Vancomicina->Linezolida, ACEi/ARB->CCB) and the
+    quantitative hypernatremia orders (NaCl 0.22% i.e. ~quarter-normal hypotonic saline at 84 ml/h,
+    hydrochlorothiazide 25 mg x2 for refractory hypernatremia) - are institutional protocol with
+    no single named guideline anchor, but none CONTRADICT published practice: 0.22% is a valid
+    hypotonic free-water replacement fluid and thiazide use for refractory/nephrogenic hypernatremia
+    is standard. No unit or threshold defect found. (Surfacing note per catalog: criterio_5/7/10
+    text is not surfaced by TrilhaEquilibrioModel.get_detalhe(); does not affect verification of the
+    numeric predicate.)
+- rule_id: RULE-EQUILIBRIO-004
+  reference:
+    citation: >
+      KDIGO conference summary "Acute hyperkalemia in the emergency department"
+      (Eur J Emerg Med 2020;27(5):329-337, PMC7448835); Mount DB, Sterns RH.
+      Treatment of hyperkalemia (UpToDate); Medscape Hyperkalemia Treatment
+      (emedicine.medscape.com/article/240903-treatment). Standard emergency bundle:
+      calcium (membrane stabilization), insulin+glucose and nebulized beta-agonist and
+      bicarbonate (intracellular shift), loop diuretic + cation-exchange resin (removal).
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC7448835/
+  checks:
+    equation: n/a
+    coefficients: ok       # bicarbonate 1 ml/kg of 8.4% (=1 mEq/kg, 8.4% NaHCO3 ~ 1 mEq/mL) matches classic weight-based dosing; beta-agonist nebulized dosing consistent
+    units: diff            # source labels potassium as "mg/dl" (5,5 mg/dl); reference unit is mEq/L (= mmol/L). Numeric values 6 and 5.5 are correct ONLY as mEq/L
+    ranges: ok             # K>6 as "hipercalemia grave" trigger and K>5.5 reassessment are within the mEq/L bands used in references (moderate/severe hyperkalemia)
+    rounding: n/a
+    cutoffs: ok            # strict K>6 initial, strict K>5.5 at +4h reassessment; consistent with reference emergency-treatment thresholds
+  test_vectors:
+    - inputs: {potassio_mEq_L: 6.5}
+      expected_reference: severe/moderate-high hyperkalemia -> emergency shift+removal measures indicated
+      actual_legacy: K>6 true -> Ca gluconate + furosemida + polarizing solution + nebulized beta-agonist
+      match: true
+    - inputs: {potassio_mEq_L: 6.0}
+      expected_reference: 6.0 is upper-moderate boundary; strict >6 excludes exactly 6.0
+      actual_legacy: strict K>6 false -> initial bundle does not fire
+      match: true
+    - inputs: {potassio_mEq_L_at_4h: 5.6}
+      expected_reference: persistent hyperkalemia -> repeat shift measures + add resin (cation exchange)
+      actual_legacy: K>5.5 true -> repeat schema + bicarbonato 1 ml/kg 8.4% + Sorcal 15g 8/8h VO
+      match: true
+    - inputs: {potassio_mEq_L_at_4h: 5.5}
+      expected_reference: at exactly 5.5, boundary; strict >5.5 excludes it
+      actual_legacy: strict K>5.5 false -> no escalation
+      match: true
+    - inputs: {label_interpretation: potassium read literally as "mg/dl"}
+      expected_reference: potassium is measured in mEq/L (mmol/L); 6 mg/dL would be ~1.5 mmol/L (hypokalemia) - nonsensical as a hyperkalemia trigger
+      actual_legacy: string label "mg/dl" reproduced verbatim; predicate still evaluates the numeric value stored in mEq/L upstream
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Protocol content matches the reference emergency-hyperkalemia bundle on all dimensions:
+    calcium gluconate (membrane stabilization), insulin+glycophysiologic polarizing solution and
+    nebulized fenoterol/salbutamol and sodium bicarbonate 8.4% at 1 ml/kg (= 1 mEq/kg, standard)
+    for intracellular shift, furosemide for renal excretion, and Sorcal (calcium polystyrene
+    sulfonate, oral cation-exchange resin) for gut removal. The single discrepancy is a UNIT
+    MISLABEL: the source writes the potassium unit as "mg/dl" ("5,5mg/dl") whereas the correct
+    unit is mEq/L (mmol/L). Clinical impact LOW: the numeric thresholds 6 and 5.5 are the correct
+    values in mEq/L and the predicate fires on the upstream mEq/L value, so the mislabel is
+    cosmetic/display-only with no downstream conversion - but it is a genuine unit error versus
+    the reference and is exactly the class of defect this audit targets, so it is characterized
+    rather than dismissed. Threshold nuance (some references define "severe" as K>6.5 or >7.0 with
+    ECG changes rather than >6) is source-dependent and not scored as a discrepancy. Extraction
+    already flagged the mg/dl label in edge_cases; this verification confirms it against the reference.

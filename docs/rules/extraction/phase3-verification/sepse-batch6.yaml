@@ -1,0 +1,68 @@
+- rule_id: RULE-SEPSE-026
+  reference:
+    citation: "No authoritative published scale assigns a discrete sepsis-screening weight to a generic 'recent surgery' flag; recent/major surgery is a recognized sepsis RISK FACTOR / source (Surviving Sepsis Campaign 2021, Evans L et al., Crit Care Med 2021;49(11):e1063-e1143; CDC Adult Sepsis Event) but not a scored SIRS/qSOFA/Sepsis-3 criterion. The noradrenaline-absence gate is an institutional construct."
+    url: "https://journals.lww.com/ccmjournal/fulltext/2021/11000/surviving_sepsis_campaign__international.21.aspx"
+  checks: {equation: n/a, coefficients: n/a, units: n/a, ranges: n/a, rounding: n/a, cutoffs: n/a}
+  test_vectors:
+    - {inputs: {enf_cirurgia_recente: 1, balanco_6h_nora: 0}, expected_reference: "no published truth value (risk factor, not scored criterion)", actual_legacy: "True (get_number(1) truthy AND no nora)", match: n/a}
+    - {inputs: {enf_cirurgia_recente: 0, balanco_6h_nora: 0}, expected_reference: "n/a", actual_legacy: "False (flag falsy)", match: n/a}
+    - {inputs: {enf_cirurgia_recente: 1, balanco_6h_nora: 5}, expected_reference: "n/a", actual_legacy: "False (nora present gates it out)", match: n/a}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Institutional business rule (minor criterion in v3 automatic pathway). Flag for internal review: docstring says 'recent ABDOMINAL surgery' but code uses the generic enf_cirurgia_recente flag (surgical site not restricted) - internal doc/code mismatch, not a reference discrepancy. No authoritative source to grade against."
+
+- rule_id: RULE-SEPSE-027
+  reference:
+    citation: "ACCP/SCCM Consensus SIRS criteria (Bone RC et al., Chest 1992;101(6):1644-55): body temperature > 38 C (or < 36 C). Fever component threshold > 38 C strict."
+    url: "https://emedicine.medscape.com/article/168943-overview"
+  checks: {equation: n/a, coefficients: ok, units: "ok (Celsius, matches SIRS)", ranges: ok, rounding: "n/a (direct > comparison, no rounding)", cutoffs: "ok (strict > 38 C matches SIRS fever cutoff)"}
+  test_vectors:
+    - {inputs: {temperatura: 38.5, tempo_criacao_h: 2}, expected_reference: "fever True (>38)", actual_legacy: "True (38.5>38, window ok)", match: true}
+    - {inputs: {temperatura: 38.0, tempo_criacao_h: 2}, expected_reference: "False (SIRS strict >38; 38.0 not fever)", actual_legacy: "False (38.0>38 is False)", match: true}
+    - {inputs: {temperatura: 37.5, tempo_criacao_h: 2}, expected_reference: "False", actual_legacy: "False", match: true}
+    - {inputs: {temperatura: 0.0, tempo_criacao_h: 2}, expected_reference: "n/a (non-physiologic)", actual_legacy: "False (0.0 falsy guard)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "Strict >38 C matches classic SIRS fever cutoff. Some sepsis screens (ILAS Brazil / SSC surgical) use >38.3 C; legacy's >38 C is the more sensitive standard SIRS value - acceptable. Companion hypothermia (<36 C) is a separate 'menor' criterion. tempo_criacao() 24h window guard is effectively always-true (timedelta.seconds bug per catalog) but is a data-recency gate, not the clinical threshold - no impact. temp==0.0 falsy guard is non-physiologic, no clinical impact."
+
+- rule_id: RULE-SEPSE-028
+  reference:
+    citation: "ACCP/SCCM SIRS respiratory criterion (Bone RC et al., Chest 1992): respiratory rate > 20 breaths/min. SpO2 < 96% under O2 support is an institutional refinement (not a SIRS element; consistent with hypoxemia surveillance / NEWS2 supplemental-O2 flag)."
+    url: "https://emedicine.medscape.com/article/168943-overview"
+  checks: {equation: n/a, coefficients: ok, units: "ok (breaths/min; percent SpO2)", ranges: ok, rounding: n/a, cutoffs: "ok for RR (>20 matches SIRS); SpO2<96% institutional"}
+  test_vectors:
+    - {inputs: {ventilacao: ambiente, fr: 22, sat_o2: null}, expected_reference: "tachypnea True (RR>20)", actual_legacy: "True (branch_A: not-mechanical AND 22>20)", match: true}
+    - {inputs: {ventilacao: ambiente, fr: 20, sat_o2: null}, expected_reference: "False (SIRS strict >20)", actual_legacy: "False (20>20 False; branch_B needs suporte_o2)", match: true}
+    - {inputs: {ventilacao: suporte_o2, fr: 18, sat_o2: 94}, expected_reference: "SIRS RR not met; institutional hypoxemia-on-O2 flag True", actual_legacy: "True (branch_B: suporte_o2 AND 94<96)", match: true}
+    - {inputs: {ventilacao: mecanica, fr: 30, sat_o2: 90}, expected_reference: "excluded on invasive vent (RR/SpO2 not interpretable as spontaneous tachypnea)", actual_legacy: "False (branch_A not-mechanical False; branch_B suporte_o2 False)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "RR threshold >20 matches SIRS exactly. The SpO2<96%-on-O2-support branch is an institutional add-on with no single published cutoff but is clinically defensible. Null ventilacao defaults branch_A to 'not mechanical' (True) - conservative/sensitive, acceptable. Branch_B (suporte_o2 AND SpO2<96) is reused verbatim in criterio_6."
+
+- rule_id: RULE-SEPSE-029
+  reference:
+    citation: "No authoritative published sepsis scale defines a discrete 'ventilatory-support escalation' criterion with these exact transitions (mechanical-after-room-air OR current O2-support). Related concept only: new/increased supplemental-oxygen requirement scores in NEWS2 (Royal College of Physicians, 2017). The specific escalation logic is institutional."
+    url: "https://www.rcp.ac.uk/improving-care/resources/national-early-warning-score-news-2/"
+  checks: {equation: n/a, coefficients: n/a, units: n/a, ranges: n/a, rounding: n/a, cutoffs: n/a}
+  test_vectors:
+    - {inputs: {ventilacao: mecanica, anterior_ventilacao: ambiente}, expected_reference: "no published truth value", actual_legacy: "True (branch_A: mecanica AND prior ambiente)", match: n/a}
+    - {inputs: {ventilacao: suporte_o2, tempo_criacao_h: 2}, expected_reference: "n/a", actual_legacy: "True (branch_B: suporte_o2, window always <=24)", match: n/a}
+    - {inputs: {ventilacao: ambiente, anterior_ventilacao: ambiente}, expected_reference: "n/a", actual_legacy: "False (neither branch)", match: n/a}
+    - {inputs: {ventilacao: mecanica, anterior: null}, expected_reference: "n/a", actual_legacy: "False (anterior None -> branch_A False; not suporte_o2)", match: n/a}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Institutional respiratory-escalation major criterion; no primary published reference to grade its thresholds/transitions. Flag for internal review. Internal-implementation notes (not reference discrepancies): 'anterior' is the 2nd-most-recent reading (index [1]); tempo_criacao()<=24 guard is effectively always-true (timedelta.seconds bug), reducing branch_B to ventilacao=='suporte_o2'."
+
+- rule_id: RULE-SEPSE-030
+  reference:
+    citation: "Capillary refill time (CRT): normal <= 3 s; CRT > 3 s is the perfusion-abnormality / hypoperfusion target used in ANDROMEDA-SHOCK (Hernandez G et al., JAMA 2019;321(7):654-664) and the ANDROMEDA-SHOCK-2 protocol. Legacy fires only at CRT > 5 s."
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9345585/"
+  checks: {equation: n/a, coefficients: n/a, units: "ok (seconds)", ranges: ok, rounding: n/a, cutoffs: "diff (legacy fires at >5 s; published abnormal/hypoperfusion cutoff is >3 s)"}
+  test_vectors:
+    - {inputs: {tipos_exame: ["tec_5s"]}, expected_reference: "abnormal perfusion True (>3 s reference; certainly abnormal at >5 s)", actual_legacy: "True ('tec_5s' in list)", match: true}
+    - {inputs: {tipos_exame: ["tec_3s"]}, expected_reference: "abnormal True per ANDROMEDA-SHOCK (>3 s)", actual_legacy: "False ('tec_5s' not in list)", match: false}
+    - {inputs: {tipos_exame: []}, expected_reference: "False (normal perfusion)", actual_legacy: "False", match: true}
+    - {inputs: {evolucao: null}, expected_reference: "n/a (no data)", actual_legacy: "False (no exame_fisico relation)", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: "Legacy fires this major criterion only at CRT > 5 s, whereas the published perfusion-abnormality threshold is > 3 s (ANDROMEDA-SHOCK). Patients with moderately prolonged CRT (3-5 s), an evidence-based marker of hypoperfusion, do NOT trigger the criterion, potentially missing early tissue-hypoperfusion signal. Impact LOW because (a) it is one of several major criteria feeding the aggregate alert and (b) a stricter >5 s cutoff for a MAJOR criterion is a defensible specificity trade-off (the exame choice label is literally 'TEC > 5s'). Documented as a threshold difference vs the reference; not corrected."

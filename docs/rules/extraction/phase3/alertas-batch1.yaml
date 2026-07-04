@@ -1,0 +1,78 @@
+- rule_id: RULE-ALERTAS-001
+  reference:
+    citation: "No authoritative published clinical reference. This is an internal business rule: a generic counter (contar_qtd_criterios_alerta) that tallies how many criteria in a trilha have esta_alerta == 1. It is not a validated clinical score, equation, or guideline-defined cutoff (Sepsis-3, KDIGO, ASPEN, ARDSNet, MDCalc, etc. do not define this counting primitive)."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: "n/a - input criterio['esta_alerta'] is a domain {0,1} flag; only ==1 increments"
+    rounding: "n/a - integer accumulator (acc = int(0)), no rounding"
+    cutoffs: "n/a - no score bands; produces a raw count consumed downstream by define_tipo_alerta (RULE-ALERTAS-003)"
+  test_vectors:
+    - inputs: {criterios: "[{esta_alerta:1},{esta_alerta:1},{esta_alerta:0}]"}
+      expected_reference: "n/a (no clinical reference) - internal-consistency expectation = 2"
+      actual_legacy: 2
+      match: true
+    - inputs: {criterios: "[] (empty)"}
+      expected_reference: "n/a - internal-consistency expectation = 0"
+      actual_legacy: 0
+      match: true
+    - inputs: {criterios: "[{esta_alerta:1},{esta_alerta:2},{esta_alerta:None},{esta_alerta:0}]"}
+      expected_reference: "n/a - internal-consistency expectation = 1 (strict ==1; values 2/None/0 excluded)"
+      actual_legacy: 1
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy source verified byte-for-byte @8166c07 in both trilha_automatica/utils.py:8-13 and
+    core/utils.py:18-23 - identical implementations, no divergence. Logic is a strict-equality
+    (==1) counter over a criterios list; no unit, equation, or coefficient surface to audit
+    against a published source. Flagged for internal review only: the count semantics (which
+    criteria carry esta_alerta==1, and how many trigger a color) are governed by the per-trilha
+    _CRITERIOS_ALERTA thresholds in RULE-ALERTAS-003 (already DISCREPANCY-flagged for a latent
+    dead-zone and under-counting of criterio ranges), not by this primitive. This counter itself
+    is behaviorally correct for its stated contract. Not treated as wrong.
+
+- rule_id: RULE-ALERTAS-002
+  reference:
+    citation: "No authoritative published clinical reference. Internal business rule (Leito.calcular_total_alertas, core/models/leito.py:709-736): aggregates a per-bed count bucketed by the worst manual-pathway alert color among four internal care pathways (trilha_sepse, trilha_ventilacao, trilha_sedacao, trilha_estabilidade) using a fixed VERMELHO > AMARELO > NEUTRO precedence. The alert colors themselves derive from RULE-ALERTAS-003; this rule only tallies them. No guideline/paper defines this red>yellow>neutral bed-census aggregation."
+    url: null
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: "n/a - counts of beds/movimentacoes (dimensionless)"
+    ranges: "n/a - inputs are enum strings {VERMELHO, AMARELO, NEUTRO, null}; each movimentacao contributes exactly 1 to exactly one bucket"
+    rounding: "n/a - integer counters"
+    cutoffs: >
+      Precedence membership test verified: 'if VERMELHO in tuple -> VERMELHO; elif AMARELO in
+      tuple -> AMARELO; else NEUTRO'. Matches catalog logic exactly (leito.py:731-736). All-null
+      or all-NEUTRO tuples fall to the else -> NEUTRO bucket, as documented in edge_cases.
+  test_vectors:
+    - inputs: {tuple: "(VERMELHO, NEUTRO, AMARELO, NEUTRO)"}
+      expected_reference: "n/a - internal-consistency: VERMELHO precedence -> VERMELHO bucket"
+      actual_legacy: "VERMELHO += 1"
+      match: true
+    - inputs: {tuple: "(NEUTRO, AMARELO, NEUTRO, None)"}
+      expected_reference: "n/a - internal-consistency: no VERMELHO, AMARELO present -> AMARELO bucket"
+      actual_legacy: "AMARELO += 1"
+      match: true
+    - inputs: {tuple: "(None, None, None, None)"}
+      expected_reference: "n/a - internal-consistency: all-null -> else -> NEUTRO bucket"
+      actual_legacy: "NEUTRO += 1"
+      match: true
+    - inputs: {tuple: "(NEUTRO, NEUTRO, NEUTRO, NEUTRO)"}
+      expected_reference: "n/a - internal-consistency: no VERMELHO/AMARELO -> else -> NEUTRO bucket"
+      actual_legacy: "NEUTRO += 1"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Legacy source verified @8166c07 (core/models/leito.py:709-736); catalog pseudocode matches
+    the implementation exactly, including the substring/membership `in tuple` precedence and the
+    else->NEUTRO fallthrough for null/neutral tuples. Only the four manual pathways are aggregated
+    (antimicrobiano/nutricao/etc. excluded), as documented. This is a pure UI/census counter with
+    no published-reference surface (no equation, units, or clinical cutoff to audit). The upstream
+    correctness of the VERMELHO/AMARELO/NEUTRO colors it counts depends on RULE-ALERTAS-003 (which
+    is separately DISCREPANCY-flagged); this aggregator's own logic is internally consistent and
+    behaviorally correct for its contract. Flagged for internal review only; not treated as wrong.

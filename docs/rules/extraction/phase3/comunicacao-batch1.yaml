@@ -1,0 +1,125 @@
+- rule_id: RULE-COMUNICACAO-001
+  reference:
+    citation: "No authoritative published clinical reference. This is an internal data-aggregation
+      (reaction-count-by-emoji) business rule; correctness is defined only by the codebase's own
+      intended semantics (a SQL GROUP BY over reactions). Python stdlib docs for itertools.groupby
+      are the only external authority relevant, and only for the mechanism, not the clinical meaning."
+    url: "https://docs.python.org/3/library/itertools.html#itertools.groupby"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {db_return_order: "[thumbs(a), thumbs(b), heart(c)]"}
+      expected_reference: "SQL GROUP BY -> {thumbs: 2, heart: 1}"
+      actual_legacy: "itertools.groupby over unordered qs -> {thumbs: 2}, {heart: 1} (contiguous, correct here)"
+      match: true
+    - inputs: {db_return_order: "[thumbs(a), heart(b), thumbs(c)]"}
+      expected_reference: "SQL GROUP BY -> {thumbs: 2, heart: 1}"
+      actual_legacy: "groupby -> {thumbs:1},{heart:1},{thumbs:1}: thumbs split into two entries, each undercounts"
+      match: false
+    - inputs: {db_return_order: "[heart(a), thumbs(b), heart(c), thumbs(d)]"}
+      expected_reference: "SQL GROUP BY -> {heart: 2, thumbs: 2}"
+      actual_legacy: "groupby -> four singleton {emoji,total:1} entries; every emoji undercounted"
+      match: false
+    - inputs: {db_return_order: "[]"}
+      expected_reference: "[]"
+      actual_legacy: "[]"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Confirmed in legacy source: core/api/v1/views/reacao.py get_queryset() has no .order_by()
+    and core/models/reacao.py Meta declares only db_table + unique_together (no ordering), so
+    itertools.groupby only merges emoji runs that happen to be contiguous in Postgres return order —
+    the extraction's DISCREPANCY vs the SQL-annotate path (ObservacaoSerializer.get_reacoes,
+    observacao.py:155-156) is a genuine, live code-correctness defect. But it is a data-plumbing bug,
+    not a clinical calculation, so there is no external published reference to verify it against;
+    verdict is UNVERIFIABLE (internal rule) rather than a clinical DISCREPANCY. Flag for engineering
+    review, not clinical review. Real-world blast radius is a UI reaction tally on chat messages —
+    no patient-safety pathway."
+
+- rule_id: RULE-COMUNICACAO-002
+  reference:
+    citation: "No authoritative published clinical reference. Internal accessor returning the requesting
+      user's own reaction pk on an observation. Relevant external authority is only the Django ORM
+      QuerySet.get() contract (raises DoesNotExist / MultipleObjectsReturned)."
+    url: "https://docs.djangoproject.com/en/stable/ref/models/querysets/#get"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {request.user: "U1 with an existing Reacao on this observacao"}
+      expected_reference: "str(reacao.id)"
+      actual_legacy: "instance.reacoes.get(usuario=U1.get_pk).get_pk -> str(reacao.id) (get_pk is a
+        @property in utils/models.py:26-28 returning str(self.id), so no missing-call issue)"
+      match: true
+    - inputs: {request.user: "U1 with no Reacao on this observacao"}
+      expected_reference: "None"
+      actual_legacy: "Reacao.DoesNotExist caught -> None"
+      match: true
+    - inputs: {request: "None (no request in serializer context)"}
+      expected_reference: "None"
+      actual_legacy: "else branch -> None"
+      match: true
+    - inputs: {state: "user somehow has 2 reactions on same observacao"}
+      expected_reference: "cannot occur"
+      actual_legacy: ".get() would raise MultipleObjectsReturned, BUT unique_together=('observacao','usuario')
+        on Reacao model prevents 2 rows -> cannot occur"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Extraction status was OK and it holds up: get_pk is a @property (utils/models.py:26-28 ->
+    return str(self.id)), so the parenless .get_pk usages correctly yield the pk string; and Reacao
+    Meta.unique_together=('observacao','usuario') makes the .get() call incapable of raising
+    MultipleObjectsReturned. No defect. No external clinical reference exists for this accessor, so it
+    is logged UNVERIFIABLE (internal rule), not VERIFIED — but note it is internally self-consistent
+    and carries no clinical risk. This same @property fact is decisive for RULE-COMUNICACAO-003 below."
+
+- rule_id: RULE-COMUNICACAO-003
+  reference:
+    citation: "No authoritative published clinical reference. Internal serializer field meant to expose
+      the fluid-balance (balanco hidrico) record pk for a homecare-feed action. Relevant external
+      authority is only Python/Django attribute-access + property semantics."
+    url: "https://docs.python.org/3/library/functions.html#property"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {instance.entrada: "an Entrada row (has FK 'balanco' -> BalancoHidrico)", saida: null, sinal_vital: null}
+      expected_reference: "intended: the BalancoHidrico pk, i.e. obj.balanco.get_pk -> str(id)"
+      actual_legacy: "code evaluates obj.balanco_hidrico.get_pk; Entrada model (entradas.py:13) declares
+        the FK as 'balanco', NOT 'balanco_hidrico', and has no balanco_hidrico attribute/property ->
+        AttributeError at runtime (HTTP 500 on serialize)"
+      match: false
+    - inputs: {instance.saida: "a Saida row (FK 'balanco')", entrada: null, sinal_vital: null}
+      expected_reference: "intended: obj.balanco.get_pk -> str(id)"
+      actual_legacy: "obj.balanco_hidrico -> AttributeError (Saida FK also named 'balanco', saidas.py:13)"
+      match: false
+    - inputs: {entrada: null, saida: null, sinal_vital: null}
+      expected_reference: "None"
+      actual_legacy: "obj is falsy -> return None"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "DISCREPANCY confirmed present but the extraction's MECHANISM is inaccurate on two points, which
+    I document (not correcting the rule): (1) get_pk is a @property (utils/models.py:26-28), NOT a bound
+    method, so if the attribute existed, parenless .get_pk would correctly return str(id) — there is no
+    'bound-method repr leak'. (2) The deeper defect is that obj.balanco_hidrico is not a valid attribute
+    at all: Entrada/Saida/SinaisVitais each declare the FK as 'balanco' (entradas.py:13, saidas.py:13,
+    sinais_vitais.py:13), so the real runtime behavior is an AttributeError / HTTP 500 whenever
+    entrada/saida/sinal_vital is set, not a garbage string. The intended value was almost certainly
+    obj.balanco.get_pk (or obj.balanco_id). This is an internal serializer bug with no external clinical
+    reference, hence UNVERIFIABLE (internal rule) for this clinical audit; flag for engineering review.
+    Clinically the field only exposes a record id in a homecare feed payload, so no decision cutoff or
+    dosing is affected even though the endpoint likely errors."

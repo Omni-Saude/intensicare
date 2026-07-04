@@ -1,0 +1,206 @@
+- rule_id: RULE-SEDACAO-011
+  reference:
+    citation: >
+      Devlin JW et al. Clinical Practice Guidelines for the Prevention and Management of Pain,
+      Agitation/Sedation, Delirium, Immobility, and Sleep Disruption in Adult Patients in the ICU
+      (PADIS). Crit Care Med 2018;46(9):e825-e873. Prolonged sedative/opioid exposure -> iatrogenic
+      tolerance/withdrawal risk; minimize prolonged deep sedation unless a valid indication
+      (e.g. palliative sedation) is present.
+    url: https://www.sccm.org/clinical-resources/guidelines/guidelines/focused-update-padis-guideline
+  checks:
+    equation: diff        # code checks PRESENCE of palliative sedation; intent/reference = ABSENCE
+    coefficients: n/a
+    units: ok             # 96h time window; ml/h presence flags only
+    ranges: ok            # 96h look-back matches "prolonged >4 days" concept
+    rounding: n/a
+    cutoffs: ok           # 96h threshold itself is institutional but consistent with prolonged-use risk
+  test_vectors:
+    - inputs: {diurna_sedoanalgesia: "Sedacao paliativa", propofol_in_96h: true}
+      expected_reference: false   # palliative sedation is a valid indication -> do NOT flag prolonged sedation
+      actual_legacy: true         # `in ["Sedacao paliativa"]` True AND presenca_sedativos True -> flags
+      match: false
+    - inputs: {diurna_sedoanalgesia: "Outros", midazolam_in_96h: true}
+      expected_reference: true    # prolonged sedation without palliative justification -> flag
+      actual_legacy: false        # `in ["Sedacao paliativa"]` False -> all([False,...]) -> no flag
+      match: false
+    - inputs: {diurna_sedoanalgesia: "Sedacao paliativa", sedatives_in_96h: false}
+      expected_reference: false
+      actual_legacy: false        # presenca_sedativos False -> False
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Confirmed at source (trilha_sedacao.py:709-741): code uses `diurna_sedoanalgesia in ["Sedacao paliativa"]`
+    (PRESENCE) whereas the docstring/clinical intent and PADIS-aligned logic require ABSENCE
+    (`not in [...]`). The condition is fully inverted: as written it fires ONLY on patients whose
+    prolonged sedation is appropriately justified (palliative) and never on the target population
+    (prolonged non-palliative sedation). Operational impact is none because criterio_10 is unwired
+    (not called by calcular_criterios); latent impact would be moderate if it were wired, as it would
+    invert the clinical meaning of the alert. Preserved verbatim; not corrected.
+
+- rule_id: RULE-SEDACAO-012
+  reference:
+    citation: >
+      Mirrakhimov AE et al. Propofol Infusion Syndrome in Adults: A Clinical Update. Crit Care Res
+      Pract 2015;2015:260385. PRIS surveillance for prolonged (>48h) or high-dose propofol infusion
+      recommends serial monitoring of creatine kinase (CK), triglycerides, lactate/ABG and cardiac
+      markers; alternative sedatives if propofol is prolonged/high-dose.
+    url: https://onlinelibrary.wiley.com/doi/10.1155/2015/260385
+  checks:
+    equation: ok          # propofol present AND absence of surveillance labs -> alert to order labs
+    coefficients: n/a
+    units: ok             # 96h propofol window; 48h lab window
+    ranges: ok            # 96h (>4d) is more conservative than the >48h literature trigger
+    rounding: n/a
+    cutoffs: ok           # CK + triglycerides are the core published PRIS markers; TGO/TGP adjuncts
+  test_vectors:
+    - inputs: {propofol_in_96h: true, cpk_ordered_48h: true}
+      expected_reference: false   # surveillance present -> no alert
+      actual_legacy: false        # presenca_cpoe True (cpk) -> not True -> False
+      match: true
+    - inputs: {propofol_in_96h: true, no_labs_48h: true}
+      expected_reference: true    # no surveillance labs -> alert to order CK/TG/TGO/TGP
+      actual_legacy: true         # presenca_cpoe False -> not False -> all True -> flags
+      match: true
+    - inputs: {propofol_in_96h: true, only_triglycerides_ordered_48h: true}
+      expected_reference: false   # triglyceride is a valid PRIS marker -> surveillance arguably present
+      actual_legacy: true         # field typo "trigliceres" reads default 0 -> triglyceride clause inert -> flags
+      match: false
+    - inputs: {propofol_in_96h: false}
+      expected_reference: false
+      actual_legacy: false        # presenca_sedativos False -> False
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Concept aligns with published PRIS surveillance (CK + triglycerides are the primary markers; the
+    96h propofol threshold is more conservative than the >48h literature trigger, an acceptable
+    institutional choice). One implementation defect confirmed at source (trilha_sedacao.py:743-785):
+    getattr(cpoe,"trigliceres",0) misspells the field (actual "triglicerides"), so the triglyceride
+    clause always reads 0 and never contributes to presenca_cpoe. Effect is in the SAFE direction
+    (over-alert): a chart carrying only a triglyceride order still triggers the "order safety labs"
+    recommendation. CK/TGO/TGP checks remain functional. Criterio_11 is unwired anyway (operational
+    impact none). Verdict VERIFIED against the clinical reference; the typo is a low-severity,
+    fail-safe code defect, documented not corrected.
+
+- rule_id: RULE-SEDACAO-013
+  reference:
+    citation: >
+      No authoritative published reference. This is an internal UI/labeling business rule: pick the
+      first non-zero continuous sedative in a fixed vendor-defined priority order (midazolam ->
+      propofol -> fentanil -> cetamina -> dexmedetomidina/"Precedex") to populate the active-drug
+      label DS_SEDATIVO_CRITERIO_1. No clinical guideline prescribes a drug-labeling precedence order.
+    url: n/a
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok             # reads ml/h fields for truthiness only (any non-zero)
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {qt_vol_mid: 5, qt_vol_pro: 10}
+      expected_reference: "Midazolam (first non-zero by dict order)"
+      actual_legacy: "Midazolam"      # first key in dict matches, break
+      match: true
+    - inputs: {qt_vol_mid: 0, qt_vol_pro: 8, qt_vol_dex: 3}
+      expected_reference: "Propofol (first non-zero)"
+      actual_legacy: "Propofol"
+      match: true
+    - inputs: {qt_vol_dex: 15, others: 0}
+      expected_reference: "Precedex (dex label)"
+      actual_legacy: "Precedex"       # qt_vol_dex -> "Precedex" (commercial name for dexmedetomidina)
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Confirmed at source (trilha_sedacao.py:293-309): iterates a fixed-order dict and sets the label to
+    the first drug with a non-zero infusion, then breaks (first-match wins). Behavior is internally
+    self-consistent and deterministic, but there is no external clinical/published anchor for the
+    precedence order or the "Precedex" trade-name mapping - it is proprietary business logic. Flagged
+    for internal review; not treated as an error. Feeds the crit1 recommendation text (RULE-SEDACAO-025).
+
+- rule_id: RULE-SEDACAO-016
+  reference:
+    citation: >
+      Sessler CN et al. The Richmond Agitation-Sedation Scale (RASS). Am J Respir Crit Care Med
+      2002;166:1338-1344 (10-point scale, -5 unresponsive to +4 combative; -2..-5 = moderate-to-deep
+      sedation). Combined with PADIS 2018 light-sedation targeting: deeply sedated patients on low
+      ventilatory support are candidates for sedation reduction. FiO2 in percent (0-100), PEEP in cmH2O.
+    url: https://www.mdcalc.com/calc/1872/richmond-agitation-sedation-scale-rass
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok             # RASS as string enum -2..-5 valid; FiO2 read on percent scale (40 = 40%); PEEP cmH2O
+    ranges: ok            # RASS values -2,-3,-4,-5 are valid moderate-to-deep sedation band per reference
+    rounding: n/a
+    cutoffs: diff         # code PEEP<=10 vs the model's own _REGRAS text "PEEP<10"; FiO2<=40 threshold is institutional
+  test_vectors:
+    - inputs: {rass: "-3", fio2: 40, peep: 10}
+      expected_reference: false   # per model _REGRAS text "FiO2<=40 E PEEP<10": peep=10 not <10 -> no flag
+      actual_legacy: true         # code 10>=10>0 True -> all True -> flags (PEEP<=10 boundary)
+      match: false
+    - inputs: {rass: "-3", fio2: 41, peep: 8}
+      expected_reference: false   # FiO2 41 > 40 -> excluded
+      actual_legacy: false        # 40>=41 False -> no flag
+      match: true
+    - inputs: {rass: "-1", fio2: 30, peep: 5}
+      expected_reference: false   # RASS -1 (light sedation) not in deep band -> no flag
+      actual_legacy: false        # "-1" not in ['-2','-3','-4','-5'] -> no flag
+      match: true
+    - inputs: {rass: "-5", fio2: 40, peep: 11}
+      expected_reference: false   # PEEP 11 > 10 -> excluded
+      actual_legacy: false        # 10>=11 False -> no flag
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Confirmed at source (trilha_manual/models/trilha_sedacao.py:113-120). The RASS deep-sedation band
+    (-2..-5) and FiO2%/PEEP-cmH2O units are all valid against the published RASS scale, and FiO2 is
+    correctly on the percent scale (no fraction/percent unit mismatch). The characterized discrepancy
+    is code-vs-documentation only: code uses `10 >= peep` (PEEP<=10) while the model's own _REGRAS
+    descriptor states "PEEP<10". This affects exactly the single boundary value PEEP==10 cmH2O;
+    clinically negligible (1 cmH2O), so impact none. The composite "deep RASS + low support -> lighten
+    sedation" criterion has no single published numeric cutoff (institutional), but its component
+    scales verify against reference. Preserving extraction status DISCREPANCY, characterized not
+    dismissed; not corrected.
+
+- rule_id: RULE-SEDACAO-017
+  reference:
+    citation: >
+      ARDS Definition Task Force (Ranieri VM et al.). Acute Respiratory Distress Syndrome: The Berlin
+      Definition. JAMA 2012;307(23):2526-2533. Severity by PaO2/FiO2: mild 200<P/F<=300, moderate
+      100<P/F<=200, severe P/F<=100. P/F>200 => oxygenation is mild-ARDS-or-better (adequate),
+      supporting sedation lightening per PADIS 2018 light-sedation goal.
+    url: https://pubmed.ncbi.nlm.nih.gov/22797452/
+  checks:
+    equation: ok          # criterio_3 = (P/F > 200) AND sedative present
+    coefficients: n/a
+    units: ok             # P/F ratio (mmHg / fraction), dimensionless ratio
+    ranges: ok            # relacao computed only when po2 & fio2 present, else False -> excluded
+    rounding: n/a
+    cutoffs: ok           # strict >200 exactly matches Berlin: mild ARDS lower bound is P/F strictly >200
+  test_vectors:
+    - inputs: {relacao_po2_fio2: 250, sedative_present: true}
+      expected_reference: true    # P/F 250 = mild ARDS/adequate oxygenation, on sedation -> flag to lighten
+      actual_legacy: true         # 250>200 True AND sedativos True -> flags
+      match: true
+    - inputs: {relacao_po2_fio2: 200, sedative_present: true}
+      expected_reference: false   # Berlin: P/F=200 is moderate ARDS (moderate = P/F<=200) -> not "good oxygenation"
+      actual_legacy: false        # 200>200 False -> no flag
+      match: true
+    - inputs: {relacao_po2_fio2: 180, sedative_present: true}
+      expected_reference: false   # moderate ARDS -> no flag
+      actual_legacy: false        # 180>200 False -> no flag
+      match: true
+    - inputs: {relacao_po2_fio2: false, sedative_present: true}
+      expected_reference: false   # no po2/fio2 data -> cannot assert good oxygenation
+      actual_legacy: false        # False>200 -> False -> no flag
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Confirmed at source (trilha_manual/models/trilha_sedacao.py:122-128). The strict >200 cutoff
+    coincides exactly with the Berlin mild-ARDS lower bound (mild = 200<P/F<=300); P/F=200 correctly
+    falls in the moderate band and is excluded, matching the reference boundary semantics. Units are a
+    dimensionless ratio, consistent. No divergence on any checked dimension.

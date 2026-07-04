@@ -1,0 +1,203 @@
+# Phase 3 clinical verification - cluster balanco-hidrico - batch2 (rules 006-010)
+# Legacy source: ahlabs-trilhas/trilha_homecare/utils.py @ 8166c07
+# Nature of these rules: internal 07:00->07:00 "nursing day" (turno) aggregation helpers.
+# There is NO published scored calculator (no coefficients / unit conversions / score bands)
+# for any of them. The quantities computed (fluid balance = intake-output, summed intake,
+# summed urine, summed stool, max temperature) are textbook/definitional clinical quantities,
+# so equation FORM is verifiable at concept level; the substantive verifiable dimension is the
+# temporal WINDOW (ranges). All five carry status DISCREPANCY from extraction; verified here as
+# real implementation defects that make the computed value diverge from the intended
+# 07:00->07:00 nursing-day quantity. Defects are shared verbatim across all five helpers:
+#   D1 (month-agnostic window): criado_em__day matches DAY-OF-MONTH only, ignoring month/year,
+#       so records from the same day-number in other months/years are wrongly included and the
+#       window is wrong across month boundaries.
+#   D2 (dropped night tail): in the hour>=7 branch, qs2's predicate
+#       `criado_em == horario_ref AND criado_em__hour < 7` is unsatisfiable (horario_ref.hour>=7),
+#       so the 00:00-07:00 segment of the current calendar day (the closing night-shift tail of
+#       the nursing day, ~7h / ~29% of the 24h window) is silently dropped.
+#   D3 (0-as-None): a genuine Sum of 0 is falsy and returned as None (except balanco_24h, which
+#       falls back to 0).
+#   D4 (boundary hour 7): __hour__gte=7 and __hour__lte=7 both include hour 7 -> the 07:00-07:59
+#       hour can be double-included / over-included at the closing edge.
+# No unit-mismatch defect of the kind this audit targets (mg/dl vs mmol/L, FiO2 fraction vs %,
+# mcg/kg/min vs /h) exists in these helpers: all volumes are mL, temperature degrees C.
+
+- rule_id: RULE-BALANCO-HIDRICO-006
+  reference:
+    citation: >-
+      Cumulative/24h fluid balance = total intake - total output is the standard critical-care
+      definition (Malbrain MLNG et al., "Principles of fluid management and stewardship in septic
+      shock", Ann Intensive Care 2018;8:66; LITFL Critical Care Compendium - Fluid Balance). The
+      07:00-07:00 nursing-day (turno das 7h as 7h) is an institutional nursing convention, not a
+      guideline equation. No scored calculator / coefficients exist.
+    url: https://annalsofintensivecare.springeropen.com/articles/10.1186/s13613-018-0402-x
+  checks:
+    equation: ok        # balanco = entradas - saidas matches the definitional form
+    coefficients: n/a   # no coefficients
+    units: ok           # mL - mL -> mL; no unit conversion
+    ranges: diff        # 07:00->07:00 window mis-implemented (D1 month-agnostic, D2 drops 00:00-07:00, D4 boundary)
+    rounding: n/a       # no rounding
+    cutoffs: n/a        # no score bands
+  test_vectors:
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "Entrada 2026-03-14 08:00 = 1000mL; Entrada 2026-03-15 03:00 = 500mL; Saida 2026-03-14 12:00 = 400mL; Saida 2026-03-15 04:00 = 300mL"}
+      expected_reference: "nursing day 03-14 07:00 -> 03-15 07:00: intake 1000+500=1500, output 400+300=700, balance = +800 mL"
+      actual_legacy: "qs1(day==14,hr>=7): in=1000,out=400; qs2 unsatisfiable(D2) drops the 03-15 03:00/04:00 records; balance = 1000-400 = +600 mL"
+      match: false
+    - inputs: {horario_ref: "2026-05-01 10:00 (hour>=7)", records: "Entrada 2026-04-30 09:00 = 800mL (in-window); Entrada 2026-03-30 09:00 = 900mL (prior month, out of window)"}
+      expected_reference: "window 04-30 07:00 -> 05-01 07:00: only the 04-30 record counts; intake=800, balance=+800 mL"
+      actual_legacy: "qs1 filters criado_em__day==30 (D1) -> matches day-of-month 30 in ANY month, so the 2026-03-30 record is wrongly summed: intake=800+900=1700, balance=+1700 mL"
+      match: false
+    - inputs: {horario_ref: "2026-03-15 03:00 (hour<7)", records: "Saida 2026-03-13 08:00 = 200mL; Entrada 2026-03-14 06:00 = 250mL"}
+      expected_reference: "hour<7 branch computes the prior completed nursing day 03-13 07:00 -> 03-14 07:00: intake 250, output 200, balance = +50 mL"
+      actual_legacy: "qs1(day==13,hr>=7) out=200; qs2(day==14,hr<=7) in=250 -> balance = 250-200 = +50 mL (matches here; hour<7 branch well-formed apart from residual D1/D4)"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Equation and units match the standard definition; the discrepancy is purely the temporal
+    window. D2 systematically drops the 00:00-07:00 night-shift tail (~7h) of both intake and
+    output when the form is generated during day shift (hour>=7); net balance error = (intake-output)
+    of the dropped segment (can be either sign). D1 can grossly mis-window across month boundaries.
+    Empty sums fall back to 0 here (not None), so it always returns a number. Fluid balance drives
+    fluid-management/resuscitation and de-resuscitation decisions -> moderate.
+
+- rule_id: RULE-BALANCO-HIDRICO-007
+  reference:
+    citation: >-
+      Total fluid intake ("ganhos") over the 24h nursing day is a definitional sum of intake
+      volumes; the intake/output ledger is standard critical-care fluid accounting (Malbrain et al.,
+      Ann Intensive Care 2018;8:66). No scored calculator / coefficients / cutoffs.
+    url: https://annalsofintensivecare.springeropen.com/articles/10.1186/s13613-018-0402-x
+  checks:
+    equation: ok        # total_ganhos = Sum(Entrada.quantidade), no tipo filter - matches "sum all intake"
+    coefficients: n/a
+    units: ok           # mL
+    ranges: diff        # same 07:00->07:00 window defects D1/D2/D4
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "Entrada 2026-03-14 08:00 = 1000mL; Entrada 2026-03-15 05:00 = 400mL"}
+      expected_reference: "nursing day intake = 1000+400 = 1400 mL"
+      actual_legacy: "qs1=1000; qs2 unsatisfiable (D2) -> 400mL dropped; returns 1000 mL"
+      match: false
+    - inputs: {horario_ref: "2026-05-01 10:00 (hour>=7)", records: "Entrada 2026-04-30 09:00 = 800mL; Entrada 2026-01-30 09:00 = 600mL (unrelated prior month)"}
+      expected_reference: "intake = 800 mL (only 04-30 in window)"
+      actual_legacy: "D1: criado_em__day==30 matches 01-30 too -> returns 800+600 = 1400 mL"
+      match: false
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "single Entrada 2026-03-14 08:00 = 0mL"}
+      expected_reference: "intake = 0 mL"
+      actual_legacy: "Sum=0 is falsy (D3); qs2 None -> returns None (not 0)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Sum form and unit (mL) match the definitional quantity; discrepancy is the window (D1/D2/D4)
+    plus 0->None (D3). D2 under-reports intake by the dropped 00:00-07:00 tail. Understated intake
+    on a fluid-balance/evolution display can mislead volume assessment -> moderate.
+
+- rule_id: RULE-BALANCO-HIDRICO-008
+  reference:
+    citation: >-
+      Urine output ("diureses") summed over 24h; accurate urine-output quantitation underpins the
+      KDIGO 2012 AKI oliguria criterion (urine output <0.5 mL/kg/h). KDIGO Clinical Practice
+      Guideline for Acute Kidney Injury, Kidney Int Suppl 2012;2(1). The tipo filter
+      {diurese_espontanea, diurese_sonda} correctly restricts to urine. No scored calculator here.
+    url: https://kdigo.org/wp-content/uploads/2016/10/KDIGO-2012-AKI-Guideline-English.pdf
+  checks:
+    equation: ok        # Sum(Saida.quantidade) filtered tipo__in (diurese_espontanea, diurese_sonda)
+    coefficients: n/a
+    units: ok           # mL
+    ranges: diff        # same 07:00->07:00 window defects D1/D2/D4
+    rounding: n/a
+    cutoffs: n/a        # KDIGO cutoffs applied downstream, not in this helper
+  test_vectors:
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "Saida diurese_espontanea 2026-03-14 20:00 = 600mL; Saida diurese_sonda 2026-03-15 02:00 = 500mL"}
+      expected_reference: "24h urine = 600+500 = 1100 mL"
+      actual_legacy: "qs1=600; qs2 unsatisfiable (D2) drops the 02:00 void -> returns 600 mL"
+      match: false
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "Saida diurese_espontanea 2026-03-14 09:00 = 800mL; Saida vomito_retorno_sonda 2026-03-14 10:00 = 300mL"}
+      expected_reference: "urine only = 800 mL (vomit excluded by tipo filter)"
+      actual_legacy: "tipo__in filter excludes the vomit; qs1=800 -> returns 800 mL"
+      match: true
+    - inputs: {horario_ref: "2026-05-01 10:00 (hour>=7)", records: "Saida diurese_sonda 2026-04-30 08:00 = 700mL; Saida diurese_sonda 2026-02-28 08:00 = 400mL"}
+      expected_reference: "urine = 700 mL (only 04-30 in window)"
+      actual_legacy: "D1: criado_em__day==30 matches only 04-30 (Feb has no 30) -> returns 700 mL here; but any prior-month day-30 record WOULD be wrongly included"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    tipo filter and unit are correct; discrepancy is the window (D1/D2/D4) and 0->None (D3). D2
+    drops the 00:00-07:00 urine, systematically UNDER-reporting 24h diuresis by up to the night-shift
+    tail; under-counted urine output could spuriously suggest oliguria/AKI (KDIGO), while D1 month
+    aliasing could over-count. Urine output is a primary AKI/volume signal -> moderate.
+
+- rule_id: RULE-BALANCO-HIDRICO-009
+  reference:
+    citation: >-
+      Bowel-movement ("evacuacoes") output summed over the 24h nursing day - a definitional
+      count/volume aggregation with no published scored calculator, coefficients, or cutoffs. tipo
+      filter == "evacuacao". General nursing intake/output charting standard (StatPearls,
+      Fluid Balance / Intake and Output).
+    url: https://www.ncbi.nlm.nih.gov/books/NBK549784/
+  checks:
+    equation: ok        # Sum(Saida.quantidade) filtered tipo == "evacuacao"
+    coefficients: n/a
+    units: ok           # count/volume (Saida.quantidade), consistent
+    ranges: diff        # same 07:00->07:00 window defects D1/D2/D4
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "Saida evacuacao 2026-03-14 15:00 = 200; Saida evacuacao 2026-03-15 04:00 = 100"}
+      expected_reference: "24h evacuacoes = 200+100 = 300"
+      actual_legacy: "qs1=200; qs2 unsatisfiable (D2) drops the 04:00 record -> returns 200"
+      match: false
+    - inputs: {horario_ref: "2026-03-15 03:00 (hour<7)", records: "Saida evacuacao 2026-03-13 08:00 = 100; Saida evacuacao 2026-03-14 06:00 = 200"}
+      expected_reference: "prior completed nursing day 03-13 07:00->03-14 07:00: 100+200 = 300"
+      actual_legacy: "qs1(day==13,hr>=7)=100; qs2(day==14,hr<=7)=200 -> returns 300"
+      match: true
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "single Saida evacuacao 2026-03-14 08:00 = 0"}
+      expected_reference: "0 (a recorded evacuation of zero quantity)"
+      actual_legacy: "Sum=0 falsy (D3), qs2 None -> returns None"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    tipo filter correct; same window defects (D1/D2/D4) and 0->None (D3). Bowel-movement totals are
+    largely qualitative/monitoring and not a resuscitation-critical number, so the same window loss
+    carries low clinical impact relative to urine/fluid balance.
+
+- rule_id: RULE-BALANCO-HIDRICO-010
+  reference:
+    citation: >-
+      Maximum recorded body temperature over the 24h nursing day (Tmax) - a simple MAX aggregation.
+      Fever thresholds (e.g. >=38.3 C) are applied downstream, not in this helper (O'Grady NP et al.,
+      Guidelines for evaluation of new fever in critically ill adult patients, SCCM/IDSA,
+      Crit Care Med 2008;36:1330). No scored calculator here.
+    url: https://pubmed.ncbi.nlm.nih.gov/18379262/
+  checks:
+    equation: ok        # Tmax = max( Max(qs1.temperatura), Max(qs2.temperatura) ), None-stripped
+    coefficients: n/a
+    units: ok           # degrees Celsius
+    ranges: diff        # same 07:00->07:00 window defects D1/D2 (D4 boundary; D3 N/A - Max, and 0 C never a valid reading)
+    rounding: n/a
+    cutoffs: n/a        # fever cutoff applied elsewhere
+  test_vectors:
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "SinaisVitais 2026-03-14 14:00 temp=37.2; SinaisVitais 2026-03-15 03:00 temp=39.1"}
+      expected_reference: "Tmax over nursing day = 39.1 C (the 03:00 fever spike)"
+      actual_legacy: "qs1 Max=37.2; qs2 unsatisfiable (D2) -> the 39.1 spike dropped; returns 37.2 C"
+      match: false
+    - inputs: {horario_ref: "2026-03-15 10:00 (hour>=7)", records: "SinaisVitais 2026-03-14 08:00 temp=38.0; SinaisVitais 2026-03-14 20:00 temp=38.6"}
+      expected_reference: "Tmax = 38.6 C"
+      actual_legacy: "qs1 Max=38.6 (both in day==14, hr>=7); returns 38.6 C"
+      match: true
+    - inputs: {horario_ref: "2026-05-01 10:00 (hour>=7)", records: "SinaisVitais 2026-04-30 09:00 temp=37.5; SinaisVitais 2026-03-30 09:00 temp=40.0 (prior month)"}
+      expected_reference: "Tmax = 37.5 C (only 04-30 in window)"
+      actual_legacy: "D1: criado_em__day==30 matches 03-30 too -> Max includes 40.0; returns 40.0 C (spurious high from wrong month)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Aggregation is MAX (not Sum) and 0->None does not apply. Discrepancy is the window: D2 drops the
+    00:00-07:00 night tail so a nocturnal fever spike (a key sepsis/infection trigger) can be missed,
+    and D1 can import a spurious high temperature from the same day-number in another month. Missing
+    or fabricating a fever peak on a clinical evolution display -> moderate.

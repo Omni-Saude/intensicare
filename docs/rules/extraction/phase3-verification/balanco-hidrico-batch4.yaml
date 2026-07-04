@@ -1,0 +1,118 @@
+- rule_id: RULE-BALANCO-HIDRICO-016
+  reference:
+    citation: "Python Software Foundation. datetime.timedelta — total_seconds() vs. the .seconds attribute (seconds-within-a-day only, 0..86399). Python 3 Standard Library documentation."
+    url: "https://docs.python.org/3/library/datetime.html#datetime.timedelta.total_seconds"
+  checks:
+    equation: diff        # elapsed_hours should be total_seconds()/3600, code uses .seconds/3600
+    coefficients: ok      # 3600 s/h divisor is correct
+    units: ok             # returns hours
+    ranges: diff          # correct output is unbounded [0, inf); legacy is confined to [0, 24)
+    rounding: n/a         # float division, no rounding step
+    cutoffs: diff         # downstream sepsis recency guards (<=24h, <=12h, <2h) rely on true elapsed time
+  test_vectors:
+    - {inputs: {age_since_criado_em: "2h00m"},  expected_reference: 2.0,  actual_legacy: 2.0,  match: true}
+    - {inputs: {age_since_criado_em: "12h00m"}, expected_reference: 12.0, actual_legacy: 12.0, match: true}
+    - {inputs: {age_since_criado_em: "25h00m"}, expected_reference: 25.0, actual_legacy: 1.0,  match: false}   # timedelta(days=1, seconds=3600).seconds==3600 -> 1.0
+    - {inputs: {age_since_criado_em: "36h00m"}, expected_reference: 36.0, actual_legacy: 12.0, match: false}   # whole-day component dropped -> 12h remainder
+  verdict: DISCREPANCY
+  clinical_impact: moderate   # confines elapsed-hours to [0,24) with daily wrap, so sepsis recency window guards (<=24 effectively always-true, <=12 in criterio_9, <2h in criterio_6) become unreliable and can admit stale readings or wrap genuinely-old ones back under threshold
+  notes: |
+    Confirms the DISCREPANCY carried from extraction. Defect is timedelta.seconds (seconds-within-a-day, 0..86399)
+    used instead of total_seconds(). Verified against Python runtime semantics: for any age >= 24h the whole-day
+    component is discarded, so the function returns age mod 24h. Byte-identical defect triplicated in
+    models/balanco_hidrico/sinais_vitais.py:110-113, entradas.py:66-68, saidas.py:73-75. Consumed by sepse
+    criterio recency gating and inline in criterio_6. Not a clinical-scale rule; the authoritative reference is the
+    language runtime contract that the legacy code violates.
+
+- rule_id: RULE-BALANCO-HIDRICO-017
+  reference:
+    citation: "No authoritative published clinical reference. Internal data-access helper: returns the 2nd-most-recent SinaisVitais row (order_by -criado_em, index [1]) for an admission; used as the 'previous reading' baseline for sepse change-detection criteria."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {readings: 0}, expected_reference: "internal-spec: None", actual_legacy: "None (IndexError caught)", match: true}
+    - {inputs: {readings: 1}, expected_reference: "internal-spec: None", actual_legacy: "None (IndexError caught)", match: true}
+    - {inputs: {readings: 3}, expected_reference: "internal-spec: 2nd-newest", actual_legacy: "row at index [1] = 2nd-newest", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Internal business/data-access rule with no published clinical source to check against; flag for internal review,
+    not treated as wrong. Behavioral observation only: the query does NOT filter deletado_em, so a soft-deleted
+    reading can be returned as the 'previous' vital sign — worth an internal-review note, not a reference discrepancy.
+
+- rule_id: RULE-BALANCO-HIDRICO-018
+  reference:
+    citation: "No authoritative published clinical reference. UI display/formatting rule composing a 'systolic/diastolic' string; each side shown only when strictly > 0 else '--'. No hypertension/hypotension thresholds applied."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a          # mmHg passthrough, no conversion
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {pas: 120, pad: 80}, expected_reference: "internal-spec: '120/80'", actual_legacy: "'120/80'", match: true}
+    - {inputs: {pas: 120, pad: 0},  expected_reference: "internal-spec: '120/--'", actual_legacy: "'120/--'", match: true}
+    - {inputs: {pas: 0, pad: 0},    expected_reference: "internal-spec: row hidden ((pad||pas) falsy)", actual_legacy: "row hidden", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Pure display formatting (pas=systolic, pad=diastolic); no clinical scale, calculation, or threshold to verify
+    against a published source. No unit conversion (mmHg passthrough). Cross-surface contrast with the PDF path
+    (RULE-...-028, which requires BOTH pas AND pad) is preserved-as-implemented, not a reference discrepancy.
+
+- rule_id: RULE-BALANCO-HIDRICO-019
+  reference:
+    citation: "Numeric Rating Scale (NRS) for pain intensity: integer 0-10 (0=no pain, 10=worst imaginable). Behavioral Pain Scale (BPS), Payen et al., Crit Care Med 2001;29(12):2258-2263 — sum of 3 subscales (facial expression, upper-limb movements, compliance with mechanical ventilation), each scored 1-4, total range 3-12."
+    url: "https://pubmed.ncbi.nlm.nih.gov/16198570/"
+  checks:
+    equation: n/a          # input-range gate / branch selector, not a computed score
+    coefficients: n/a
+    units: n/a
+    ranges: ok             # queixa->0..10 matches NRS; sinais->3..12 matches BPS
+    rounding: n/a
+    cutoffs: ok            # min/max inclusive, exactly matching both canonical scale bounds
+  test_vectors:
+    - {inputs: {dor: "queixa", escala_dor: 0},  expected_reference: "valid (NRS min 0)",  actual_legacy: "valid (min 0)",  match: true}
+    - {inputs: {dor: "queixa", escala_dor: 10}, expected_reference: "valid (NRS max 10)", actual_legacy: "valid (max 10)", match: true}
+    - {inputs: {dor: "sinais", sinais_dor: 3},  expected_reference: "valid (BPS min 3, all subscales=1)", actual_legacy: "valid (min 3)", match: true}
+    - {inputs: {dor: "sinais", sinais_dor: 12}, expected_reference: "valid (BPS max 12, all subscales=4)", actual_legacy: "valid (max 12)", match: true}
+    - {inputs: {dor: "sinais", sinais_dor: 2},  expected_reference: "invalid (below BPS floor of 3)", actual_legacy: "rejected (min 3)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: |
+    Extraction status was AMBIGUOUS only because the scale names are not labelled in code; against the published
+    references the enforced bounds are exactly canonical: queixa (verbal complaint) -> 0-10 = NRS; sinais (observed
+    signs, non-verbal/ventilated patient) -> 3-12 = Payen BPS (3 subscales x 1-4). Boundaries inclusive on both ends,
+    matching both scales. No score is computed here (front-end input-range gate only), so equation/units are n/a.
+    Ranges and band cutoffs VERIFIED.
+
+- rule_id: RULE-BALANCO-HIDRICO-020
+  reference:
+    citation: "No authoritative published reference. Internal serializer default: entrada tipo=='dieta_enteral' with falsy quantidade -> quantidade=200 (assumed mL). No clinical guideline (e.g. ASPEN enteral nutrition) prescribes a fixed 200 mL charting default; this is a data-entry convenience value."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: n/a     # constant 200 is a business default, not a derived coefficient
+    units: n/a            # 'mL' is assumed/undocumented in source
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {tipo: "dieta_enteral", quantidade: null}, expected_reference: "internal-spec: 200", actual_legacy: "200", match: true}
+    - {inputs: {tipo: "dieta_enteral", quantidade: 0},    expected_reference: "internal-spec: 200 (0 is falsy)", actual_legacy: "200", match: true}
+    - {inputs: {tipo: "dieta_enteral", quantidade: 350},  expected_reference: "internal-spec: 350 (kept)", actual_legacy: "350", match: true}
+    - {inputs: {tipo: "agua", quantidade: null},          expected_reference: "internal-spec: not defaulted here", actual_legacy: "falls through to generic zero-fallback", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Internal business rule (default charting volume) with no published clinical source to verify; flag for internal
+    review, not treated as wrong. Only fires when quantidade is falsy AND tipo is exactly 'dieta_enteral'. Unit (mL)
+    is assumed, not asserted in code. Mirrors the presenca_espontanea=='presente' -> 200 default on Saida (RULE-...-021).

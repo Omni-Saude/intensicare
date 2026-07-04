@@ -1,0 +1,66 @@
+- rule_id: RULE-ANTIMICROBIANO-003
+  reference:
+    citation: >
+      IDSA 2016 Clinical Practice Guideline for the Management of Candidiasis
+      (Pappas et al., Clin Infect Dis 2016;62:e1-e50) for empiric echinocandin therapy;
+      IDSA 2009 Guidelines for Diagnosis and Management of Intravascular Catheter-Related
+      Infection (Mermel et al., Clin Infect Dis 2009;49:1-45) for CVC removal + paired blood
+      cultures; Surviving Sepsis Campaign 2021 (Evans et al., Intensive Care Med 2021;47:1181-1247)
+      for shorter antibiotic duration + daily de-escalation + procalcitonin/biomarker-guided
+      discontinuation. Fever 38.3 degC threshold per IDSA febrile-neutropenia single-measurement
+      definition.
+    url: >
+      https://academic.oup.com/cid/article/62/4/e1/2462830 ;
+      https://academic.oup.com/cid/article/49/11/1770/344574 ;
+      https://pmc.ncbi.nlm.nih.gov/articles/PMC8486643/
+  checks:
+    equation: n/a          # care-pathway payload catalog, not a computational formula
+    coefficients: n/a
+    units: ok              # days, hours, degC, PCR (CRP) consistent within the catalog
+    ranges: ok             # threshold directions (>7d, >48h, >38.3, <100) are internally coherent
+    rounding: n/a
+    cutoffs: ok            # thresholds consistent with / not contradicting cited guidelines
+  test_vectors:
+    - inputs: {scenario: "non-neutropenic ICU patient at risk of candidemia", TAX: "-", CVC_days: "-"}
+      expected_reference: "IDSA 2016: preferred empiric therapy = echinocandin (caspofungin / micafungin / anidulafungin), strong recommendation"
+      actual_legacy: "criterio_9 / criterio_10 -> empiric candidemia tx with Anidulafungina OR Micafungina OR Caspofungina + infectology parecer"
+      match: true
+    - inputs: {TAX: 38.5, CVC_days: 10}
+      expected_reference: "IDSA 2009 CRBSI: suspected catheter source with fever -> obtain paired blood cultures (>=2 sets, catheter + peripheral) and evaluate catheter removal/exchange"
+      actual_legacy: "criterio_8 (fever >38,3 + CVC >7d) -> avaliar retirada/troca do CVC + hemocultura para bacterias em 2 amostras + sinais flogisticos"
+      match: true
+    - inputs: {antibiotic_duration_days: 8}
+      expected_reference: "SSC 2021: suggest shorter over longer antimicrobial duration with adequate source control; daily reassessment for de-escalation"
+      actual_legacy: "criterio_1 (mesmo antibiotico >7 dias) -> considerar suspensao; criterio_5 -> reavaliar duracao"
+      match: true
+    - inputs: {TAX: 38.3, CVC_days: 7}
+      expected_reference: "IDSA single-measurement fever definition uses >=38.3 degC; a temp of exactly 38.3 degC meets the fever threshold"
+      actual_legacy: "criterio_8 uses strict > 38,3 and CVC > 7d, so 38.3 degC / 7 days exactly do NOT trigger (boundary excluded)"
+      match: false
+    - inputs: {diagnosis: "CAP, PCR/CRP 80 (<100)"}
+      expected_reference: "SSC 2021: procalcitonin/biomarker + clinical evaluation may guide antimicrobial discontinuation (biomarker-guided de-escalation supported in principle)"
+      actual_legacy: "criterio_12 (CAP + PCR < 100 OR confirmed COVID-19) -> considerar suspensao de antibioticos"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    This rule is a qualitative stewardship care-pathway catalog (12 alerta+recomendacao entries),
+    not a scored equation, so equation/coefficients/rounding are n/a. Every clinically anchorable
+    element matches its authoritative reference: (a) empiric echinocandin (anidulafungin/
+    micafungin/caspofungin) for candidemia risk = IDSA 2016 strong recommendation for
+    non-neutropenic ICU patients (criterio_9, criterio_10); (b) CVC removal/exchange with two
+    blood-culture samples on fever = IDSA 2009 CRBSI management (criterio_7, criterio_8); (c)
+    reassess/shorten antibiotic course, escalate/de-escalate spectrum, biomarker-guided
+    discontinuation = SSC 2021 (criterio_1, criterio_2, criterio_5, criterio_11, criterio_12).
+    The numeric thresholds that are institution-specific protocol choices -- same-antibiotic >7d,
+    short-spectrum start with internacao >48h, CVC >7d, CRP/PCR <100 for CAP de-escalation -- are
+    NOT drawn from a single published equation but are consistent with and do not contradict the
+    cited guidelines (SSC endorses shorter durations and biomarker-guided stops without fixing an
+    exact day/CRP cutoff). One immaterial boundary observation (test vector 4): criterio_8 uses a
+    strict fever cutoff > 38,3 degC whereas IDSA's neutropenic-fever definition is >= 38.3 degC, so
+    a temperature of exactly 38.3 degC would not trigger in legacy; clinically negligible (a single
+    0.0 degC boundary point on a low-specificity sign that is one of two OR-linked catheter
+    criteria). criterio_9 and criterio_10 intentionally share the identical alerta label but differ
+    in workup (full bacterial+fungal vs fungi-only 2 blood samples) -- both align with guideline
+    culture practice. No frontend copy exists; trilha_automatica/facade/antimicrobiano.py is a pure
+    alias re-export, so no cross-implementation discrepancy. Clinical content preserved verbatim.

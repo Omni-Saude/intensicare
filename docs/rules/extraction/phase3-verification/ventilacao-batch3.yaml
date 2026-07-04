@@ -1,0 +1,181 @@
+- rule_id: RULE-VENTILACAO-011
+  reference:
+    citation: >
+      Boles J-M, et al. "Weaning from mechanical ventilation." ERS/ATS/ESICM/SCCM/SRLF
+      Task Force. Eur Respir J 2007;29:1033-1056 (International Consensus Conference on
+      weaning). Readiness-to-wean/SBT screening: adequate oxygenation = SpO2 >=90% on
+      FiO2 <=0.40 and PEEP <=8 cmH2O, OR PaO2/FiO2 >=150 (PEEP <=8); some protocols use
+      P/F >200. Adequate consciousness, RR criterion, no/minimal vasopressors.
+    url: https://erj.ersjournals.com/content/29/5/1033
+  checks:
+    equation: ok        # bundle of AND-ed readiness gates matches consensus SBT-screen
+    coefficients: ok    # PEEP<=8, FiO2<=0.40, P/F>=200, FR<=22, Glasgow>=10/RASS>=-2, no vasopressor
+    units: diff         # FiO2 handled as a FRACTION here (fio2 < 0.4) while the data-entry form (RULE-VENTILACAO-018) and C2/C3 treat FiO2 as a PERCENT (21-100 / fio2/100)
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff       # strict FiO2 < 0.4 excludes exactly 0.40, which the consensus admits (FiO2 <= 0.40)
+  test_vectors:
+    - inputs: {glasgow: 10, rass: "-2", dias_vm: 2, peep: 8, fio2: 0.30, fr: 22, po2: 200, noradrenalina: absent}
+      expected_reference: "Meets SBT-screen (PEEP<=8, FiO2<=0.40, P/F=667>=200) -> flag ready"
+      actual_legacy: "True (fio2=0.30<0.4, all gates satisfied)"
+      match: true
+    - inputs: {glasgow: 12, rass: "-1", dias_vm: 3, peep: 6, fio2: 0.40, fr: 18, po2: 240, noradrenalina: absent}
+      expected_reference: "FiO2 exactly 0.40 is acceptable (consensus FiO2<=0.40) -> flag ready"
+      actual_legacy: "False (fio2<0.4 is strict; 0.40 fails)"
+      match: false
+    - inputs: {glasgow: 12, rass: "-1", dias_vm: 3, peep: 6, fio2: 40, fr: 18, po2: 96, noradrenalina: absent}
+      expected_reference: "FiO2 recorded as 40% (=0.40 per form's 21-100 validation) -> patient is weaning-ready -> flag"
+      actual_legacy: "False: 40<0.4 is always False, so C8 (an alert-forcing red-flag criterion) can never fire for percentage-recorded FiO2"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: high
+  notes: >
+    Threshold values themselves are VERIFIED against the ERS/ATS weaning consensus
+    (PEEP<=8, FiO2<=0.40, P/F>=200, RR criterion, consciousness, no vasopressor). The
+    DISCREPANCY is the FiO2 UNIT: C8 interprets FiO2 as a fraction (<0.4) whereas the
+    movimentacao data-entry form validates FiO2 as 21-100 (percent) and C2/C3
+    (RULE-VENTILACAO-004/005) divide fio2 by 100. If production stores FiO2 as a
+    percentage (as the 21-100 form range strongly implies), 40<0.4 is always False and
+    this alert-forcing extubation-readiness criterion never triggers -> silent
+    false-negative on weaning readiness, prolonging ventilation. The unit tests pass only
+    because they inject fio2=0.3 directly, bypassing the form. Impact rated high because
+    it is a red-flag (alert-forcing) safety criterion rendered non-functional; conditional
+    on the live FiO2 storage unit. Do not correct - documented per audit scope.
+
+- rule_id: RULE-VENTILACAO-012
+  reference:
+    citation: >
+      Singer M, et al. "The Third International Consensus Definitions for Sepsis and
+      Septic Shock (Sepsis-3)." JAMA 2016;315(8):801-810. Septic shock = vasopressor
+      requirement to maintain MAP >=65 mmHg AND serum lactate >2 mmol/L (>18 mg/dL)
+      despite adequate fluid resuscitation.
+    url: https://pmc.ncbi.nlm.nih.gov/articles/PMC4968574/
+  checks:
+    equation: ok        # (vasopressor present) AND (elevated lactate) mirrors Sepsis-3 shock construct
+    coefficients: diff  # legacy lactate cutoff >2.5 mmol/L vs Sepsis-3 >2.0 mmol/L
+    units: ok           # lactate in mmol/L, matches Sepsis-3 (2 mmol/L = 18 mg/dL); not mg/dL
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff       # >2.5 (strict) vs Sepsis-3 >2.0; also note internal rules elsewhere use >=2.5
+  test_vectors:
+    - inputs: {noradrenalina: present, lactato_arterial: 2.6, ventilacao_mecanica: absent}
+      expected_reference: "Vasopressor + lactate 2.6>2.0 = septic shock -> flag"
+      actual_legacy: "True (2.6>2.5, norad present, no MV)"
+      match: true
+    - inputs: {noradrenalina: present, lactato_arterial: 2.2, ventilacao_mecanica: absent}
+      expected_reference: "Vasopressor + lactate 2.2>2.0 = septic shock by Sepsis-3 -> flag"
+      actual_legacy: "False (2.2>2.5 is False) -> NOT flagged"
+      match: false
+    - inputs: {noradrenalina: present, lactato_arterial: 2.6, ventilacao_mecanica: present}
+      expected_reference: "Shock present but patient already ventilated; 'shock WITHOUT ventilation' alert not applicable -> no flag"
+      actual_legacy: "False (not-MV gate fails)"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The composite (noradrenaline present AND elevated lactate AND no mechanical
+    ventilation) is an internal 'shock without ventilation' escalation alert; its
+    anchorable component, the lactate cutoff, deviates from Sepsis-3: legacy uses
+    >2.5 mmol/L whereas Sepsis-3 septic shock uses >2.0 mmol/L (units correct, mmol/L).
+    The stricter 2.5 threshold reduces sensitivity in the narrow 2.0-2.5 mmol/L band
+    (conservative direction: fewer alerts), so a small subset of vasopressor-dependent,
+    non-ventilated septic-shock patients would not be flagged. Impact low given the narrow
+    band and that 2.5 mmol/L is a commonly used hyperlactatemia marker. Extraction status
+    was OK; characterized here as a minor cutoff discrepancy vs the Sepsis-3 anchor.
+
+- rule_id: RULE-VENTILACAO-013
+  reference:
+    citation: >
+      O'Driscoll BR, et al. BTS Guideline for oxygen use in adults in healthcare and
+      emergency settings. Thorax 2017;72(Suppl 1):ii1-ii90. Target SpO2 94-98% for most
+      acutely ill adults (avoid hyperoxia); 88-92% for patients at risk of hypercapnic
+      respiratory failure (e.g. COPD). PaO2 hyperoxia above the normal 80-100 mmHg range.
+    url: https://www.brit-thoracic.org.uk/quality-improvement/guidelines/emergency-oxygen/
+  checks:
+    equation: ok        # de-escalation flag: high SpO2 OR high PaO2 OR (COPD AND SpO2 above band)
+    coefficients: ok    # SpO2>96 (near upper 94-98 target), PaO2>100, COPD SpO2>92
+    units: ok           # SpO2 percent, PaO2 mmHg
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok         # COPD >92 correctly flags exceeding the 88-92 band; general >96 within hyperoxia-avoidance zone
+  test_vectors:
+    - inputs: {sato2: 97, dpoc: false}
+      expected_reference: "SpO2 97% at/above upper target -> reduce O2 to avoid hyperoxia -> flag"
+      actual_legacy: "True (sato2>96)"
+      match: true
+    - inputs: {sato2: 95, dpoc: false}
+      expected_reference: "SpO2 95% within 94-98% target, adequate, not hyperoxic -> no de-escalation flag"
+      actual_legacy: "False"
+      match: true
+    - inputs: {sato2: 93, dpoc: true}
+      expected_reference: "COPD SpO2 93% exceeds 88-92% band -> reduce O2 -> flag"
+      actual_legacy: "True (dpoc AND sato2>92)"
+      match: true
+    - inputs: {sato2: 92, dpoc: true}
+      expected_reference: "COPD SpO2 92% is top of 88-92% band, acceptable -> no flag"
+      actual_legacy: "False (92>92 is False)"
+      match: true
+    - inputs: {po2: 101, dpoc: false}
+      expected_reference: "PaO2 101 mmHg above normal 80-100 -> hyperoxia -> flag"
+      actual_legacy: "True (po2>100)"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    All three disjuncts match BTS oxygen-target guidance: general SpO2>96% and PaO2>100
+    mmHg flag potential hyperoxia for O2 de-escalation, and the COPD branch (SpO2>92)
+    correctly identifies patients above the 88-92% hypercapnia-risk band. Strict
+    boundaries (SpO2 92 -> no flag, SpO2 95 -> no flag) are consistent with the 88-92 and
+    94-98 target bands. Units correct (SpO2 %, PaO2 mmHg). Matches reference on all checked
+    dimensions.
+
+- rule_id: RULE-VENTILACAO-017
+  reference:
+    citation: >
+      Composite protocol facade. Anchors: (1) ARDSNet - ARDS Network NEJM 2000;342:1301-8
+      (lung-protective VT 6 mL/kg PBW, reducible to 5 then 4, permissive hypercapnia);
+      (2) PROSEVA - Guerin C et al. NEJM 2013;368:2159-68 (prone if PaO2/FiO2 <150 with
+      FiO2>=0.6/PEEP>=5; sessions >=16 h/day; deep sedation RASS -4/-5 +/- NMB);
+      (3) ERS/ATS weaning consensus (Boles 2007, SBT/TRE readiness);
+      (4) BTS 2017 oxygen guideline (SpO2 94-98% general, 88-92% COPD; avoid hyperoxia);
+      (5) tracheostomy-timing literature (~10-14 days for prolonged intubation);
+      (6) high-risk-extubation VNI (COPD/CHF/prior failure/advanced age).
+    url: https://www.nejm.org/doi/full/10.1056/NEJMoa1214103
+  checks:
+    equation: n/a       # human-readable protocol facade, not a numeric formula
+    coefficients: ok    # VT 4 mL/kg PBW (ARDSNet low end); P/F<150; PRONA 16-20h; RASS -4/-5; TOT>10d (14d COVID); age>75; SpO2>96; COPD 88-92
+    units: ok           # mL/kg predicted weight, mmHg P/F, hours, years, % SpO2
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok         # every stated cutoff has a matching published anchor
+  test_vectors:
+    - inputs: {relacao_po2_fio2: 140, fio2: 0.6, peep: 8}
+      expected_reference: "PROSEVA: P/F<150 with FiO2>=0.6/PEEP>=5 -> prone positioning indicated"
+      actual_legacy: "criterio_7 SDRA moderada-grave -> PRONA 16-20h, RASS -4/-5, +/- BNM"
+      match: true
+    - inputs: {prona_duration_h: 16, sedation: "RASS -5"}
+      expected_reference: "PROSEVA: >=16 h/day prone (mean 17), deep sedation +/- NMB"
+      actual_legacy: "PRONA 16 a 20h, RASS -4 a -5, +/- BNM continuo"
+      match: true
+    - inputs: {dpoc: true, sato2: 95}
+      expected_reference: "BTS: COPD target 88-92% -> reduce O2"
+      actual_legacy: "criterio_10 algoritmo 2 DPOC SatO2>92 -> reduzir para manter 88-92%"
+      match: true
+    - inputs: {vent_nao_protetora: true, peso_ideal: 70}
+      expected_reference: "ARDSNet: protective VT down to 4-6 mL/kg PBW, permissive hypercapnia"
+      actual_legacy: "criterio_1 VC 4 ml/kg do peso ideal, acidose respiratoria permissiva"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Every stated cutoff in the facade matches its published anchor: protective VT ~4-6
+    mL/kg predicted body weight (ARDSNet), prone for P/F<150 at 16-20 h with RASS -4/-5
+    +/- NMB (PROSEVA), SBT/TRE readiness (ERS/ATS), tracheostomy for prolonged intubation
+    (~10-14 d), age>75 as a high-risk-extubation VNI trigger, and BTS oxygen targets
+    (avoid hyperoxia SpO2>96%, COPD 88-92%). One internal (not-vs-reference) note: the
+    facade states COVID tracheostomy at >14 days whereas the trilha_manual C6 code
+    (RULE-VENTILACAO-009) uses >10 days - a facade-vs-implementation variant divergence,
+    both within the defensible 10-14 d window. The numeric PEEPxFiO2 titration tables are
+    referenced but NOT included in this payload (external protocol), so their exact values
+    are not verifiable here (checked separately in C2/C3, RULE-VENTILACAO-004/005). On all
+    dimensions present in the facade, matches reference.

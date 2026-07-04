@@ -1,0 +1,152 @@
+- rule_id: RULE-SINAIS-VITAIS-004
+  reference:
+    citation: >
+      Capillary refill time (CRT). Normal CRT in adults is <=2 s; a value >2-3 s
+      indicates impaired peripheral perfusion. The 3 s cutoff is the perfusion
+      target adopted in the ANDROMEDA-SHOCK / ANDROMEDA-SHOCK-2 septic-shock RCTs
+      (Hernandez et al. JAMA 2019; Kattan/Hernandez 2023). CRT >5 s is a markedly-
+      prolonged severity level, not the normal/abnormal boundary.
+    url: https://www.thebottomline.org.uk/summaries/icm/andromeda-shock/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: diff
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {tec_seconds: 1.5}, expected_reference: "valid NORMAL CRT (well-perfused)", actual_legacy: "1.5 < min 3 -> blocked by numeric input (cannot be recorded)", match: false}
+    - {inputs: {tec_seconds: 2.0}, expected_reference: "valid upper-normal CRT boundary", actual_legacy: "2.0 < min 3 -> blocked by numeric input", match: false}
+    - {inputs: {tec_seconds: 3.0}, expected_reference: "prolonged; ANDROMEDA perfusion-target boundary", actual_legacy: "3 within 3-20 -> accepted", match: true}
+    - {inputs: {tec_seconds: 6.0}, expected_reference: "markedly prolonged / abnormal", actual_legacy: "6 within 3-20 accepted; enfermagem/medico >5 s boolean=true", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms the extraction DISCREPANCY. The numeric movimentacao field (min 3 s)
+    cannot represent a physiologically-normal CRT (<2-3 s): a well-perfused patient
+    must be left blank or forced to >=3 s, which reads as falsely prolonged perfusion.
+    Moderate (not high): the actual perfusion ALERT is driven by the separate >5 s
+    boolean/checkbox (a defensible severe threshold, though it skips the 3-5 s
+    prolonged band), and "not measured" is expressible via blank, so the floor mainly
+    degrades data granularity rather than directly mis-triggering. Three divergent
+    encodings (numeric 3-20, boolean >5 s, checkbox >5 s) of one concept are a
+    consistency risk. No correction applied.
+
+- rule_id: RULE-SINAIS-VITAIS-011
+  reference:
+    citation: >
+      Glasgow Coma Scale (Teasdale & Jennett, Lancet 1974). Total = eye (1-4) +
+      verbal (1-5) + motor (1-6); range 3 (no response) to 15 (fully alert). Severe
+      3-8, moderate 9-12, mild 13-15. Confirmed by StatPearls NBK513298 and
+      glasgowcomascale.org.
+    url: https://www.ncbi.nlm.nih.gov/books/NBK513298/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - {inputs: {glasgow: 3}, expected_reference: "valid (deepest coma, min)", actual_legacy: "3 within 3-15 -> accepted", match: true}
+    - {inputs: {glasgow: 15}, expected_reference: "valid (fully alert, max)", actual_legacy: "15 within 3-15 -> accepted", match: true}
+    - {inputs: {glasgow: 2}, expected_reference: "invalid (below physiologic min of 3)", actual_legacy: "2!=0 and not in 3-15 -> ValidationError", match: true}
+    - {inputs: {glasgow: 16}, expected_reference: "invalid (above max of 15)", actual_legacy: "not in 3-15 -> ValidationError", match: true}
+    - {inputs: {glasgow: 0}, expected_reference: "not a valid GCS value (min is 3)", actual_legacy: "0 exempted -> accepted as 'not measured' sentinel", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Range 3-15 matches the published GCS exactly. The zero-exemption is a not-measured
+    sentinel and is clinically sound because a real GCS can never equal 0 (minimum
+    obtainable score is 3), so the sentinel cannot collide with any true value.
+
+- rule_id: RULE-SINAIS-VITAIS-029
+  reference:
+    citation: >
+      Dobutamine IV infusion (Pfizer/USP label; Drugs.com dosage monograph).
+      Maintenance 2-20 mcg/kg/min; usual effective 2.5-15 mcg/kg/min; maximum
+      40 mcg/kg/min (rarely required). SOFA cardiovascular uses "dobutamine any dose".
+    url: https://www.drugs.com/dosage/dobutamine.html
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: unverifiable
+    ranges: unverifiable
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {dobutamina: 0}, expected_reference: "valid (drug off)", actual_legacy: "0 within 0-30 -> accepted", match: true}
+    - {inputs: {dobutamina: 20}, expected_reference: "valid top of usual maintenance (if mcg/kg/min)", actual_legacy: "20 within 0-30 -> accepted", match: true}
+    - {inputs: {dobutamina: 35}, expected_reference: "valid rare high dose <=40 max (if mcg/kg/min)", actual_legacy: "35 not in 0-30 -> ValidationError (false rejection)", match: false}
+    - {inputs: {dobutamina: 40}, expected_reference: "labeled maximum (if mcg/kg/min)", actual_legacy: "40 not in 0-30 -> ValidationError", match: false}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Dosing UNIT is not documented in code (validators.py:310-322, bound confirmed by
+    source read), so 0-30 cannot be mapped to a dosing reference. Flag for internal
+    review to confirm units. IF the intended unit is mcg/kg/min, the 30 ceiling
+    under-caps the labeled max of 40 and would falsely reject the rare valid
+    31-40 mcg/kg/min range (a low-impact discrepancy at most, since such doses are
+    uncommon and the field feeds "dose>0 / dose>10" criteria, not the ceiling). If the
+    unit is ml/h it is an infusion-volume plausibility bound with no clinical anchor.
+
+- rule_id: RULE-SINAIS-VITAIS-030
+  reference:
+    citation: >
+      Norepinephrine (noradrenaline) IV infusion (Levophed label; Drugs.com; Surviving
+      Sepsis Campaign 2021). Usual 0.05-0.4 mcg/kg/min (or 2-4 mcg/min flat); practical
+      high-dose ~0.5-1 mcg/kg/min (~35-70 mcg/min); rates up to 3.3 mcg/kg/min reported.
+    url: https://www.drugs.com/dosage/norepinephrine.html
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: unverifiable
+    ranges: unverifiable
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {noradrenalina: 0}, expected_reference: "valid (drug off)", actual_legacy: "0 within 0-200 -> accepted", match: true}
+    - {inputs: {noradrenalina: 70}, expected_reference: "valid high dose (~70 mcg/min)", actual_legacy: "70 within 0-200 -> accepted", match: true}
+    - {inputs: {noradrenalina: 201}, expected_reference: "implausible in any dosing unit", actual_legacy: "201 not in 0-200 -> ValidationError", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Dosing UNIT is undocumented (validators.py:325-338, bound confirmed by source
+    read), so 0-200 cannot be tied to a dosing reference; flag for internal review.
+    In every plausible unit interpretation (mcg/min, mcg/kg/min, or ml) the 200 upper
+    bound is permissive enough that it never rejects a clinically valid dose, so this
+    validator is unlikely to cause harm even though it cannot be formally verified.
+    get_microindicadores aliases a generic vasoactive-drug (DVA) flag to the key
+    'noradrenalina' (separate ambiguity, out of cluster).
+
+- rule_id: RULE-SINAIS-VITAIS-031
+  reference:
+    citation: >
+      No single authoritative reference: "sedativo" is a drug CLASS (midazolam,
+      propofol, dexmedetomidine, fentanyl, etc.), each with distinct units and dose
+      ranges, so a generic 0-30 bound has no external clinical anchor. The flagged
+      discrepancy is backend-internal (test naming vs enforced bound).
+    url: https://www.ncbi.nlm.nih.gov/books/NBK470431/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: unverifiable
+    ranges: diff
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - {inputs: {sedativo: 0}, expected_reference: "valid (drug off); 0 is in range", actual_legacy: "0 within 0-30 -> accepted", match: true}
+    - {inputs: {sedativo: 30}, expected_reference: "enforced max per code", actual_legacy: "30 within 0-30 -> accepted", match: true}
+    - {inputs: {sedativo: 31}, expected_reference: "rejected per test_sedativo_entre_0_e_200 assertion", actual_legacy: "31 not in 0-30 -> ValidationError", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Preserves the extraction DISCREPANCY, characterized as a backend-INTERNAL
+    documentation defect only: the test method is named test_sedativo_entre_0_e_200
+    but the SedativoValidator (validators.py:341-352, confirmed by source read) and the
+    sedativo.py model field both enforce 0-30, and the test itself asserts 31 raises,
+    consistent with 0-30 and contradicting the "200" in its own name. Runtime behaviour
+    is internally consistent at 0-30; the mismatch is a misleading test name with no
+    patient-facing effect (impact none). The 0-30 value itself is UNVERIFIABLE against
+    any external reference because "sedative" is an undifferentiated drug class; no
+    correction applied.

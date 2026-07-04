@@ -1,0 +1,150 @@
+# Phase 3 clinical verification — cluster "piora-clinica" batch1 (RULE-PIORA-CLINICA-001..005)
+# Context: signed graded sub-scores (1+/2+/3+ / 1-/2-/3-) of a proprietary Brazilian home-care
+# clinical-deterioration ("piora clinica") track-and-trigger scale. No single published paper
+# defines these exact bands; closest published anchor is NEWS2 (Royal College of Physicians, 2017).
+# Legacy source verified verbatim at trilha_homecare/models/piora_clinica.py @ 8166c07.
+- rule_id: RULE-PIORA-CLINICA-001
+  reference:
+    citation: >
+      Royal College of Physicians. National Early Warning Score (NEWS) 2 (2017). Respiratory-rate
+      band is the closest published track-and-trigger anchor; piora-clinica is a distinct proprietary
+      instrument with its own cutoffs.
+    url: https://www.rcp.ac.uk/media/a4ibkkbf/news2-final-report_0_0.pdf
+  checks:
+    equation: n/a           # discrete band lookup, no formula/coefficients
+    coefficients: n/a
+    units: ok               # breaths/min, no unit conversion
+    ranges: proprietary     # 19-22/9-11/<9/>22 do not match NEWS2 (12-20=0,21-24=2,>=25=3,<=8=3)
+    rounding: n/a           # integer breaths/min
+    cutoffs: diff           # divergent from NEWS2; no published source defines these exact bands
+  test_vectors:
+    - {inputs: {frequencia_respiratoria: 20}, expected_reference: "NEWS2=0 (12-20 normal)", actual_legacy: "1+", match: false}
+    - {inputs: {frequencia_respiratoria: 11}, expected_reference: "NEWS2=1 (9-11)", actual_legacy: "1-", match: true}
+    - {inputs: {frequencia_respiratoria: 8},  expected_reference: "NEWS2=3 (<=8)", actual_legacy: "3-", match: true}
+    - {inputs: {frequencia_respiratoria: 23}, expected_reference: "NEWS2=2 (21-24)", actual_legacy: "3+", match: false}
+    - {inputs: {frequencia_respiratoria: 0},  expected_reference: "n/a (0 not physiologic)", actual_legacy: "0 (0 is falsy)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Internally self-consistent (source lines 83-95 verbatim). Bands are a proprietary homecare
+    deterioration scale, not any published early-warning score: piora grades 19-22 as a low +deviation
+    (NEWS2 keeps 12-20 normal) and caps at 3+ for >22 (NEWS2 reserves 21-24=2, >=25=3). No 2-grade band
+    exists for FR (magnitude jumps 1->3). Directionally sensible but exact cutoffs cannot be validated
+    against an authoritative source; flag for internal clinical sign-off.
+
+- rule_id: RULE-PIORA-CLINICA-002
+  reference:
+    citation: >
+      Royal College of Physicians NEWS2 (2017) temperature band as family anchor. The verdict here
+      targets an INTERNAL coverage discontinuity independent of any external reference.
+    url: https://www.rcp.ac.uk/media/a4ibkkbf/news2-final-report_0_0.pdf
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok               # Celsius throughout, no C/F mismatch
+    ranges: diff            # internal coverage gap 37.9 < t < 38.0 unbanded -> falls through to "0"
+    rounding: n/a           # float compared directly, exposing the gap
+    cutoffs: diff           # proprietary bands + half-open gap between 1+ (<=37.9) and 2+ (>=38.0)
+  test_vectors:
+    - {inputs: {temperatura: 37.6},  expected_reference: "1+ (febre baixa band start)", actual_legacy: "1+", match: true}
+    - {inputs: {temperatura: 38.0},  expected_reference: "2+ (febre band start)", actual_legacy: "2+", match: true}
+    - {inputs: {temperatura: 37.95}, expected_reference: "1+ or 2+ (elevated temp should score)", actual_legacy: "0 (falls in 37.9<t<38.0 gap)", match: false}
+    - {inputs: {temperatura: 34.9},  expected_reference: "3- (<35 hipotermia)", actual_legacy: "3-", match: true}
+    - {inputs: {temperatura: 35.0},  expected_reference: "1- (35-35.4)", actual_legacy: "1-", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Confirms extraction DISCREPANCY (source lines 97-111). Half-open boundary gap: values strictly
+    between 37.9 and 38.0 (e.g. 37.95) match neither the 1+ (37.6<=t<=37.9) nor the 2+ (38.0<=t<=38.2)
+    branch and score "0". Impact LOW: clinical thermometers typically report 0.1 C resolution, so 37.9
+    and 38.0 are both covered and only sub-0.1 fractional readings fall through, missing one grade near
+    a low-severity fever threshold. Confirmed no 2- band (35.5-37.5 -> 0); Celsius units internally
+    consistent, no unit-mismatch defect.
+
+- rule_id: RULE-PIORA-CLINICA-003
+  reference:
+    citation: >
+      Royal College of Physicians NEWS2 (2017) systolic-BP band as family anchor. Piora-clinica PAS
+      bands are a distinct proprietary scale (it scores hypertension, which NEWS2 does not until >=220).
+    url: https://www.rcp.ac.uk/media/a4ibkkbf/news2-final-report_0_0.pdf
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok               # mmHg throughout, no unit mismatch
+    ranges: proprietary     # full six-band grading, internally contiguous except intended gap 110-130
+    rounding: n/a
+    cutoffs: diff           # do not match NEWS2 (<=90=3,91-100=2,101-110=1,111-219=0,>=220=3)
+  test_vectors:
+    - {inputs: {pas: 80},  expected_reference: "facade label 'PAS <80' implies excluded; NEWS2=3", actual_legacy: "3- (predicate uses pas<=80)", match: false}
+    - {inputs: {pas: 81},  expected_reference: "2- (hipotensao 81-99)", actual_legacy: "2-", match: true}
+    - {inputs: {pas: 190}, expected_reference: "3+ (hipertensao grave >189)", actual_legacy: "3+", match: true}
+    - {inputs: {pas: 131}, expected_reference: "1+ (131-149)", actual_legacy: "1+", match: true}
+    - {inputs: {pas: 120}, expected_reference: "0 (documented gap 110-130)", actual_legacy: "0", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Predicate (source lines 113-129) is the most complete criterion (all six +/- bands) and internally
+    self-consistent; mmHg units correct, no conversion defect. Only anomaly is documentation-level:
+    facade RULE-PIORA-CLINICA-011 label "PAS <80 mmHg" vs code pas<=80, so PAS=80 scores 3- in code but
+    is described as excluded by the (non-executing) label. Code authoritative; boundary-only, no runtime
+    effect. Underlying band values are proprietary and unverifiable against a published scale (piora flags
+    hypertension from 131 whereas NEWS2 scores high BP only at >=220); flag for internal sign-off.
+
+- rule_id: RULE-PIORA-CLINICA-004
+  reference:
+    citation: >
+      Royal College of Physicians NEWS2 (2017) pulse band as family anchor. The verdict targets INTERNAL
+      defects (disabled 2- band and branch-order shadowing) independent of the external reference.
+    url: https://www.rcp.ac.uk/media/a4ibkkbf/news2-final-report_0_0.pdf
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok               # bpm throughout, no unit mismatch
+    ranges: diff            # low "2-" band (81-99) commented out; fc<=50 branch shadowed by 50<=fc<=59
+    rounding: n/a
+    cutoffs: diff           # proprietary + disabled band; do not match NEWS2 pulse rows
+  test_vectors:
+    - {inputs: {frequencia_cardiaca: 50}, expected_reference: "NEWS2=1 (41-50)", actual_legacy: "1- (50<=fc<=59 matches before fc<=50)", match: false}
+    - {inputs: {frequencia_cardiaca: 49}, expected_reference: "NEWS2=1 (41-50)", actual_legacy: "3- (fc<=50)", match: false}
+    - {inputs: {frequencia_cardiaca: 90}, expected_reference: "NEWS2=0 (51-90); commented band would give 2-", actual_legacy: "0 (81-99 '2-' band disabled)", match: false}
+    - {inputs: {frequencia_cardiaca: 55}, expected_reference: "NEWS2=0 (51-90)", actual_legacy: "1-", match: false}
+    - {inputs: {frequencia_cardiaca: 121}, expected_reference: "NEWS2=3 (111-130); piora 121-130=2+", actual_legacy: "2+", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    Confirms extraction DISCREPANCY (source lines 131-147). Two internal defects, verbatim: (1) the low
+    2- band `81 <= fc <= 99` is commented out (lines 143-144), so HR 81-99 never scores 2- (falls to the
+    normal 60-100 gap -> "0"); this band is clinically odd anyway since 81-99 bpm is a normal adult HR.
+    (2) branch order lists `50<=fc<=59 -> 1-` before `fc<=50 -> 3-`, so fc==50 resolves to 1- and the 3-
+    branch only fires for fc<50. Impact LOW: fc==50 scoring mild-low (1-) rather than severe (3-) actually
+    aligns with NEWS2 (41-50 = score 1), and the disabled 81-99 band would have penalized normal HR. bpm
+    units correct, no unit-mismatch defect.
+
+- rule_id: RULE-PIORA-CLINICA-005
+  reference:
+    citation: >
+      Royal College of Physicians NEWS2 (2017) consciousness assessment (ACVPU: Alert / new Confusion /
+      Voice / Pain / Unresponsive). Piora-clinica uses a proprietary consciousness enum mapped to a graded
+      +/- sub-score rather than the NEWS2 binary (Alert=0, any CVPU=3).
+    url: https://www.rcp.ac.uk/media/a4ibkkbf/news2-final-report_0_0.pdf
+  checks:
+    equation: n/a           # categorical enum-to-grade lookup, no computation
+    coefficients: n/a
+    units: n/a              # categorical input, no units
+    ranges: proprietary     # enum acordado|sonolencia|agitacao|reage_verbal|reage_tatil|coma|convulsao
+    rounding: n/a
+    cutoffs: diff           # graded 1-/2-/3-/1+/2+/3+ mapping vs NEWS2 binary Alert=0 / CVPU=3
+  test_vectors:
+    - {inputs: {nv_consciencia: "reage_verbal"}, expected_reference: "NEWS2: responds to Voice = 3", actual_legacy: "1+", match: false}
+    - {inputs: {nv_consciencia: "coma"},         expected_reference: "NEWS2: Unresponsive = 3", actual_legacy: "3+", match: true}
+    - {inputs: {nv_consciencia: "acordado"},     expected_reference: "NEWS2: Alert = 0", actual_legacy: "0", match: true}
+    - {inputs: {nv_consciencia: "convulsao"},    expected_reference: "not in ACVPU; escalate", actual_legacy: "3-", match: true}
+    - {inputs: {nv_consciencia: "xxxx"},         expected_reference: "n/a (unmapped)", actual_legacy: "0 (unmapped -> default)", match: true}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Internally self-consistent (source lines 149-165), maps BalancoChoices.consciencia() enum values to
+    grades. Proprietary graded consciousness scale, not the published ACVPU/NEWS2 binary (which scores any
+    non-alert state as 3). Directionally reasonable (coma/convulsao -> grade 3) but the graded mapping and
+    "acordado"/unmapped -> "0" default cannot be validated against an authoritative source; flag for
+    internal clinical sign-off. No unit or computation defect.

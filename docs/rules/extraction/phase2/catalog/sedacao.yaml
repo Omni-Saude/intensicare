@@ -1,0 +1,1153 @@
+cluster: sedacao
+commit_backend: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+commit_frontend: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+rules:
+- id: RULE-SEDACAO-001
+  name: Sedacao v3 criterio_7 - moderate pain (analog 4-6 / BPS 7-9), two consecutive
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Pain score 4-6 on the VISUAL analog scale OR 7-9 on the COMPORTAMENTAL (BPS, sedated adult) scale, present in BOTH of the last two consecutive fluid-balance records. AMARELO criterion in the wired v3 alert (calcular_alerta_v2).
+
+    '
+  inputs:
+  - name: balanco.escala_dor
+    type: string
+    values: VISUAL | COMPORTAMENTAL
+  - name: balanco.ponto_dor
+    type: float
+    unit: pain points
+  outputs:
+  - name: criterio_7
+    type: boolean
+  logic: "def paind(b):\n  return (b.escala_dor == \"VISUAL\"        and 4 <= get_number(b.ponto_dor) <= 6) or \\\n         (b.escala_dor == \"COMPORTAMENTAL\" and 7 <= get_number(b.ponto_dor) <= 9)\nreturn all([ any([paind(ultimo_balanco)]),\n             any([paind(balanco_anterior)]) ]) if ultimo_balanco and balanco_anterior else False\n"
+  edge_cases: Requires the condition true in BOTH consecutive balances (balancos[0] and balancos[1]). Inclusive bounds. Wired via calcular_criterios.
+  confidence: high
+  related:
+  - RULE-SEDACAO-002
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-024
+  merged_from:
+  - RULE-sedacao-BE-03-048
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 581-632
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMARELO criterion (wired). VISUAL 4-6 / COMPORTAMENTAL 7-9. Verified against source.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Numeric/Visual Analog pain bands (0-3 none/mild, 4-6 moderate, 7-10 severe) per SCCM PADIS 2018 guideline pain-assessment standard; Behavioral Pain Scale (BPS) total range 3-12 (Payen JL et al. Crit Care Med 2001), significant/unacceptable pain cutoff >5.
+
+      '
+    detail_file: sedacao-batch1.yaml
+- id: RULE-SEDACAO-002
+  name: Sedacao v3 criterio_8 - severe pain (analog 7-10 / BPS 10-12), two consecutive
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Pain score 7-10 on the VISUAL analog scale OR 10-12 on the COMPORTAMENTAL (BPS, sedated adult) scale, present in BOTH of the last two consecutive fluid-balance records. VERMELHO criterion in the wired v3 alert (calcular_alerta_v2).
+
+    '
+  inputs:
+  - name: balanco.escala_dor
+    type: string
+    values: VISUAL | COMPORTAMENTAL
+  - name: balanco.ponto_dor
+    type: float
+    unit: pain points
+  outputs:
+  - name: criterio_8
+    type: boolean
+  logic: "def paind(b):\n  return (b.escala_dor == \"VISUAL\"        and 7  <= get_number(b.ponto_dor) <= 10) or \\\n         (b.escala_dor == \"COMPORTAMENTAL\" and 10 <= get_number(b.ponto_dor) <= 12)\nreturn all([ any([paind(ultimo_balanco)]),\n             any([paind(balanco_anterior)]) ]) if ultimo_balanco and balanco_anterior else False\n"
+  edge_cases: VISUAL range 7-10 abuts criterio_7's 4-6 at the value 7 (both inclusive). Both balances required.
+  confidence: high
+  related:
+  - RULE-SEDACAO-001
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-024
+  merged_from:
+  - RULE-sedacao-BE-03-049
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 634-685
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: VERMELHO criterion (wired). Verified against source.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Numeric/Visual Analog pain bands (7-10 severe) per SCCM PADIS 2018 pain-assessment standard; BPS total range 3-12 (Payen 2001), top of range = maximal observed pain.
+
+      '
+    detail_file: sedacao-batch1.yaml
+- id: RULE-SEDACAO-003
+  name: Sedacao v3 criterio_9 - deep sedation RASS -3..-5 (defined, unwired)
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended: RASS between -3 and -5 on the daytime medical evolution AND sedoanalgesia justification in {Outros, Fase aguda de choque septico}.
+
+    '
+  inputs:
+  - name: evolucao.rass
+    type: int
+    unit: RASS
+  - name: evolucao.diurna_sedoanalgesia
+    type: string
+  outputs:
+  - name: criterio_9
+    type: boolean
+  logic: "return all([\n  (-3 <= int(evolucao.rass) <= -5) if evolucao.rass else False,\n  evolucao.diurna_sedoanalgesia in [\"Outros\", \"Fase aguda de choque septico\"],\n]) if ultima_evolucao else False\n"
+  edge_cases: Compound comparison -3 <= x <= -5 is unsatisfiable (requires x>=-3 AND x<=-5); criterion always False when reached. Unwired anyway.
+  confidence: high
+  related:
+  - RULE-SEDACAO-004
+  divergence: 'Code (line 698) writes `-3 <= int(rass) <= -5`, which no RASS value can satisfy (needs rass>=-3 AND rass<=-5). Intended per docstring is RASS -3 to -5, i.e. `-5 <= rass <= -3`. As written the criterion is always False. Bug is inert because criterio_9 is not called by calcular_criterios (unwired).
+
+    '
+  merged_from:
+  - RULE-sedacao-BE-03-050
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 687-707
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - bound order reversed. Preserve verbatim, do not correct. Unwired.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'Richmond Agitation-Sedation Scale (Sessler CN et al. Am J Respir Crit Care Med 2002), range +4 to -5; deep sedation defined as RASS -3 to -5 (-3 moderate, -4 deep, -5 unarousable).
+
+      '
+    detail_file: sedacao-batch1.yaml
+- id: RULE-SEDACAO-004
+  name: Sedacao v3 criterio_12 - weaning readiness (defined, unwired, bad thresholds)
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended: RASS>0 AND PSV mode AND PINS<15 AND PEEP<=10 AND P/F>250 AND FiO2<50% AND FR>22 AND absence of dexmedetomidine/morphine.
+
+    '
+  inputs:
+  - name: evolucao.rass, diurna_ventilacao, pins, peep, pf, fio2
+    type: int / string / float
+  - name: balanco.fr, qt_vol_dex, qt_vol_mor
+    type: float
+    unit: ipm / ml/h
+  outputs:
+  - name: criterio_12
+    type: boolean
+  logic: "return all([\n  int(evolucao.rass) >= 0 if evolucao.rass else False,\n  evolucao.diurna_ventilacao == \"PSV\",\n  get_number(evolucao.pins) < 15,\n  get_number(evolucao.peep) <= 10,\n  get_number(evolucao.pf)   > 250,\n  get_number(evolucao.fio2) > 250,      # docstring intent: FiO2 < 50%\n  get_number(ultimo_balanco.fr) > 250,  # docstring intent: FR > 22\n  any([ ultimo_balanco.qt_vol_dex, ultimo_balanco.qt_vol_mor ]),  # docstring intent: ABSENCE\n]) if ultima_evolucao else False\n"
+  edge_cases: fio2>250 and fr>250 are physiologically impossible; reads bare evolucao.pins/peep/pf/fio2 (real fields are diurna_*) so those default to 0.
+  confidence: high
+  related:
+  - RULE-SEDACAO-003
+  divergence: 'Three code-vs-intent divergences (all inert since criterio_12 is unwired): (1) `fio2 > 250` instead of FiO2 < 50%; (2) `fr > 250` instead of FR > 22; (3) `any([qt_vol_dex, qt_vol_mor])` checks PRESENCE of dexmedetomidine/morphine though intent is ABSENCE. Also reads bare fields pins/peep/pf/fio2 (actual model fields are diurna_pins/diurna_peep/diurna_pf/diurna_fio2), so getattr defaults 0.
+
+    '
+  merged_from:
+  - RULE-sedacao-BE-03-053
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 787-818
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY (multiple). Preserve verbatim. Unwired.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'Spontaneous breathing / ventilator-weaning readiness screen concepts per SCCM/ATS liberation guidance: adequate oxygenation P/F>200-250, FiO2 <=0.4-0.5 (i.e. <50%), PEEP <=5-10 cmH2O, arousable patient (RASS >= -2/awake), plus tachypnea threshold RR>22 (qSOFA/clinical). FiO2 is a percent (0-100) or fraction (0-1); respiratory rate physiologic range ~8-40 ipm.
+
+      '
+    detail_file: sedacao-batch1.yaml
+- id: RULE-SEDACAO-005
+  name: Sedacao v3 criterio_1 - excessive continuous sedation infusion
+  category: drug-dosing
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Any of midazolam>=15 OR propofol>=20 OR fentanil>=15 OR cetamina>=15 OR dexmedetomidina>=15 ml/h recorded in the fluid balance in the last 4h. Wired VERMELHO criterion; also calls set_sedativo_em_uso to label the active drug.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_mid/pro/fen/cet/dex
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_1
+    type: boolean
+  logic: "balanco_4h = balancos(dt_atualizacao_balanco >= now - 4h)\nset_sedativo_em_uso(balanco_4h.first())      # RULE-SEDACAO-013\nreturn any([\n  balanco_4h.filter(qt_vol_mid__gte=15),\n  balanco_4h.filter(qt_vol_pro__gte=20),\n  balanco_4h.filter(qt_vol_fen__gte=15),\n  balanco_4h.filter(qt_vol_cet__gte=15),\n  balanco_4h.filter(qt_vol_dex__gte=15),\n]) if balanco_4h else False\n"
+  edge_cases: 'any() over QuerySet objects (truthy if non-empty). Thresholds use >= (REFATORADO). Prior "ANTERIOR" thresholds documented in code: mid>10, pro>16, fen>15, cet>10, precedex>14.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEDACAO-013
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-025
+  merged_from:
+  - RULE-sedacao-BE-03-042
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 262-291
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Wired VERMELHO criterion. Prior thresholds retained in docstring. Verified against source (lines 262-291).
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published clinical anchor exists for continuous-sedative infusion thresholds expressed in ml/h. Guideline dosing (SCCM PADIS 2018; product labels) is weight-based: propofol mcg/kg/min, midazolam mg/kg/h, fentanil mcg/kg/h, dexmedetomidine mcg/kg/h, ketamine mg/kg/h. Converting a ml/h volume threshold to a dose requires the institution''s specific drug concentration, which is an internal/pharmacy standard, not a published value.
+
+      '
+    detail_file: sedacao-batch1.yaml
+- id: RULE-SEDACAO-006
+  name: Sedacao v3 criterio_2 - sedation despite adequate oxygenation (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Midazolam/Propofol/Cetamina present in last 4h AND P/F>200 AND FiO2<50 AND PEEP<=10 AND sedoanalgesia justification in {outros, SDRA moderada ou grave}.
+
+    '
+  inputs:
+  - name: evolucao.diurna_pf/diurna_fio2/diurna_peep/diurna_sedoanalgesia
+    type: float / string
+    unit: ratio / % / cmH2O
+  - name: balanco.qt_vol_mid/pro/cet
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_2
+    type: boolean
+  logic: "presenca_sedativos = any(balanco.qt_vol_mid / qt_vol_pro / qt_vol_cet) over balanco_4h\nreturn all([\n  presenca_sedativos,\n  get_number(diurna_pf)   > 200,\n  get_number(diurna_fio2) < 50,\n  get_number(diurna_peep) <= 10,\n  diurna_sedoanalgesia in [\"outros\", \"SDRA moderada ou grave\"],\n]) if balanco_4h and ultima_evolucao else False\n"
+  edge_cases: Defined but NOT called by calcular_criterios (criterio_2 stays null). Justification match is case/label-sensitive ('outros' lowercase).
+  confidence: high
+  related:
+  - RULE-SEDACAO-005
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-043
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 311-351
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Unwired method retained for completeness.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ARDS Definition Task Force. Acute Respiratory Distress Syndrome: The Berlin Definition. JAMA 2012;307(23):2526-2533. (moderate ARDS PaO2/FiO2 100-200, severe <=100, on PEEP>=5). Devlin JW et al. PADIS Guidelines. Crit Care Med 2018 (light sedation).'
+    detail_file: sedacao-batch2.yaml
+- id: RULE-SEDACAO-007
+  name: Sedacao v3 criterio_3 - neuromuscular blockade with P/F>150 (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: OK
+  verify: true
+  description: P/F>150 AND (rocuronium OR cisatracurium) recorded in the last two consecutive balances.
+  inputs:
+  - name: evolucao.diurna_pf
+    type: float
+    unit: ratio
+  - name: balanco.qt_vol_roc, balanco.qt_vol_cis
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_3
+    type: boolean
+  logic: "return all([\n  get_number(evolucao.diurna_pf) > 150,\n  any([ ultimo_balanco.qt_vol_roc,   ultimo_balanco.qt_vol_cis ]),\n  any([ balanco_anterior.qt_vol_roc, balanco_anterior.qt_vol_cis ]),\n]) if ultimo_balanco and ultima_evolucao and balanco_anterior else False\n"
+  edge_cases: Two consecutive balances = balancos[0] and balancos[1] (needs >=2 records). Unwired.
+  confidence: high
+  related:
+  - RULE-SEDACAO-010
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-044
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 353-385
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Unwired.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: Papazian L et al. Early Neuromuscular Blockade in ARDS (ACURASYS). NEJM 2010;363:1107-1116 (cisatracurium benefit shown only in severe ARDS PaO2/FiO2 <150). Moss M et al. ROSE trial, NEJM 2019 (no benefit in moderate-severe).
+    detail_file: sedacao-batch2.yaml
+- id: RULE-SEDACAO-008
+  name: Sedacao v3 criterio_4 - undersedation on invasive vent (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: 'RASS>=-2 AND invasive VM AND (P/F<200 OR PINS>=20 OR FiO2>=60) AND absence of midazolam/propofol/cetamina in the last two consecutive balances.
+
+    '
+  inputs:
+  - name: evolucao.rass, diurna_ventilacao, diurna_pf, diurna_pins, diurna_fio2
+    type: int / string / float
+  - name: balanco.qt_vol_mid/pro/cet
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_4
+    type: boolean
+  logic: "return all([\n  int(evolucao.rass) >= -2 if evolucao.rass else False,\n  evolucao.diurna_ventilacao == \"VM invasiva\",\n  any([ get_number(diurna_pf) < 200, get_number(diurna_pins) >= 20, get_number(diurna_fio2) >= 60 ]),\n  any([ not ultimo_balanco.qt_vol_mid,   not ultimo_balanco.qt_vol_pro,   not ultimo_balanco.qt_vol_cet ]),\n  any([ not balanco_anterior.qt_vol_mid, not balanco_anterior.qt_vol_pro, not balanco_anterior.qt_vol_cet ]),\n]) if ultimo_balanco and ultima_evolucao and balanco_anterior else False\n"
+  edge_cases: 'The "absence of sedatives" clauses use any([not a, not b, not c]) - True if ANY ONE sedative is absent, not requiring all absent; weaker than the intended "ausencia de midazolam OU propofol OU cetamina". diurna_ventilacao requires exact string "VM invasiva".
+
+    '
+  confidence: medium
+  related:
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-045
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 387-445
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMBIGUOUS - any([not ...]) semantics likely unintended (should be none/all absent). Unwired. Preserved verbatim.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: Devlin JW et al. PADIS Guidelines. Crit Care Med 2018;46(9):e825-e873 (light sedation defined RASS +1 to -2). Berlin Definition, JAMA 2012 (moderate ARDS P/F 100-200).
+    detail_file: sedacao-batch2.yaml
+- id: RULE-SEDACAO-009
+  name: Sedacao v3 criterio_5 - no morning sedation reduction (>=1/2)
+  category: drug-dosing
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: 'Sedative present at the latest balance AND no reduction of at least half between the 06:00 and 10:00 balances (for midazolam/propofol/cetamina/dexmedetomidina). Wired AMARELO criterion.
+
+    '
+  inputs:
+  - name: balanco.qt_vol_mid/pro/cet/dex at 06:00 and last<=10:00, plus latest
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_5
+    type: boolean
+  logic: "balanco_range = balancos(06:00 <= dt <= 10:00 today, local tz) order by dt asc\nprimeiro       = balanco_range.first()\nultimo_ate_10  = balanco_range.last()\nultimo         = balancos.first()\nper drug D in {mid, pro, cet, dex}:\n  cond_D = get_number(ultimo.D) and not (get_number(primeiro.D) - get_number(ultimo_ate_10.D)) <= get_number(primeiro.D)/2\nreturn all([ any([cond_mid, cond_pro, cond_cet, cond_dex]) ]) if ultimo and ultimo_ate_10 and primeiro else False\n"
+  edge_cases: 'Operator-precedence sensitive: "X and not (A - B) <= C" parses as X and (not ((A-B) <= C)); a reduction strictly greater than half flags true, and "reduced to exactly half" is NOT a failure. Uses local today 06:00-10:00 window via datetime.combine(...).astimezone().
+
+    '
+  confidence: medium
+  related:
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-046
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 447-537
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMARELO criterion (wired). Convoluted logic; boundary and precedence flagged AMBIGUOUS. Preserved verbatim.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Devlin JW et al. PADIS Guidelines. Crit Care Med 2018 (daily awakening trials / spontaneous awakening trials, target light sedation). Kress JP et al. Daily interruption of sedative infusions. NEJM 2000;342:1471-1477.
+    detail_file: sedacao-batch2.yaml
+- id: RULE-SEDACAO-010
+  name: Sedacao v3 criterio_6 - high-dose neuromuscular blockade (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: OK
+  verify: true
+  description: Rocuronium>16 OR cisatracurium>10 ml/h in each of the last two consecutive balances.
+  inputs:
+  - name: balanco.qt_vol_roc, balanco.qt_vol_cis (latest and previous)
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_6
+    type: boolean
+  logic: "return all([\n  any([ get_number(ultimo.qt_vol_roc)   > 16, get_number(ultimo.qt_vol_cis)   > 10 ]),\n  any([ get_number(anterior.qt_vol_roc) > 16, get_number(anterior.qt_vol_cis) > 10 ]),\n]) if ultimo_balanco and balanco_anterior else False\n"
+  edge_cases: Needs two consecutive balances. Strict > thresholds (roc>16, cis>10). Unwired in calcular_criterios.
+  confidence: high
+  related:
+  - RULE-SEDACAO-007
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-047
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 539-579
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Unwired.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No published ml/h anchor. Standard NMBA maintenance dosing is expressed in mcg/kg/min (cisatracurium ~1-3 mcg/kg/min; rocuronium ~8-12 mcg/kg/min) with TOF monitoring (PADIS 2018 / Murray MJ et al. Clinical practice guidelines for sustained neuromuscular blockade, Crit Care Med 2016). ml/h thresholds depend on local drug concentration.
+    detail_file: sedacao-batch2.yaml
+- id: RULE-SEDACAO-011
+  name: Sedacao v3 criterio_10 - prolonged sedation >96h (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended: absence of "Sedacao paliativa" justification AND propofol/midazolam/fentanil present for >4 days (96h). Code checks PRESENCE of "Sedacao paliativa".
+
+    '
+  inputs:
+  - name: evolucao.diurna_sedoanalgesia
+    type: string
+  - name: balanco.qt_vol_mid/pro/fen (96h)
+    type: float
+    unit: ml/h
+  outputs:
+  - name: criterio_10
+    type: boolean
+  logic: "presenca_sedativos = any(balanco.qt_vol_mid / qt_vol_pro / qt_vol_fen) over balancos(dt >= now - 96h)\nreturn all([\n  evolucao.diurna_sedoanalgesia in [\"Sedacao paliativa\"],   # intent per docstring: ABSENCE of palliative sedation\n  presenca_sedativos,\n]) if ultima_evolucao and balanco_96h else False\n"
+  edge_cases: The 96h condition = any balance within the 96h window (not continuous 96h presence). Unwired.
+  confidence: high
+  related:
+  - RULE-SEDACAO-012
+  - RULE-SEDACAO-014
+  divergence: 'Docstring/intent requires ABSENCE of "Sedacao paliativa" (`... not in [...]`), but code checks `diurna_sedoanalgesia in ["Sedacao paliativa"]` i.e. PRESENCE. Condition inverted. Inert (unwired).
+
+    '
+  merged_from:
+  - RULE-sedacao-BE-03-051
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 709-741
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - condition inverted vs docstring. Preserved verbatim. Unwired.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'Devlin JW et al. Clinical Practice Guidelines for the Prevention and Management of Pain, Agitation/Sedation, Delirium, Immobility, and Sleep Disruption in Adult Patients in the ICU (PADIS). Crit Care Med 2018;46(9):e825-e873. Prolonged sedative/opioid exposure -> iatrogenic tolerance/withdrawal risk; minimize prolonged deep sedation unless a valid indication (e.g. palliative sedation) is present.
+
+      '
+    detail_file: sedacao-batch3.yaml
+- id: RULE-SEDACAO-012
+  name: Sedacao v3 criterio_11 - prolonged propofol without safety labs (defined, unwired)
+  category: drug-dosing
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Propofol present over the last 96h AND absence of CPK/TGO/TGP/triglycerides prescription in the last 48h (propofol-infusion syndrome surveillance).
+
+    '
+  inputs:
+  - name: balanco.qt_vol_pro (96h)
+    type: float
+    unit: ml/h
+  - name: cpoe.cpk/tgo/tgp/trigliceres (48h)
+    type: float
+  outputs:
+  - name: criterio_11
+    type: boolean
+  logic: 'presenca_sedativos = any(balanco.qt_vol_pro) over balancos(dt >= now - 96h)
+
+    presenca_cpoe      = any(cpoe.cpk / tgo / tgp / trigliceres) over cpoe(dt >= now - 48h)
+
+    return all([ presenca_sedativos, not presenca_cpoe ]) if cpoe_48h and balanco_96h else False
+
+    '
+  edge_cases: 'getattr(cpoe,"trigliceres",0) - the CPOE field is actually spelled "triglicerides"; the "trigliceres" typo means that clause always reads default 0 (triglycerides check inert). Unwired.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEDACAO-011
+  - RULE-SEDACAO-014
+  merged_from:
+  - RULE-sedacao-BE-03-052
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 743-785
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Minor field-name typo (trigliceres) makes the triglycerides check inert; kept OK per Phase 1. Unwired.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Mirrakhimov AE et al. Propofol Infusion Syndrome in Adults: A Clinical Update. Crit Care Res Pract 2015;2015:260385. PRIS surveillance for prolonged (>48h) or high-dose propofol infusion recommends serial monitoring of creatine kinase (CK), triglycerides, lactate/ABG and cardiac markers; alternative sedatives if propofol is prolonged/high-dose.
+
+      '
+    detail_file: sedacao-batch3.yaml
+- id: RULE-SEDACAO-013
+  name: Sedacao v3 active-sedative detection (set_sedativo_em_uso)
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Sets DS_SEDATIVO_CRITERIO_1 to the first non-zero sedative in a fixed priority order.
+  inputs:
+  - name: balanco.qt_vol_mid/pro/fen/cet/dex
+    type: float
+    unit: ml/h
+  outputs:
+  - name: DS_SEDATIVO_CRITERIO_1
+    type: string enum {Midazolam, Propofol, Fentanil, Cetamina, Precedex}
+  logic: "order = [(qt_vol_mid,\"Midazolam\"), (qt_vol_pro,\"Propofol\"), (qt_vol_fen,\"Fentanil\"),\n         (qt_vol_cet,\"Cetamina\"), (qt_vol_dex,\"Precedex\")]\nfor key, label in order:\n  if getattr(balanco, key, 0):\n    DS_SEDATIVO_CRITERIO_1 = label\n    break\n"
+  edge_cases: First-match wins by dict insertion order; Precedex label maps to qt_vol_dex (dexmedetomidina).
+  confidence: high
+  related:
+  - RULE-SEDACAO-005
+  - RULE-SEDACAO-025
+  - RULE-SEDACAO-026
+  merged_from:
+  - RULE-sedacao-BE-03-041
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 293-309
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Called from criterio_1 (RULE-SEDACAO-005). Feeds the crit1 recommendation text (RULE-SEDACAO-025).
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. This is an internal UI/labeling business rule: pick the first non-zero continuous sedative in a fixed vendor-defined priority order (midazolam -> propofol -> fentanil -> cetamina -> dexmedetomidina/"Precedex") to populate the active-drug label DS_SEDATIVO_CRITERIO_1. No clinical guideline prescribes a drug-labeling precedence order.
+
+      '
+    detail_file: sedacao-batch3.yaml
+- id: RULE-SEDACAO-014
+  name: Sedacao v3 alert (calcular_alerta_v2 used; legacy calcular_alerta present but unused)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Active sedation v3 alert (save -> calcular_alerta_v2). A legacy calcular_alerta variant also exists but is not called.
+  inputs:
+  - name: criterio_1, criterio_5, criterio_7, criterio_8
+    type: boolean
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+  logic: '# USED (save -> calcular_alerta_v2):
+
+    amarelo  = [criterio_5, criterio_7].count(True)
+
+    vermelho = [criterio_1, criterio_8].count(True)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo  >= 1: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    # UNUSED legacy calcular_alerta: amarelo=[c4,c7,c9,c10,c11,c12] (>=2), vermelho=[c1,c2,c3,c6,c5,c8] (>=1)
+
+    '
+  edge_cases: Only c1,c5,c7,c8 are computed in calcular_criterios; other criteria remain null. save() also resets assistido=False when alerta==NEUTRO.
+  confidence: high
+  related:
+  - RULE-SEDACAO-005
+  - RULE-SEDACAO-009
+  - RULE-SEDACAO-001
+  - RULE-SEDACAO-002
+  - RULE-SEDACAO-021
+  - RULE-SEDACAO-023
+  merged_from:
+  - RULE-sedacao-BE-03-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 120-166, 248-260
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Confirmed at source: save() (lines 65-70) -> calcular_criterios() then calcular_alerta_v2(). Legacy calcular_alerta (lines 120-146) requires amarelo>=2 and references criteria never computed; unused. Alert-count aggregation with no published clinical anchor -> verify false. Variant of RULE-SEDACAO-021 (manual) and RULE-SEDACAO-023 (v1).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-SEDACAO-015
+  name: Sedation manual C1 - sedoanalgesia overdose (any sedative >15 ml)
+  category: care-pathway
+  type: threshold
+  status: OK
+  verify: false
+  description: Flags any single sedative dose above 15 ml as overdose.
+  inputs:
+  - name: sedativos.quantidade (max)
+    type: int
+    unit: ml
+    range: 0-30
+  outputs:
+  - name: criterio_1
+    type: boolean
+  logic: 'verificar_quantidade_max_sedativos() = max(sedativos.values_list(''quantidade'')) if sedativos exist else 0
+
+    criterio_1 = verificar_quantidade_max_sedativos() > 15
+
+    '
+  edge_cases: No sedatives -> max returns 0 -> False. Strict >15 (exactly 15 does not trigger).
+  confidence: high
+  related:
+  - RULE-SEDACAO-021
+  - RULE-SEDACAO-026
+  merged_from:
+  - RULE-sedacao-BE-10-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 103-111
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sedacao.py:47-53. Institutional 15ml threshold (no published anchor) -> verify false.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-SEDACAO-016
+  name: Sedation manual C2 - deep RASS with low FiO2/PEEP
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: Flags deeply sedated (RASS -2..-5) patients on low ventilatory support (FiO2 <=40 and PEEP low).
+  inputs:
+  - name: rass
+    type: str enum
+    range: -2..-5
+  - name: fio2
+    type: float
+    unit: percent/fraction
+  - name: peep
+    type: float
+    unit: cmH2O
+    range: 0-40
+  outputs:
+  - name: criterio_2
+    type: boolean
+  logic: "criterio_2 = all([\n  rass in ['-2','-3','-4','-5'],\n  40 >= fio2 > 0,\n  10 >= peep > 0,\n])\n"
+  edge_cases: Requires fio2>0 and peep>0 strictly. fio2==40 allowed; peep==10 allowed.
+  confidence: high
+  related:
+  - RULE-SEDACAO-021
+  divergence: 'Model _REGRAS text (line 22) states criterio_2 as "FIO2 <= 40 E PEEP < 10", but the code uses `10 >= peep` (line 119), which ALLOWS peep==10 (i.e. PEEP <= 10, not < 10). Threshold-boundary divergence between the code and its own descriptive rule text.
+
+    '
+  merged_from:
+  - RULE-sedacao-BE-10-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 113-120
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY vs _REGRAS text (PEEP<10 vs code PEEP<=10). Test test_trilha_sedacao.py:55-73 (fio2=41 or peep=11 -> False). Preserved verbatim.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'Sessler CN et al. The Richmond Agitation-Sedation Scale (RASS). Am J Respir Crit Care Med 2002;166:1338-1344 (10-point scale, -5 unresponsive to +4 combative; -2..-5 = moderate-to-deep sedation). Combined with PADIS 2018 light-sedation targeting: deeply sedated patients on low ventilatory support are candidates for sedation reduction. FiO2 in percent (0-100), PEEP in cmH2O.
+
+      '
+    detail_file: sedacao-batch3.yaml
+- id: RULE-SEDACAO-017
+  name: Sedation manual C3 - good oxygenation on sedation
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Flags patient with P/F > 200 who is still on a sedative (candidate to lighten sedation).
+  inputs:
+  - name: relacao_po2_fio2
+    type: float
+    unit: ratio
+  - name: sedativos_present
+    type: boolean
+  outputs:
+  - name: criterio_3
+    type: boolean
+  logic: "criterio_3 = all([\n  verificar_relacao_po2_fio2 > 200,\n  verificar_existencia_sedativos,\n])\n"
+  edge_cases: relacao is False when no po2/fio2 -> False>200 -> False. Strict >200.
+  confidence: high
+  related:
+  - RULE-SEDACAO-018
+  - RULE-SEDACAO-021
+  merged_from:
+  - RULE-sedacao-BE-10-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 122-128
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sedacao.py:75-85.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ARDS Definition Task Force (Ranieri VM et al.). Acute Respiratory Distress Syndrome: The Berlin Definition. JAMA 2012;307(23):2526-2533. Severity by PaO2/FiO2: mild 200<P/F<=300, moderate 100<P/F<=200, severe P/F<=100. P/F>200 => oxygenation is mild-ARDS-or-better (adequate), supporting sedation lightening per PADIS 2018 light-sedation goal.
+
+      '
+    detail_file: sedacao-batch3.yaml
+- id: RULE-SEDACAO-018
+  name: Sedation manual C4 - sedation justified by severity
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: Flags patient on a sedative who ALSO has P/F>=200 or EME or SHIC or PCR in last 24h.
+  inputs:
+  - name: sedativos_present
+    type: boolean
+  - name: relacao_po2_fio2
+    type: float
+  - name: eme
+    type: boolean
+  - name: shic
+    type: boolean
+  - name: pcr_24h
+    type: boolean
+  outputs:
+  - name: criterio_4
+    type: boolean
+  logic: "criterio_4 = all([\n  verificar_existencia_sedativos,\n  any([\n    0 < relacao_po2_fio2 >= 200,   # chained: (0 < ratio) and (ratio >= 200)\n    eme, shic, verificar_pcr_nas_ultimas_24hr(),\n  ]),\n])\n"
+  edge_cases: '`0 < relacao >= 200` is a Python chained comparison meaning ratio>0 AND ratio>=200, i.e. ratio>=200. relacao==False -> 0<False is False.'
+  confidence: medium
+  related:
+  - RULE-SEDACAO-021
+  - RULE-SEDACAO-022
+  merged_from:
+  - RULE-sedacao-BE-10-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 130-143
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS vs _REGRAS text "PO2/FiO2 > 200" - code effectively uses >=200 via the chained comparison. _ANTIGAS_REGRAS worded criterion 4 differently (ausencia de SDRA/EME/PCR/SHIC). Uses PCR helper RULE-SEDACAO-022. Test test_trilha_sedacao.py:96-125. Preserved verbatim.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published guideline defines this exact composite boolean ("sedative present AND (P/F>=200 OR EME OR SHIC OR PCR<24h)"). The only citable embedded anchor is the P/F 200 cutoff = Berlin Definition of ARDS boundary (moderate ARDS PaO2/FiO2 100-200; >200 = mild/none). ARDS Definition Task Force, JAMA 2012;307(23):2526-2533.
+
+      '
+    detail_file: sedacao-batch4.yaml
+- id: RULE-SEDACAO-019
+  name: Sedation manual C5 - poor oxygenation with light/absent sedation
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Flags P/F<200 combined with light RASS (>= -2) or no sedative.
+  inputs:
+  - name: relacao_po2_fio2
+    type: float
+  - name: rass
+    type: str enum
+  - name: sedativos_present
+    type: boolean
+  outputs:
+  - name: criterio_5
+    type: boolean
+  logic: "criterio_5 = all([\n  0 < relacao_po2_fio2 < 200,\n  any([\n    rass in ['-2','-1','0','+1','+2','+3','+4'],\n    not verificar_existencia_sedativos,\n  ]),\n])\n"
+  edge_cases: Requires ratio strictly in (0,200). relacao==False excluded (0<False<200 is False).
+  confidence: high
+  related:
+  - RULE-SEDACAO-020
+  - RULE-SEDACAO-021
+  merged_from:
+  - RULE-sedacao-BE-10-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 145-157
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sedacao.py:134-146.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published guideline defines this exact composite ("P/F<200 AND (RASS>=-2 OR no sedative)"). Embedded anchors: P/F<200 = Berlin moderate ARDS (ARDS Definition Task Force, JAMA 2012;307:2526); RASS scale -5..+4 with light-sedation target 0 to -2 (Sessler et al. Am J Respir Crit Care Med 2002;166:1338; SCCM PADIS Guidelines, Crit Care Med 2018;46:e825).
+
+      '
+    detail_file: sedacao-batch4.yaml
+- id: RULE-SEDACAO-020
+  name: Sedation manual C6 - severity without sedation
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Flags absence of sedative while patient has poor P/F (<200) or SHIC or PCR-24h or EME.
+  inputs:
+  - name: sedativos_present
+    type: boolean
+  - name: relacao_po2_fio2
+    type: float
+  - name: shic
+    type: boolean
+  - name: eme
+    type: boolean
+  - name: pcr_24h
+    type: boolean
+  outputs:
+  - name: criterio_6
+    type: boolean
+  logic: "criterio_6 = all([\n  not verificar_existencia_sedativos,\n  any([\n    0 < relacao_po2_fio2 < 200,\n    shic, verificar_pcr_nas_ultimas_24hr(), eme,\n  ]),\n])\n"
+  edge_cases: If any sedative exists -> False regardless.
+  confidence: high
+  related:
+  - RULE-SEDACAO-019
+  - RULE-SEDACAO-021
+  - RULE-SEDACAO-022
+  merged_from:
+  - RULE-sedacao-BE-10-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 159-172
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '_REGRAS text says "PO2/FiO2 < 200" while _ANTIGAS_REGRAS said "< 150" - code uses < 200 (matches current _REGRAS). Uses PCR helper RULE-SEDACAO-022. Test test_trilha_sedacao.py:148-168.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published guideline defines this exact composite ("no sedative AND (P/F<200 OR SHIC OR PCR<24h OR EME)"). Embedded anchor: P/F<200 = Berlin moderate ARDS (ARDS Definition Task Force, JAMA 2012;307:2526-2533).
+
+      '
+    detail_file: sedacao-batch4.yaml
+- id: RULE-SEDACAO-021
+  name: Sedation manual pathway alert level (count of criteria)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: Maps count of satisfied sedation criteria (criterio_1..6) to a 3-level alert.
+  inputs:
+  - name: criterios_true_count
+    type: int
+    unit: count of criterio_1..6 == True
+    range: 0-6
+  outputs:
+  - name: alerta
+    type: str enum {VERMELHO, AMARELO, NEUTRO}
+  logic: 'n = [criterio_1..criterio_6].count(True)
+
+    if n >= 3: return ''VERMELHO''
+
+    elif n > 0: return ''AMARELO''
+
+    else: return ''NEUTRO''
+
+    '
+  edge_cases: Exactly 3+ -> red; 1-2 -> yellow; 0 -> neutral.
+  confidence: high
+  related:
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-023
+  merged_from:
+  - RULE-sedacao-BE-10-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 174-188
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same count->color scheme as Estabilidade. Distinct from v3 (RULE-SEDACAO-014) and v1 (RULE-SEDACAO-023) alert logics (variant, not duplicate). Alert-count aggregation, no published anchor -> verify false. Test test_trilha_sedacao.py:170-189.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-SEDACAO-022
+  name: Cardiac arrest within last 24h (PCR-24h helper, manual model)
+  category: care-pathway
+  type: threshold
+  status: AMBIGUOUS
+  verify: false
+  description: Determines whether a cardiac-arrest event counts as 'in the last 24h' for the manual sedation criteria.
+  inputs:
+  - name: parada_cardiorrespiratoria.horario_inicio
+    type: datetime
+  outputs:
+  - name: pcr_24h
+    type: boolean
+  logic: "if hasattr(dados_prontuario, 'parada_cardiorrespiratoria'):\n  return abs((timezone.now() - pcr.horario_inicio).days) == 0\nreturn False\n"
+  edge_cases: Uses timedelta.days == 0, i.e. 'recent' only if elapsed time is < 24h (days component 0). 24-48h -> days==1 -> False.
+  confidence: medium
+  related:
+  - RULE-SEDACAO-018
+  - RULE-SEDACAO-020
+  merged_from:
+  - RULE-sedacao-BE-10-018
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sedacao.py
+    lines: 90-101
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: "last 24h" implemented as timedelta.days==0 (rolling <24h window), not a calendar day. Helper consumed by manual C4 (RULE-SEDACAO-018) and C6 (RULE-SEDACAO-020). Test test_trilha_sedacao.py:87-94.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-SEDACAO-023
+  name: Sedacao v1 alert (TrilhaSedacaoModel.calcular_alerta)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Color alert for the v1 sedation trilha from a fixed subset of integer-flag criteria.
+  inputs:
+  - name: criterio_1, criterio_2, criterio_4, criterio_6
+    type: int flag (1 = present)
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+  logic: 'amarelo  = [criterio_1, criterio_2].count(1)
+
+    vermelho = [criterio_4, criterio_6].count(1)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo  >= 1: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    '
+  edge_cases: Counts only the exact integer value 1 (not other truthy ints). Runs on every save().
+  confidence: high
+  related:
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-021
+  - RULE-SEDACAO-024
+  - RULE-SEDACAO-025
+  merged_from:
+  - RULE-sedacao-BE-03-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha1.py
+    lines: 108-123
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Persisted to alerta field in save() (lines 96-98). Superseded conceptually by TrilhaSedacaoV3Model (RULE-SEDACAO-014). Variant, not duplicate. Alert-count aggregation, no published anchor -> verify false.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+- id: RULE-SEDACAO-024
+  name: 'Sedation/analgesia pathway recommendation catalog (facade text: RASS targets, BNM, PRIS, analgesia ladder)'
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Facade payload text (get_payload_trilha_sedacao, the active "automatica" v2 variant) mapping each of the 12 pathway criteria to an alert label + recommendation string. Governs sedation-depth targets, neuromuscular-blocker (BNM) use, propofol PRIS monitoring, and the pain-management drug ladder. This is the clinician-facing text layer consumed by the v1 and v3 model get_detalhe(); the numeric predicates live in RULE-SEDACAO-001..012.
+
+    '
+  inputs:
+  - name: criterio key
+    type: string (criterio_1..criterio_12)
+  outputs:
+  - name: '{alerta, recomendacoes}'
+    type: dict
+  logic: "criterio_2  Reavaliar sedacao: avaliar suspender sedoanalgesia continua FORA das indicacoes:\n            1-EME, 2-PCR<24h, 3-SHIC, 4-SDRA moderada/grave, 5-fase aguda choque septico, 6-cuidados paliativos.\ncriterio_3  P/F>150 + uso de BNM -> avaliar interromper BNM continuo (beneficio questionavel sem PRONA e P/F>150).\ncriterio_4  Altos parametros de VM -> alvo RASS <= -2 (iniciar/aprofundar sedacao).\ncriterio_5  Despertar diario: reduzir sedoanalgesia pela METADE da velocidade de infusao as 06h.\ncriterio_6  Overdose de BNM -> reduzir dose do BNM conforme protocolo.\ncriterio_7  Dor moderada -> tramal 100mg / metadona 10mg / paracetamol+codeina 750+30mg ate 4x/dia\n            +/- dipirona 1g / paracetamol 750mg; reavaliar em 2h.\ncriterio_8  Dor intensa -> Morfina 2 mg EV, reavaliar a cada 1h ate max 10 mg; se refrataria OU\n            creatinina > 2,5 mg/dl -> Fentanil BIC a 2 ml/h (50 mcg/h); reavaliar em 2h.\ncriterio_9  RASS < -2 sem indicacao -> reduzir >= metade da\
+    \ infusao ou suspender; RASS profundo\n            justificado apenas em EME, PCR<24h, SHIC, SDRA com P/F<150.\ncriterio_10 Risco de hiperestesia/dependencia/abstinencia -> despertar diario, reduzir dose ou uso intermitente.\ncriterio_11 Propofol > 4 dias (risco PRIS) -> TG/CK/TGO/TGP 72/72h; suspender ou trocar por midazolam/cetamina.\ncriterio_12 TRE + taquidispneia FR > 22 ipm -> Morfina 2mg EV + Haldol EV ou Dexmedetomidina.\n"
+  edge_cases: 'Numeric anchors in text: P/F>150 (crit3/9), RASS<=-2 target / RASS<-2 excess (crit4/9), creatinina>2,5 (crit8), propofol>4d (crit11), FR>22 (crit12). Morphine titration ceiling 10 mg. Daily-awakening reduction is exactly half the infusion rate.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEDACAO-025
+  - RULE-SEDACAO-014
+  - RULE-SEDACAO-023
+  - RULE-SEDACAO-007
+  - RULE-SEDACAO-008
+  - RULE-SEDACAO-009
+  - RULE-SEDACAO-011
+  - RULE-SEDACAO-012
+  merged_from:
+  - RULE-sedacao-BE-01-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sedacao.py
+    lines: 94-185
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sedacao.py
+    lines: 1-91
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: variant
+  notes: 'Catalog-text counterpart of the v3 predicate criteria (RULE-SEDACAO-001..012); kept as a distinct aggregate artifact (granularity: one payload spanning all 12 criteria) rather than merged into the individual predicates. The module-level payload_trilha_sedacao (lines 1-91) is a near-identical v1 text variant differing only in labels (crit_1 "Overdose de sedoanalgesia." vs v2 "...considerar reducao"; crit_5 "Nao realizado despertar diario." vs v2 "Sedacao continua, considerar despertar diario"; crit_7/8 label wording). Verified: analgesia NUMBERS are identical in both payloads (no clinical/numeric divergence, label-only). Consumed by trilha1.py and trilhas_v3 get_detalhe().
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Composite recommendation catalog whose numeric anchors map to standard published references: (a) NMBA reserved for severe ARDS P/F<150 and benefit questionable otherwise — ACURASYS (Papazian et al. NEJM 2010;363:1107, enrolled P/F<150) and ROSE (Moss et al. NEJM 2019;380:1997, negative with higher PEEP/lighter sedation/less prone); (b) light-sedation RASS target 0 to -2, deep sedation only for specific indications — SCCM PADIS 2018 (Crit Care Med 2018;46:e825) + RASS (Sessler 2002); (c) opioid choice in renal dysfunction: morphine active renal-cleared metabolite (M6G) accumulates -> fentanyl preferred; (d) PRIS surveillance for prolonged/high-dose propofol (CK, triglycerides); (e) tachypnea RR>=22 = qSOFA respiratory criterion (Sepsis-3, Singer et al. JAMA 2016;315:801).
+
+      '
+    detail_file: sedacao-batch4.yaml
+- id: RULE-SEDACAO-025
+  name: Sedative-specific reduction recommendation (criterio_1 free text by active drug)
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Maps the active continuous sedative (DS_SEDATIVO_CRITERIO_1) to a free-text recommendation to reduce that drug''s infusion rate and optionally combine adjuncts. Appended to the crit1 detalhe payload.
+
+    '
+  inputs:
+  - name: DS_SEDATIVO_CRITERIO_1
+    type: string enum {Midazolam, Propofol, Cetamina, Precedex, Fentanil}
+  outputs:
+  - name: recomendacao
+    type: string
+  logic: 'if   DS_SEDATIVO_CRITERIO_1 == "Midazolam": reduce Midazolam rate; combine propofol/cetamina + adjuncts
+
+    elif DS_SEDATIVO_CRITERIO_1 == "Propofol":  reduce Propofol; combine midazolam/cetamina + adjuncts
+
+    elif DS_SEDATIVO_CRITERIO_1 == "Cetamina":  reduce Cetamina; combine midazolam/propofol + adjuncts
+
+    elif DS_SEDATIVO_CRITERIO_1 == "Precedex":  reduce Precedex; combine adjuncts (neurolepticos, clonidina, metadona...)
+
+    elif DS_SEDATIVO_CRITERIO_1 == "Fentanil":  reduce Fentanil; combine propofol/midazolam/cetamina + adjuncts
+
+    else: recomendacao = ""
+
+    '
+  edge_cases: 'In the v1 TrilhaSedacaoModel (trilha1.py:175-204) this method is BROKEN: only the first (Midazolam) branch assigns; subsequent branches are bare string literals not concatenated into `recomendacao` (dead text). The v3 version (trilha_sedacao.py:209-246) fixes it with proper parenthesized concatenation.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEDACAO-013
+  - RULE-SEDACAO-005
+  - RULE-SEDACAO-024
+  merged_from:
+  - RULE-sedacao-BE-03-021
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sedacao.py
+    lines: 209-246
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha1.py
+    lines: 175-204
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: variant
+  notes: 'v1 (trilha1.py:175-204) is the buggy variant of the same recommendation, kept as a second (role:variant) source rather than a separate rule. Precedex is the commercial name for dexmedetomidina (qt_vol_dex). set_sedativo_em_uso (RULE-SEDACAO-013) selects the drug. "Fentanill" spelling appears in both.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published source prescribes these drug-specific free-text substitution strings (reduce active sedative + combine named alternative agents/adjuncts). It is an internal recommendation-text mapping keyed on DS_SEDATIVO_CRITERIO_1. The general direction (reduce the offending continuous sedative, favor multimodal/adjunct agents) is consistent with SCCM PADIS 2018 analgosedation principles but the exact per-drug wording is proprietary/institutional.
+
+      '
+    detail_file: sedacao-batch4.yaml
+- id: RULE-SEDACAO-026
+  name: Sedative drug enumeration (Sedativo.nome_sedativo choices)
+  category: drug-dosing
+  type: validation
+  status: OK
+  verify: true
+  description: Allowed sedative drug choices on the manual-model Sedativo.nome_sedativo field.
+  inputs:
+  - name: nome_sedativo
+    type: str enum
+  outputs:
+  - name: stored value
+    type: str
+  logic: "choices (stored key -> display label):\n  fentanil  -> Fentanil\n  midazolam -> Midazolan   # label typo: \"Midazolan\" (key is \"midazolam\")\n  propofol  -> Propofol\n  cetamina  -> Cetamina\n  ''        -> Nao informado\n"
+  edge_cases: 'Tests create with the display value ''Fentanil''/''Midazolan'' rather than the stored key ''fentanil''/''midazolam'' (choices not enforced at .create()).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEDACAO-013
+  - RULE-SEDACAO-015
+  merged_from:
+  - RULE-choice-BE-10-071
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/choices/sedativos.py
+    lines: 4-13
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Value ''midazolam'' key vs ''Midazolan'' label (label typo, verbatim in source). Overdose criterion (RULE-SEDACAO-015) applies regardless of drug. category drug-dosing -> verify true per taxonomy rule.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Devlin JW, Skrobik Y, Gelinas C, et al. Clinical Practice Guidelines for the Prevention and Management of Pain, Agitation/Sedation, Delirium, Immobility, and Sleep Disruption in Adult Patients in the ICU (PADIS). Crit Care Med. 2018;46(9):e825-e873. Used only as a soft clinical-plausibility anchor for the drug list; there is NO authoritative published reference that governs a software field''s allowed-choice enumeration (this is an internal data-model / UI validation list).
+
+      '
+    detail_file: sedacao-batch5.yaml
+- id: RULE-SEDACAO-027
+  name: Unique sedative per prontuario + dose unit
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: A given sedative drug can appear at most once per prontuario; quantity is in ml.
+  inputs:
+  - name: (dados_prontuario, nome_sedativo)
+    type: tuple
+  outputs:
+  - name: uniqueness constraint
+    type: db constraint
+  logic: 'Meta.unique_together = (''dados_prontuario'', ''nome_sedativo'')
+
+    quantidade: PositiveIntegerField help_text "Quantidade de Sedativo em ml", validators=[SedativoValidator()]
+
+    on_delete=SET_NULL (nullable FK) - sedative rows survive prontuario deletion.
+
+    '
+  edge_cases: Duplicate drug for same prontuario -> IntegrityError. Overdose criterion uses max ml (>15).
+  confidence: high
+  related:
+  - RULE-SEDACAO-026
+  - RULE-SEDACAO-015
+  merged_from:
+  - RULE-cons-BE-10-068
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/sedativo.py
+    lines: 8-24
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: nome_sedativo choices fentanil/midazolam/propofol/cetamina (see RULE-choice-BE-10-071).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+dropped: []
+integrated_misroutes:
+- id: RULE-cons-BE-10-068
+  disposition: appended:RULE-SEDACAO-027

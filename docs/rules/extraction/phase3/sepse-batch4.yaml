@@ -1,0 +1,203 @@
+# Phase 3 clinical verification - cluster "sepse" batch 4
+# Rules RULE-SEPSE-016 .. RULE-SEPSE-020 (SEPSE v3 criteria 10-14)
+# Legacy source: ahlabs-trilhas @ 8166c07 - trilha_automatica/models/trilhas_v3/trilha_sepse.py
+# Note: these are components of a proprietary IntensiCare sepsis-screening panel. The COMPOSITE
+# structure (noradrenaline gating, time windows, major/minor grouping) is internal/proprietary and
+# not judged against external references; the individual physiologic THRESHOLDS map to published
+# SIRS (ACCP/SCCM 1992), SOFA (Vincent 1996) and Sepsis-3 (Singer 2016) criteria and ARE verified.
+# All test vectors assume the noradrenaline/window gates PASS so the clinical variable is isolated.
+
+- rule_id: RULE-SEPSE-016
+  reference:
+    citation: >-
+      SOFA CNS component (Vincent JL et al., Intensive Care Med 1996;22:707-710) - GCS <15 = neurologic
+      dysfunction (13-14 = 1pt); Sepsis-3 / qSOFA (Singer M et al., JAMA 2016;315:801-810) altered
+      mentation = GCS <15; sepsis-associated delirium (CAM-ICU) = acute brain dysfunction.
+    url: https://jamanetwork.com/journals/jama/fullarticle/2492881
+  checks:
+    equation: diff        # GCS-delta branch sign inverted (detects INCREASE not reduction)
+    coefficients: ok      # delta threshold >=2 points matches intended "reduction of >=2"
+    units: ok             # GCS points
+    ranges: n/a
+    rounding: n/a
+    cutoffs: partial      # GCS<14 (legacy) is slightly stricter than SOFA/qSOFA dysfunction onset at GCS<15
+  test_vectors:
+    - inputs: {glasgow_last: 13, glasgow_penult: 15, delirium_24h: false}
+      expected_reference: fire (real 2-point drop; GCS 13<15 = CNS dysfunction)
+      actual_legacy: fire (via GCS<14 branch; delta = 13-15 = -2, NOT >=2, so delta branch is False)
+      match: true
+    - inputs: {glasgow_last: 15, glasgow_penult: 12, delirium_24h: false}
+      expected_reference: no-fire (GCS 15 normal, patient IMPROVING, no dysfunction)
+      actual_legacy: fire (delta = 15-12 = +3 >= 2 -> True) -- FALSE POSITIVE exposing inverted sign
+      match: false
+    - inputs: {glasgow_last: 14, glasgow_penult: 14, delirium_24h: true}
+      expected_reference: fire (acute delirium = brain dysfunction)
+      actual_legacy: fire (diurna_delirium__gt=0 branch True)
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Extraction-flagged DISCREPANCY confirmed. (1) GCS-delta computed as last-penult >=2 detects an
+    INCREASE (recovery), inverse of the intended "reduction of >=2 points" - fires on improving
+    patients (false positive) and never detects a decline via that branch (real declines that reach
+    GCS<14 are still caught by the third OR-branch, mitigating missed detections). (2) The dementia
+    exclusion `vars(...).fromkeys(...)` yields dict keys not values, so `not [...]` is vacuously True -
+    dementia patients are never excluded (systemic fromkeys bug, reference-neutral). (3) The
+    "delirium absent >24h" gate filters diurna_delirium__lt=0 (a value <0 never occurs) so the
+    new-onset qualifier is non-functional. GCS<14 vs SOFA/qSOFA GCS<15 is a minor cutoff difference
+    (legacy is 1 point less sensitive).
+
+- rule_id: RULE-SEPSE-017
+  reference:
+    citation: >-
+      SOFA liver component (Vincent JL et al., Intensive Care Med 1996;22:707-710) - total bilirubin
+      2.0-5.9 mg/dL (34-102 umol/L) = 2 points hepatic dysfunction. Jaundice is the clinical correlate,
+      typically visible only when bilirubin > ~2-3 mg/dL.
+    url: https://link.springer.com/article/10.1007/BF01709751
+  checks:
+    equation: diff        # only jaundice-presence branch coded; the "bilirubin > 2 mg/dL" branch is absent
+    coefficients: n/a
+    units: n/a            # mg/dL branch not implemented; jaundice is a non-numeric flag
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff         # reference/docstring cutoff bilirubin>2 mg/dL not present in code
+  test_vectors:
+    - inputs: {bilirubin_mgdl: 3.0, jaundice_flag: absent/blank}
+      expected_reference: fire (bilirubin 3.0 mg/dL = SOFA hepatic dysfunction)
+      actual_legacy: no-fire (bilirubin branch absent; get_number(blank jaundice)=0 -> False)
+      match: false
+    - inputs: {bilirubin_mgdl: 5.0, jaundice_flag: present}
+      expected_reference: fire
+      actual_legacy: fire (get_number(diurna_ictericia) truthy)
+      match: true
+    - inputs: {bilirubin_mgdl: 1.5, jaundice_flag: present}
+      expected_reference: no-fire (bilirubin <2 = no hepatic dysfunction)
+      actual_legacy: fire (jaundice truthy) -- false positive when jaundice recorded but bilirubin normal
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Extraction-flagged DISCREPANCY confirmed. Docstring/reference specify "bilirubina > 2 mg/dL OR
+    jaundice", but code implements ONLY get_number(diurna_ictericia) truthiness. Objective
+    hyperbilirubinemia without documented visible jaundice (scleral icterus is frequently not charted,
+    and bilirubin can be 2-3 mg/dL before jaundice is clinically apparent) is missed. This is a MAJOR
+    criterion in the v3 alert (criterio_11 -> maiores), so the omission reduces sensitivity of a
+    high-weight signal - hence moderate impact.
+
+- rule_id: RULE-SEPSE-018
+  reference:
+    citation: >-
+      SIRS temperature criterion (ACCP/SCCM Consensus Conference, Bone RC et al., Chest 1992;101:1644-55;
+      re-affirmed Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS, Crit Care Med 2003;31:1250-6):
+      body temperature < 36 C (or > 38 C).
+    url: https://www.esicm.org/wp-content/uploads/2018/03/file4.pdf
+  checks:
+    equation: ok
+    coefficients: ok
+    units: ok             # Celsius
+    ranges: ok            # DB filter temp__lt=36 excludes NULLs (no spurious 0<36)
+    rounding: n/a
+    cutoffs: ok           # strict < 36 matches SIRS "<36 C"
+  test_vectors:
+    - inputs: {temp_c: 35.5}
+      expected_reference: fire (<36 C)
+      actual_legacy: fire (temp__lt=36 True)
+      match: true
+    - inputs: {temp_c: 36.0}
+      expected_reference: no-fire (SIRS is strict <36)
+      actual_legacy: no-fire (36 < 36 is False)
+      match: true
+    - inputs: {temp_c: 38.5}
+      expected_reference: no-fire (this hypothermia criterion; fever handled separately)
+      actual_legacy: no-fire
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    Hypothermia minor criterion matches the SIRS temperature-low threshold exactly (strict <36 C,
+    Celsius). DB-level filter excludes NULL temps so there is no missing-data false positive (unlike
+    the get_number-based criteria). Fever (>38 C) is a separate criterion. No discrepancy.
+
+- rule_id: RULE-SEPSE-019
+  reference:
+    citation: >-
+      SIRS heart-rate criterion (ACCP/SCCM 1992, Bone RC et al., Chest 1992;101:1644-55): heart rate
+      > 90/min. Docstring intends the common tachycardia threshold HR > 100 bpm.
+    url: https://www.esicm.org/wp-content/uploads/2018/03/file4.pdf
+  checks:
+    equation: diff        # filters wrong column: fr (respiratory rate) instead of fc (heart rate)
+    coefficients: n/a
+    units: diff           # threshold 100 applied to RR (ipm) not HR (bpm); also 100 vs SIRS 90
+    ranges: n/a
+    rounding: n/a
+    cutoffs: diff         # SIRS HR>90; docstring HR>100; code effectively RR>100
+  test_vectors:
+    - inputs: {fc_bpm: 120, fr_ipm: 18}
+      expected_reference: fire (tachycardia HR>90/>100)
+      actual_legacy: no-fire (fr=18 > 100 is False; heart rate never inspected)
+      match: false
+    - inputs: {fc_bpm: 150, fr_ipm: 30}
+      expected_reference: fire
+      actual_legacy: no-fire (fr=30 > 100 is False) -- RR>100 is physiologically impossible
+      match: false
+    - inputs: {fc_bpm: 80, fr_ipm: 22}
+      expected_reference: no-fire (HR normal)
+      actual_legacy: no-fire (fr=22 > 100 False) -- correct outcome only by coincidence
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Extraction-flagged DISCREPANCY confirmed. Code filters balanco.fr (frequencia respiratoria /
+    respiratory rate) > 100 instead of balanco.fc (frequencia cardiaca / heart rate). Because a
+    respiratory rate above 100/min essentially never occurs, criterio_13 is effectively a dead
+    criterion that is always False - tachycardia, a cardinal early sepsis sign, never contributes to
+    the minor count. It is one of ~9 minor criteria so overall screening degradation is partial (hence
+    moderate, not high). Separately, even the intended threshold (>100) is stricter than the SIRS
+    reference (>90 bpm).
+
+- rule_id: RULE-SEPSE-020
+  reference:
+    citation: >-
+      SIRS PaCO2 criterion (ACCP/SCCM 1992): PaCO2 < 32 mmHg. Respiratory dysfunction PaO2/FiO2 < 300:
+      SOFA respiratory component (Vincent 1996, P/F<300 = 2pts) and ARDS Berlin Definition (JAMA
+      2012;307:2526). P/F ratio = PaO2 (mmHg) / FiO2 as a DECIMAL FRACTION (0.21-1.0); if FiO2 is a
+      percentage it must be divided by 100 first.
+    url: https://jamanetwork.com/journals/jama/fullarticle/1160659
+  checks:
+    equation: ok          # form matches: PaCO2<32 OR PaO2/FiO2<300
+    coefficients: ok
+    units: diff           # FiO2 NOT normalized to a fraction; PaCO2 missing->0 via get_number
+    ranges: diff          # no FiO2 range guard (0-1 vs 0-100); no PaCO2 presence guard
+    rounding: n/a
+    cutoffs: ok           # 32 mmHg and 300 both match reference
+  test_vectors:
+    - inputs: {paco2_mmhg: 28, pao2: 95, fio2: 0.21}
+      expected_reference: fire (PaCO2 28 < 32)
+      actual_legacy: fire (get_number(28) < 32 True)
+      match: true
+    - inputs: {paco2_mmhg: 40, pao2: 90, fio2: 0.21}
+      expected_reference: no-fire (PaCO2 40 not<32; P/F=428 not<300)
+      actual_legacy: no-fire (40<32 False; 90/0.21=428 not<300)
+      match: true
+    - inputs: {paco2_mmhg: 40, pao2: 250, fio2_as_percent: 60}
+      expected_reference: no-fire (FiO2 0.60 -> P/F = 250/0.60 = 417, not<300)
+      actual_legacy: fire (250/60 = 4.17 < 300 True) -- FALSE POSITIVE from unnormalized percent FiO2
+      match: false
+    - inputs: {paco2_mmhg: blank/missing, pao2: 95, fio2: 0.21}
+      expected_reference: no-fire (no PaCO2 datum; P/F=452 normal)
+      actual_legacy: fire (get_number("")=0, and 0 < 32 True) -- FALSE POSITIVE from missing-data coercion
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    Independent verdict overrides extraction status OK: the equation form and both cutoffs (PaCO2<32
+    mmHg, P/F<300) match the references, BUT two reference-relevant computation defects exist. (1)
+    PaCO2 branch: handlers.get_number(blank)=0, and 0<32 is True, so an absent/blank PaCO2 spuriously
+    satisfies the criterion; combined with the spontaneous-vent gate (many spontaneously breathing
+    patients have no ABG), this can fire broadly on missing data. (2) P/F branch: PaO2/FiO2 is computed
+    on the raw stored diurna_fio2 with NO fraction-vs-percent normalization (confirmed: get_number only
+    float-casts). If FiO2 is stored as a percentage (e.g. 40 or 60, common in Brazilian charting), the
+    ratio is understated ~100x and is almost always < 300 -> systematic false positive; if stored as a
+    fraction the math is correct (data-convention dependent). This is exactly the fraction/percent FiO2
+    unit hazard the audit targets. Impact moderate: criterio_14 is a minor criterion, but both defects
+    push toward over-firing (over-triggering sepsis alerts), not under-detection.

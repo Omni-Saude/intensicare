@@ -1,0 +1,181 @@
+- rule_id: RULE-TENANCY-ORGANIZACAO-001
+  reference:
+    citation: >-
+      WHO European Health Information Gateway, "Bed occupancy rate (%), acute
+      care hospitals only"; standard Bed Occupancy Rate (BOR) = (occupied beds /
+      available beds) x 100. Point-prevalence form corroborated by PA Dept. of
+      Health "Occupancy Rates in Health Facilities".
+    url: https://gateway.euro.who.int/en/indicators/hfa_542-6210-bed-occupancy-rate-acute-care-hospitals-only/
+  checks:
+    equation: ok      # (ocupados / total) * 100 matches standard BOR = (A/B)*100
+    coefficients: ok  # x100 to percent
+    units: ok         # integer bed counts in, percent out
+    ranges: n/a       # no published input range beyond total >= 0
+    rounding: ok      # round(...,2); no rounding convention prescribed by ref, 2dp is reasonable
+    cutoffs: n/a      # pure ratio, no score bands
+  test_vectors:
+    - {inputs: {total_leitos: 200, total_leitos_ocupados: 175}, expected_reference: 87.5, actual_legacy: 87.5, match: true}
+    - {inputs: {total_leitos: 3, total_leitos_ocupados: 1}, expected_reference: 33.33, actual_legacy: 33.33, match: true}
+    - {inputs: {total_leitos: 8, total_leitos_ocupados: 8}, expected_reference: 100.0, actual_legacy: 100.0, match: true}
+    - {inputs: {total_leitos: 0, total_leitos_ocupados: 0}, expected_reference: "undefined (0/0)", actual_legacy: "int 0 (0-guard)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    The arithmetic formula itself matches the standard BOR definition. Two
+    caveats, both documented as SEPARATE rules and not defects of this formula:
+    (a) the zero-guard returns int 0 rather than float 0.0 (cosmetic type
+    inconsistency); (b) the numerator method get_total_leitos_ocupados omits the
+    ativo=True filter that the denominator get_total_leitos applies, so via that
+    input path this establishment occupancy CAN exceed 100% - that asymmetry is
+    characterized under RULE-TENANCY-ORGANIZACAO-003. Formula verified as
+    written; not a clinical scale, operational KPI only.
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-002
+  reference:
+    citation: >-
+      WHO European Health Information Gateway, Bed Occupancy Rate (%);
+      BOR = (occupied active beds / total active beds) x 100.
+    url: https://gateway.euro.who.int/en/indicators/hfa_542-6210-bed-occupancy-rate-acute-care-hospitals-only/
+  checks:
+    equation: ok      # (ocupados / total) * 100 matches standard BOR
+    coefficients: ok
+    units: ok
+    ranges: n/a
+    rounding: ok      # round(...,2)
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {total_leitos: 10, total_leitos_ocupados: 5}, expected_reference: 50.0, actual_legacy: 50.0, match: true}
+    - {inputs: {total_leitos: 3, total_leitos_ocupados: 2}, expected_reference: 66.67, actual_legacy: 66.67, match: true}
+    - {inputs: {total_leitos: 12, total_leitos_ocupados: 12}, expected_reference: 100.0, actual_legacy: 100.0, match: true}
+    - {inputs: {total_leitos: 0, total_leitos_ocupados: 0}, expected_reference: "undefined (0/0)", actual_legacy: "int 0 (0-guard)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >-
+    Sector-level formula, identical to RULE-001. Matches standard BOR. Same int
+    vs float 0.0 type quirk on the zero-guard. The numerator/denominator ativo
+    asymmetry that can push this >100% is characterized separately under
+    RULE-TENANCY-ORGANIZACAO-004. Verified as written.
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-003
+  reference:
+    citation: >-
+      WHO / standard BOR definition: occupied beds is a strict subset of
+      available beds, therefore BOR is bounded at <=100%. PA Dept. of Health
+      "Occupancy Rates in Health Facilities" states the numerator (occupied)
+      must be drawn from the same available-bed denominator.
+    url: https://gateway.euro.who.int/en/indicators/hfa_542-6210-bed-occupancy-rate-acute-care-hospitals-only/
+  checks:
+    equation: diff    # numerator counts ocupado=True WITHOUT ativo=True; denominator requires ativo=True
+    coefficients: n/a
+    units: ok
+    ranges: diff      # violates BOR invariant numerator subset of denominator -> output can exceed 100%
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {active_beds: 10, active_occupied: 5, inactive_occupied: 0}
+      expected_reference: "denom=10 num=5 -> 50.0%"
+      actual_legacy: "get_total_leitos=10 (ativo), get_total_leitos_ocupados=5 (ocupado) -> 50.0%"
+      match: true
+    - inputs: {active_beds: 10, active_occupied: 5, inactive_occupied: 1}
+      expected_reference: "inactive-occupied excluded -> 5/10 = 50.0%"
+      actual_legacy: "denom=10 (ativo=True), num=5+1=6 (ocupado=True, no ativo filter) -> 60.0%"
+      match: false
+    - inputs: {active_beds: 2, active_occupied: 2, inactive_occupied: 1}
+      expected_reference: "<=100% (BOR bounded); true active occupancy 2/2 = 100.0%"
+      actual_legacy: "denom=2, num=3 -> 150.0% (impossible under BOR definition)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    CONFIRMED against legacy source (estabelecimento.py L95-112): get_total_leitos
+    filters leitos__ativo=True; get_total_leitos_ocupados filters
+    leitos__ocupado=True with NO ativo=True constraint. An inactive-but-occupied
+    bed inflates the numerator without entering the denominator, breaking the BOR
+    numerator-subset-of-denominator invariant and allowing occupancy >100%.
+    Impact low: this is an administrative/capacity KPI, not a patient-level
+    clinical calculation; the error only manifests if a Leito can be
+    simultaneously ativo=False and ocupado=True (reachability depends on Leito
+    state-transition rules out of this partition's scope). Extraction status
+    DISCREPANCY confirmed. Do NOT correct - documented only.
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-004
+  reference:
+    citation: >-
+      WHO / standard BOR: occupied beds subset of available beds, BOR <=100%.
+      Same authority as RULE-003.
+    url: https://gateway.euro.who.int/en/indicators/hfa_542-6210-bed-occupancy-rate-acute-care-hospitals-only/
+  checks:
+    equation: diff    # total = leitos.filter(ativo=True); ocupados = leitos.filter(ocupado=True) [no ativo]
+    coefficients: n/a
+    units: ok
+    ranges: diff      # can exceed 100%
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {ativo_beds: 10, ativo_and_ocupado: 5, inactive_occupied: 0}
+      expected_reference: "5/10 = 50.0%"
+      actual_legacy: "total=10, ocupados=5 -> 50.0%"
+      match: true
+    - inputs: {ativo_beds: 10, ativo_and_ocupado: 5, inactive_occupied: 1}
+      expected_reference: "5/10 = 50.0% (inactive occupied excluded)"
+      actual_legacy: "total=10 (ativo=True), ocupados=6 (ocupado=True) -> 60.0%"
+      match: false
+    - inputs: {ativo_beds: 2, ativo_and_ocupado: 2, inactive_occupied: 1}
+      expected_reference: "<=100%; 2/2 = 100.0%"
+      actual_legacy: "total=2, ocupados=3 -> 150.0%"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    CONFIRMED against legacy source (setor.py L150-156): get_total_leitos =
+    instance.leitos.filter(ativo=True).count(); get_total_leitos_ocupados =
+    instance.leitos.filter(ocupado=True).count() with no ativo=True filter. Same
+    ativo-scoping asymmetry as RULE-003 but at single-sector scope; feeds
+    RULE-002 occupancy which can therefore exceed 100%. Impact low (operational
+    KPI, not clinical decision support; only reachable if a bed is ativo=False
+    AND ocupado=True). Extraction status DISCREPANCY confirmed. Documented only.
+
+- rule_id: RULE-TENANCY-ORGANIZACAO-005
+  reference:
+    citation: >-
+      No authoritative published clinical/statistical standard governs this
+      proprietary establishment-level macro-indicator aggregation (which of
+      vidas_salvas/obitos/tempo_permanencia/admissao to Sum vs which of
+      tx_mortalidade/tx_ocupacao to Avg, and the 2-decimal Round). Internal
+      IntensiCare/Trilhas business rule.
+    url: null
+  checks:
+    equation: n/a     # internal aggregation, no external reference equation
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a     # Round(precision=2) is an internal choice; no standard to check against
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {tipo: manual}
+      expected_reference: "n/a (no published standard)"
+      actual_legacy: "returns {} (empty dict) - aggregation skipped for non automatica/homecare"
+      match: n/a
+    - inputs: {tipo: automatica, rows_VIDAS_SALVAS: [10.126, 10.124]}
+      expected_reference: "n/a"
+      actual_legacy: "Sum=20.25 rounded to 2dp; internally self-consistent"
+      match: n/a
+    - inputs: {tipo: automatica, matching_rows: 0}
+      expected_reference: "n/a"
+      actual_legacy: "Sum/Avg over empty queryset -> None for every key (no Coalesce default); dict of None, no error"
+      match: n/a
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Proprietary internal business aggregation with no authoritative published
+    reference to verify equation/coefficients/cutoffs against. Flagged for
+    internal review, NOT treated as wrong. Two behaviors worth internal
+    attention (documented, not defects vs any standard): (a) empty queryset
+    yields None values rather than 0/0.0 because no Coalesce/default is set;
+    (b) tx_mortalidade and tx_ocupacao are simple unweighted Avg across
+    MacroIndicadores rows - if rows represent differently-sized periods/units, an
+    unweighted mean of rates is statistically biased vs an admission- or
+    bed-day-weighted rate, but no canonical reference mandates weighting here, so
+    this remains an internal-review item. Sector-level counterpart
+    (RULE-TENANCY-ORGANIZACAO-006) uses a materially different single-record
+    .get() with bare except and no rounding.

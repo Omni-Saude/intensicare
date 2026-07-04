@@ -1,0 +1,171 @@
+- rule_id: RULE-CLINICAL-SCORING-011
+  reference:
+    citation: >
+      Vincent JL, Moreno R, Takala J, et al. The SOFA (Sepsis-related Organ
+      Failure Assessment) score to describe organ dysfunction/failure. Intensive
+      Care Med. 1996;22(7):707-710. Standard MAP = (SBP + 2*DBP)/3.
+    url: https://pubmed.ncbi.nlm.nih.gov/8844239/
+  checks:
+    equation: ok        # embedded MAP = ((2*pad)+pas)/3 == standard (SBP+2*DBP)/3
+    coefficients: ok    # 2x diastolic weighting, /3 divisor correct
+    units: n/a          # workflow/sourcing rule; pad/pas mmHg. FiO2 fraction-vs-% (RULE-008) and noradrenalina-in-ml (RULE-005) adjudicated in those rules, not here
+    ranges: ok          # falsy pad/pas -> pam=0 guard; six sub-scores recomputed every save
+    rounding: n/a        # no rounding applied
+    cutoffs: n/a         # sourcing rule; band cutoffs live in RULE-002..007
+  test_vectors:
+    - {inputs: {pad: 80, pas: 120}, expected_reference: 93.33, actual_legacy: 93.33, match: true}
+    - {inputs: {pad: 60, pas: 90}, expected_reference: 70.0, actual_legacy: 70.0, match: true}
+    - {inputs: {pad: 0, pas: 120}, expected_reference: "MAP undefined (missing DBP)", actual_legacy: 0, match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Workflow rule; the only closed-form clinical calculation is the embedded MAP
+    expression, which matches the standard SOFA MAP formula exactly (algebraically
+    identical to DBP+1/3(SBP-DBP)). All six organ inputs are sourced consistent with
+    Vincent 1996. The FiO2 percentage-vs-fraction hazard and the noradrenalina-in-ml
+    (not mcg/kg/min) sourcing are documented and adjudicated in RULE-008 and RULE-005
+    respectively and are not re-adjudicated here. The not-reset-when-no-Noradrenalina-
+    relation behavior is an implementation quirk, not a reference deviation.
+
+- rule_id: RULE-CLINICAL-SCORING-012
+  reference:
+    citation: >
+      Vincent JL, Moreno R, Takala J, et al. The SOFA score. Intensive Care Med.
+      1996;22(7):707-710. Six organ systems: respiratory (PaO2/FiO2), coagulation
+      (platelets), hepatic (bilirubin), cardiovascular (MAP + vasopressors),
+      neurological (GCS), renal (creatinine / urine output).
+    url: https://pubmed.ncbi.nlm.nih.gov/8844239/
+  checks:
+    equation: n/a       # assembly/use-case layer, no equation
+    coefficients: n/a
+    units: n/a          # per-variable unit correctness adjudicated in RULE-002..008
+    ranges: ok          # noradrenalina included only when relation exists; else omitted
+    rounding: n/a
+    cutoffs: n/a         # scoring occurs in SOFA.save (RULE-011/001)
+  test_vectors:
+    - inputs: {assembled: "fio2,po2"}
+      expected_reference: "respiratory organ covered by PaO2/FiO2"
+      actual_legacy: "fio2 + po2 collected"
+      match: true
+    - inputs: {assembled: "pam,dobutamina,noradrenalina"}
+      expected_reference: "cardiovascular = MAP + vasopressor requirement"
+      actual_legacy: "pam, dobutamina, and (conditionally) noradrenalina.quantidade collected"
+      match: true
+    - inputs: {assembled: "creatinina,debito_urinario_24h"}
+      expected_reference: "renal = creatinine OR 24h urine output"
+      actual_legacy: "creatinina + debito_urinario_24h collected"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Input-assembly workflow. All six SOFA organ systems from Vincent 1996 are
+    represented by the collected variables and mapped to the correct organs; the
+    noradrenaline dose is included only when a Noradrenalina record exists, matching
+    RULE-011. This rule does not compute points, so the unit hazards flagged elsewhere
+    (FiO2 fraction-vs-percent RULE-008; noradrenalina in ml RULE-005) are inherited
+    downstream, not introduced here. Assembly is faithful to the reference.
+
+- rule_id: RULE-CLINICAL-SCORING-013
+  reference:
+    citation: >
+      Teasdale G, Jennett B. Assessment of coma and impaired consciousness: a
+      practical scale. Lancet. 1974;2(7872):81-84. Total GCS = eye(1-4) +
+      verbal(1-5) + motor(1-6), inclusive range 3 (deep coma) to 15 (fully alert).
+    url: https://pubmed.ncbi.nlm.nih.gov/4136544/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok           # points, total GCS
+    ranges: ok          # inclusive 3..15 matches reference
+    rounding: n/a
+    cutoffs: ok          # MinValueValidator(3), MaxValueValidator(15) == reference bounds
+  test_vectors:
+    - {inputs: {glasgow: 3}, expected_reference: "valid (minimum, deep coma)", actual_legacy: "accepted (>=3)", match: true}
+    - {inputs: {glasgow: 15}, expected_reference: "valid (maximum, fully alert)", actual_legacy: "accepted (<=15)", match: true}
+    - {inputs: {glasgow: 2}, expected_reference: "invalid (below 3, impossible total GCS)", actual_legacy: "rejected (MinValueValidator 3)", match: true}
+    - {inputs: {glasgow: 16}, expected_reference: "invalid (above 15)", actual_legacy: "rejected (MaxValueValidator 15)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Inclusive 3..15 bounds match the Teasdale-Jennett total-GCS range exactly across
+    backend model and both frontend capture forms. Total-score-only modeling (no E/V/M
+    sub-scores) is a common valid design choice, not a reference deviation; the
+    form-type descriptor difference (interval vs number vs IntegerField) is cosmetic.
+    Note: the trilha_manual dados_prontuario.glasgow field (consumed by SOFA RULE-006)
+    had no range validator captured in this cluster, so the 3-15 guard applies to the
+    homecare/physician neuro path, not necessarily to the ICU SOFA input.
+
+- rule_id: RULE-CLINICAL-SCORING-014
+  reference:
+    citation: >
+      Sessler CN, Gosnell MS, Grap MJ, et al. The Richmond Agitation-Sedation Scale:
+      validity and reliability in adult intensive care unit patients. Am J Respir
+      Crit Care Med. 2002;166(10):1338-1344. 10-point scale: +4 Combative, +3 Very
+      agitated, +2 Agitated, +1 Restless, 0 Alert and calm, -1 Drowsy, -2 Light
+      sedation, -3 Moderate sedation, -4 Deep sedation, -5 Unarousable.
+    url: https://pubmed.ncbi.nlm.nih.gov/12421743/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok           # ordinal levels +4..-5
+    ranges: ok          # full +4..-5 span present in all three definitions
+    rounding: n/a
+    cutoffs: diff        # numeric anchors match reference; LABELS diverge across the three internal copies
+  test_vectors:
+    - inputs: {rass: "+4"}
+      expected_reference: "Combative"
+      actual_legacy: "manual/frontend 'Combativo', homecare 'Combativo' — consistent, matches reference intent"
+      match: true
+    - inputs: {rass: "-1"}
+      expected_reference: "Drowsy"
+      actual_legacy: "manual/frontend 'Torporoso' vs homecare 'Sonolento' — internal label divergence (same numeric -1)"
+      match: false
+    - inputs: {rass: "-5"}
+      expected_reference: "Unarousable"
+      actual_legacy: "manual/frontend 'Coma' vs homecare 'Nao desperta' — internal label divergence"
+      match: false
+    - inputs: {rass: ""}
+      expected_reference: "not a RASS level (sentinel)"
+      actual_legacy: "manual/frontend include '' 'Nao informado'; homecare OMITS it (10 vs 11 options)"
+      match: false
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >
+    The numeric RASS scale (+4..-5, 10 levels) matches Sessler 2002 exactly in all
+    three definitions, and downstream logic keys on the numeric string (int(rass) in
+    ventilacao C4/C8; membership sets in sedation), so scoring behavior is
+    reference-correct. The extracted DISCREPANCY is an intra-codebase label divergence,
+    NOT a deviation of the numeric scale from the reference: trilha_homecare relabels
+    -1 Sonolento / -4 Sedacao Intensa / -5 Nao desperta and omits '' Nao informado,
+    while trilha_manual and the frontend agree on all 11 options. Clinical impact low:
+    labels are display-only, the two enums feed different pathways (homecare -> neuro
+    assessment; manual/frontend -> sedation/ventilation) and are never compared at
+    runtime; homecare -1 'Sonolento' is arguably closer to the reference 'Drowsy' than
+    manual 'Torporoso'. The load-bearing numeric anchors are correct everywhere.
+
+- rule_id: RULE-CLINICAL-SCORING-015
+  reference:
+    citation: >
+      Numeric Rating Scale (NRS-11) for pain intensity, 0 (no pain) to 10 (worst
+      pain imaginable); single-item verbal numeric scale, validated against VAS
+      (r=0.86-0.95). Standard 0-10 integer range.
+    url: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5043012/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: ok           # points on 0-10 numeric rating scale
+    ranges: ok          # inclusive 0..10 matches NRS-11
+    rounding: n/a
+    cutoffs: ok          # MinValueValidator(0), MaxValueValidator(10) == NRS bounds
+  test_vectors:
+    - {inputs: {escala_dor: 0}, expected_reference: "valid (no pain)", actual_legacy: "accepted (>=0)", match: true}
+    - {inputs: {escala_dor: 10}, expected_reference: "valid (worst pain)", actual_legacy: "accepted (<=10)", match: true}
+    - {inputs: {escala_dor: 11}, expected_reference: "invalid (above 10)", actual_legacy: "rejected (MaxValueValidator 10)", match: true}
+    - {inputs: {escala_dor: -1}, expected_reference: "invalid (below 0)", actual_legacy: "rejected (PositiveSmallInteger + MinValueValidator 0)", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Inclusive 0..10 integer bounds match the standard 11-point Numeric Rating Scale
+    for pain. PositiveSmallIntegerField plus MinValueValidator(0)/MaxValueValidator(10)
+    correctly constrains the field. The downstream unreachability of piora criterio_6
+    (dor>10) is a consequence of this correct cap, not a defect in this rule.

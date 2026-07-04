@@ -1,0 +1,147 @@
+- rule_id: RULE-SEPSE-021
+  reference:
+    citation: "ACCP/SCCM Consensus Conference (Bone RC et al., 1992) SIRS/sepsis criteria: WBC >12,000/mm3 OR <4,000/mm3 OR >10% immature (band) forms — one of the four SIRS criteria (Sepsis-2). CRP >100 mg/L is NOT a SIRS component (institutional add-on)."
+    url: "https://mdcalc.scholasticahq.com/article/154405-sirs-sepsis-and-septic-shock-criteria"
+  checks:
+    equation: n/a
+    coefficients: "diff — WBC cutoffs 12,000/4,000 and band >10% match SIRS exactly; PCR>100 threshold is institutional (not in any SIRS/Sepsis-3 reference)"
+    units: "ok — leukocytes /mm3, bands %, PCR mg/L; parser strips '.' and ',' as thousands separators, bands strips '%' and converts decimal comma"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "diff — the four markers are combined as (WBC/band clause) AND (PCR>100 clause) via two separate all([]) entries; reference SIRS logic AND the rule's own docstring treat all four as independent OR alternatives"
+  test_vectors:
+    - inputs: {nora_6h: absent, leucocitos: 15000, bastoes: "5%", pcr: 50}
+      expected_reference: "criterion fires (leukocytosis >12,000 satisfies the OR)"
+      actual_legacy: "False — WBC/band clause True but PCR clause (>100) False, so all([...]) is False"
+      match: false
+    - inputs: {nora_6h: absent, leucocitos: 8000, bastoes: "5%", pcr: 150}
+      expected_reference: "criterion fires per docstring OR (PCR>100 alone)"
+      actual_legacy: "False — WBC/band clause False (8000 not >12000/<4000, 5% not >10), so all([...]) False even though PCR>100"
+      match: false
+    - inputs: {nora_6h: absent, leucocitos: 15000, bastoes: "5%", pcr: 150}
+      expected_reference: "criterion fires (leukocytosis OR PCR)"
+      actual_legacy: "True — both WBC clause and PCR clause satisfied"
+      match: true
+    - inputs: {nora_6h: absent, leucocitos: 12000, bastoes: "10%", pcr: 150}
+      expected_reference: "does NOT fire on WBC/bands (SIRS uses strict >12,000 and >10%); would fire only if PCR counts as OR"
+      actual_legacy: "False — leucocitos not >12000, bastoes not >10 (strict), WBC/band clause False -> all False"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: "Confirms the extraction-flagged DISCREPANCY. PCR>100 is AND-combined (mandatory co-condition) rather than an OR alternative, so isolated leukocytosis, leukopenia, or bandemia (all valid SIRS markers) fail to trigger this minor criterion unless PCR>100 also present. Reduces sensitivity of the sepsis minor-criteria screen; moderate because it is one of nine minor criteria and the alert can still fire via other criteria. WBC/band cutoffs themselves are faithful to SIRS."
+
+- rule_id: RULE-SEPSE-022
+  reference:
+    citation: "ANDROMEDA-SHOCK trial (Hernandez G et al., JAMA 2019) and ANDROMEDA-SHOCK-2 (JAMA 2025): capillary refill time (CRT) >3 seconds defined as abnormal peripheral perfusion in septic shock."
+    url: "https://jamanetwork.com/journals/jama/fullarticle/2840823"
+  checks:
+    equation: n/a
+    coefficients: "ok — TEC >3s abnormal threshold matches ANDROMEDA-SHOCK definition"
+    units: "ok — seconds"
+    ranges: ok
+    rounding: n/a
+    cutoffs: "ok — strict __gt=3 matches '>3 seconds' (3.0s exactly not abnormal). Note the 'new onset' gate (present <24h AND absent >24h) is an institutional refinement, not part of the CRT reference"
+  test_vectors:
+    - inputs: {nora_6h: absent, tec_last24h: 4, tec_before24h: none}
+      expected_reference: "abnormal CRT present -> fires"
+      actual_legacy: "True — TEC>3 in 24h exists, none before 24h"
+      match: true
+    - inputs: {nora_6h: absent, tec_last24h: 2, tec_before24h: none}
+      expected_reference: "normal CRT (<3s) -> does not fire"
+      actual_legacy: "False — 2 not >3"
+      match: true
+    - inputs: {nora_6h: absent, tec_last24h: 3, tec_before24h: none}
+      expected_reference: "boundary — 3.0s is not >3s, not abnormal -> does not fire"
+      actual_legacy: "False — __gt=3 excludes 3.0"
+      match: true
+    - inputs: {nora_6h: absent, tec_last24h: 4, tec_before24h: 4}
+      expected_reference: "pure CRT-abnormal reference would still flag (CRT abnormal)"
+      actual_legacy: "False — new-onset gate: prior TEC>3 exists so 'not exists' is False"
+      match: false
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: "TEC>3s threshold and strict comparison match the ANDROMEDA-SHOCK reference. The additional 'new onset' requirement (abnormal within 24h AND not abnormal before 24h) is an intentional institutional design choice to capture acute-onset hypoperfusion and is not a discrepancy against the perfusion reference (last test vector reflects that design, not a threshold error). CharField __gt=3 comparison is backend-dependent (noted in extraction) but does not affect the reference-cutoff verdict."
+
+- rule_id: RULE-SEPSE-023
+  reference:
+    citation: "No authoritative published guideline defines 'nasoenteral tube prescription + GCS>=13 + no invasive ventilation' as a sepsis screening criterion. GCS 13-15 = mild impairment is standard (Teasdale & Jennett 1974), but the composite is an internal institutional risk indicator (enteral device as potential infection/aspiration source in a patient with adequate consciousness)."
+    url: "https://www.glasgowcomascale.org/"
+  checks:
+    equation: n/a
+    coefficients: "n/a — GCS>=13 aligns with standard mild-GCS band but the composite criterion has no published source"
+    units: "n/a"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a — institutional"
+  test_vectors:
+    - inputs: {invasive_vent: no, glasgow: 14, sne_prescribed_12h: yes}
+      expected_reference: "per self-documented algorithm -> fires"
+      actual_legacy: "True — no invasive vent, GCS 14>=13, SNE prescription in 12h"
+      match: true
+    - inputs: {invasive_vent: no, glasgow: 12, sne_prescribed_12h: yes}
+      expected_reference: "per algorithm -> does not fire (GCS<13)"
+      actual_legacy: "False — get_number(12) not >=13"
+      match: true
+    - inputs: {invasive_vent: no, glasgow: 13, sne_prescribed_12h: yes}
+      expected_reference: "boundary GCS=13 -> fires"
+      actual_legacy: "True — 13>=13"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Internal business rule; no primary clinical reference sets this composite as a sepsis marker. Logic is internally consistent with its own docstring (verified by trace). GCS>=13 boundary and the invasive-vent exclusion behave as documented. Flag for internal clinical review, not a defect. This is the only sepse minor criterion with no noradrenaline gate (noted in extraction)."
+
+- rule_id: RULE-SEPSE-024
+  reference:
+    citation: "CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections (O'Grady NP et al., 2011): central venous catheters are a recognized source of bloodstream infection, but routine replacement to prevent infection is explicitly NOT recommended — no authoritative dwell-time cutoff (e.g. 7 days) is defined as a sepsis-risk threshold."
+    url: "https://www.cdc.gov/infection-control/hcp/intravascular-catheter-related-infection/index.html"
+  checks:
+    equation: n/a
+    coefficients: "n/a — 7-day dwell threshold is institutional; not from any published guideline"
+    units: "ok — days"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a — the >7 day cutoff has no authoritative source (implemented as any evolution record older than 7d with CVC/CDL flagged)"
+  test_vectors:
+    - inputs: {nora_6h: absent, cvc_record_older_than_7d: {enf_cvc: 1}}
+      expected_reference: "per algorithm -> fires"
+      actual_legacy: "True — evolucao(dt<now-7d) with enf_cvc>0 exists"
+      match: true
+    - inputs: {nora_6h: absent, cvc_record: "only <7d old"}
+      expected_reference: "per algorithm -> does not fire"
+      actual_legacy: "False — evolucao_7dias (dt<now-7d) has no matching record"
+      match: true
+    - inputs: {nora_6h: present, cvc_record_older_than_7d: {enf_cvc: 1}}
+      expected_reference: "nora gate -> does not fire"
+      actual_legacy: "False — balanco_6h qt_vol_nora>0 exists, first clause False"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "The premise (CVC/CDL as an infection source) is guideline-supported, but the specific >7-day dwell cutoff is an internal institutional threshold with no published anchor (CDC in fact discourages fixed replacement intervals). Logic traces consistently with the docstring. Flag for internal review; not a defect."
+
+- rule_id: RULE-SEPSE-025
+  reference:
+    citation: "CDC/HICPAC 2011 catheter guidelines and Marik PE et al. (Crit Care Med 2012 meta-analysis): femoral venous access carries higher infection/thrombosis risk and femoral placement should be avoided when possible. No authoritative source defines a specific >5-day femoral dwell cutoff as a sepsis-risk threshold."
+    url: "https://www.cdc.gov/infection-control/hcp/intravascular-catheter-related-infection/index.html"
+  checks:
+    equation: n/a
+    coefficients: "n/a — >5-day femoral cutoff and site codes (VFD/VFE) are institutional"
+    units: "ok — days"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a — femoral-higher-risk premise is guideline-supported but the exact 5-day threshold has no published source"
+  test_vectors:
+    - inputs: {nora_6h: absent, record_older_than_5d: {enf_cvc: 1, enf_cvc_local: VFD}}
+      expected_reference: "per algorithm -> fires (femoral CVC >5d)"
+      actual_legacy: "True — evolucao_5dias with enf_cvc>0 and local in (VFD,VFE) exists"
+      match: true
+    - inputs: {nora_6h: absent, femoral_cvc_record: "only <5d old"}
+      expected_reference: "per algorithm -> does not fire"
+      actual_legacy: "False — evolucao_5dias (dt<now-5d) has no matching record"
+      match: true
+    - inputs: {nora_6h: absent, record_older_than_5d: {enf_cvc: 1, enf_cvc_local: "VJID (jugular)"}}
+      expected_reference: "per algorithm -> does not fire (non-femoral site)"
+      actual_legacy: "False — local not in (VFD,VFE), Q filter no match"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: "Femoral-site higher-infection-risk premise is guideline-supported (CDC/HICPAC, Marik meta-analysis), but the specific >5-day dwell cutoff and the hardcoded VFD/VFE site codes are internal institutional parameters with no published threshold. Logic traces consistently with the docstring. Flag for internal review; not a defect."

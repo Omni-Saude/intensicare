@@ -1,0 +1,143 @@
+- rule_id: RULE-SEDACAO-001
+  reference:
+    citation: >
+      Numeric/Visual Analog pain bands (0-3 none/mild, 4-6 moderate, 7-10 severe) per SCCM PADIS
+      2018 guideline pain-assessment standard; Behavioral Pain Scale (BPS) total range 3-12
+      (Payen JL et al. Crit Care Med 2001), significant/unacceptable pain cutoff >5.
+    url: https://www.weguide.health/instruments/behavioral-pain-scale-bps
+  checks:
+    equation: ok
+    coefficients: "VISUAL 4-6 matches standard NRS moderate band; BPS 7-9 is an institutional sub-band (BPS has no published moderate/severe sub-bands, only cutoff >5)"
+    units: ok (pain points; VISUAL=NRS 0-10, COMPORTAMENTAL=BPS 3-12)
+    ranges: "ok - 7-9 lies within valid BPS range 3-12; 4-6 within NRS 0-10"
+    rounding: n/a
+    cutoffs: "VISUAL 4-6 matches reference moderate band exactly; BPS 7-9 institutional but clinically consistent (all >5 cutoff)"
+  test_vectors:
+    - {inputs: {escala_dor: VISUAL, ponto_dor: 4, both_balances: true}, expected_reference: "moderate pain -> True", actual_legacy: "4<=4<=6 True in both -> True", match: true}
+    - {inputs: {escala_dor: VISUAL, ponto_dor: 6, both_balances: true}, expected_reference: "moderate (upper bound) -> True", actual_legacy: "True", match: true}
+    - {inputs: {escala_dor: VISUAL, ponto_dor: 7, both_balances: true}, expected_reference: "severe not moderate -> False here", actual_legacy: "7 not in 4-6 -> False", match: true}
+    - {inputs: {escala_dor: COMPORTAMENTAL, ponto_dor: 8, both_balances: true}, expected_reference: "BPS 8 >5 = significant pain -> plausibly moderate True", actual_legacy: "7<=8<=9 True -> True", match: true}
+    - {inputs: {escala_dor: COMPORTAMENTAL, ponto_dor: 6, both_balances: true}, expected_reference: "BPS 6 >5 = pain present (institutional split puts it below moderate band)", actual_legacy: "6 not in 7-9 -> False", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    VISUAL band 4-6 matches the published NRS moderate band exactly. The COMPORTAMENTAL (BPS)
+    sub-band 7-9 is an institutional subdivision of the validated 3-12 BPS scale; BPS itself only
+    publishes a single actionable cutoff (>5). The 7-9 band is internally consistent (all values
+    exceed the >5 cutoff) and within range, so no reference conflict. Requires condition True in
+    both consecutive balances; inclusive bounds confirmed against source lines 581-632.
+
+- rule_id: RULE-SEDACAO-002
+  reference:
+    citation: >
+      Numeric/Visual Analog pain bands (7-10 severe) per SCCM PADIS 2018 pain-assessment standard;
+      BPS total range 3-12 (Payen 2001), top of range = maximal observed pain.
+    url: https://www.weguide.health/instruments/behavioral-pain-scale-bps
+  checks:
+    equation: ok
+    coefficients: "VISUAL 7-10 matches standard NRS severe band; BPS 10-12 is institutional top sub-band within valid 3-12 range"
+    units: ok
+    ranges: "ok - 10-12 is the upper third of BPS 3-12; 7-10 upper third of NRS 0-10"
+    rounding: n/a
+    cutoffs: "VISUAL 7-10 matches reference severe band; BPS 10-12 institutional but consistent"
+  test_vectors:
+    - {inputs: {escala_dor: VISUAL, ponto_dor: 7, both_balances: true}, expected_reference: "severe (lower bound) -> True", actual_legacy: "7<=7<=10 True -> True", match: true}
+    - {inputs: {escala_dor: VISUAL, ponto_dor: 10, both_balances: true}, expected_reference: "severe (max) -> True", actual_legacy: "True", match: true}
+    - {inputs: {escala_dor: COMPORTAMENTAL, ponto_dor: 12, both_balances: true}, expected_reference: "BPS max = severe -> True", actual_legacy: "10<=12<=12 True -> True", match: true}
+    - {inputs: {escala_dor: COMPORTAMENTAL, ponto_dor: 9, both_balances: true}, expected_reference: "belongs to moderate band (crit_7), not severe", actual_legacy: "9 not in 10-12 -> False", match: true}
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    VISUAL 7-10 matches the published NRS severe band exactly and abuts crit_7's 4-6 cleanly (6|7
+    boundary, no overlap - the edge_cases note wording is imprecise but the intervals are disjoint).
+    BPS 10-12 is an institutional top sub-band, within valid range and consistent. Both consecutive
+    balances required. Verified against source lines 634-685.
+
+- rule_id: RULE-SEDACAO-003
+  reference:
+    citation: >
+      Richmond Agitation-Sedation Scale (Sessler CN et al. Am J Respir Crit Care Med 2002),
+      range +4 to -5; deep sedation defined as RASS -3 to -5 (-3 moderate, -4 deep, -5 unarousable).
+    url: https://clinicaltoolslibrary.com/richmond-agitation-sedation-scale-rass/
+  checks:
+    equation: diff
+    coefficients: "intended band RASS -5..-3 matches reference deep-sedation band exactly"
+    units: ok (RASS integer)
+    ranges: "reference band -5..-3 valid; code interval -3<=x<=-5 is empty (unsatisfiable)"
+    rounding: n/a
+    cutoffs: "code bound order reversed -> criterion can never be True"
+  test_vectors:
+    - {inputs: {rass: -5, diurna_sedoanalgesia: Outros}, expected_reference: "deep sedation, justification match -> True", actual_legacy: "-3<=-5 is False -> criterion False", match: false}
+    - {inputs: {rass: -4, diurna_sedoanalgesia: "Fase aguda de choque septico"}, expected_reference: "deep sedation -> True", actual_legacy: "-3<=-4 is False -> False", match: false}
+    - {inputs: {rass: -3, diurna_sedoanalgesia: Outros}, expected_reference: "moderate/deep boundary -> True", actual_legacy: "-3<=-3 True but -3<=-5 False -> False", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Reference-confirmed: the intended band (RASS -5 to -3) is exactly the published deep-sedation
+    band. The legacy code writes `-3 <= int(rass) <= -5`, an empty interval, so criterio_9 is always
+    False for every valid RASS value. This is a confirmed reversed-bound bug. Clinical impact = none
+    because criterio_9 is UNWIRED (not called by calcular_criterios); were it wired, impact would be
+    moderate (deep-oversedation flag would never fire). Preserved verbatim per instructions; source
+    lines 687-707.
+
+- rule_id: RULE-SEDACAO-004
+  reference:
+    citation: >
+      Spontaneous breathing / ventilator-weaning readiness screen concepts per SCCM/ATS liberation
+      guidance: adequate oxygenation P/F>200-250, FiO2 <=0.4-0.5 (i.e. <50%), PEEP <=5-10 cmH2O,
+      arousable patient (RASS >= -2/awake), plus tachypnea threshold RR>22 (qSOFA/clinical).
+      FiO2 is a percent (0-100) or fraction (0-1); respiratory rate physiologic range ~8-40 ipm.
+    url: https://www.atsjournals.org/doi/10.1164/rccm.201612-2427ST
+  checks:
+    equation: diff
+    coefficients: "3 code-vs-intent divergences confirmed"
+    units: "UNIT ERROR - FiO2 compared with >250 though FiO2 is percent(0-100)/fraction(0-1); no FiO2 value can exceed 250"
+    ranges: "fr>250 impossible (physiologic RR ~8-40 ipm); intended FR>22"
+    rounding: n/a
+    cutoffs: "fio2>250 vs intended <50%; fr>250 vs intended >22; any([qt_vol_dex,qt_vol_mor]) checks PRESENCE vs intended ABSENCE"
+  test_vectors:
+    - {inputs: {rass: 1, diurna_ventilacao: PSV, pins: 10, peep: 8, pf: 300, fio2: 40, fr: 24, dex: 0, mor: 0}, expected_reference: "weaning-ready -> True", actual_legacy: "fio2>250 (40>250 False) -> all() False; also bare pins/peep/pf/fio2 read as 0", match: false}
+    - {inputs: {rass: 1, diurna_ventilacao: PSV, pins: 10, peep: 8, pf: 300, fio2: 30, fr: 300, dex: 0, mor: 0}, expected_reference: "FR 300 non-physiologic -> invalid input; true FR>22 would qualify", actual_legacy: "only a FR of 300 could pass fr>250, and fio2>250 still fails -> False", match: false}
+    - {inputs: {rass: 1, diurna_ventilacao: PSV, pins: 10, peep: 8, pf: 300, fio2: 40, fr: 24, dex: 5, mor: 0}, expected_reference: "dexmedetomidine present -> NOT weaning-ready -> False", actual_legacy: "any([dex,mor]) True (rewards presence), but fio2>250 clause fails -> False", match: false}
+  verdict: DISCREPANCY
+  clinical_impact: none
+  notes: >
+    Multiple confirmed divergences, including the exact unit-mismatch class this audit targets:
+    (1) `get_number(evolucao.fio2) > 250` - FiO2 is a percent/fraction, threshold physiologically
+    impossible, intent is FiO2<50%; (2) `get_number(ultimo_balanco.fr) > 250` vs intended FR>22
+    ipm; (3) `any([qt_vol_dex, qt_vol_mor])` tests PRESENCE of dexmedetomidine/morphine though the
+    docstring intent is ABSENCE. Additionally reads bare fields pins/peep/pf/fio2 while the real
+    model fields are diurna_pins/diurna_peep/diurna_pf/diurna_fio2, so getattr defaults them to 0.
+    Net effect: criterio_12 can essentially never be True. Clinical impact = none because criterio_12
+    is UNWIRED; were it wired, impact would be high (weaning-readiness alert would never fire, and
+    the sedative-presence logic is inverted). Preserved verbatim; source lines 787-818.
+
+- rule_id: RULE-SEDACAO-005
+  reference:
+    citation: >
+      No published clinical anchor exists for continuous-sedative infusion thresholds expressed in
+      ml/h. Guideline dosing (SCCM PADIS 2018; product labels) is weight-based: propofol mcg/kg/min,
+      midazolam mg/kg/h, fentanil mcg/kg/h, dexmedetomidine mcg/kg/h, ketamine mg/kg/h. Converting a
+      ml/h volume threshold to a dose requires the institution's specific drug concentration, which
+      is an internal/pharmacy standard, not a published value.
+    url: https://www.sccm.org/clinical-resources/guidelines/guidelines/2018-pain-agitation-delirium
+  checks:
+    equation: n/a
+    coefficients: "thresholds mid>=15, pro>=20, fen>=15, cet>=15, dex>=15 are ml/h volume rates - institutional, not weight-normalized"
+    units: "UNVERIFIABLE - ml/h cannot be mapped to published mcg/kg/min or mg/kg/h anchors without the institution's concentration and patient weight"
+    ranges: n/a
+    rounding: n/a
+    cutoffs: ">= thresholds (REFATORADO); prior ANTERIOR set mid>10/pro>16/fen>15/cet>10/precedex>14 documented in code"
+  test_vectors:
+    - {inputs: {qt_vol_mid: 15}, expected_reference: "no published ml/h anchor to compare", actual_legacy: "qt_vol_mid>=15 -> non-empty queryset -> criterio_1 True (VERMELHO)", match: "n/a"}
+    - {inputs: {qt_vol_pro: 18}, expected_reference: "no published anchor", actual_legacy: "18>=20 False -> that filter empty; criterio_1 driven by other drugs only", match: "n/a"}
+    - {inputs: {qt_vol_dex: 20}, expected_reference: "no published anchor", actual_legacy: "qt_vol_dex>=20>=15 -> True; set_sedativo_em_uso labels Precedex", match: "n/a"}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    Flag for internal review, NOT wrong. The criterion compares volumetric infusion rates (ml/h)
+    against fixed cutoffs; without the institution's standardized drug concentrations these cannot
+    be reconciled with any published weight-based dosing guideline (mcg/kg/min etc). This is an
+    internal pharmacy/protocol business rule. Logic itself is coherent: any() over non-empty
+    QuerySets, >= thresholds (REFATORADO), and it wires set_sedativo_em_uso (RULE-SEDACAO-013) to
+    label the active drug. Wired VERMELHO criterion. Source lines 262-291 verified.

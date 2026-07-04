@@ -1,0 +1,57 @@
+- rule_id: RULE-AUTH-USUARIOS-001
+  reference:
+    citation: "No authoritative published/clinical reference exists. Proprietary internal RBAC rule (Django Permission catalog -> codename->bool payload construction in GrupoAcessoSerializer.get_permissoes). Not a clinical calculation, guideline, or standard calculator."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: "n/a (no numeric coefficients; dict-construction logic only)"
+    units: "n/a (no physical units; codename strings and booleans)"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a (no score bands)"
+  test_vectors:
+    - inputs: {system_catalog: [can_manage_usuario, can_view_ocupacoes], group_permissions: [can_manage_usuario]}
+      expected_reference: "n/a (no external reference); source-faithful expectation: {can_manage_usuario: true, can_view_ocupacoes: false}"
+      actual_legacy: "{can_manage_usuario: true, can_view_ocupacoes: false} — payload seeded all-False then can_manage_usuario flipped True"
+      match: true
+    - inputs: {system_catalog: [can_manage_usuario, can_view_ocupacoes], group_permissions: []}
+      expected_reference: "n/a; source-faithful: {can_manage_usuario: false, can_view_ocupacoes: false}"
+      actual_legacy: "{can_manage_usuario: false, can_view_ocupacoes: false} — all defaults retained"
+      match: true
+    - inputs: {system_catalog: [can_manage_usuario], group_permissions: [can_manage_usuario, add_logentry]}
+      expected_reference: "n/a; source-faithful edge case: {can_manage_usuario: true} — add_logentry silently omitted (not in system catalog)"
+      actual_legacy: "{can_manage_usuario: true}; add_logentry produces NO key because 'if perm.codename in all_codename_permissions' fails at source line 101"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Catalog logic verified byte-faithful against legacy source core/api/v1/serializers/grupo_acesso.py lines 95-103 (commit 8166c07). Behavior: payload = {codename: False for every system codename}; iterate the Django group's permissions; flip to True only when perm.codename is in the recognized system catalog (PermissionsChoices.permissions()). Group perms outside the catalog are silently dropped (documented edge case, confirmed at source line 101). No authoritative published reference exists for an internal Django RBAC payload builder; flagged for internal review, NOT treated as wrong. Extraction status was OK; nothing contradicts the source.
+
+- rule_id: RULE-AUTH-USUARIOS-002
+  reference:
+    citation: "No authoritative published/clinical reference exists. Proprietary internal multi-tenant RBAC rule (empresa-scoped cargo/roles lookup in UsuarioSerializer.get_cargos). Not a clinical calculation, guideline, or standard calculator."
+    url: "n/a"
+  checks:
+    equation: n/a
+    coefficients: "n/a"
+    units: "n/a (returns list of cargo strings or null)"
+    ranges: "n/a"
+    rounding: "n/a"
+    cutoffs: "n/a"
+  test_vectors:
+    - inputs: {request: null_or_no_empresa}
+      expected_reference: "n/a; source-faithful: None (bare return)"
+      actual_legacy: "None — else branch 'return' yields None (source lines 45-46)"
+      match: true
+    - inputs: {request.empresa: E1, user_groups_in_E1: [Enfermeiro, Auditor]}
+      expected_reference: "n/a; source-faithful: ['Enfermeiro','Auditor'] (cargo values_list)"
+      actual_legacy: "queryset of cargo values ['Enfermeiro','Auditor'] — truthy queryset returned as-is"
+      match: true
+    - inputs: {request.empresa: E1, user_groups_in_E1: []}
+      expected_reference: "n/a; source-faithful: [] (empty list, NOT None)"
+      actual_legacy: "[] — 'return grupos if grupos else []' yields [] for empty/falsy queryset (source line 44)"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: |
+    Catalog logic verified byte-faithful against legacy source core/api/v1/serializers/usuario.py lines 32-46 (commit 8166c07). Key semantic distinction confirmed: 'no empresa in request context' returns None (bare `return`), while 'empresa present but user has no groups' returns [] — two distinct null-ish sentinels. Uses objects_without_deleted manager (soft-delete-aware) filtering on usuarios=instance AND empresa=request.empresa. No authoritative published reference exists for an internal empresa-scoped role lookup; flagged for internal review, NOT treated as wrong. Extraction status was OK; nothing contradicts the source.

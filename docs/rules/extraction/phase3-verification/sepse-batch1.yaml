@@ -1,0 +1,163 @@
+- rule_id: RULE-SEPSE-001
+  reference:
+    citation: >-
+      No published reference defines the specific "N maiores AND M menores" aggregation. Closest
+      external standards for the underlying screening concept: Bone RC et al. ACCP/SCCM Consensus
+      (SIRS, "any >=2 of 4" pooled criteria), Chest 1992; Singer M et al. The Third International
+      Consensus Definitions for Sepsis and Septic Shock (Sepsis-3), JAMA 2016;315(8):801-810 (qSOFA
+      "any >=2 of 3"); ILAS (Instituto Latino Americano de Sepse) screening protocol 2018.
+    url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+  checks:
+    equation: n/a   # pure boolean-count aggregation, no numeric equation
+    coefficients: n/a
+    units: n/a      # inputs are pre-computed boolean flags
+    ranges: ok      # maiores 0-9, menores 0-11 consistent with 9 major / 11 minor criteria fields
+    rounding: n/a
+    cutoffs: >-
+      diff-vs-external: proprietary. Published sepsis screening (SIRS/qSOFA) pools criteria and
+      fires on "any >=2"; there is no authoritative source for a dual-axis (both groups must clear)
+      threshold, nor for the specific values maiores>=3 & menores>=4 / >=2 & >=3.
+  test_vectors:
+    - {inputs: {maiores: 3, menores: 4}, expected_reference: "n/a (no external aggregation reference)", actual_legacy: VERMELHO, match: "n/a - matches rule logic"}
+    - {inputs: {maiores: 2, menores: 3}, expected_reference: "n/a", actual_legacy: AMARELO, match: "n/a - matches rule logic"}
+    - {inputs: {maiores: 5, menores: 0}, expected_reference: "SIRS/qSOFA would flag (>=5 pooled criteria); dual-AND logic does not", actual_legacy: NEUTRO, match: "n/a - proprietary divergence documented"}
+    - {inputs: {maiores: 2, menores: 4}, expected_reference: "n/a", actual_legacy: AMARELO, match: "n/a - >=3 majors needed for VERMELHO even with 4 minors"}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Internal business rule. count(1) counts int 1 (Python True==1 also counts). Logic hand-traced against
+    legacy trilha4.py:139-174 and matches the catalog pseudocode exactly. The dual-axis AND aggregation is
+    an institutional design choice with no published validation; flag for internal clinical review. Boundary
+    {5,0}->NEUTRO: a patient meeting 5 of 9 major criteria but no minor criterion is not alerted, which is
+    more conservative (lower sensitivity) than pooled SIRS/qSOFA screening. Structurally identical to
+    RULE-SEPSE-004 (manual pathway); diverges from RULE-SEPSE-002 (v3) which uses OR.
+
+- rule_id: RULE-SEPSE-002
+  reference:
+    citation: >-
+      No external reference for the aggregation. The flagged discrepancy is INTERNAL (v3 vs v1). External
+      screening context: Singer M et al. Sepsis-3, JAMA 2016;315(8):801-810; Evans L et al. Surviving
+      Sepsis Campaign: International Guidelines 2021, Crit Care Med 2021;49(11):e1063-e1143.
+    url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: ok      # maiores 0-11, menores 0-9 (criterio_11 moved into major group vs v1)
+    rounding: n/a
+    cutoffs: >-
+      diff-INTERNAL: v3 uses OR (maiores>=3 OR menores>=4 -> VERMELHO; >=2 OR >=3 -> AMARELO) whereas
+      v1/manual (RULE-SEPSE-001/004) use AND, and v3 regroups criterio_11 from minor to major (11 major /
+      9 minor). Confirmed by hand-trace of trilha_sepse.py:187-231.
+  test_vectors:
+    - {inputs: {maiores: 3, menores: 0}, expected_reference: "v1/manual (AND) -> NEUTRO", actual_legacy: "VERMELHO (mensagem: 'Alto risco para SEPSE.')", match: false}
+    - {inputs: {maiores: 0, menores: 4}, expected_reference: "v1/manual (AND) -> NEUTRO", actual_legacy: "VERMELHO", match: false}
+    - {inputs: {maiores: 2, menores: 0}, expected_reference: "v1/manual (AND) -> NEUTRO", actual_legacy: "AMARELO (mensagem: 'Moderado risco para SEPSE.')", match: false}
+    - {inputs: {maiores: 1, menores: 1}, expected_reference: "NEUTRO (both approaches)", actual_legacy: "NEUTRO", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >-
+    CONFIRMED (internal cross-version discrepancy, extraction flag upheld). The aggregation math has no
+    authoritative external reference, so it is not "wrong" against published literature; however the v3
+    OR-logic materially diverges from the v1/manual AND-logic for the SAME nominal sepsis screen. Effect:
+    OR-logic fires on either axis alone, so v3 flags substantially MORE patients than v1 (higher sensitivity,
+    lower specificity). This is the safer direction for sepsis (a missed sepsis is high-harm), and OR/pooled
+    logic is actually closer to SIRS/qSOFA "any-N" screening than v1's dual-AND. Impact moderate because the
+    two shipped pathways classify the identical patient differently. save(): when alerta=='NEUTRO' the
+    record sets assistido=False.
+
+- rule_id: RULE-SEPSE-003
+  reference:
+    citation: >-
+      No external reference for the aggregation; the flagged discrepancy is an INTERNAL dead-branch logic
+      bug, verifiable by code inspection. External screening context: ILAS screening protocol 2018;
+      Singer M et al. Sepsis-3, JAMA 2016;315(8):801-810.
+    url: https://ilas.org.br/wp-content/uploads/2022/02/protocolo-de-tratamento.pdf
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: >-
+      diff: minor group declared as 4 fields (criterio_8..11) but criterio_11 is hard-coded False
+      (RULE-SEPSE-037), so menores effectively ranges 0-3, never 4.
+    rounding: n/a
+    cutoffs: >-
+      diff-INTERNAL: uses strict maiores>2 / ==2 and menores==4 / ==3 bands (equality, not >=) unlike the
+      >= bands in RULE-SEPSE-001/004. The 'menores==4' -> VERMELHO branch is UNREACHABLE because the minor
+      pool maxes at 3. Confirmed by hand-trace of trilha_homecare/models/sepse.py:350-383.
+  test_vectors:
+    - {inputs: {maiores: 3, menores: 0}, expected_reference: "high-risk (>2 majors)", actual_legacy: "VERMELHO (via maiores>2)", match: true}
+    - {inputs: {maiores: 2, menores: 0}, expected_reference: "risk (==2 majors)", actual_legacy: "AMARELO", match: true}
+    - {inputs: {maiores: 0, menores: 4}, expected_reference: "menores==4 branch intends VERMELHO", actual_legacy: "unreachable - criterio_11 hard-coded False caps minors at 3, so max menores==3 -> AMARELO; minor-driven VERMELHO never fires", match: false}
+    - {inputs: {maiores: 0, menores: 3}, expected_reference: "risk", actual_legacy: "AMARELO", match: true}
+  verdict: DISCREPANCY
+  clinical_impact: low
+  notes: >-
+    CONFIRMED (internal dead-branch bug, extraction flag upheld). VERMELHO is reachable ONLY via maiores>2;
+    the minor-only high-risk path is dead code because criterio_11 is hard-coded False. Impact low: no
+    achievable patient state is misclassified relative to the reachable logic (a genuine 4-of-4 minor state
+    is impossible to represent), so the bug is latent rather than actively harming triage - but it signals an
+    incomplete criterio_11 and an intent (minor-driven VERMELHO) that never executes. A superseded soma-based
+    classifier (0-7/8-14/15-21 bands) exists commented-out at lines 394-419 and is NOT active. alerta is
+    recomputed and persisted on every save().
+
+- rule_id: RULE-SEPSE-004
+  reference:
+    citation: >-
+      No published reference defines the "N maiores AND M menores" aggregation. External context: Bone RC
+      et al. ACCP/SCCM (SIRS), Chest 1992; Singer M et al. Sepsis-3, JAMA 2016;315(8):801-810; ILAS
+      screening protocol 2018.
+    url: https://pubmed.ncbi.nlm.nih.gov/26903338/
+  checks:
+    equation: n/a
+    coefficients: n/a
+    units: n/a
+    ranges: ok      # maiores 0-9 (C1..C9), menores 0-11 (C10..C20)
+    rounding: n/a
+    cutoffs: >-
+      diff-vs-external: proprietary dual-axis AND thresholds (maiores>=3 & menores>=4 -> VERMELHO;
+      >=2 & >=3 -> AMARELO). Identical structure to v1 RULE-SEPSE-001. No authoritative source.
+  test_vectors:
+    - {inputs: {maiores: 3, menores: 4}, expected_reference: "n/a (legacy test test_trilha_sepse.py:337-360 expects VERMELHO)", actual_legacy: VERMELHO, match: "n/a - matches rule logic and legacy test"}
+    - {inputs: {maiores: 2, menores: 3}, expected_reference: "n/a (legacy test expects AMARELO)", actual_legacy: AMARELO, match: "n/a - matches rule logic and legacy test"}
+    - {inputs: {maiores: 5, menores: 0}, expected_reference: "SIRS/qSOFA would flag; dual-AND does not", actual_legacy: NEUTRO, match: "n/a - proprietary divergence documented"}
+    - {inputs: {maiores: 2, menores: 2}, expected_reference: "n/a", actual_legacy: NEUTRO, match: "n/a - needs menores>=3 for AMARELO"}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Internal business rule; aggregation identical to v1 (RULE-SEPSE-001). Hand-traced against
+    trilha_manual/models/trilha_sepse.py:526-561; matches the catalog pseudocode and the shipped unit test
+    (2 major+3 minor->AMARELO; 3 major+4 minor->VERMELHO). count(True) counts booleans. Flag for internal
+    clinical review to reconcile the AND-vs-OR divergence with the v3 pathway (RULE-SEPSE-002).
+
+- rule_id: RULE-SEPSE-005
+  reference:
+    citation: >-
+      No published ordinal scale matches this exact 6-level consciousness map. Closest external referents:
+      AVPU scale (Alert/Verbal/Pain/Unresponsive) and the Glasgow Coma Scale (Teasdale & Jennett, Lancet
+      1974;2(7872):81-84). This is a custom institutional severity ordering, not a validated scale.
+    url: https://pubmed.ncbi.nlm.nih.gov/4136544/
+  checks:
+    equation: n/a   # dictionary lookup, not an equation
+    coefficients: >-
+      ordinal ranks acordado=1 < sonolencia=2 < agitacao=3 = convulsao=3 < reage_verbal=4 <
+      reage_tatil=5 < coma=6. Monotonic and internally consistent (increasing severity); agitacao and
+      convulsao intentionally tie at 3.
+    units: n/a
+    ranges: ok      # rank in 1..6; unmapped keys -> None via dict.get()
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - {inputs: {nv_consciencia: acordado}, expected_reference: "lowest severity (AVPU 'Alert')", actual_legacy: 1, match: "n/a - ordinally consistent"}
+    - {inputs: {nv_consciencia: coma}, expected_reference: "highest severity (AVPU 'Unresponsive')", actual_legacy: 6, match: "n/a - ordinally consistent"}
+    - {inputs: {nv_consciencia: agitacao}, expected_reference: "n/a", actual_legacy: 3, match: "n/a - tied with convulsao"}
+    - {inputs: {nv_consciencia: convulsao}, expected_reference: "n/a", actual_legacy: 3, match: "n/a - tied with agitacao"}
+    - {inputs: {nv_consciencia: xyz_unmapped}, expected_reference: "n/a", actual_legacy: None, match: "n/a - .get() returns None for unknown key"}
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >-
+    Internal ordinal mapping used only to detect direction of change between successive consciousness
+    readings (consumed by RULE-SEPSE-033). Hand-traced against trilha_homecare/models/sepse.py:229-239;
+    matches the catalog exactly. Not a published/validated scale, so UNVERIFIABLE; the ordering is monotonic
+    and clinically plausible (wakefulness lowest, coma highest). The agitacao/convulsao tie at 3 means a
+    transition between those two states registers no rank change - flag for internal review if unintended.

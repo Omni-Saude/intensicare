@@ -10,9 +10,8 @@ Cobre:
 
 from __future__ import annotations
 
-import pytest
 from httpx import AsyncClient
-
+import pytest
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -36,6 +35,7 @@ VALID_VITALS_PAYLOAD = {
 # ═══════════════════════════════════════════════════════════════════════════
 # POST /api/v1/vitals — criação básica
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_create_vitals_normal(client: AsyncClient):
@@ -96,7 +96,8 @@ async def test_create_vitals_septic_patient(client: AsyncClient):
     assert response.status_code == 201
     data = response.json()
     assert data["mews_score"] == 8  # 2+1+2+2+1
-    # NEWS2: rr=28(3) + spo2=92(2) + o2=True(2) + sbp=95(2) + hr=115(2) + avpu=V(3) + temp=38.9(1) = 15
+    # NEWS2: rr=28(3) + spo2=92(2) + o2=True(2) + sbp=95(2)
+    #        + hr=115(2) + avpu=V(3) + temp=38.9(1) = 15
     assert data["news2_score"] == 15
     assert data["news2_risk_category"] == "high"
 
@@ -117,7 +118,8 @@ async def test_create_vitals_critical_patient(client: AsyncClient):
     response = await client.post("/api/v1/vitals", json=payload)
     assert response.status_code == 201
     assert response.json()["mews_score"] == 15
-    # NEWS2: rr=6(3) + spo2=None(0) + o2=None(0) + sbp=65(3) + hr=35(3) + avpu=U(3) + temp=34.0(3) = 15
+    # NEWS2: rr=6(3) + spo2=None(0) + o2=None(0) + sbp=65(3)
+    #        + hr=35(3) + avpu=U(3) + temp=34.0(3) = 15
     assert response.json()["news2_score"] == 15
     assert response.json()["news2_risk_category"] == "high"
 
@@ -125,6 +127,7 @@ async def test_create_vitals_critical_patient(client: AsyncClient):
 # ═══════════════════════════════════════════════════════════════════════════
 # Idempotência
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_idempotency_duplicate_request(client: AsyncClient):
@@ -196,6 +199,7 @@ async def test_idempotency_without_key(client: AsyncClient):
 # Validação
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_validation_missing_required_fields(client: AsyncClient):
     """Campos obrigatórios (mpi_id, recorded_at) devem ser validados."""
@@ -250,6 +254,7 @@ async def test_validation_negative_values(client: AsyncClient):
 # GET /api/v1/patients/{mpi_id}/status
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_patient_status_no_data(client: AsyncClient):
     """Status de paciente sem dados deve retornar 200 com campos nulos."""
@@ -302,7 +307,7 @@ async def test_patient_status_trend_multiple_scores(client: AsyncClient):
     scores = []
     for i in range(7):
         hr = 80 + i * 5  # 80, 85, 90, 95, 100, 105, 110
-        rr = 16 + i      # 16, 17, 18, 19, 20, 21, 22
+        rr = 16 + i  # 16, 17, 18, 19, 20, 21, 22
         payload = {
             "mpi_id": mpi_id,
             "recorded_at": f"2026-06-26T{10 + i}:00:00Z",
@@ -328,8 +333,10 @@ async def test_patient_status_trend_multiple_scores(client: AsyncClient):
     # Tendência deve ser increasing se o último score > primeiro dos 5
     if len(trend_values) >= 2:
         expected_trend = (
-            "increasing" if trend_values[-1] > trend_values[0]
-            else "decreasing" if trend_values[-1] < trend_values[0]
+            "increasing"
+            if trend_values[-1] > trend_values[0]
+            else "decreasing"
+            if trend_values[-1] < trend_values[0]
             else "stable"
         )
         assert data["trend"]["current_trend"] == expected_trend
@@ -383,6 +390,7 @@ async def test_patient_status_trend_improving(client: AsyncClient):
 # NEWS2 Dual Scoring — integration tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_news2_normal_vitals_low_risk(client: AsyncClient):
     """NEWS2 com todos os parâmetros normais deve retornar score 0 e risk low."""
@@ -399,13 +407,13 @@ async def test_news2_medium_risk(client: AsyncClient):
     payload = {
         "mpi_id": "MPI-NEWS2-MEDIUM",
         "recorded_at": "2026-06-26T10:00:00Z",
-        "heart_rate": 115,       # NEWS2: 111-130 = 2
-        "systolic_bp": 100,      # NEWS2: 91-100 = 2
+        "heart_rate": 115,  # NEWS2: 111-130 = 2
+        "systolic_bp": 100,  # NEWS2: 91-100 = 2
         "respiratory_rate": 10,  # NEWS2: 9-11 = 1
-        "temperature": 37.0,     # NEWS2: 0
-        "spo2": 96,              # NEWS2: ≥96 = 0
-        "avpu": "A",             # NEWS2: 0
-        "supplemental_o2": False, # NEWS2: 0
+        "temperature": 37.0,  # NEWS2: 0
+        "spo2": 96,  # NEWS2: ≥96 = 0
+        "avpu": "A",  # NEWS2: 0
+        "supplemental_o2": False,  # NEWS2: 0
     }
     # Total = 2+2+1+0+0+0+0 = 5 → medium
     response = await client.post("/api/v1/vitals", json=payload)
@@ -421,13 +429,13 @@ async def test_news2_high_risk(client: AsyncClient):
     payload = {
         "mpi_id": "MPI-NEWS2-HIGH",
         "recorded_at": "2026-06-26T10:00:00Z",
-        "heart_rate": 135,       # NEWS2: ≥131 = 3
-        "systolic_bp": 85,       # NEWS2: ≤90 = 3
+        "heart_rate": 135,  # NEWS2: ≥131 = 3
+        "systolic_bp": 85,  # NEWS2: ≤90 = 3
         "respiratory_rate": 30,  # NEWS2: ≥25 = 3
-        "temperature": 34.0,     # NEWS2: ≤35.0 = 3
-        "spo2": 85,              # NEWS2: ≤91 = 3
-        "avpu": "U",             # NEWS2: 3
-        "supplemental_o2": True, # NEWS2: 2
+        "temperature": 34.0,  # NEWS2: ≤35.0 = 3
+        "spo2": 85,  # NEWS2: ≤91 = 3
+        "avpu": "U",  # NEWS2: 3
+        "supplemental_o2": True,  # NEWS2: 2
     }
     # Total = 3+3+3+3+3+3+2 = 20 → high
     response = await client.post("/api/v1/vitals", json=payload)
@@ -453,7 +461,8 @@ async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient):
         "supplemental_o2": False,
     }
     resp1 = await client.post(
-        "/api/v1/vitals", json=payload_no_o2,
+        "/api/v1/vitals",
+        json=payload_no_o2,
         headers={"X-Idempotency-Key": "o2-test-1"},
     )
     assert resp1.json()["news2_score"] == 0
@@ -461,7 +470,8 @@ async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient):
     # Com O2 — deve ser 2 maior
     payload_o2 = {**payload_no_o2, "supplemental_o2": True}
     resp2 = await client.post(
-        "/api/v1/vitals", json=payload_o2,
+        "/api/v1/vitals",
+        json=payload_o2,
         headers={"X-Idempotency-Key": "o2-test-2"},
     )
     assert resp2.json()["news2_score"] == 2
@@ -494,7 +504,7 @@ async def test_news2_avpu_scores_three_for_altered(client: AsyncClient):
     for avpu_val in ("C", "V", "P", "U"):
         payload = {
             "mpi_id": "MPI-AVPU-NEWS2",
-            "recorded_at": f"2026-06-26T10:00:00Z",
+            "recorded_at": "2026-06-26T10:00:00Z",
             "heart_rate": 75,
             "systolic_bp": 120,
             "respiratory_rate": 16,
@@ -504,7 +514,8 @@ async def test_news2_avpu_scores_three_for_altered(client: AsyncClient):
             "supplemental_o2": False,
         }
         resp = await client.post(
-            "/api/v1/vitals", json=payload,
+            "/api/v1/vitals",
+            json=payload,
             headers={"X-Idempotency-Key": f"avpu-news2-{avpu_val}"},
         )
         assert resp.json()["news2_score"] == 3, f"AVPU={avpu_val} should score 3"
@@ -536,7 +547,8 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient):
     # MEWS and NEWS2 use different algorithms, so scores differ
     # MEWS: hr=110(1) + sbp=95(1) + rr=24(2) + temp=38.5(1) + avpu=V(1) = 6
     assert data["mews_score"] == 6
-    # NEWS2: rr=24(2) + spo2=92(2) + o2=True(2) + sbp=95(2) + hr=110(1) + avpu=V(3) + temp=38.5(1) = 13
+    # NEWS2: rr=24(2) + spo2=92(2) + o2=True(2) + sbp=95(2)
+    #        + hr=110(1) + avpu=V(3) + temp=38.5(1) = 13
     assert data["news2_score"] == 13
     assert data["news2_risk_category"] == "high"
 

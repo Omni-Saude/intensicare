@@ -17,8 +17,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.config import settings
-from intensicare.fhir.client import FHIRPatientData
-from intensicare.models import ClinicalScore, VitalSign
+from intensicare.fhir.client import FHIRPatientData, get_fhir_client
+from intensicare.models.clinical_score import ClinicalScore
+from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.patients import (
     FHIREnrichment,
     PatientStatusResponse,
@@ -57,8 +58,6 @@ async def _enrich_from_fhir(mpi_id: str) -> FHIREnrichment | None:
         return None
 
     try:
-        from intensicare.fhir.client import get_fhir_client
-
         client = get_fhir_client()
         fhir_data = await client.get_patient(mpi_id)
         if fhir_data is None:
@@ -155,16 +154,8 @@ async def get_patient_status(
 
     return PatientStatusResponse(
         mpi_id=mpi_id,
-        latest_vitals=(
-            VitalSignSummary.model_validate(latest_vital)
-            if latest_vital
-            else None
-        ),
-        latest_mews=(
-            ScoreSummary.model_validate(latest_score)
-            if latest_score
-            else None
-        ),
+        latest_vitals=(VitalSignSummary.model_validate(latest_vital) if latest_vital else None),
+        latest_mews=(ScoreSummary.model_validate(latest_score) if latest_score else None),
         trend=TrendSummary(values=recent_scores, current_trend=trend),
         last_updated=last_updated,
         fhir=fhir_enrichment,

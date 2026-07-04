@@ -11,30 +11,30 @@ import pytest
 
 from intensicare.services.mews import (
     MEWS_VERSION,
+    _score_avpu,
+    _score_heart_rate,
+    _score_respiratory_rate,
+    _score_systolic_bp,
+    _score_temperature,
     calculate_mews,
     compute_trend,
-    _score_heart_rate,
-    _score_systolic_bp,
-    _score_respiratory_rate,
-    _score_temperature,
-    _score_avpu,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Heart Rate
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "value,expected",
     [
         (None, 0),
-        (30, 3),   # bradicardia severa
-        (40, 3),   # limite bradicardia severa
-        (41, 2),   # bradicardia moderada
-        (50, 2),   # limite bradicardia moderada
-        (51, 0),   # normal
-        (75, 0),   # normal
+        (30, 3),  # bradicardia severa
+        (40, 3),  # limite bradicardia severa
+        (41, 2),  # bradicardia moderada
+        (50, 2),  # limite bradicardia moderada
+        (51, 0),  # normal
+        (75, 0),  # normal
         (100, 0),  # normal (limite)
         (101, 1),  # taquicardia leve
         (110, 1),  # taquicardia leve (limite)
@@ -56,15 +56,16 @@ def test_score_heart_rate(value, expected):
 # Systolic BP
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "value,expected",
     [
         (None, 0),
-        (60, 3),   # hipotensão severa
-        (70, 3),   # limite hipotensão severa
-        (71, 2),   # hipotensão moderada
-        (80, 2),   # limite hipotensão moderada
-        (81, 1),   # hipotensão leve
+        (60, 3),  # hipotensão severa
+        (70, 3),  # limite hipotensão severa
+        (71, 2),  # hipotensão moderada
+        (80, 2),  # limite hipotensão moderada
+        (81, 1),  # hipotensão leve
         (100, 1),  # hipotensão leve (limite)
         (101, 0),  # normal
         (140, 0),  # normal
@@ -83,20 +84,21 @@ def test_score_systolic_bp(value, expected):
 # Respiratory Rate
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "value,expected",
     [
         (None, 0),
-        (5, 3),    # bradipneia severa
-        (8, 3),    # limite bradipneia severa
-        (9, 0),    # normal
-        (14, 0),   # normal (limite)
-        (15, 1),   # taquipneia leve
-        (20, 1),   # taquipneia leve (limite)
-        (21, 2),   # taquipneia moderada
-        (29, 2),   # taquipneia moderada (limite)
-        (30, 3),   # taquipneia severa
-        (40, 3),   # taquipneia severa
+        (5, 3),  # bradipneia severa
+        (8, 3),  # limite bradipneia severa
+        (9, 0),  # normal
+        (14, 0),  # normal (limite)
+        (15, 1),  # taquipneia leve
+        (20, 1),  # taquipneia leve (limite)
+        (21, 2),  # taquipneia moderada
+        (29, 2),  # taquipneia moderada (limite)
+        (30, 3),  # taquipneia severa
+        (40, 3),  # taquipneia severa
     ],
 )
 def test_score_respiratory_rate(value, expected):
@@ -109,21 +111,22 @@ def test_score_respiratory_rate(value, expected):
 # Temperature
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "value,expected",
     [
         (None, 0),
-        (33.0, 3),   # hipotermia
-        (35.0, 3),   # limite hipotermia
-        (35.1, 1),   # temperatura baixa
-        (36.0, 1),   # temperatura baixa (limite)
-        (36.1, 0),   # normal
-        (37.0, 0),   # normal
-        (38.0, 0),   # normal (limite)
-        (38.1, 1),   # febre leve
-        (38.5, 1),   # febre leve (limite)
-        (38.6, 2),   # febre
-        (40.0, 2),   # febre
+        (33.0, 3),  # hipotermia
+        (35.0, 3),  # limite hipotermia
+        (35.1, 1),  # temperatura baixa
+        (36.0, 1),  # temperatura baixa (limite)
+        (36.1, 0),  # normal
+        (37.0, 0),  # normal
+        (38.0, 0),  # normal (limite)
+        (38.1, 1),  # febre leve
+        (38.5, 1),  # febre leve (limite)
+        (38.6, 2),  # febre
+        (40.0, 2),  # febre
     ],
 )
 def test_score_temperature(value, expected):
@@ -136,12 +139,13 @@ def test_score_temperature(value, expected):
 # AVPU
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "value,expected",
     [
         (None, 0),
         ("A", 0),
-        ("a", 0),   # case insensitive
+        ("a", 0),  # case insensitive
         ("V", 1),
         ("v", 1),
         ("P", 2),
@@ -149,7 +153,7 @@ def test_score_temperature(value, expected):
         ("U", 3),
         ("u", 3),
         ("Alert", 0),  # unknown maps to 0
-        ("", 0),        # empty maps to 0
+        ("", 0),  # empty maps to 0
     ],
 )
 def test_score_avpu(value, expected):
@@ -161,6 +165,7 @@ def test_score_avpu(value, expected):
 # ═══════════════════════════════════════════════════════════════════════════
 # calculate_mews — integração
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_calculate_mews_normal_vitals():
     """Paciente com todos os sinais normais deve ter MEWS = 0."""
@@ -183,11 +188,11 @@ def test_calculate_mews_normal_vitals():
 def test_calculate_mews_septic_patient():
     """Paciente séptico típico: taquicardia, taquipneia, febre, alterado."""
     score, components = calculate_mews(
-        heart_rate=115,        # 2 pts (111-129)
-        systolic_bp=95,        # 1 pt (81-100)
-        respiratory_rate=28,   # 2 pts (21-29)
-        temperature=38.9,      # 2 pts (≥38.6)
-        avpu="V",              # 1 pt
+        heart_rate=115,  # 2 pts (111-129)
+        systolic_bp=95,  # 1 pt (81-100)
+        respiratory_rate=28,  # 2 pts (21-29)
+        temperature=38.9,  # 2 pts (≥38.6)
+        avpu="V",  # 1 pt
     )
     assert score == 8  # 2 + 1 + 2 + 2 + 1
     assert components["heart_rate"] == 2
@@ -199,12 +204,12 @@ def test_calculate_mews_septic_patient():
 
 def test_calculate_mews_critical_patient():
     """Paciente crítico: todos os scores no máximo."""
-    score, components = calculate_mews(
-        heart_rate=35,         # 3 pts (≤40)
-        systolic_bp=65,        # 3 pts (≤70)
-        respiratory_rate=6,    # 3 pts (≤8)
-        temperature=34.0,      # 3 pts (≤35.0)
-        avpu="U",              # 3 pts
+    score, _ = calculate_mews(
+        heart_rate=35,  # 3 pts (≤40)
+        systolic_bp=65,  # 3 pts (≤70)
+        respiratory_rate=6,  # 3 pts (≤8)
+        temperature=34.0,  # 3 pts (≤35.0)
+        avpu="U",  # 3 pts
     )
     assert score == 15  # máximo teórico
 
@@ -241,34 +246,34 @@ def test_calculate_mews_boundary_values():
     """Testa valores nos limites exatos das faixas."""
     # Todos nos limites da faixa normal máxima
     score, _ = calculate_mews(
-        heart_rate=100,       # normal limite
-        systolic_bp=199,      # normal limite
+        heart_rate=100,  # normal limite
+        systolic_bp=199,  # normal limite
         respiratory_rate=14,  # normal limite
-        temperature=38.0,     # normal limite
+        temperature=38.0,  # normal limite
         avpu="A",
     )
     assert score == 0
 
     # Todos nos limites da faixa mínima anormal
     score2, _ = calculate_mews(
-        heart_rate=101,       # taquicardia leve
-        systolic_bp=200,      # hipertensão severa
+        heart_rate=101,  # taquicardia leve
+        systolic_bp=200,  # hipertensão severa
         respiratory_rate=15,  # taquipneia leve
-        temperature=38.1,     # febre leve
-        avpu="V",             # voz
+        temperature=38.1,  # febre leve
+        avpu="V",  # voz
     )
     assert score2 == 1 + 2 + 1 + 1 + 1
 
 
 def test_calculate_mews_is_deterministic():
     """Mesmos inputs devem sempre produzir mesmos outputs."""
-    args = dict(
-        heart_rate=90,
-        systolic_bp=110,
-        respiratory_rate=18,
-        temperature=37.5,
-        avpu="A",
-    )
+    args = {
+        "heart_rate": 90,
+        "systolic_bp": 110,
+        "respiratory_rate": 18,
+        "temperature": 37.5,
+        "avpu": "A",
+    }
     score1, comp1 = calculate_mews(**args)
     score2, comp2 = calculate_mews(**args)
     assert score1 == score2
@@ -286,6 +291,7 @@ def test_calculate_mews_with_floats():
 # ═══════════════════════════════════════════════════════════════════════════
 # compute_trend
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_compute_trend_increasing():
     """Scores crescentes devem retornar 'increasing'."""

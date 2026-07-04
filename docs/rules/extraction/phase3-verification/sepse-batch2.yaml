@@ -1,0 +1,183 @@
+- rule_id: RULE-SEPSE-006
+  reference:
+    citation: "Fluid balance is definitionally net = intake (ganhos) - output (perdas); 24h urine output is the sum of all urine sources. No proprietary published equation governs this internal snapshot aggregation. General reference: standard ICU fluid-balance charting (intake minus output)."
+    url: "https://www.ncbi.nlm.nih.gov/books/NBK541123/"
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: ok
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {qt_vol_espontanea: 1000, qt_vol_svd: 0, qt_vol_cistostomia: 0}
+      expected_reference: "diurese_24h = 1000 mL (sum of urine sources)"
+      actual_legacy: "diurese_24h = 1000 + 0 + 0 = 1000 mL"
+      match: true
+    - inputs: {qt_vol_ganhos: 2000, qt_vol_perdas: 1500}
+      expected_reference: "net balanco_hidrico = ganhos - perdas = +500 mL (if perdas is an unsigned volume)"
+      actual_legacy: "balanco_hidrico_24h = 2000 + 1500 = 3500 mL (ADDS, does not subtract)"
+      match: false
+    - inputs: {qt_vol_ganhos: 2000, qt_vol_perdas: -1500}
+      expected_reference: "net balanco_hidrico = +500 mL"
+      actual_legacy: "balanco_hidrico_24h = 2000 + (-1500) = 500 mL"
+      match: true
+  verdict: UNVERIFIABLE
+  clinical_impact: n/a
+  notes: >
+    diurese_24h (urine output sum) is correct and matches the standard definition. balanco_hidrico_24h
+    ADDS ganhos + perdas rather than subtracting; correctness depends entirely on the internal data
+    convention for the sign of qt_vol_perdas (if losses are stored pre-signed negative the sum equals
+    net balance; if stored as positive volumes the result is a gross total, not a net balance). This
+    is an internal aggregation with no authoritative published equation to adjudicate the sign
+    convention, hence UNVERIFIABLE. Additionally the method is not wired into get_detalhe (call
+    commented out at line 301), so it is inert in production. Flag for internal review of the perdas
+    sign convention.
+- rule_id: RULE-SEPSE-007
+  reference:
+    citation: "SIRS temperature criterion (Bone RC et al., ACCP/SCCM Consensus 1992; carried into Sepsis-2): fever = temperature > 38.3 C. Institutional 'sem vasopressor' gating maps to the intent of detecting de-novo organ dysfunction not attributable to established shock (Sepsis-3, Singer et al. JAMA 2016)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903336/"
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: diff
+  test_vectors:
+    - inputs: {temp_24h: 38.5, noradrenaline_6h: absent}
+      expected_reference: "Fever present + not on vasopressor -> criterion SHOULD fire (docstring intent 'ausencia de noradrenalina')"
+      actual_legacy: "all([nora present=FALSE, temp>38.2=TRUE]) = FALSE"
+      match: false
+    - inputs: {temp_24h: 38.5, noradrenaline_6h: running}
+      expected_reference: "Patient already on vasopressor -> criterion should NOT fire per intent"
+      actual_legacy: "all([nora present=TRUE, temp>38.2=TRUE]) = TRUE (inverted)"
+      match: false
+    - inputs: {temp_24h: 38.25, noradrenaline_6h: running}
+      expected_reference: "SIRS fever requires >38.3 -> 38.25 is NOT fever on temperature"
+      actual_legacy: "temp>38.2 = TRUE at 38.25 (fires on temperature)"
+      match: false
+    - inputs: {temp_24h: 38.2, noradrenaline_6h: running}
+      expected_reference: "Boundary: 38.2 is not fever by either 38.2 or 38.3 rule"
+      actual_legacy: "temp>38.2 = FALSE (strict >) -> criterion FALSE"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Two documented differences. (1) Noradrenaline gate inverted: docstring specifies ABSENCE of
+    noradrenaline but code uses qt_vol_nora__gt=0 PRESENCE, so the criterion only fires for patients
+    already on a vasopressor and never for the intended febrile-not-yet-on-pressor patient - a logic
+    inversion that alters which patients this MAJOR v3 criterion flags (moderate: biases the alert
+    toward already-shocked patients and misses de-novo fever). (2) Temperature cutoff >38.2 C vs the
+    SIRS reference >38.3 C - 0.1 C more sensitive, low impact on its own. Characterizes and confirms
+    the extraction-stage DISCREPANCY.
+- rule_id: RULE-SEPSE-008
+  reference:
+    citation: "SIRS respiratory criterion (ACCP/SCCM Consensus 1992): respiratory rate > 20 breaths/min. SpO2 < 94% is a standard hypoxemia alert threshold (Surviving Sepsis Campaign 2021 supplemental O2 target SpO2 >= 94%)."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903336/"
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - inputs: {fr: 22, sat_o2: 98, noradrenaline_6h: absent, invasive_vent: no}
+      expected_reference: "Tachypnea (RR>20 SIRS), not on pressor/invasive vent -> fire"
+      actual_legacy: "all([not nora=TRUE, not invasive=TRUE, (22>20=TRUE OR 98<94)=TRUE]) = TRUE"
+      match: true
+    - inputs: {fr: 18, sat_o2: 90, noradrenaline_6h: absent, ventilation: spontaneous}
+      expected_reference: "Hypoxemia SpO2<94 -> fire"
+      actual_legacy: "all([TRUE, TRUE, (18>20=FALSE OR 90<94=TRUE)=TRUE]) = TRUE"
+      match: true
+    - inputs: {fr: 20, sat_o2: 98, noradrenaline_6h: absent, invasive_vent: no}
+      expected_reference: "RR=20 is NOT >20 (SIRS strict), SpO2 normal -> no fire"
+      actual_legacy: "(20>20=FALSE OR 98<94=FALSE)=FALSE -> criterion FALSE"
+      match: true
+    - inputs: {fr: null, sat_o2: null, noradrenaline_6h: absent, invasive_vent: no}
+      expected_reference: "No data -> should not fire"
+      actual_legacy: "get_number(null)=0; 0<94=TRUE -> criterion spuriously TRUE"
+      match: false
+  verdict: VERIFIED
+  clinical_impact: low
+  notes: >
+    Core physiologic thresholds match the reference: RR>20 is exactly the SIRS respiratory criterion
+    (strict >, so 20 does not fire, correct), and SpO2<94% is a standard hypoxemia trigger consistent
+    with SSC 2021 oxygenation targets. The no-vasopressor / no-invasive-vent composite gating is an
+    institutional adaptation with no unit or coefficient error. VERIFIED on all reference-checkable
+    dimensions. Caveat (data-quality, not a reference discrepancy): get_number coerces null/blank
+    SatO2 to 0 and 0<94 spuriously satisfies the hypoxemia clause when SpO2 is simply unrecorded
+    (low impact - requires missing data plus all other gates clear).
+- rule_id: RULE-SEPSE-009
+  reference:
+    citation: "Respiratory organ dysfunction proxy (prescription of invasive mechanical ventilation / intubation) as sepsis-associated acute organ dysfunction (Sepsis-3, Singer et al. JAMA 2016; SOFA respiratory component). Institutional 'sem vasopressor' gating per intent of detecting de-novo dysfunction."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903336/"
+  checks:
+    equation: diff
+    coefficients: n/a
+    units: n/a
+    ranges: n/a
+    rounding: n/a
+    cutoffs: n/a
+  test_vectors:
+    - inputs: {vent_or_intubation_prescribed_24h: yes, noradrenaline_12h: absent}
+      expected_reference: "Respiratory failure requiring intubation + not on pressor -> SHOULD fire (docstring intent 'absence of noradrenaline')"
+      actual_legacy: "all([nora present=FALSE, vent/intub prescribed=TRUE]) = FALSE"
+      match: false
+    - inputs: {vent_or_intubation_prescribed_24h: yes, noradrenaline_12h: running}
+      expected_reference: "Already on vasopressor -> should NOT fire per intent"
+      actual_legacy: "all([nora present=TRUE, prescribed=TRUE]) = TRUE (inverted)"
+      match: false
+    - inputs: {vent_or_intubation_prescribed_24h: no, noradrenaline_12h: absent}
+      expected_reference: "No respiratory-support prescription -> should not fire"
+      actual_legacy: "all([nora present=FALSE, prescribed=FALSE]) = FALSE"
+      match: true
+  verdict: DISCREPANCY
+  clinical_impact: moderate
+  notes: >
+    Confirms the extraction DISCREPANCY. The noradrenaline gate is inverted vs the docstring: code
+    uses balanco_12h.filter(qt_vol_nora__gt=0).exists() (PRESENCE) where the intent is ABSENCE. The
+    criterion therefore fires only when the patient IS on noradrenaline and an invasive-vent/intubation
+    order exists, and never fires for the intended not-on-pressor patient with a new respiratory-support
+    order. No published equation exists for this institutional organ-dysfunction proxy (units/coeffs
+    n/a); the difference is purely the inverted vasopressor gate. Moderate impact - as a MAJOR v3
+    criterion the inversion biases which patients contribute to the alert.
+- rule_id: RULE-SEPSE-010
+  reference:
+    citation: "Sepsis-3 septic shock definition (Singer et al., JAMA 2016; Shankar-Hari et al., JAMA 2016): vasopressor requirement to maintain MAP >= 65 mmHg identifies circulatory dysfunction. Detecting NEW vasopressor initiation operationalizes new-onset shock; no published equation governs the temporal-window logic itself."
+    url: "https://pubmed.ncbi.nlm.nih.gov/26903336/"
+  checks:
+    equation: ok
+    coefficients: n/a
+    units: ok
+    ranges: ok
+    rounding: n/a
+    cutoffs: ok
+  test_vectors:
+    - inputs: {noradrenaline_started_2h_ago: yes, vasopressor_before_26h: none}
+      expected_reference: "New vasopressor start (present now, absent historically) -> fire"
+      actual_legacy: "all([nora|vaso present 6h=TRUE, not present >26h=TRUE]) = TRUE"
+      match: true
+    - inputs: {noradrenaline_running_3_days: yes}
+      expected_reference: "Chronic/ongoing vasopressor (not newly started) -> should NOT fire"
+      actual_legacy: "all([present 6h=TRUE, not present >26h=FALSE (is present old)]) = FALSE"
+      match: true
+    - inputs: {vasopressor: none}
+      expected_reference: "No vasopressor at all -> should not fire"
+      actual_legacy: "all([present 6h=FALSE, ...]) = FALSE"
+      match: true
+    - inputs: {vasopressin_started_4h_ago: yes, none_before_26h: yes}
+      expected_reference: "Vasopressin (2nd-line pressor) new start also counts -> fire"
+      actual_legacy: "Q(qt_vol_nora__gt=0)|Q(qt_vol_vaso__gt=0) present 6h=TRUE, absent >26h=TRUE -> TRUE"
+      match: true
+  verdict: VERIFIED
+  clinical_impact: none
+  notes: >
+    Logic is internally consistent and aligns with the Sepsis-3 concept that vasopressor requirement
+    marks circulatory dysfunction; this criterion operationalizes NEW initiation (noradrenaline OR
+    vasopressin present in last 6h AND absent before the 26h window). No unit, coefficient, or
+    threshold error - qt_vol>0 presence checks are correct, and the 2h grace (now-26h rather than
+    exactly now-24h) is a documented implementation buffer, not a clinical discrepancy. The temporal
+    windowing has no authoritative published equation to contradict; on every reference-checkable
+    dimension it is consistent. VERIFIED.

@@ -14,7 +14,9 @@ router = APIRouter(prefix="/api/v1", tags=["dashboard"])
     "/dashboard",
     response_model=DashboardResponse,
     summary="Clinical dashboard — bed grid",
-    description="Returns summary for all active patients with latest MEWS, NEWS2, and alert status.",
+    description=(
+        "Returns summary for all active patients with latest MEWS, NEWS2, and alert status."
+    ),
 )
 async def dashboard(
     unit: str | None = Query(None, description="Filter by unit"),
@@ -34,7 +36,9 @@ async def dashboard(
     "/patients/{mpi_id}/detail",
     response_model=PatientDetailResponse,
     summary="Patient detail view",
-    description="Returns detailed patient data with vitals history (24h), score history, and active alerts.",
+    description=(
+        "Returns detailed patient data with vitals history (24h), score history, and active alerts."
+    ),
 )
 async def patient_detail(
     mpi_id: str,
