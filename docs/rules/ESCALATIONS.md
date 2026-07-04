@@ -23,7 +23,8 @@ Items are ranked by clinical impact (high → moderate → low → none → n/a)
 | P3 — Discrepancies, no expected clinical impact | Real code deviations (display/admin/dead-code) with no scored patient impact | 99 |
 | Internal rules needing owner review (UNVERIFIABLE) | Proprietary logic with no published reference — confirm intent | 101 |
 | AMBIGUOUS extractions | Rule intent could not be pinned down from the source | 56 |
-| **Total escalated** | | **348** |
+| Addendum — Phase 6 gap findings | Post-report coverage-sweep escalations | 3 |
+| **Total escalated** | | **351** |
 
 Category mix of the impact-scored bands (P0–P3):
 
@@ -1151,3 +1152,45 @@ Affected: RULE-BALANCO-HIDRICO-006, RULE-BALANCO-HIDRICO-007, RULE-BALANCO-HIDRI
 ---
 
 *End of escalation report. All 348 escalated items are captured above, each in exactly one primary section, preserved verbatim from the legacy snapshots. No item in this report was corrected in the reconciled catalog.*
+
+---
+
+## Addendum — Phase 6 coverage-sweep findings (gap remediation)
+
+*Added 2026-07-04. Legacy snapshot: `ahlabs-trilhas@8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`.*
+
+A Phase 6 adversarial coverage sweep, run after the body of this report was finalized, re-swept the two legacy repositories against the reconciled catalog and surfaced 12 residual rules that had not been captured by the earlier extraction phases. All 12 are now cataloged as gap remediation. Nine of the twelve are OK-status operational/vocabulary rules with no scored clinical, security, or compliance dimension and are not escalated here. The remaining 3 are escalation-worthy and are added below, in this report's established per-item format, preserved verbatim exactly as the legacy system behaves.
+
+### RULE-SEPSE-099 — Manual sepsis pathway active criteria descriptions (_REGRAS, 20 criteria) with criterio_8 key-typo
+
+*Cluster:* `sepse` · *Category:* `triage-eligibility` · *Extraction:* DISCREPANCY · *Verification:* NOT_APPLICABLE · *Suggested band:* P2 (low clinical impact)
+
+- **Legacy:** The active `_REGRAS` dict on `TrilhaSepse` (manual sepsis pathway) defines `total_criterios=20` and the human-readable clinical description text for criteria `criterio_1`..`criterio_20`; each `descricao_criterio_N` CharField default is `_REGRAS.get("criterio_N")`.
+- **Deviation:** Line 114 reads `_REGRAS.get("criterio8")` (missing underscore) instead of `"criterio_8"`, so `descricao_criterio_8` always defaults to `None`, silently dropping the stored/displayed description for the Glasgow-decline/delirium sepsis criterion. The boolean `criterio_8` field itself still computes correctly; only its description text is lost.
+- **Why it matters:** Low clinical impact — this is a display-only typo, not a scoring defect: the criterion's contribution to the sepsis alert is unaffected, but clinicians viewing the manual sepsis pathway UI never see the clinical description text for one of the 20 active criteria (the Glasgow-decline/delirium criterion), which can obscure why that criterion is checked.
+- **Sources:** `ahlabs-trilhas:trilha_manual/models/trilha_sepse.py:44-68,113-115` @ `8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`
+- **Doc:** [`triage-eligibility/RULE-SEPSE-099-manual-sepsis-pathway-active-criteria-descriptions-regras-20.md`](triage-eligibility/RULE-SEPSE-099-manual-sepsis-pathway-active-criteria-descriptions-regras-20.md)
+
+### Security / compliance review
+
+The two items below are not clinical-scoring defects; both are captured OK-status (faithful to the legacy source) but represent business/legal risk that the product owner and/or legal counsel should review before reimplementation. Grouped together because they are related: the shared PIN in the first item is the live signing credential submitted to the same CryptoCubo integration whose default signature profile is described in the second item.
+
+#### RULE-AUTH-USUARIOS-063 — Shared default signing PIN (Usuario.pin defaults to settings.PIN_DEFAULT)
+
+*Cluster:* `auth-usuarios` · *Category:* `access-control` · *Extraction:* OK · *Verification:* NOT_APPLICABLE · *Priority:* HIGH (security/compliance review)
+
+- **Legacy:** `Usuario.pin` ("PIN para assinar com o CryptoCubo") defaults to `settings.PIN_DEFAULT`, an env-configurable, deployment-wide value (`trilhas/settings.py:245`, `PIN_DEFAULT = os.environ.get('PIN_DEFAULT')`), rather than requiring each user to set a unique PIN. The PIN is later base64-encoded and sent verbatim as the signing credential to the CryptoCubo e-signature API (`utils/cryptocubo.py:45-47`).
+- **Risk:** Every `Usuario.pin` created without an explicit value inherits the same org-wide default. Any user whose PIN was never rotated legally signs clinical documents/prescriptions with a shared secret, defeating per-user attribution of the electronic signature.
+- **Why it matters:** Not a clinical-scoring defect — a security/compliance concern. Un-rotated PINs mean the CryptoCubo signature on a clinical document cannot be reliably attributed to the individual clinician who "signed" it, which is a legal-attribution and audit-trail risk for signed medical records. Flagged HIGH priority for review (not clinical impact, but legal/compliance).
+- **Sources:** `ahlabs-trilhas:core/models/usuario.py:55-61` @ `8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`; `ahlabs-trilhas:trilhas/settings.py:245` @ `8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`; `ahlabs-trilhas:utils/cryptocubo.py:45-47` @ `8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`
+- **Doc:** [`access-control/RULE-AUTH-USUARIOS-063-shared-default-signing-pin-usuario-pin-defaults-to-settings.md`](access-control/RULE-AUTH-USUARIOS-063-shared-default-signing-pin-usuario-pin-defaults-to-settings.md)
+
+#### RULE-DOCUMENTACAO-FATURAMENTO-032 — Default electronic-signature configuration for CryptoCubo document signing
+
+*Cluster:* `documentacao-faturamento` · *Category:* `data-validation` · *Extraction:* OK · *Verification:* NOT_APPLICABLE · *Priority:* HIGH (security/compliance review)
+
+- **Legacy:** `DocumentosCryptocubo.__init__` hardcodes the default electronic-signature configuration used to legally sign clinical documents (evolutions/forms) through the CryptoCubo integration: `tipo="advanced"`, `formato="pdf"`, `perfil="adrb"`, `icpbr=False`. These defaults are interpolated into the sign/verify request URLs and determine the legal signature strength/profile applied to every document signed on this path.
+- **Risk:** Unless a caller overrides the keyword defaults, every document is signed with an "advanced" (not "qualified") signature profile and with the ICP-Brasil root chain (`icpbr`) disabled.
+- **Why it matters:** Not a clinical-scoring defect — a compliance concern. The signature profile and ICP-Brasil chain participation affect the legal weight/validity of the signature under Brazilian e-signature norms (MP 2.200-2/ICP-Brasil); a downgraded default profile could weaken the legal standing of signed clinical documentation. Same subsection as RULE-AUTH-USUARIOS-063 above (related: both configure the same CryptoCubo signing path); flag for legal review of the intended signature strength.
+- **Sources:** `ahlabs-trilhas:utils/cryptocubo.py:18-27` @ `8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f`
+- **Doc:** [`data-validation/RULE-DOCUMENTACAO-FATURAMENTO-032-default-electronic-signature-configuration-for-cryptocubo-do.md`](data-validation/RULE-DOCUMENTACAO-FATURAMENTO-032-default-electronic-signature-configuration-for-cryptocubo-do.md)
