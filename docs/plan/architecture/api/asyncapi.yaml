@@ -1,0 +1,428 @@
+asyncapi: 2.6.0
+id: 'urn:intensicare:realtime'
+info:
+  title: IntensiCare v2 Realtime API
+  version: 1.0.0
+  description: |
+    IntensiCare's realtime push surface. **One logical channel, two transports:**
+    a WebSocket channel (`/api/v1/realtime`) is the primary transport; a Server-Sent-Events
+    channel (`/api/v1/realtime/stream`) is a same-payload fallback for networks/proxies that
+    block WebSocket upgrades (e.g. some hospital guest Wi-Fi, older mobile browsers on the
+    RRT phone). Both transports carry the **identical event envelope and event catalog**
+    below — a client never needs transport-specific parsing logic beyond the connection
+    handshake itself.
+
+    **Why this exists (design invariant).** The mission-critical bed board MUST NOT rely on
+    REST polling — alert and bed-grid state MUST arrive over the same push mechanism as
+    clinician notifications, so they can never visibly disagree about one event
+    (`CON-0046`/`CON-0053`/`DES-C-05`, `alert-engine.md` §7.1 "single channel/latency class").
+    This document is that single channel's contract. Realtime payloads are always either a
+    full resource snapshot or a thin, idempotent patch reconciled against the REST resource in
+    `openapi.yaml` — the realtime layer is never a second source of truth
+    (`CON-0045`/`ADR-C-12`).
+
+    **Event catalog (three domains named in the mission):**
+    1. `alert.*` — the alert lifecycle (`raised / acknowledged / acting / resolved / escalated
+       / expired`), mirroring `alert-engine.md` §9.
+    2. `bed_grid.updated` — a bed's occupant/score/alert-severity summary changed; feeds the
+       unit bed-board (US-06, `IMP-2.2-06`) without a REST refetch.
+    3. `presence.*` — which clinicians are currently viewing which bed/unit (collaboration
+       awareness), and connection liveness (heartbeat) — presence is signaling/awareness only
+       and is never the clinical system-of-record path.
+
+    **Delivery guarantee.** At-least-once, ARQ-backed retry with exponential backoff
+    (INV-6, `CON-0071`/`IMP-C-06`); every event carries a monotonic per-tenant `seq` and, for
+    alert/bed_grid events, the entity's `dedup_key`/`id` + a `version`, so a client that
+    receives a duplicate (retry, reconnect replay) can safely discard it
+    (`alert-engine.md` §7.1 "client-side dedup").
+
+    See `api-design.md` §8 for the full reconnect/backoff state diagram and worked examples,
+    and `openapi.yaml` for the REST resources these events reference.
+  contact:
+    name: IntensiCare Platform Team
+    url: https://intensicare.internal
+    email: platform@intensicare.internal
+  license:
+    name: Proprietary — Americas Health internal use only
+
+defaultContentType: application/json
+
+tags:
+  - name: alert
+    description: Alert lifecycle events (raise/acknowledge/act/resolve/escalate/expire).
+  - name: bed_grid
+    description: Per-bed roster summary patches for the unit bed-board.
+  - name: presence
+    description: Collaboration-awareness signaling (who is viewing which bed/unit) — not clinical system-of-record.
+  - name: control
+    description: Connection lifecycle control frames (subscribe, heartbeat, errors).
+
+servers:
+  websocket:
+    url: wss://api.intensicare.internal/api/v1/realtime
+    protocol: wss
+    description: |
+      Primary transport. Auth via `Authorization: Bearer <jwt>` on the upgrade request, or
+      `?access_token=` query param when the client cannot set headers on the WS handshake
+      (e.g. some embedded webviews) — query-param tokens are short-lived (≤60s) single-use
+      upgrade tickets minted by `POST /api/v1/realtime/ticket` (see `openapi.yaml` note in
+      `api-design.md` §8.4), never the long-lived access token itself.
+    bindings:
+      ws:
+        method: GET
+  sse:
+    url: https://api.intensicare.internal/api/v1/realtime/stream
+    protocol: https
+    description: |
+      Fallback transport (Server-Sent Events, `text/event-stream`). Auth via
+      `Authorization: Bearer <jwt>` header (SSE supports arbitrary request headers unlike the
+      browser `EventSource` API's WS-upgrade equivalent — clients using `EventSource` must
+      instead pass a short-lived upgrade ticket as `?access_token=`, same minting endpoint as
+      the WS fallback above). One-way, server→client only; there is no publish direction — a
+      client on the SSE fallback issues `subscribe`/presence updates over the equivalent REST
+      calls (`PATCH /api/v1/realtime/subscription`, `POST /api/v1/dashboard/presence`) instead
+      of an in-band publish message.
+    bindings:
+      http:
+        method: GET
+
+channels:
+  /api/v1/realtime:
+    description: |
+      The single WebSocket channel. After connecting, a client sends exactly one `subscribe`
+      message declaring its tenant/unit/bed scope, then receives every event catalog message
+      in-scope until it disconnects or sends a new `subscribe` (which replaces the prior
+      scope). See `api-design.md` §8.2 for the subscribe/resume handshake.
+    bindings:
+      ws:
+        bindingVersion: 0.1.0
+    subscribe:
+      operationId: receiveRealtimeEventsWs
+      summary: Server → client — the event catalog (alert, bed_grid, presence, heartbeat, ack/error control frames)
+      description: |
+        AsyncAPI `subscribe` = messages the **client receives**. `oneOf` the full event
+        catalog; every message's `envelope.type` discriminates which payload follows.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AlertRaised'
+          - $ref: '#/components/messages/AlertUpdated'
+          - $ref: '#/components/messages/BedGridUpdated'
+          - $ref: '#/components/messages/PresenceUpdated'
+          - $ref: '#/components/messages/HeartbeatPing'
+          - $ref: '#/components/messages/SubscribeAck'
+          - $ref: '#/components/messages/ServerError'
+    publish:
+      operationId: sendRealtimeControlWs
+      summary: Client → server — subscribe/unsubscribe scope, heartbeat pong, presence heartbeat
+      description: |
+        AsyncAPI `publish` = messages the **client sends**. WebSocket-only (the SSE fallback
+        has no publish direction, see the server description above).
+      message:
+        oneOf:
+          - $ref: '#/components/messages/Subscribe'
+          - $ref: '#/components/messages/Unsubscribe'
+          - $ref: '#/components/messages/HeartbeatPong'
+          - $ref: '#/components/messages/PresenceHeartbeat'
+
+  /api/v1/realtime/stream:
+    description: |
+      SSE fallback. Query params `tenant_id` (implicit from JWT unless `platform-admin`),
+      `unit`, and optionally `bed_id` set the subscription scope at connect time (no in-band
+      `subscribe` message — reconnect with different query params to change scope). Resume via
+      the standard `Last-Event-ID` request header; the server replays any buffered events with
+      `id > Last-Event-ID` from its short replay buffer (`api-design.md` §8.3).
+    bindings:
+      http:
+        bindingVersion: 0.1.0
+    subscribe:
+      summary: Server → client — identical event catalog to the WebSocket channel, framed as SSE `event:`/`data:`
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AlertRaised'
+          - $ref: '#/components/messages/AlertUpdated'
+          - $ref: '#/components/messages/BedGridUpdated'
+          - $ref: '#/components/messages/PresenceUpdated'
+          - $ref: '#/components/messages/HeartbeatPing'
+
+components:
+  messages:
+    Subscribe:
+      name: subscribe
+      title: Set/replace the connection's event scope
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, scope]
+        properties:
+          type: { const: subscribe }
+          scope:
+            type: object
+            required: [tenant_id, unit]
+            properties:
+              tenant_id:
+                type: string
+                description: Must match the JWT `tenant_id` claim unless the caller has role `platform-admin`.
+              unit: { type: string }
+              bed_id: { type: string, nullable: true, description: "Narrow to one bed; omit for the whole unit." }
+              topics:
+                type: array
+                items: { type: string, enum: [alert, bed_grid, presence] }
+                default: [alert, bed_grid, presence]
+                description: Restrict to a subset of the event catalog, e.g. an RRT phone client subscribing to `alert` only.
+          resume_from_seq:
+            type: integer
+            nullable: true
+            description: >-
+              Last `seq` this client successfully processed before a reconnect. If within the
+              server's replay buffer window, missed events are redelivered before live
+              streaming resumes (api-design.md §8.3). Omit for a fresh subscription.
+      examples:
+        - payload: {type: subscribe, scope: {tenant_id: "hosp-A", unit: "UTI-1", topics: [alert, bed_grid]}, resume_from_seq: null}
+
+    Unsubscribe:
+      name: unsubscribe
+      title: Clear the connection's event scope (no further events until a new subscribe)
+      contentType: application/json
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type: { const: unsubscribe }
+
+    HeartbeatPong:
+      name: heartbeat_pong
+      title: Client reply to a server heartbeat ping
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, ping_seq]
+        properties:
+          type: { const: heartbeat_pong }
+          ping_seq: { type: integer }
+
+    PresenceHeartbeat:
+      name: presence_heartbeat
+      title: "\"I am actively viewing this bed/unit\" — client-initiated presence signal"
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, unit]
+        properties:
+          type: { const: presence_heartbeat }
+          unit: { type: string }
+          bed_id: { type: string, nullable: true }
+          viewing: { type: string, enum: [bed_grid, bed_detail, alert_inbox], default: bed_grid }
+
+    SubscribeAck:
+      name: subscribe_ack
+      title: Server confirms the effective subscription scope
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, scope, seq]
+        properties:
+          type: { const: subscribe_ack }
+          scope: { type: object, description: Echo of the accepted scope, narrowed to what the caller's roles/tenant actually permit. }
+          seq: { type: integer, description: The server's current sequence counter at ack time — the client's replay baseline. }
+          replayed_count: { type: integer, default: 0, description: Number of buffered events replayed to satisfy resume_from_seq, if any. }
+
+    ServerError:
+      name: server_error
+      title: Control-frame error (auth expired, scope rejected, rate-limited)
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, code, message]
+        properties:
+          type: { const: error }
+          code:
+            type: string
+            enum: [UNAUTHORIZED, FORBIDDEN_SCOPE, RATE_LIMITED, RESUME_WINDOW_EXPIRED, INTERNAL]
+          message: { type: string }
+          reconnect_advice:
+            type: string
+            enum: [retry_with_backoff, reauthenticate, do_not_retry]
+
+    HeartbeatPing:
+      name: heartbeat_ping
+      title: Server liveness ping — client must reply with heartbeat_pong within the timeout or reconnect
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, ping_seq, sent_at]
+        properties:
+          type: { const: heartbeat_ping }
+          ping_seq: { type: integer }
+          sent_at: { type: string, format: date-time }
+
+    AlertRaised:
+      name: alert.raised
+      title: A new alert was raised (or a suppressed recurrence incremented)
+      summary: Full snapshot of the Alert resource — same shape as `GET /api/v1/alerts/{id}` in openapi.yaml.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AlertEventEnvelope'
+      examples:
+        - payload:
+            type: alert.raised
+            seq: 10482
+            tenant_id: hosp-A
+            unit: UTI-1
+            occurred_at: '2026-07-04T13:02:11Z'
+            data:
+              id: 88231
+              mpi_id: mpi-8891273
+              alert_definition_id: ALERT-SEPSIS-SCREEN-01
+              definition_version: '2026.06.1-a1b2c3'
+              name: 'Triagem de sepse — qSOFA + lactato'
+              severity: critical
+              status: raised
+              dedup_key: 'mpi-8891273:ALERT-SEPSIS-SCREEN-01:2026-07-04T13'
+              recurrence_count: 1
+              triggering_parameters:
+                - {name: lactato_arterial, value: 4.2, unit: 'mmol/L', trend: increasing, delta: 1.1, observed_at: '2026-07-04T13:00:40Z', staleness_seconds: 91, source: 'AMH Gold lab_result (LOINC 2524-7)'}
+                - {name: qsofa, value: 2, unit: points, trend: stable, observed_at: '2026-07-04T13:01:55Z', staleness_seconds: 16, source: vital_sign}
+              evidence:
+                - {citation: 'Seymour CW et al. JAMA 2016;315(8):762-774', rule_ids: [SEP-002]}
+              tenant_id: hosp-A
+              unit: UTI-1
+              bed_id: LEITO-04
+              data_as_of: '2026-07-04T13:01:55Z'
+              generated_at: '2026-07-04T13:02:10Z'
+              created_at: '2026-07-04T13:02:11Z'
+
+    AlertUpdated:
+      name: alert.updated
+      title: An existing alert changed lifecycle state (acknowledged / acting / resolved / escalated / expired)
+      summary: Same envelope as alert.raised; `data.status` (and the corresponding timestamp field) is what changed.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AlertEventEnvelope'
+
+    BedGridUpdated:
+      name: bed_grid.updated
+      title: One bed's summary row changed (occupancy, latest score, or active-alert severity)
+      summary: Thin patch — clients merge by bed_id into their local bed-grid state; never a source of truth on its own (reconcile against GET /api/v1/dashboard/bed-grid on doubt).
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, seq, tenant_id, unit, occurred_at, data]
+        properties:
+          type: { const: bed_grid.updated }
+          seq: { type: integer }
+          tenant_id: { type: string }
+          unit: { type: string }
+          occurred_at: { type: string, format: date-time }
+          data:
+            type: object
+            required: [bed_id, occupied]
+            properties:
+              bed_id: { type: string }
+              occupied: { type: boolean }
+              mpi_id: { type: string, nullable: true }
+              display_name: { type: string, nullable: true }
+              latest_score_type: { type: string, enum: [MEWS, NEWS2, SOFA, qSOFA], nullable: true }
+              latest_score_value: { type: integer, nullable: true }
+              latest_score_severity: { $ref: '#/components/schemas/Severity' }
+              active_alert_severity:
+                oneOf:
+                  - $ref: '#/components/schemas/Severity'
+                  - { type: 'null' }
+                description: Highest active-alert severity for this bed, or null if no active alert.
+              active_alert_count: { type: integer, default: 0 }
+              last_vital_at: { type: string, format: date-time, nullable: true }
+              staleness_seconds: { type: integer, nullable: true }
+      examples:
+        - payload:
+            type: bed_grid.updated
+            seq: 10483
+            tenant_id: hosp-A
+            unit: UTI-1
+            occurred_at: '2026-07-04T13:02:11Z'
+            data: {bed_id: LEITO-04, occupied: true, mpi_id: mpi-8891273, display_name: 'J. A. S.', latest_score_type: qSOFA, latest_score_value: 2, latest_score_severity: urgent, active_alert_severity: critical, active_alert_count: 1, last_vital_at: '2026-07-04T13:01:55Z', staleness_seconds: 16}
+
+    PresenceUpdated:
+      name: presence.updated
+      title: Which clinicians are currently viewing a bed/unit (collaboration awareness only)
+      summary: Signaling/awareness — never the clinical system-of-record path (CON-0053/DES-C-05); safe to drop and recompute from the next heartbeat.
+      contentType: application/json
+      payload:
+        type: object
+        required: [type, seq, tenant_id, unit, occurred_at, viewers]
+        properties:
+          type: { const: presence.updated }
+          seq: { type: integer }
+          tenant_id: { type: string }
+          unit: { type: string }
+          bed_id: { type: string, nullable: true }
+          occurred_at: { type: string, format: date-time }
+          viewers:
+            type: array
+            items:
+              type: object
+              required: [user_id, viewing, last_heartbeat_at]
+              properties:
+                user_id: { type: string }
+                display_name: { type: string, nullable: true }
+                viewing: { type: string, enum: [bed_grid, bed_detail, alert_inbox] }
+                bed_id: { type: string, nullable: true }
+                last_heartbeat_at: { type: string, format: date-time }
+      examples:
+        - payload:
+            type: presence.updated
+            seq: 10484
+            tenant_id: hosp-A
+            unit: UTI-1
+            bed_id: LEITO-04
+            occurred_at: '2026-07-04T13:02:15Z'
+            viewers:
+              - {user_id: usr-carlos, display_name: 'Dr. Carlos', viewing: bed_detail, bed_id: LEITO-04, last_heartbeat_at: '2026-07-04T13:02:10Z'}
+
+  schemas:
+    Severity:
+      type: string
+      enum: [normal, watch, urgent, critical]
+      description: Canonical clinical.* scale — identical to openapi.yaml#/components/schemas/Severity.
+    AlertEventEnvelope:
+      type: object
+      required: [type, seq, tenant_id, unit, occurred_at, data]
+      properties:
+        type: { type: string, enum: ['alert.raised', 'alert.updated'] }
+        seq:
+          type: integer
+          description: Monotonic per-tenant sequence number. Used for gap detection and resume (api-design.md §8.3).
+        tenant_id: { type: string }
+        unit: { type: string, nullable: true }
+        occurred_at: { type: string, format: date-time, description: When this lifecycle transition happened (server clock). }
+        data:
+          description: Full Alert resource — identical shape to openapi.yaml#/components/schemas/Alert.
+          type: object
+
+x-reconnect-backoff-policy:
+  description: |
+    Normative for both transports. Full walkthrough with a worked timeline in `api-design.md`
+    §8. Summary:
+    - **Backoff schedule:** exponential with full jitter — `delay = random(0, min(cap, base * 2^attempt))`,
+      `base = 1000ms`, `cap = 30000ms`. Attempt counter resets to 0 after 60s of continuous
+      connectivity.
+    - **Heartbeat:** server sends `heartbeat_ping` every 25s; client MUST reply
+      `heartbeat_pong` within 10s or the server closes the socket (code 4001). A client that
+      receives no `heartbeat_ping` for 45s MUST treat the connection as dead and reconnect
+      immediately (do not wait for a TCP-level failure).
+    - **Resume:** on reconnect, the client re-sends `subscribe` with `resume_from_seq` set to
+      the last `seq` it processed. The server replays buffered events with `seq >
+      resume_from_seq` from a **5-minute rolling replay buffer**, then resumes live streaming.
+      If `resume_from_seq` predates the buffer window, the server returns `RESUME_WINDOW_EXPIRED`
+      (in `subscribe_ack`'s sibling `error` message) and the client MUST fall back to a full
+      REST reconciliation (`GET /api/v1/dashboard/bed-grid` + `GET /api/v1/alerts`) before
+      resuming the live stream from the fresh `seq` in the next `subscribe_ack`.
+    - **SSE resume** uses the standard `Last-Event-ID` header instead of `resume_from_seq`; same
+      5-minute buffer and same `RESUME_WINDOW_EXPIRED` fallback (signaled as an SSE `event: error`).
+    - **Never silently drop:** if the client cannot reconcile (repeated `RESUME_WINDOW_EXPIRED`,
+      or `code: RATE_LIMITED` with `reconnect_advice: do_not_retry`), it MUST surface a visible
+      "reconnecting / stale data" banner — this is the client-side half of the staleness
+      discipline in `alert-engine.md` §7.2; a quietly-stale bed-board is the failure mode this
+      whole channel exists to prevent.
+    - **Transport fallback order:** WebSocket first; on 3 consecutive failed upgrade attempts
+      (handshake rejected or no `subscribe_ack` within 5s), fall back to the SSE channel for
+      the remainder of the session; retry a WebSocket upgrade opportunistically every 5 minutes.

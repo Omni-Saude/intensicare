@@ -1,0 +1,93 @@
+shard: equilibrio
+cluster: equilibrio
+records:
+- rule_id: RULE-EQUILIBRIO-001
+  cluster: equilibrio
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: so criterio_2 and criterio_4 alert text exists in the payload but is NOT shown
+  disposition: ADAPT
+  justification: Fluid-balance criteria 1-4 (BH>3000 ml/24h very-positive, accumulated positive balance,
+    unneeded soroterapia, falling diurese) carry sound institutional intent, but legacy get_detalhe()
+    surfaces only criterio_1 and criterio_3 -- criterio_2 (accumulated BH) and criterio_4 (falling diurese,
+    which triggers sepsis-risk assessment) are silently dropped from clinician view; v2 AKI/fluid-management
+    domain must restore full surfacing while preserving the unreferenced institutional thresholds (3000
+    ml/24h, 5 ml/h, 2400 ml/dia) verbatim.
+  evidence:
+  - RULE-EQUILIBRIO-001
+  - RULE-EQUILIBRIO-003
+  target: clinical/domains/aki.md#fluid-balance-titration
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-002
+  cluster: equilibrio
+  category: drug-dosing
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: hipernatremia com Na > 160
+  disposition: ADAPT
+  justification: Nephrotoxic drug substitution (Cefepime to Tazocin, Vancomicina to Linezolida), morphine
+    avoidance under impaired clearance, and Na>160 hypernatremia correction (NaCl 0.22% 84 ml/h, hydrochlorothiazide
+    25 mg) are VERIFIED against Sterns/Adrogue-Madias, but criterio_7 (morphine clearance) and criterio_10
+    (hypernatremia protocol) are never surfaced by get_detalhe() -- v2 electrolyte/pharmaco domains must
+    restore visibility of the hypernatremia rescue path, a genuine patient-safety gap in the legacy UI.
+  evidence:
+  - Sterns RH. Treatment of hypernatremia (UpToDate)
+  - Adrogue HJ, Madias NE. N Engl J Med 2000;342:1493-1499
+  - RULE-EQUILIBRIO-002
+  target: clinical/domains/electrolyte.md#hypernatremia-na160-correction
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-003
+  cluster: equilibrio
+  category: alert-threshold
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: amarelo  = [criterio_3, criterio_6, criterio_8].count(True)
+  disposition: SUPERSEDE
+  justification: This trilha-specific VERMELHO/AMARELO/NEUTRO color aggregation (vermelho if criterio_1
+    or criterio_9, amarelo if 3/6/8) is legacy Django-model alerting plumbing coexisting with a dead count-based
+    path and an unmerged TrilhaSeteSintetico variant using different thresholds; v2's unified Alert Engine
+    severity scale (normal/watch/urgent/critical) replaces it, restoring full 10-criteria surfacing instead
+    of the legacy 1,3,6,8,9 subset.
+  evidence:
+  - RULE-EQUILIBRIO-003
+  - RULE-EQUILIBRIO-001
+  target: clinical/domains/aki.md#alert-severity-mapping
+  supersedes_note:
+    replaced_by: v2 Alert Engine unified severity scale (normal|watch|urgent|critical) applied uniformly
+      across all 10 equilibrio criteria
+    lost: legacy VERMELHO/AMARELO/NEUTRO enum and the restricted surfacing of criteria 1,3,6,8,9 only;
+      the dead count-based define_tipo_alerta path and the unmerged TrilhaSeteSintetico variant (amarelo:4/vermelho:5,
+      all 10 criteria) are also discarded
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-004
+  cluster: equilibrio
+  category: drug-dosing
+  catalog_echo:
+    status: OK
+    verdict: DISCREPANCY
+  source_quote: Initial trigger K > 6; reassessment/escalation threshold K > 5.5 at +4h.
+  disposition: ADOPT-CORRECTED
+  justification: Hyperkalemia (K>6) rescue bundle -- calcium gluconate, furosemide 20 mg x3 bolus, polarizing
+    solution, fenoterol/salbutamol q15min, +4h reassessment with bicarbonate 8.4% 1 ml/kg and Sorcal if
+    K>5.5 -- matches the KDIGO/UpToDate reference bundle on clinical content (ESC-P2-066, clinical_impact
+    low), but the legacy code mislabels serum potassium as mg/dl instead of mEq/L; the reference-correct
+    form must use mEq/L (or mmol/L) throughout and never propagate the unit error.
+  evidence:
+  - KDIGO conference summary, Eur J Emerg Med 2020;27(5):329-337 (PMC7448835)
+  - Mount DB, Sterns RH. Treatment of hyperkalemia (UpToDate)
+  - RULE-EQUILIBRIO-004
+  target: clinical/domains/electrolyte.md#hyperkalemia-rescue-protocol
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P2-066
+    band: P2
+  ratify_ref: null

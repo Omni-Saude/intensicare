@@ -1,0 +1,608 @@
+shard: sepse-p3
+cluster: sepse
+records:
+- rule_id: RULE-SEPSE-067
+  cluster: sepse
+  category: triage-eligibility
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: time-windowed infection/device exposures and vasoactive/steroid use
+  disposition: ADOPT
+  justification: Boolean screening flags (antibiotic-24h, device-dwell 10d/7d-femoral, adjunct-therapy) are verified, device-associated-infection
+    surveillance inputs that feed the v2 sepsis/CLABSI-CAUTI screening engine unchanged.
+  evidence:
+  - RULE-SEPSE-067
+  target: clinical/domains/sepsis.md#infection-source-screening-flags
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-068
+  cluster: sepse
+  category: data-validation
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: NOT_APPLICABLE
+  source_quote: stored as a plain number with no bounds
+  disposition: RATIFY
+  justification: 'AMBIGUOUS-band escalation on a live sepsis-criterion input: the ureia field name implies a >50mg/dL-in-24h
+    boolean threshold but the stored type is an unbounded raw number, so a clinician must ratify whether v2 encodes urea as
+    a threshold flag or a continuous lab value before it feeds any sepsis screening logic.'
+  evidence:
+  - RULE-SEPSE-068
+  - ESC-AMBIGUOUS-337
+  target: RATIFICATION.md#rat-sepse-01
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-337
+    band: AMBIGUOUS
+  ratify_ref: RAT-SEPSE-01
+- rule_id: RULE-SEPSE-069
+  cluster: sepse
+  category: scheduling-operational
+  catalog_echo:
+    status: OK
+    verdict: VERIFIED
+  source_quote: 1h for primeira_hora, 3h for reavaliacao
+  disposition: ADOPT
+  justification: 'Verified against the Surviving Sepsis Campaign Hour-1 Bundle: the overdue-flag windows (1h for the first-hour
+    bundle, 3h for reassessment) are the correct operational timers for tracking hour-1 bundle compliance in v2.'
+  evidence:
+  - 'SSC-2018 (Levy MM, Evans LE, Rhodes A. Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997)'
+  - RULE-SEPSE-069
+  target: clinical/domains/sepsis.md#hour-1-bundle-timers
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-070
+  cluster: sepse
+  category: scheduling-operational
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: hidden until 2h after protocol creation
+  disposition: ADOPT
+  justification: The 2h reveal-delay for reassessment bundle items complements the verified RULE-SEPSE-069 overdue windows
+    and is a sound, low-risk display-timing rule worth carrying into the v2 hour-1 bundle timer design unchanged.
+  evidence:
+  - RULE-SEPSE-070
+  - RULE-SEPSE-069
+  target: clinical/domains/sepsis.md#hour-1-bundle-timers
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-071
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: last concluded one is >3 days old (or none)
+  disposition: ADAPT
+  justification: Sound intent (prevent duplicate open sepsis protocols; enforce a 3-day cooldown after a concluded protocol
+    before allowing a new one) but the mechanism is legacy Django ORM filters with a cross-module serializer dependency; v2
+    should re-implement the same dedup/cooldown semantics via the alert-suppression mechanism.
+  evidence:
+  - RULE-SEPSE-071
+  target: clinical/domains/sepsis.md#protocol-creation-eligibility
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-072
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: generates the 7 bundle items, and posts an audit observation
+  disposition: SUPERSEDE
+  justification: The accept-and-generate-bundle intent is sound, but the mechanism (legacy TrilhaInterativaSepse Django model,
+    color-string alert state 'LARANJA', synchronous item generation) is legacy-app plumbing tied to the retired Tasy-era stack
+    per the cluster note that workflow rules 069-098 are retire-candidates for a rebuilt state machine.
+  evidence:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-076
+  target: clinical/domains/sepsis.md#protocol-acceptance-lifecycle
+  supersedes_note:
+    replaced_by: v2 alert-lifecycle mechanism (severity taxonomy normal|watch|urgent|critical per _work/alerts/<domain>.yaml)
+      plus an audit-trail event on protocol acceptance
+    lost: the legacy color-string alert state 'LARANJA' and the synchronous Django TrilhaInterativaSepse accept workflow;
+      the 7-item hour-1 bundle generation concept itself is preserved via RULE-SEPSE-076
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-073
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: horario_registro_aceitacao is never assigned
+  disposition: SUPERSEDE
+  justification: 'P3 escalation ESC-P3-125: the rejection branch never sets horario_registro_aceitacao yet the observation
+    message dereferences it, a live crash risk; this known-broken legacy behavior must never be ported, so the rejection workflow
+    is superseded by a redesigned v2 protocol-decline path with a corrected audit message.'
+  evidence:
+  - RULE-SEPSE-073
+  - ESC-P3-125
+  target: clinical/domains/sepsis.md#protocol-acceptance-lifecycle
+  supersedes_note:
+    replaced_by: v2 protocol-decline workflow that stamps a decline timestamp before composing any audit message (see RULE-SEPSE-094
+      mandatory-reason concept)
+    lost: the specific crash-prone message-building code path; the NEUTRO/assistido state reset on rejection is preserved
+      conceptually
+  escalations:
+  - item_id: ESC-P3-125
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-SEPSE-074
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: sets encerrado=true, finalizado=true, re-stamps horario_registro_aceitacao=now
+  disposition: SUPERSEDE
+  justification: The accepted-to-closed transition guard (was-accepted, now-not-accepted) is legacy Django serializer state
+    -machine plumbing on the same rebuilt-candidate list as RULE-SEPSE-072/073; the closure semantics (mark closed, reset
+    parent alert, audit observation) are preserved but the mechanism itself is replaced in v2.
+  evidence:
+  - RULE-SEPSE-074
+  - RULE-SEPSE-072
+  target: clinical/domains/sepsis.md#protocol-acceptance-lifecycle
+  supersedes_note:
+    replaced_by: v2 protocol-lifecycle service handling accept/reject/close as first-class alert-lifecycle transitions instead
+      of ad-hoc serializer branching
+    lost: the passthrough-on-other-updates implicit default branch; explicit v2 transitions should be enumerated rather than
+      inferred from field-diffing
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-075
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: stamps horario_checagem=now and posts an item-specific documentation observation
+  disposition: ADAPT
+  justification: The bundle item check/uncheck-with-auto-completion logic (last unchecked item flips the pathway to concluded,
+    forcing aceito=false and clearing the parent alert) captures a genuine bundle-compliance-timing KPI worth preserving,
+    but the synchronous Django state mutation needs redesign for the v2 alert engine.
+  evidence:
+  - RULE-SEPSE-075
+  target: clinical/domains/sepsis.md#hour-1-bundle-completion
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-076
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: request labs, start/escalate antimicrobials, perform volume expansion
+  disposition: ADOPT
+  justification: The exact 7-item hour-1/reassessment bundle structure mirrors the Surviving Sepsis Campaign hour-1 bundle
+    and is a clinical-content asset (item set and pacote grouping) to carry forward verbatim into the v2 sepsis domain bundle
+    definition, independent of the legacy generation mechanism.
+  evidence:
+  - 'SSC-2018 (Levy MM, Evans LE, Rhodes A. Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997)'
+  - RULE-SEPSE-076
+  target: clinical/domains/sepsis.md#hour-1-bundle
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-077
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: automatically set to the authenticated request user, overriding any client-supplied value
+  disposition: ADAPT
+  justification: Server-side auto-attribution of the checking clinician's identity (never trusting a client-supplied checker
+    id) is a reusable security/audit-integrity pattern worth keeping for any v2 checklist-style clinical action, distinct
+    from the legacy Django view mechanism that implements it here.
+  evidence:
+  - RULE-SEPSE-077
+  target: architecture/security-lgpd.md#server-side-actor-attribution
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-078
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: belonging to the 'first hour' bundle that are not yet checked
+  disposition: ADAPT
+  justification: The auto-check dispatch guard (only fire for unchecked first-hour items, per-minute cadence for up to 1h)
+    encodes a sound automation intent for verifying hour-1 bundle compliance against CPOE/ADEP data, but the hardcoded 'sistema'
+    user and 1-minute polling task need redesign as an event-driven v2 mechanism.
+  evidence:
+  - RULE-SEPSE-078
+  target: clinical/domains/sepsis.md#hour-1-bundle-automation
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-079
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: matches item.nome_item == 'solicitacao_exame' (SINGULAR)
+  disposition: ADAPT
+  justification: 'P3 escalation ESC-P3-126: the exam-solicitation auto-check is dead code because the dispatch string (''solicitacao_exame'')
+    never matches the bundle-item enum (''solicitacao_exames'') from RULE-SEPSE-076/096; v2 must adapt this rule by aligning
+    the field name so the intended CPOE-driven auto-check actually fires.'
+  evidence:
+  - RULE-SEPSE-079
+  - RULE-SEPSE-076
+  - RULE-SEPSE-096
+  - ESC-P3-126
+  target: clinical/domains/sepsis.md#hour-1-bundle-automation
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P3-126
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-SEPSE-080
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: CPOE updated within the 24h preceding the interactive pathway's creation time
+  disposition: ADAPT
+  justification: The 24h CPOE-lookback auto-check for antimicrobial escalation is a sound hour-1-bundle automation concept
+    (distinct 24h window vs the 4h volume-expansion window in RULE-SEPSE-081), but the direct Django ORM query against a legacy
+    CPOE table must be redesigned against the v2 AMH Gold data source via Athena.
+  evidence:
+  - 'SSC-2018 (Levy MM, Evans LE, Rhodes A. Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997)'
+  - RULE-SEPSE-080
+  target: clinical/domains/sepsis.md#hour-1-bundle-automation
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-081
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: updated within the 4h preceding pathway creation shows lactated-Ringer
+  disposition: ADAPT
+  justification: The 4h ADEP-lookback auto-check for volume expansion (lactated Ringer OR 0.9% saline, strictly >0 mL) is
+    a sound automation for the first-hour fluid-resuscitation bundle item, but the direct legacy ADEP-table query and first()-based
+    professional attribution need redesign onto the v2 data platform.
+  evidence:
+  - 'SSC-2018 (Levy MM, Evans LE, Rhodes A. Surviving Sepsis Campaign Bundle: 2018 update. Crit Care Med 2018;46:997)'
+  - RULE-SEPSE-081
+  target: clinical/domains/sepsis.md#hour-1-bundle-automation
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-082
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: automatically creates a linked Sepse (sepsis-screening) record for the same encounter
+  disposition: ADAPT
+  justification: Triggering a sepsis-screening evaluation on every vital-signs submission is the correct clinical intent (no
+    vitals should go unscreened), but the linkage to 'the most recent Formulario regardless of type/status' is an unfiltered
+    legacy edge case that v2 should redesign as an explicit, status-aware screening-trigger event.
+  evidence:
+  - RULE-SEPSE-082
+  target: clinical/domains/sepsis.md#screening-trigger
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-083
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: returns TrilhaSepseV3Model rows whose leito matches the 'ocupacoes__pk' URL kwarg
+  disposition: RETIRE
+  justification: This is a legacy Django REST viewset queryset filter tied to the retired Trilhas API URL scheme; the v2 platform
+    will expose bed-scoped sepsis-pathway queries through its own API design, so this exact mechanism carries no forward clinical
+    content.
+  evidence:
+  - RULE-SEPSE-083
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-084
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: as the first element of ocupacao.trilhas whose tipo equals
+  disposition: RETIRE
+  justification: Pure legacy frontend UI-state selection logic (pick the first trilha with tipo==='sepse' from an array) tied
+    to the trilhas-frontend Next.js route structure; retired with the platform change since v2 screens are built fresh per
+    the ADR-001 stack change.
+  evidence:
+  - RULE-SEPSE-084
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-085
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: only when BOTH its concluida (concluded) flag AND finalizado (finalized) flag are true
+  disposition: RETIRE
+  justification: Legacy frontend tab-state transition mechanics (move an instance from 'current' to 'historical' lists and
+    refetch) specific to the retired trilhas-frontend page component; the underlying concluida-AND-finalizado precedence knowledge
+    is preserved separately via RULE-SEPSE-090's ADAPT disposition.
+  evidence:
+  - RULE-SEPSE-085
+  - RULE-SEPSE-090
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-086
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: NOT_APPLICABLE
+  source_quote: 'is fetched with an explicit filter {aceito: false}'
+  disposition: RETIRE
+  justification: 'AMBIGUOUS-band escalation ESC-AMBIGUOUS-305: the meaning of filtering ''historical'' pathway instances by
+    aceito=false is unconfirmed by any comment or type definition; this is legacy frontend query plumbing, not load-bearing
+    clinical logic, so it is retired rather than ratified given the low clinical stakes.'
+  evidence:
+  - RULE-SEPSE-086
+  - ESC-AMBIGUOUS-305
+  target: null
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-305
+    band: AMBIGUOUS
+  ratify_ref: null
+- rule_id: RULE-SEPSE-087
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: navigates to the parent sector page with query parameters
+  disposition: RETIRE
+  justification: Pure legacy frontend back-navigation/URL-construction mechanics for a retired Next.js route; carries no clinical
+    semantics and will be rebuilt as part of the new v2 screen navigation design.
+  evidence:
+  - RULE-SEPSE-087
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-088
+  cluster: sepse
+  category: data-validation
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: unless there is either a current active interactive pathway instance
+  disposition: RETIRE
+  justification: Legacy frontend empty-state rendering condition ('Não há protocolos de sepse para este paciente') tied to
+    the retired page component's local state shape; v2 screens will define their own empty-state UX from scratch.
+  evidence:
+  - RULE-SEPSE-088
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-089
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: field is truthy/non-empty; otherwise only historical tabs
+  disposition: RETIRE
+  justification: Legacy frontend tab-visibility guard on a specific TabPane component in the retired trilhas-frontend sepsis
+    page; a purely presentational rule with no clinical content to carry into the redesigned v2 UI.
+  evidence:
+  - RULE-SEPSE-089
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-090
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: with an optional refusal-reason popover (motivo_descartado)
+  disposition: ADAPT
+  justification: The display precedence (concluida checked before finalizado, i.e. full completion outranks early closure/refusal
+    for status labeling) encodes real state-machine business meaning worth preserving for the v2 bundle-compliance status
+    display, distinct from the retired React component rendering it here.
+  evidence:
+  - RULE-SEPSE-090
+  target: clinical/domains/sepsis.md#protocol-lifecycle
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-091
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: expandable (collapsible) only when it has a description (descricao_item)
+  disposition: RETIRE
+  justification: Pure legacy frontend rendering mechanics (show/hide via item.exibir, collapsible-panel heuristics) for the
+    retired ItemProtocoloSepse component; the underlying exibir/2h-reveal concept is preserved via RULE-SEPSE-070.
+  evidence:
+  - RULE-SEPSE-091
+  - RULE-SEPSE-070
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-092
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: interactive only when an onCheck handler is supplied (otherwise read-only)
+  disposition: RETIRE
+  justification: Legacy frontend checkbox-toggle wiring (disabled/read-only when no onCheck callback, label swap Checado/Checar)
+    specific to the retired React component tree; the actual check-off business logic lives in RULE-SEPSE-075/077, which are
+    dispositioned separately.
+  evidence:
+  - RULE-SEPSE-092
+  target: null
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-093
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: NOT_APPLICABLE
+  source_quote: the exact distinction between the two flags is not defined
+  disposition: RATIFY
+  justification: 'AMBIGUOUS-band escalation ESC-AMBIGUOUS-306: whether ''finalizado'' means any session end and ''concluida''
+    means successful completion is only the extractor''s best guess with no confirming backend logic in partition; this distinction
+    directly affects hour-1-bundle compliance reporting and needs clinical/product ratification.'
+  evidence:
+  - RULE-SEPSE-093
+  - ESC-AMBIGUOUS-306
+  target: RATIFICATION.md#rat-sepse-02
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-306
+    band: AMBIGUOUS
+  ratify_ref: RAT-SEPSE-02
+- rule_id: RULE-SEPSE-094
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: discarded with a mandatory reason (motivo_descartado)
+  disposition: ADAPT
+  justification: Requiring a documented reason to decline activation of a life-critical sepsis protocol, gated by a dedicated
+    'can_recusar_protocolo_sepse' permission, is a sound clinical-governance pattern worth preserving in the v2 protocol-decline
+    workflow even though the Django permission/type-shape mechanism itself is legacy.
+  evidence:
+  - RULE-SEPSE-094
+  target: clinical/domains/sepsis.md#protocol-decline-workflow
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-095
+  cluster: sepse
+  category: alert-threshold
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: visually flagged with a red clock-alert icon
+  disposition: ADAPT
+  justification: 'P3 escalation ESC-P3-110: the backend exposes the overdue flag as atraso_item_interativa (RULE-SEPSE-069)
+    while the frontend reads a never-populated atraso_primeira_hora, so the red delay icon never renders; v2 must adapt this
+    by using one consistent overdue-flag field name across the hour-1-bundle timer alert.'
+  evidence:
+  - RULE-SEPSE-095
+  - RULE-SEPSE-069
+  - ESC-P3-110
+  target: clinical/domains/sepsis.md#hour-1-bundle-timers
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-P3-110
+    band: P3
+  ratify_ref: null
+- rule_id: RULE-SEPSE-096
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: including the Surviving-Sepsis 1-hour actions
+  disposition: ADOPT
+  justification: The pacote/nome_item PT-BR enum (Primeira hora/Reavaliacao packages; item labels like 'Solicitacao de exames
+    laboratoriais e culturas para bacterias e fungos em ate 1 hora') is a controlled clinical vocabulary asset to adopt verbatim
+    into the v2 clinical-forms bundle-item catalog.
+  evidence:
+  - RULE-SEPSE-096
+  - RULE-SEPSE-076
+  target: design/screens/clinical-forms.md#sepsis-hour1-bundle-items
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-097
+  cluster: sepse
+  category: care-pathway
+  catalog_echo:
+    status: OK
+    verdict: NOT_APPLICABLE
+  source_quote: gating who may refuse (recusar) the sepsis protocol
+  disposition: ADAPT
+  justification: A dedicated, deny-by-default permission specifically for refusing a sepsis protocol is a worthwhile RBAC
+    pattern for high-stakes clinical actions, to be re-implemented under the v2 IAM/authz model rather than the legacy Django
+    Meta.permissions declaration used here.
+  evidence:
+  - RULE-SEPSE-097
+  - RULE-SEPSE-094
+  target: architecture/security-lgpd.md#rbac-clinical-protocol-actions
+  supersedes_note: null
+  escalations: []
+  ratify_ref: null
+- rule_id: RULE-SEPSE-098
+  cluster: sepse
+  category: data-validation
+  catalog_echo:
+    status: AMBIGUOUS
+    verdict: NOT_APPLICABLE
+  source_quote: actor on a sepsis-pathway checklist item includes a
+  disposition: RATIFY
+  justification: 'AMBIGUOUS-band escalation ESC-AMBIGUOUS-338: sepsis checklist check-off actors uniquely carry a CPF field
+    absent from equivalent checked-by shapes elsewhere in the codebase; whether v2 must require CPF-verified signatures for
+    sepsis-bundle compliance is an LGPD/medical-legal policy decision, not one agents can infer.'
+  evidence:
+  - RULE-SEPSE-098
+  - ESC-AMBIGUOUS-338
+  target: RATIFICATION.md#rat-sepse-03
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-338
+    band: AMBIGUOUS
+  ratify_ref: RAT-SEPSE-03
+- rule_id: RULE-SEPSE-099
+  cluster: sepse
+  category: triage-eligibility
+  catalog_echo:
+    status: DISCREPANCY
+    verdict: NOT_APPLICABLE
+  source_quote: so descricao_criterio_8 always defaults to None, silently dropping the stored/displayed description
+  disposition: RATIFY
+  justification: 'ADDENDUM-band item (Phase-6 security/coverage finding) — policy mandates RATIFY; prior analysis retained: ADDENDUM escalation ESC-ADDENDUM-349: the 20-criteria manual-pathway PT-BR clinical description text (e.g.
+    ''Temperatura > 38,3oC'', the Glasgow/delirium criterio_8 text) is a valuable vocabulary asset, but the live criterio8-vs-criterio_8
+    key typo silently drops criterio_8''s description; v2 must adopt the corrected form using the consistent criterio_N key
+    pattern so no criterion description is silently lost.'
+  evidence:
+  - RULE-SEPSE-099
+  - ESC-ADDENDUM-349
+  target: "RATIFICATION.md#rat-sepse-add-01"
+  supersedes_note: null
+  escalations:
+  - item_id: ESC-ADDENDUM-349
+    band: ADDENDUM
+  ratify_ref: RAT-SEPSE-ADD-01

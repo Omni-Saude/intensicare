@@ -1,0 +1,283 @@
+domain: pharmaco-interaction
+# Pharmaco-interaction alert suite — vision §3.7 (Interações Medicamentosas, priority P6).
+# Severity scale: normal|watch|urgent|critical (clinical.* scale). Fleet targets: PPV >= 0.60,
+# ignored-rate <= 10% (VIS-7.1-02/04). P6 is a LOW data-availability, HIGH-complexity domain
+# (VIS-5.1-06, requires complete EMR med-list integration): prefer FEWER, richer alerts; every alert
+# has a symptom/physiologic confirmation gate or an indication-absence gate to protect PPV.
+# The interaction knowledge base (QT-drug / serotonergic / CNS-depressant / nephrotoxic / duplication
+# classes / renal-dose table) is DECLARATIVE + VERSIONED — see clinical/domains/pharmaco-interaction.md §3.
+# Every input unit is canonical per _work/units/registry.yaml EXCEPT `crcl` (mL/min), which is missing
+# from the registry and used as the mission canonical pending its addition (see domain-doc §7 open question).
+# Every rule_refs ID has disposition ADOPT / ADOPT-CORRECTED / ADAPT (RULE-ANTIMICROBIANO-003 ADAPT,
+# RULE-PRESCRICAO-027 ADOPT-CORRECTED, RULE-EQUILIBRIO-002 ADAPT). SUPERSEDE/RETIRE rules are referenced
+# only in domain-doc prose (severity remap), never as alert rule_refs (CONTRACTS §alert schema).
+alerts:
+
+  - alert_id: ALERT-PHARMACO-QTC-01
+    name: "Prolongamento de QTc — risco de Torsades de Pointes"
+    severity: critical
+    trigger:
+      logic: >
+        qtc > 500 AND ( qt_prolonging_drug_count >= 2
+                        OR ( delta_qtc > 60 AND qt_prolonging_drug_count >= 1 ) ),
+        where qt_prolonging_drug_count counts ACTIVE drugs on the CredibleMeds Known-Risk (TdP) list
+        (declarative KB, domain-doc §3.1). The lower substrate band (qtc > 500 AND exactly 1 Known-Risk
+        drug AND (potassio < 3.5 OR magnesio < 0.7)) is NOT a standalone push here: it is emitted as
+        event drug.qtc.prolonged and AMPLIFIED to critical by the correlation engine
+        (correlation.qtc_electrolyte.detected, VIS-4-03 'QTc + K+/Mg2+') to avoid a second WARN push.
+      window: PT24H
+    inputs:
+      - {name: qtc, type: quantity, unit: "ms", source: "AMH Gold Observation LOINC 44974-4 (QTc Bazett/Fridericia)", staleness_max: PT24H}
+      - {name: delta_qtc, type: quantity, unit: "ms", source: "derived: qtc - prior qtc (same lead/formula)", staleness_max: PT24H}
+      - {name: qt_prolonging_drug_count, type: quantity, unit: "count", source: "derived from AMH Gold MedicationRequest+MedicationAdministration matched to CredibleMeds Known-Risk KB (domain §3.1)", staleness_max: PT12H}
+      - {name: potassio, type: quantity, unit: "mmol/L", source: "electrolyte domain / AMH Gold lab_result LOINC 6298-4", staleness_max: PT12H}
+      - {name: magnesio, type: quantity, unit: "mmol/L", source: "electrolyte domain / AMH Gold lab_result LOINC 19123-9", staleness_max: PT12H}
+    evidence:
+      - {citation: "Tisdale JE et al. Circ Cardiovasc Qual Outcomes 2013;6(4):479-487 (QTc risk score)", rule_refs: []}
+      - {citation: "CredibleMeds QTdrugs List (Known Risk of TdP); Drew BJ et al. J Am Coll Cardiol 2010;55(9):934-947", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "2/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.72
+      est_volume_per_100_beds_day: 1
+      rationale: "QTc is Média-availability (DATA-AVAIL-07: automatic QTc varies), and QTc>500 ms WITH >=2 Known-Risk drugs (or a >60 ms jump + >=1 drug) is an uncommon, high-specificity Torsades substrate (~1/100 beds/day). The >=2-drug / delta gate excludes isolated single-drug prolongation (routed to the correlation engine instead), so nearly every push is an actionable de-prescribe/replace-drug + correct-electrolytes decision -> PPV ~0.72. maintenance_window_aware:false (arrhythmia substrate is never maintenance-suppressible)."
+    response: {required: "revisão farmacológica imediata: suspender/substituir droga(s) QT-prolongadora(s), corrigir K+/Mg2+, monitorização de ECG", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {qtc: 520, qt_prolonging_drug_count: 2, delta_qtc: 20, potassio: 4.0, magnesio: 0.9}, expected: fire, note: "QTc 520 + 2 Known-Risk drugs -> primary Torsades band"}
+      - {id: TV-2, kind: no-fire, inputs: {qtc: 520, qt_prolonging_drug_count: 1, delta_qtc: 10, potassio: 4.0, magnesio: 0.9}, expected: no-fire, note: "only 1 Known-Risk drug, no delta jump, normal K+/Mg2+ -> emits drug.qtc.prolonged event for correlation but no standalone push"}
+      - {id: TV-3, kind: boundary, inputs: {qtc: 500, qt_prolonging_drug_count: 3, delta_qtc: 0, potassio: 4.0, magnesio: 0.9}, expected: no-fire, note: "boundary: QTc exactly 500 is NOT >500 (strict, vision §3.7 'QTc > 500 ms'); no fire"}
+      - {id: TV-4, kind: boundary, inputs: {qtc: 501, qt_prolonging_drug_count: 2, delta_qtc: 0, potassio: 4.0, magnesio: 0.9}, expected: fire, note: "boundary: QTc 501 just over 500 with 2 drugs -> fire"}
+      - {id: TV-5, kind: fire, inputs: {qtc: 510, qt_prolonging_drug_count: 1, delta_qtc: 65, potassio: 4.0, magnesio: 0.9}, expected: fire, note: "delta branch: +65 ms jump (>60) with >=1 Known-Risk drug started between ECGs -> fire"}
+    reconciliation: {existing_id: DDX-001, status: extended, note: "vs docs/clinical/alert-catalog.md DDX-001 'Risco de Torsades por prolongamento de QTc + múltiplas drogas'. Same principal trigger (QTc>500 + >=2 CredibleMeds Known-Risk). EXTENDED: DDX-001b (>=1 drug + K<3.5/Mg<0.7) and DDX-001c (delta>60) are folded — 001c becomes the delta branch here; 001b is offloaded to the correlation engine (correlation.qtc_electrolyte.detected) so the K+/Mg2+ amplification is ONE critical alert, not a second WARN, protecting the alarm-fatigue budget."}
+
+  - alert_id: ALERT-PHARMACO-SEROTONIN-02
+    name: "Síndrome serotoninérgica — múltiplos agentes com sinais clínicos"
+    severity: urgent
+    trigger:
+      logic: >
+        serotonergic_agent_count >= 2 AND ( clonus == true OR hipertermia_sem_infeccao == true
+                                            OR hiperreflexia == true ),
+        where serotonergic_agent_count counts ACTIVE agents on the serotonergic KB (domain §3.2:
+        ISRS, ISRSN, linezolida, fentanil, ondansetrona, metoclopramida, tramadol, azul de metileno,
+        Hypericum). The asymptomatic >=3-agent case (DDX-002b) is NOT pushed: it is emitted as event
+        drug.serotonergic_load.high (surveillance) to protect PPV — a drug list alone under-discriminates.
+      window: PT24H
+    inputs:
+      - {name: serotonergic_agent_count, type: quantity, unit: "count", source: "derived from AMH Gold MedicationRequest+MedicationAdministration matched to serotonergic KB (domain §3.2)", staleness_max: PT12H}
+      - {name: clonus, type: boolean, unit: "boolean", source: "AMH Gold Observation / nursing exam (clonus documentado)", staleness_max: PT12H}
+      - {name: hipertermia_sem_infeccao, type: boolean, unit: "boolean", source: "derived (temperatura > 38.0 degC without documented infection source)", staleness_max: PT6H}
+      - {name: hiperreflexia, type: boolean, unit: "boolean", source: "AMH Gold Observation / neuro exam (hiperreflexia documentada)", staleness_max: PT12H}
+    evidence:
+      - {citation: "Boyer EW, Shannon M. NEJM 2005;352(11):1112-1120 (serotonin syndrome)", rule_refs: []}
+      - {citation: "Isbister GK et al. J Clin Psychiatry 2004; Hunter Serotonin Toxicity Criteria (clonus/hyperreflexia/hyperthermia)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT8H, rate_limit: "3/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.68
+      est_volume_per_100_beds_day: 1
+      rationale: "The symptom gate (>=1 Hunter-criterion sign: clonus / hyperthermia-without-infection / hyperreflexia) is what makes this specific — >=2 serotonergic agents is common (linezolid+fentanyl, SSRI+ondansetron) but co-occurrence WITH a positive sign is rare (~1/100 beds/day) and directly actionable (stop the combination). PPV ~0.68. Asymptomatic polypharmacy is demoted to an event, not a push."
+    response: {required: "suspender agentes serotoninérgicos, medidas de suporte, considerar ciproeptadina se toxicidade estabelecida", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {serotonergic_agent_count: 2, clonus: true, hipertermia_sem_infeccao: false, hiperreflexia: false}, expected: fire, note: "2 agents (e.g. linezolida + fentanil) + clonus"}
+      - {id: TV-2, kind: no-fire, inputs: {serotonergic_agent_count: 3, clonus: false, hipertermia_sem_infeccao: false, hiperreflexia: false}, expected: no-fire, note: "3 agents but asymptomatic (DDX-002b) -> event drug.serotonergic_load.high only, no push"}
+      - {id: TV-3, kind: boundary, inputs: {serotonergic_agent_count: 1, clonus: true, hipertermia_sem_infeccao: false, hiperreflexia: false}, expected: no-fire, note: "boundary: only 1 serotonergic agent (>=2 required) -> clonus alone does not fire"}
+      - {id: TV-4, kind: boundary, inputs: {serotonergic_agent_count: 2, clonus: false, hipertermia_sem_infeccao: false, hiperreflexia: false}, expected: no-fire, note: "boundary: exactly 2 agents but NO clinical sign -> no fire (symptom gate not met)"}
+    reconciliation: {existing_id: DDX-002, status: changed, note: "vs DDX-002 'Risco de síndrome serotoninérgica — múltiplos agentes'. CHANGED: the symptomatic branch is kept verbatim (urgent). DDX-002b (>=3 agents asymptomatic, WARN) is demoted from a push to event drug.serotonergic_load.high — a bare polypharmacy count without a Hunter sign is below the PPV floor and would drive ignored-rate, so it becomes surveillance, not an alarm."}
+
+  - alert_id: ALERT-PHARMACO-CNS-DEPRESSION-03
+    name: "Depressão respiratória por sinergismo de depressores do SNC"
+    severity: critical
+    trigger:
+      logic: >
+        cns_depressant_count >= 2 AND ( frequencia_respiratoria < 10 OR spo2 < 90 )
+        AND ventilacao_mecanica_controlada == false,
+        where cns_depressant_count counts ACTIVE CNS-depressant-class drugs (domain §3.3: opioides,
+        benzodiazepínicos, gabapentinoides, antipsicóticos sedativos, barbitúricos, anti-histamínicos
+        sedativos). Controlled-mode ventilation is excluded because a set RR/controlled SpO2 is not a
+        spontaneous respiratory-depression signal (PPV gate).
+      window: PT1H
+    inputs:
+      - {name: cns_depressant_count, type: quantity, unit: "count", source: "derived from AMH Gold MedicationRequest+MedicationAdministration matched to CNS-depressant KB (domain §3.3)", staleness_max: PT6H}
+      - {name: frequencia_respiratoria, type: quantity, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1 / monitor HL7 ORU", staleness_max: PT1H}
+      - {name: spo2, type: quantity, unit: "percent", source: "AMH Gold Observation LOINC 2708-6 / monitor HL7 ORU", staleness_max: PT1H}
+      - {name: ventilacao_mecanica_controlada, type: boolean, unit: "boolean", source: "Procedure / ventilator mode (controlled vs spontaneous)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Overdyk FJ et al. Anesth Analg 2016;122(2):412-418 (opioid-induced respiratory depression)", rule_refs: []}
+      - {citation: "Lee LA et al. Anesthesiology 2015;122(3):659-665 (postoperative opioid respiratory depression)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "4/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.63
+      est_volume_per_100_beds_day: 2
+      rationale: "The physiologic gate (RR<10 OR SpO2<90) plus the controlled-ventilation exclusion turns a common polypharmacy state into a specific event: a spontaneously-breathing patient on >=2 CNS depressants who IS hypoventilating/desaturating (~2/100 beds/day). PPV ~0.63 — some fires are transient desaturations, but each warrants a naloxone/flumazenil-readiness + dose-review response. Critical severity because respiratory depression is imminently life-threatening (CAT-C-02, <5 min)."
+    response: {required: "avaliação beira-leito imediata: via aérea, revisão/redução de depressores do SNC, antagonista (naloxona/flumazenil) se indicado", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {cns_depressant_count: 2, frequencia_respiratoria: 8, spo2: 96, ventilacao_mecanica_controlada: false}, expected: fire, note: "opioide + BZD, RR 8 (<10), spontaneous"}
+      - {id: TV-2, kind: no-fire, inputs: {cns_depressant_count: 2, frequencia_respiratoria: 14, spo2: 96, ventilacao_mecanica_controlada: false}, expected: no-fire, note: "2 depressants but RR 14 and SpO2 96 -> no respiratory compromise"}
+      - {id: TV-3, kind: boundary, inputs: {cns_depressant_count: 2, frequencia_respiratoria: 10, spo2: 95, ventilacao_mecanica_controlada: false}, expected: no-fire, note: "boundary: RR exactly 10 is NOT <10 (strict, catalog rr<10rpm); SpO2 95 ok -> no fire"}
+      - {id: TV-4, kind: boundary, inputs: {cns_depressant_count: 2, frequencia_respiratoria: 12, spo2: 89, ventilacao_mecanica_controlada: false}, expected: fire, note: "boundary: SpO2 89 is <90 -> OR-branch fires"}
+      - {id: TV-5, kind: no-fire, inputs: {cns_depressant_count: 2, frequencia_respiratoria: 8, spo2: 92, ventilacao_mecanica_controlada: true}, expected: no-fire, note: "RR 8 but on CONTROLLED ventilation -> set-rate, not spontaneous depression (suppression gate)"}
+    reconciliation: {existing_id: DDX-003, status: extended, note: "vs DDX-003 'Depressão respiratória por sinergismo de depressores SNC'. Same trigger (>=2 CNS depressants + RR<10/SpO2<90). EXTENDED with a controlled-mechanical-ventilation suppression gate (a controlled set-rate is not spontaneous respiratory depression) to lift PPV. DDX-003b (>=3 depressants without continuous SpO2 monitoring, WARN) is handled as a monitoring-gap event, not a second push."}
+
+  - alert_id: ALERT-PHARMACO-DUP-04
+    name: "Duplicidade terapêutica — 2+ fármacos da mesma classe"
+    severity: watch
+    trigger:
+      logic: >
+        same_class_active_count >= 2 for a class flagged in the duplication KB (domain §3.4)
+        AND indicacao_combinacao_documentada == false,
+        where duplicated_class is one of {IBP, anticoagulante_dose_plena, antiagregante, antiemetico,
+        antipsicotico, benzodiazepinico, AINE}. Documented dual-therapy indications (e.g. DAPT after
+        recent stent) suppress.
+      window: PT24H
+    inputs:
+      - {name: duplicated_class, type: enum, unit: "enum", source: "derived: therapeutic class from AMH Gold MedicationRequest (ATC mapping, duplication KB §3.4)", staleness_max: PT12H}
+      - {name: same_class_active_count, type: quantity, unit: "count", source: "derived count of active drugs within duplicated_class", staleness_max: PT12H}
+      - {name: indicacao_combinacao_documentada, type: boolean, unit: "boolean", source: "AMH Gold Condition / care-plan (documented combination indication)", staleness_max: PT24H}
+    evidence:
+      - {citation: "ISMP Guidelines for Preventing Duplicate Therapy 2023", rule_refs: []}
+      - {citation: "Maviglia SM et al. J Am Med Inform Assoc 2006;13(6):658-661 (duplicate-medication alerting)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id+duplicated_class", cooldown: PT24H, rate_limit: "2/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 2
+      rationale: "The documented-indication suppression gate is the PPV lever: unintentional same-class duplication (2 PPIs, 2 antiemetics) is the target; intentional combinations (DAPT, scheduled+PRN BZD) are excluded. Deduped per class and rate-limited to 2/24h. ~2/100 beds/day. PPV ~0.60 (at the floor by design for a watch-level reconciliation nudge whose action cost is a single med-review); kept watch so it cannot drive ignored-rate."
+    response: {required: "reconciliação medicamentosa: revisar necessidade de manter ambos os fármacos da mesma classe", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {duplicated_class: IBP, same_class_active_count: 2, indicacao_combinacao_documentada: false}, expected: fire, note: "omeprazol + pantoprazol, no indication for both"}
+      - {id: TV-2, kind: no-fire, inputs: {duplicated_class: antiagregante, same_class_active_count: 2, indicacao_combinacao_documentada: true}, expected: no-fire, note: "AAS + clopidogrel WITH documented DAPT indication (recent stent) -> suppressed"}
+      - {id: TV-3, kind: boundary, inputs: {duplicated_class: IBP, same_class_active_count: 1, indicacao_combinacao_documentada: false}, expected: no-fire, note: "boundary: only 1 drug in class (>=2 required) -> no duplication"}
+      - {id: TV-4, kind: no-fire, inputs: {duplicated_class: null, same_class_active_count: 2, indicacao_combinacao_documentada: false}, expected: no-fire, note: "2 active drugs but in DIFFERENT classes (no class flagged for duplication) -> no fire"}
+    reconciliation: {existing_id: DDX-004, status: aligned, note: "vs DDX-004 'Duplicidade terapêutica — 2+ medicamentos da mesma classe'. Same trigger (>=2 same-class active + no documented combination indication + class marked alerta_duplicidade). Severity mapped catalog WARN -> watch. Class KB preserved (§3.4)."}
+
+  - alert_id: ALERT-PHARMACO-WITHDRAWAL-05
+    name: "Risco de síndrome de abstinência por suspensão abrupta"
+    severity: watch
+    trigger:
+      logic: >
+        ( bzd_continuo_gt_7d == true OR opioide_continuo_gt_7d == true )
+        AND suspensao_abrupta == true
+        AND ( frequencia_cardiaca > 100 OR pressao_arterial_sistolica > 160 OR temperatura > 38.0
+              OR sudorese == true OR rass > 1 ),
+        where suspensao_abrupta = discontinuation of a >7-day continuous BZD/opioid with NO documented
+        taper. Consumes neuro-sedation event neurosed.prolonged_sedation.flagged for the >7d exposure.
+      window: PT24H
+    inputs:
+      - {name: bzd_continuo_gt_7d, type: boolean, unit: "boolean", source: "derived from AMH Gold MedicationAdministration (continuous BZD start >7d); neurosed.prolonged_sedation.flagged", staleness_max: PT12H}
+      - {name: opioide_continuo_gt_7d, type: boolean, unit: "boolean", source: "derived from AMH Gold MedicationAdministration (continuous opioid start >7d)", staleness_max: PT12H}
+      - {name: suspensao_abrupta, type: boolean, unit: "boolean", source: "derived: prior continuous agent absent from current MAR with no taper order", staleness_max: PT12H}
+      - {name: frequencia_cardiaca, type: quantity, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4 / monitor", staleness_max: PT4H}
+      - {name: pressao_arterial_sistolica, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6 / monitor", staleness_max: PT4H}
+      - {name: temperatura, type: quantity, unit: "degC", source: "AMH Gold Observation LOINC 8310-5 / monitor", staleness_max: PT6H}
+      - {name: rass, type: quantity, unit: "points", source: "neuro-sedation domain / AMH Gold Observation LOINC 75826-6 (signed -5..+4)", staleness_max: PT4H}
+      - {name: sudorese, type: boolean, unit: "boolean", source: "AMH Gold Observation / nursing record (diaphoresis)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Devlin JW et al. Crit Care Med 2018;46(9):e825-e873 (PADIS — iatrogenic withdrawal)", rule_refs: []}
+      - {citation: "Korak-Leiter M et al. Intensive Care Med 2005;31(3):380-387 (BZD/opioid withdrawal after prolonged sedation)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "2/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 1
+      rationale: "Narrow conjunction: >7d continuous BZD/opioid AND abrupt stop (no taper) AND >=1 new autonomic sign. The exposure gate (>7d) and taper-absence gate exclude short courses and planned weans; the autonomic-sign gate excludes stable discontinuations (~1/100 beds/day). PPV ~0.60 — a genuine prompt to reinstate + taper. Watch severity (evolving, not imminently lethal)."
+    response: {required: "considerar reintrodução com desmame gradual do agente; tratar sintomas autonômicos", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {bzd_continuo_gt_7d: true, opioide_continuo_gt_7d: false, suspensao_abrupta: true, frequencia_cardiaca: 112, pressao_arterial_sistolica: 140, temperatura: 37.4, sudorese: false, rass: 0}, expected: fire, note: ">7d BZD, abrupt stop, new tachycardia HR 112"}
+      - {id: TV-2, kind: no-fire, inputs: {bzd_continuo_gt_7d: true, opioide_continuo_gt_7d: false, suspensao_abrupta: true, frequencia_cardiaca: 84, pressao_arterial_sistolica: 130, temperatura: 36.8, sudorese: false, rass: 0}, expected: no-fire, note: "abrupt stop but NO autonomic sign -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {bzd_continuo_gt_7d: false, opioide_continuo_gt_7d: false, suspensao_abrupta: true, frequencia_cardiaca: 112, pressao_arterial_sistolica: 170, temperatura: 38.2, sudorese: true, rass: 2}, expected: no-fire, note: "boundary: neither agent was continuous >7d (exposure gate false) -> no fire regardless of signs"}
+      - {id: TV-4, kind: no-fire, inputs: {bzd_continuo_gt_7d: true, opioide_continuo_gt_7d: false, suspensao_abrupta: false, frequencia_cardiaca: 112, pressao_arterial_sistolica: 170, temperatura: 38.2, sudorese: true, rass: 2}, expected: no-fire, note: "documented taper (suspensao_abrupta false) -> planned wean, suppressed"}
+    reconciliation: {existing_id: DDX-005, status: aligned, note: "vs DDX-005 'Risco de síndrome de abstinência por suspensão abrupta'. Same trigger (>7d continuous BZD/opioid + abrupt stop + >=1 autonomic sign HR>100/SBP>160/temp>38.0/sudorese/RASS>+1). Severity WARN -> watch. Exposure gate sourced from neuro-sedation neurosed.prolonged_sedation.flagged (cross-domain reuse)."}
+
+  - alert_id: ALERT-PHARMACO-RENALADJ-06
+    name: "Antimicrobiano de eliminação renal sem ajuste para CrCl"
+    severity: urgent
+    trigger:
+      logic: >
+        antimicrobiano_eliminacao_renal_ativo == true AND crcl < 30 AND dose_excede_ajuste_renal == true
+        AND drug NOT IN renal-adjust-exception KB {Polimixina B, Linezolida, Oxacilina, Tigeciclina,
+        Clindamicina}. dose_excede_ajuste_renal is computed against the VERSIONED inline renal-dose
+        lookup table (domain §3.6, replacing the legacy S3 PNG per CON-0139 / RULE-ANTIMICROBIANO-003).
+      window: PT24H
+    inputs:
+      - {name: antimicrobiano_eliminacao_renal_ativo, type: boolean, unit: "boolean", source: "derived: active antimicrobial matched to renally-cleared KB (domain §3.6) from AMH Gold MedicationRequest", staleness_max: PT12H}
+      - {name: crcl, type: quantity, unit: "mL/min", source: "derived Cockcroft-Gault from creatinina (LOINC 2160-0) + peso + idade + sex; MISSION CANONICAL mL/min — unit MISSING from registry, see domain §7 open question", staleness_max: PT24H}
+      - {name: dose_excede_ajuste_renal, type: boolean, unit: "boolean", source: "derived: prescribed dose > recommended dose for crcl band per versioned renal-dose table (domain §3.6)", staleness_max: PT12H}
+    evidence:
+      - {citation: "Rybak MJ et al. Am J Health Syst Pharm 2020;77(11):835-864 (vancomycin therapeutic monitoring)", rule_refs: [RULE-ANTIMICROBIANO-003]}
+      - {citation: "Matzke GR et al. Kidney Int 2011;80(11):1122-1137 (drug dosing in AKI/CKD); KDIGO Drug-Induced AKI 2023", rule_refs: [RULE-ANTIMICROBIANO-003]}
+    suppression: {dedup_key: "patient_id+alert_id+drug", cooldown: PT12H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 2
+      rationale: "CrCl<30 mL/min AND a prescribed dose that exceeds the versioned renal-adjust table AND the drug is not on the no-adjust exception list — a computable, high-specificity mismatch (~2/100 beds/day). The exception KB (Polimixina B/Linezolida/Oxacilina/Tigeciclina/Clindamicina) removes the classic false positives. PPV ~0.65. Urgent because sub/over-dosing a renally-cleared antimicrobial risks toxicity or treatment failure (raised from catalog WARN given the additive AKI feedback)."
+    response: {required: "ajuste de dose/intervalo do antimicrobiano à função renal (CrCl); considerar dosagem sérica quando disponível", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: true}, expected: fire, note: "vancomicina, CrCl 20, dose above renal-adjusted target"}
+      - {id: TV-2, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: false}, expected: no-fire, note: "renally-cleared drug at CrCl 20 but dose ALREADY adjusted -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 30, dose_excede_ajuste_renal: true}, expected: no-fire, note: "boundary: CrCl exactly 30 is NOT <30 (strict, vision §3.7 'CrCl < 30 mL/min') -> no fire"}
+      - {id: TV-4, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: true, drug: Linezolida}, expected: no-fire, note: "Linezolida is on the renal-adjust EXCEPTION KB (no renal adjustment needed) -> suppressed (CON-0139)"}
+    reconciliation: {existing_id: DDX-006, status: extended, note: "vs DDX-006 'Antimicrobiano com clearance renal sem ajuste para CrCl'. Same trigger (renally-cleared antimicrobial + CrCl<30 + dose>recommended). EXTENDED: the dose comparison is now against a VERSIONED inline renal-dose table (replacing the legacy S3 PNG, CON-0139) and an explicit no-adjust exception KB (Polimixina B/Linezolida/Oxacilina/Tigeciclina/Clindamicina); severity WARN -> urgent."}
+
+  - alert_id: ALERT-PHARMACO-STEWARDSHIP-07
+    name: "Revisão de antimicrobiano — duração / de-escalonamento (stewardship)"
+    severity: watch
+    trigger:
+      logic: >
+        antimicrobiano_ativo == true AND ( antimicrobiano_duracao_gt_7d == true
+          OR ( espectro_amplo == true AND cultura_solicitada_48h == false )
+          OR de_escalonamento_disponivel == true ),
+        where de_escalonamento_disponivel is set by the sepsis/procalcitonin de-escalation signal
+        (PCT<0.25 ng/mL OR >80% drop from peak, or PCR<100 mg/L CAP context) OR a positive culture
+        enabling narrowing. Adapts the legacy antimicrobial-stewardship timers (RULE-ANTIMICROBIANO-003,
+        criteria: duração >7d, espectro-amplo+internação>48h, solicitação de culturas). Recommended
+        default per RAT-ANTIMICROBIANO-01/02 (duration is a soft de-escalation-review nudge, reset on
+        documented spectrum change; all clinically-actionable criteria surfaced, not the legacy 3,4,5,6,8 subset).
+      window: P7D
+    inputs:
+      - {name: antimicrobiano_ativo, type: boolean, unit: "boolean", source: "AMH Gold MedicationRequest (active antimicrobial)", staleness_max: PT12H}
+      - {name: antimicrobiano_duracao_gt_7d, type: boolean, unit: "boolean", source: "derived from MedicationAdministration start (>7d continuous, reset on documented spectrum change)", staleness_max: PT12H}
+      - {name: espectro_amplo, type: boolean, unit: "boolean", source: "derived: active drug on broad-spectrum KB (domain §3.7)", staleness_max: PT12H}
+      - {name: cultura_solicitada_48h, type: boolean, unit: "boolean", source: "AMH Gold ServiceRequest/DiagnosticReport (culture ordered within 48h of antimicrobial start)", staleness_max: PT48H}
+      - {name: de_escalonamento_disponivel, type: boolean, unit: "boolean", source: "sepsis domain de-escalation signal (PCT<0.25 / >80% drop; PCR<100 CAP) OR positive culture enabling narrowing", staleness_max: PT24H}
+    evidence:
+      - {citation: "Surviving Sepsis Campaign 2021, Evans L et al. Intensive Care Med 2021;47:1181-1247 (antimicrobial duration/de-escalation)", rule_refs: [RULE-ANTIMICROBIANO-003]}
+      - {citation: "Schuetz P et al. Cochrane 2017 CD007498 (procalcitonin-guided antibiotic de-escalation); IDSA/SHEA Antimicrobial Stewardship 2016", rule_refs: [RULE-ANTIMICROBIANO-003]}
+      - {citation: "Antibiotic course tracking form (start/end, renal/hepatic adjust note, positive-culture note)", rule_refs: [RULE-PRESCRICAO-027]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT48H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 3
+      rationale: "A stewardship-review nudge, not a deterioration alarm. Evaluated once per patient/day, deduped to 1 fire per 48h, so at most ~3/100 beds/day. The three OR-branches (>7d duration, broad-spectrum-without-cultures, active de-escalation opportunity) are each an actionable review prompt. PPV ~0.60 (floor is acceptable for a low-burden review class whose action cost is a single stewardship-round decision); watch severity + heavy dedup keep it off the ignored-rate driver list."
+    response: {required: "revisão de stewardship: reavaliar duração, de-escalonar por cultura/PCT, confirmar solicitação de culturas", ack_sla: PT6H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {antimicrobiano_ativo: true, antimicrobiano_duracao_gt_7d: true, espectro_amplo: false, cultura_solicitada_48h: true, de_escalonamento_disponivel: false}, expected: fire, note: ">7d continuous antimicrobial -> duration-review branch"}
+      - {id: TV-2, kind: no-fire, inputs: {antimicrobiano_ativo: true, antimicrobiano_duracao_gt_7d: false, espectro_amplo: true, cultura_solicitada_48h: true, de_escalonamento_disponivel: false}, expected: no-fire, note: "day 3, broad-spectrum but cultures WERE sent, no de-escalation signal -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {antimicrobiano_ativo: true, antimicrobiano_duracao_gt_7d: false, espectro_amplo: false, cultura_solicitada_48h: true, de_escalonamento_disponivel: false}, expected: no-fire, note: "boundary: exactly 7d -> gt_7d flag false (>7d strict, RAT-ANTIMICROBIANO-01) -> no fire until day 8"}
+      - {id: TV-4, kind: fire, inputs: {antimicrobiano_ativo: true, antimicrobiano_duracao_gt_7d: false, espectro_amplo: true, cultura_solicitada_48h: false, de_escalonamento_disponivel: true}, expected: fire, note: "de-escalation available (PCT<0.25 / >80% drop) -> de-escalation branch fires"}
+    reconciliation: {existing_id: null, status: new, note: "No DDX-* catalog alert covers antimicrobial stewardship (the DDX group is drug-interaction; stewardship is the legacy antimicrobiano trilha). NEW alert adapting RULE-ANTIMICROBIANO-003 (ADAPT) + RULE-PRESCRICAO-027 (antibiotic course tracking, ADOPT-CORRECTED). Legacy VERMELHO/AMARELO/NEUTRO aggregation is superseded (RULE-ANTIMICROBIANO-001 SUPERSEDE) by the normal|watch|urgent|critical scale."}
+
+  - alert_id: ALERT-PHARMACO-CVC-FEVER-08
+    name: "Cateter venoso central > 7 dias com febre — investigar foco de cateter"
+    severity: urgent
+    trigger:
+      logic: >
+        cvc_dwell_gt_7d == true AND temperatura >= 38.3,
+        where cvc_dwell_gt_7d = central venous catheter dwell time > 7 days and 38.3 degC is the IDSA
+        fever definition (RULE-ANTIMICROBIANO-003 criterio_8). Advisory text carries the candidemia
+        empiric-echinocandin branch (criterio_9/10, preserved distinct per CON-0140 / RAT-ANTIMICROBIANO-03)
+        when candidemia risk factors are present.
+      window: PT24H
+    inputs:
+      - {name: cvc_dwell_gt_7d, type: boolean, unit: "boolean", source: "derived: CVC insertion Procedure timestamp > 7d ago, still in situ", staleness_max: PT12H}
+      - {name: temperatura, type: quantity, unit: "degC", source: "AMH Gold Observation LOINC 8310-5 / monitor", staleness_max: PT6H}
+    evidence:
+      - {citation: "Mermel LA et al. Clin Infect Dis 2009;49(1):1-45 (IDSA intravascular catheter-related infection; fever 38.3 degC)", rule_refs: [RULE-ANTIMICROBIANO-003]}
+      - {citation: "Pappas PG et al. Clin Infect Dis 2016;62(4):e1-e50 (IDSA candidiasis — empiric echinocandin)", rule_refs: [RULE-ANTIMICROBIANO-003]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "2/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 2
+      rationale: "CVC dwell >7d is common in ICU, but the conjunction with a new fever >=38.3 degC (IDSA) narrows to a specific catheter-source-workup prompt (~2/100 beds/day). PPV ~0.60 — fever has many sources, but the recommended action (paired blood cultures + reassess line necessity/removal) is low-cost and high-value; the alert is a workup prompt, not an infection diagnosis (VIS-C-01). Urgent (deterioração significativa, <30 min)."
+    response: {required: "coletar hemoculturas pareadas (2x), reavaliar necessidade/troca do CVC; considerar equinocandina empírica se fatores de risco para candidemia", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {cvc_dwell_gt_7d: true, temperatura: 38.6}, expected: fire, note: "CVC >7d + febre 38.6"}
+      - {id: TV-2, kind: no-fire, inputs: {cvc_dwell_gt_7d: true, temperatura: 37.5}, expected: no-fire, note: "CVC >7d but afebrile (37.5) -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {cvc_dwell_gt_7d: true, temperatura: 38.3}, expected: fire, note: "boundary: temp exactly 38.3 meets IDSA fever definition (>=38.3, inclusive) -> fire"}
+      - {id: TV-4, kind: boundary, inputs: {cvc_dwell_gt_7d: false, temperatura: 39.0}, expected: no-fire, note: "boundary: CVC dwell NOT >7d (e.g. exactly 7d / line just placed) -> catheter-source prompt not triggered by fever alone"}
+    reconciliation: {existing_id: null, status: new, note: "No DDX-* catalog alert covers CVC-source workup (legacy antimicrobiano trilha criterio_8). NEW alert adapting RULE-ANTIMICROBIANO-003 (ADAPT); preserves the candidemia workup duality (criterio_9 full / criterio_10 fungi-only) as an advisory branch per CON-0140 (pending RAT-ANTIMICROBIANO-03), not a separate push."}

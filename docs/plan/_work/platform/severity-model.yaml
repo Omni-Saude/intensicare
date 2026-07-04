@@ -1,0 +1,142 @@
+# IntensiCare v2 — Canonical Clinical Severity Model
+# Owner: alert-engine-architect (co-owner: design-token-systems-designer)
+# Resolves: CON-SEED-11 (severity mapping duty) — barrier C2
+# LAW: one clinical.* scale {normal, watch, urgent, critical}, structurally separate from
+#   tenant brand.* tokens (CON-0041/ADR-C-08/DES-C-01). Severity is ALWAYS triple-encoded
+#   color + icon + shape (CON-SEED-11), never color alone (WCAG 1.4.1).
+# Every number/SLA cites a source: CON-* ledger id, CAT-* / VIS-* / DM-* brief fact, or INV-*.
+# PT-BR legacy vocabulary (NEUTRO/AMARELO/LARANJA/VERMELHO, statusTrilha) preserved verbatim
+#   with accents (CON-0183/DM-C-01).
+version: 1
+
+severities:
+  - band: normal
+    ordinal: 0
+    definition: "Within expected range, or an advisory trend/opportunity (e.g. weaning readiness, antimicrobial de-escalation). No deterioration."
+    response_expectation: "Review < 6h (advisory)."
+    response_sla: PT6H
+    response_sla_source: CON-0065   # CAT-C-05: INFO action <6h
+    delivery_tier: 4
+    delivery: "Bed-board / worklist advisory only; no push, no page. Suppressible / coalescable into a digest."
+    paging: false
+    rate_limited: true
+    encoding: {color_token: "clinical.severity.normal", color_family: green, icon: check-circle, shape: circle}
+  - band: watch
+    ordinal: 1
+    definition: "Relevant change worth noticing; not yet significant deterioration."
+    response_expectation: "Clinical action < 2h."
+    response_sla: PT2H
+    response_sla_source: CON-0064   # CAT-C-04: WARN action <2h
+    ack_sla: PT60M
+    delivery_tier: 3
+    delivery: "WebSocket push + bed-board badge; no mobile page; no escalation."
+    paging: false
+    rate_limited: true
+    encoding: {color_token: "clinical.severity.watch", color_family: amber, icon: eye, shape: rounded-square}
+  - band: urgent
+    ordinal: 2
+    definition: "Significant clinical deterioration."
+    response_expectation: "Clinical action < 30 min."
+    response_sla: PT30M
+    response_sla_source: CON-0063   # CAT-C-03: URG action <30min
+    ack_sla: PT10M
+    delivery_tier: 2
+    delivery: "WebSocket push + bed-board + mobile push; acknowledgment expected; escalate on ack-SLA breach."
+    paging: true
+    rate_limited: true
+    encoding: {color_token: "clinical.severity.urgent", color_family: orange, icon: exclamation, shape: triangle}
+  - band: critical
+    ordinal: 3
+    definition: "Imminent risk to life."
+    response_expectation: "Clinical action < 5 min."
+    response_sla: PT5M
+    response_sla_source: CON-0062   # CAT-C-02: CRIT action <5min
+    ack_sla: PT2M
+    delivery_tier: 1
+    delivery: "Interruptive multi-channel: WebSocket push + mobile page to RRT <5s + bed-board + audible. Mandatory ack; escalate on ack-SLA breach."
+    rrt_push_sla: PT5S
+    rrt_push_sla_source: CON-0092    # PER-C-06: mobile deterioration notification to RRT <5s
+    paging: true
+    rate_limited: false              # patient-safety carve-out: critical is NEVER rate-limited/suppressed
+    encoding: {color_token: "clinical.severity.critical", color_family: red, icon: alert-octagon, shape: octagon}
+
+# Aggregation rule: severity = MAX(component severities). NEVER last-writer-wins.
+# A higher band evaluated earlier is never overwritten by a lower band evaluated later
+# (the P0-10 downgrade defect). Source: CON-0182 / CLU-PIORA-CLINICA-C-01 / P0-10.
+aggregation:
+  rule: max-severity-wins
+  forbidden: last-writer-wins
+  source: [CON-0182, P0-10]
+  note: "On the legacy color scale, VERMELHO can never be downgraded by a later AMARELO/LARANJA."
+
+mappings:
+  # 4->4 ordinal mapping from legacy statusTrilha colors (PT-BR verbatim, CON-0183).
+  legacy_statusTrilha:
+    source_ref: "CON-SEED-11; RULE-PIORA-CLINICA-005/010/011 (statusTrilha color scale)"
+    map:
+      NEUTRO: normal
+      AMARELO: watch
+      LARANJA: urgent
+      VERMELHO: critical
+  # 4->4 ordinal mapping from the existing alert catalog (docs/clinical/alert-catalog.md legend).
+  existing_catalog:
+    source_ref: "CON-SEED-11; LEGEND-SEV (alert-catalog.md L13-21); CAT-C-02..05"
+    map:
+      INFO: normal    # advisory/trend, action <6h -> normal band, non-paging (Tier 4)
+      WARN: watch     # relevant change, action <2h
+      URG:  urgent    # significant deterioration, action <30min
+      CRIT: critical  # imminent life risk, action <5min
+  # docs/data/model.md alert.severity enum has only 3 values (no normal/info).
+  data_model_alert_severity:
+    source_ref: "DM-VOCAB-03 (alert.severity VARCHAR(16)); docs/data/model.md L105"
+    enum_values: [watch, urgent, critical]
+    map:
+      watch: watch
+      urgent: urgent
+      critical: critical
+    note: >-
+      The data model has no 'normal'/'info' value; an alert ROW is created only at
+      watch/urgent/critical. 'normal' is the baseline/advisory band (bed-board green,
+      no row). RECONCILIATION (barrier C2, co-owner data-architect): to persist and
+      PPV-analyze INFO->normal advisories as first-class audited rows, RECOMMEND adding
+      a delivery-only 'info' value to alert.severity; otherwise normal-band advisories
+      are score-band annotations without an alert row.
+
+lifecycle:
+  # Task lifecycle raise -> acknowledge -> act -> resolve, reconciled with the
+  # data-model status enum {active, acknowledged, resolved, expired} (DM-VOCAB-04)
+  # and resolution enum {true_positive, false_positive, intervention_done} (DM-VOCAB-05).
+  states: [raised, acknowledged, acting, resolved, expired, escalated]
+  data_model_status_enum: [active, acknowledged, resolved, expired]   # DM-VOCAB-04
+  data_model_resolution_enum: [true_positive, false_positive, intervention_done]  # DM-VOCAB-05
+  state_status_mapping:
+    raised: active
+    acknowledged: acknowledged
+    acting: "acknowledged + intervention_started_at (or new status; see reconciliation)"
+    resolved: resolved
+    expired: expired
+    escalated: "flag on active/acknowledged (or new status; see reconciliation)"
+  reconciliation_note: >-
+    'acting' and 'escalated' extend the data-model status enum. RECONCILE at barrier C2
+    with data-architect: add the two statuses, or model acting as acknowledged+timestamp
+    and escalated as a boolean flag. Auto-clear routes to 'expired' to stay within the enum.
+  audit: "Every transition writes an immutable append-only audit_trail row (INV-1, CON-0066). LGPD + CFM 1.821/07."
+  transitions:
+    - {from: null,          to: raised,       actor: system,               audited: true, sla: null,   trigger: "definition predicate fires + passes suppression"}
+    - {from: raised,        to: acknowledged, actor: clinician,            audited: true, sla: "ack-window per severity (critical PT2M / urgent PT10M / watch PT60M)", trigger: "1-click ack (CON-0091/PER-C-05)"}
+    - {from: acknowledged,  to: acting,       actor: clinician,            audited: true, sla: null,   trigger: "intervention started"}
+    - {from: acting,        to: resolved,     actor: clinician,            audited: true, sla: "action-window per severity (CON-0062..64)", trigger: "sets resolution true_positive|false_positive|intervention_done"}
+    - {from: acknowledged,  to: resolved,     actor: clinician,            audited: true, sla: "action-window per severity", trigger: "direct resolve; sets resolution"}
+    - {from: raised,        to: escalated,    actor: system,               audited: true, sla: "ack-window breach", trigger: "page next tier (RRT)"}
+    - {from: acknowledged,  to: escalated,    actor: system,               audited: true, sla: "action-window breach", trigger: "page next tier"}
+    - {from: escalated,     to: acknowledged, actor: escalation-clinician, audited: true, sla: null,   trigger: "RRT/next-tier acknowledges"}
+    - {from: raised,        to: expired,      actor: system,               audited: true, sla: null,   trigger: "triggering condition cleared before ack, or alert TTL"}
+
+ppv_analytics:
+  # Lifecycle timestamps + resolution feed PPV/response analytics (co-owned, barrier C3).
+  ppv: {formula: "TP / (TP + FP)", from: "resolution true_positive vs false_positive", target: 0.60, source: VIS-7.1-02}
+  time_to_recognition: {formula: "acknowledged_at - created_at", source: DM-T-04}
+  time_to_action: {formula: "resolved_at - created_at", target_max: PT15M, source: VIS-7.1-03}
+  alarm_fatigue: {formula: "expired_unacked / total", target_max: 0.10, source: VIS-7.1-04}
+  false_positive_budget: {target_max_per_patient_day: 3, source: CON-0088}   # PER-C-02
+  sink: "AMH Gold fact_alert (CON-0028)"

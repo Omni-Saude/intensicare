@@ -1,0 +1,74 @@
+# IntensiCare v2 — Data-model entity registry (Phase 2)
+# Owner: data-architect · Barrier B · Companion to docs/plan/architecture/data-model.md
+# Resolves: CON-SEED-02 (clinical_score naming + algorithm_version), CON-SEED-03 (per-entity retention).
+# Invariants realized here: INV-1 (audit_trail append-only + anti-mutation trigger),
+#   INV-3 (algorithm versioning), INV-4 (pgcrypto encryption at rest for PHI).
+# retention = LOCAL operational hot window (TimescaleDB); raw source 7y+ lives at AMH Gold (ADR001-C-01/-C-03).
+# phi = holds DIRECT patient PHI locally (all other tables key on pseudonymous mpi_id, ADR001-C-02).
+version: 1
+entities:
+  - name: patient_cache
+    kind: table
+    retention: "discharge + 30 days"     # DM-RP-04
+    phi: true                            # display_name, mrn, cpf, cns, birth_date — pgcrypto (INV-4)
+    invariants: [INV-4]
+  - name: vital_sign
+    kind: hypertable
+    retention: "90 days"                 # DM-RP-01; raw 7y+ at AMH Gold
+    phi: false
+    invariants: []
+  - name: lab_result
+    kind: hypertable
+    retention: "90 days"                 # parity w/ vitals; raw 7y+ at AMH Gold (VIS-4.2-06)
+    phi: false
+    invariants: []
+  - name: medication_order
+    kind: table
+    retention: "discharge + 30 days"     # operational cache; source FHIR/Gold (VIS-4.2-07)
+    phi: false
+    invariants: []
+  - name: medication_administration
+    kind: hypertable
+    retention: "90 days"                 # parity w/ vitals; source FHIR/Gold
+    phi: false
+    invariants: []
+  - name: clinical_score
+    kind: hypertable
+    retention: "7 years"                 # DM-RP-02; write-back Gold fact_patient_score (CON-0027)
+    phi: false
+    invariants: [INV-3]
+  - name: alert
+    kind: hypertable
+    retention: "7 years"                 # DM-RP-03; write-back Gold fact_alert (CON-0028)
+    phi: false
+    invariants: [INV-3]
+  - name: correlation_event
+    kind: hypertable
+    retention: "7 years"                 # alert-class artifact; VIS-4-03 correlation engine
+    phi: false
+    invariants: [INV-3]
+  - name: alert_definition
+    kind: table
+    retention: "indefinite (while active/referenced)"
+    phi: false
+    invariants: [INV-3]
+  - name: alert_definition_version
+    kind: table
+    retention: ">= 7 years (immutable, append-only)"
+    phi: false
+    invariants: [INV-1, INV-3]
+  - name: algorithm_registry
+    kind: table
+    retention: "indefinite (immutable, append-only)"
+    phi: false
+    invariants: [INV-3]
+  - name: threshold_config
+    kind: table
+    retention: "indefinite (versioned; superseded rows kept)"   # DM-C-11
+    phi: false
+    invariants: [INV-1]
+  - name: audit_trail
+    kind: hypertable
+    retention: "7 years (flag: CFM 1.821/07 prontuario min 20y — pending ratification)"
+    phi: true                            # before/after_state encrypted snapshots may hold PHI (INV-4)
+    invariants: [INV-1, INV-4]

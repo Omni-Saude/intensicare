@@ -1,0 +1,553 @@
+scope: "UNVERIFIABLE items 51-101 (in document order)"
+
+groups:
+  - group_id: GRP-INFRA-B-DURATION-PAGINATION
+    question: >-
+      Confirm proprietary rule intent: internal duration/pagination arithmetic — length-of-stay
+      computed via whole-day .date() subtraction (RULE-OPERACIONAL-INFRA-006), pagination
+      page-count via Math.ceil(count/page_size) with a falsy-guard default of 0
+      (RULE-OPERACIONAL-INFRA-007), and minutesBetweenDates' sign convention (date1 minus date2)
+      with Math.floor toward -Infinity, producing -1 for a negative sub-minute gap
+      (RULE-OPERACIONAL-INFRA-008) — are these three internal date/pagination arithmetic
+      conventions, including the negative-interval floor-to-(-1) edge case, intended as
+      documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — whole-day truncation, Math.ceil pagination, and floor-toward-negative-infinity minute deltas (including the -1 edge case) are all deliberate; carry forward as documented"
+      - id: B
+        label: "Not intentional — the minutesBetweenDates floor-to-(-1) behavior for negative sub-minute gaps is a defect (should floor toward zero or use a signed round); needs correction"
+      - id: C
+        label: "Uncertain — needs engineering owner confirmation of the intended rounding/truncation direction for all three"
+    recommended: C
+    member_rule_ids: [RULE-OPERACIONAL-INFRA-006, RULE-OPERACIONAL-INFRA-007, RULE-OPERACIONAL-INFRA-008]
+
+  - group_id: GRP-ADT-B-LOS
+    question: >-
+      Confirm proprietary rule intent: bed/movimentacao length-of-stay (tempo de permanencia)
+      computed as an elapsed whole-day count via date-only truncation
+      (RULE-MOVIMENTACAO-ADT-001), the same convention as RULE-OPERACIONAL-INFRA-006 — is this
+      whole-day, no-published-LOS-formula convention (which yields one fewer day than a naive
+      night-count in some framings) intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — whole-day date-only truncation is the facility's consistent LOS convention; carry forward as documented"
+      - id: B
+        label: "Not intentional — LOS should count nights (calendar-day transitions) rather than whole 24h elapsed days; needs correction"
+      - id: C
+        label: "Uncertain — needs operations owner confirmation of the intended LOS definition"
+    recommended: A
+    member_rule_ids: [RULE-MOVIMENTACAO-ADT-001]
+
+  - group_id: GRP-ADT-B-PAYLOAD-SHAPE
+    question: >-
+      Confirm proprietary rule intent / defect status: two ADT serializer payload-shape issues —
+      the bed/movimentacao micro-indicators payload where the backend emits 4 keys but the
+      frontend union type declares a different field set (RULE-MOVIMENTACAO-ADT-002,
+      DISCREPANCY at the field-set level), and a precomputed vinculos_paciente_leito lookup dict
+      that is built into serializer context but never consumed, masking an N+1 query pattern
+      (RULE-MOVIMENTACAO-ADT-008) — are these confirmed backend/frontend and dead-code mismatches
+      accepted technical debt, or must they be corrected before the v2 API contract is
+      finalized?
+    options:
+      - id: A
+        label: "Confirmed as known technical debt — both mismatches are accepted as-is for now; carry forward as documented, resolve later in v2 API design"
+      - id: B
+        label: "Not acceptable — both must be corrected (align FE/BE field sets; replace the dead dict with actual N+1-free consumption) before v2 encodes this contract"
+      - id: C
+        label: "Uncertain — needs API-contract owner confirmation of the intended v2 payload shape for both"
+    recommended: C
+    member_rule_ids: [RULE-MOVIMENTACAO-ADT-002, RULE-MOVIMENTACAO-ADT-008]
+
+  - group_id: GRP-ADT-B-MORTALITY-SCORE
+    question: >-
+      Confirm proprietary rule intent: the expected-mortality score (mortalidade_esperada) is
+      surfaced in the ADT payload without its computing formula present in this partition
+      (RULE-MOVIMENTACAO-ADT-003, extraction AMBIGUOUS, presumed APACHE II/SAPS-family) and its
+      unit (probability 0-1 vs percentage 0-100) is unresolved — must the source algorithm and
+      unit be identified before this field is carried into v2, or is displaying an opaque
+      pre-computed value (as with SOFA) acceptable without knowing the underlying formula?
+    options:
+      - id: A
+        label: "Acceptable as an opaque pass-through display value, same treatment as the pre-computed SOFA score (RULE-EVOLUCOES-001) — no action needed here, the computing service owns correctness"
+      - id: B
+        label: "Not acceptable — the algorithm and unit must be identified and documented before v2 build; do not port an assumed unit"
+      - id: C
+        label: "Uncertain — needs the score-computation owner to confirm which algorithm/unit is in use"
+    recommended: B
+    member_rule_ids: [RULE-MOVIMENTACAO-ADT-003]
+
+  - group_id: GRP-ADT-B-LOOKUP-KEY
+    question: >-
+      Confirm proprietary rule intent: the bed micro-indicator lookup key collapses
+      nr_atendimento + bed name into a legacy CD_UNIDADE-equivalent key
+      (RULE-MOVIMENTACAO-ADT-005), and uses .first() to silently pick an arbitrary row when
+      multiple rows match — is this proprietary integration-mapping key and its
+      silent-first-match behavior on multiple matches intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — the composite key and .first() tie-break are deliberate and multiple matches are not expected to occur in practice; carry forward as documented"
+      - id: B
+        label: "Not intentional — .first() masking multiple matches is a latent defect; must add explicit handling (error, log, or deterministic ordering) for the multi-match case"
+      - id: C
+        label: "Uncertain — needs integration owner confirmation of whether multiple matches can occur and what the correct tie-break should be"
+    recommended: C
+    member_rule_ids: [RULE-MOVIMENTACAO-ADT-005]
+
+  - group_id: GRP-ADT-B-SERIALIZER-DELEGATION
+    question: >-
+      Confirm proprietary rule intent: four ADT serializer/view behaviors with no clinical
+      formula — the bed 'assistido' flag delegated to an out-of-partition Leito.get_assistido
+      model property (RULE-MOVIMENTACAO-ADT-011), the bed patient snapshot defaulting to an
+      empty dict when unassigned (RULE-MOVIMENTACAO-ADT-006), patient name/age computed fields
+      delegated to serializer properties (RULE-MOVIMENTACAO-ADT-007), and the live-camera RTSP
+      URL construction rtsp://{usuario}:{senha}@{ip} with plaintext credentials embedded in the
+      URI (RULE-MOVIMENTACAO-ADT-010) — are these four delegation/construction behaviors intended
+      as documented, including RULE-MOVIMENTACAO-ADT-010's plaintext-credential URL pattern?
+    options:
+      - id: A
+        label: "Confirmed intentional for all four as documented behavior, including plaintext usuario/senha in the RTSP URI; carry forward, noting RULE-MOVIMENTACAO-ADT-011's underlying get_assistido property still needs review when the Leito model partition is in scope"
+      - id: B
+        label: "Not intentional — the plaintext-credential RTSP URL construction is a security defect and should be replaced with a tokenized/short-lived credential scheme; needs correction"
+      - id: C
+        label: "Uncertain — needs a security owner to confirm whether plaintext usuario/senha embedded in the internal RTSP URL is an accepted internal-network risk before v2 carries it forward"
+    recommended: C
+    member_rule_ids: [RULE-MOVIMENTACAO-ADT-011, RULE-MOVIMENTACAO-ADT-006, RULE-MOVIMENTACAO-ADT-007, RULE-MOVIMENTACAO-ADT-010]
+
+  - group_id: GRP-SED-B-VOLUMETRIC-DOSING
+    question: >-
+      Confirm proprietary rule intent: two sedation-pathway criteria expressed as fixed
+      volumetric infusion-rate cutoffs (ml/h) rather than weight-based dosing — excessive
+      continuous sedation infusion (RULE-SEDACAO-005, wired/active) and high-dose neuromuscular
+      blockade (rocuronium>16 ml/h, cisatracurium>10 ml/h; RULE-SEDACAO-010, defined but
+      UNWIRED) — without the institution's standardized drug concentrations these ml/h cutoffs
+      cannot be reconciled with any published mcg/kg/min dosing reference. Are the ml/h cutoffs,
+      evaluated against the facility's own fixed concentrations, intended as the facility's
+      institutional criteria as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — ml/h cutoffs against the facility's own standardized drug concentrations are the deliberate institutional design; carry forward as documented (RULE-SEDACAO-010 remains unwired pending separate activation governance)"
+      - id: B
+        label: "Not intentional — both criteria should be re-expressed in mcg/kg/min using patient weight and concentration, consistent with published sedation/NMB dosing references; needs correction"
+      - id: C
+        label: "Uncertain — needs institutional pharmacy/clinical-informatics confirmation of the standardized concentrations before either the ml/h cutoffs or a converted mcg/kg/min form can be validated"
+    recommended: C
+    member_rule_ids: [RULE-SEDACAO-005, RULE-SEDACAO-010]
+
+  - group_id: GRP-SED-B-DRUG-VOCAB
+    question: >-
+      Confirm proprietary rule intent: sedation drug identification/vocabulary conventions —
+      the active-sedative label picks the first non-zero infusion in a fixed dict iteration
+      order (first-match-wins) rather than surfacing all concurrently-infusing agents
+      (RULE-SEDACAO-013), sedative-specific reduction recommendations are proprietary free text
+      keyed by active drug with a noted v1-variant implementation difference
+      (RULE-SEDACAO-025), and the sedative drug enumeration (SedativoChoices.tipo) is an
+      internal data-model list (RULE-SEDACAO-026) — are these three drug-identification/
+      vocabulary behaviors, including the first-match-wins ambiguity when multiple sedatives are
+      simultaneously infusing, intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — first-match-wins labeling, the free-text recommendations, and the enumeration are all deliberate; carry forward as documented, including the v1/v3 recommendation-text variant difference"
+      - id: B
+        label: "Not intentional — first-match-wins should be replaced with a list of ALL active sedatives so polypharmacy sedation is not hidden from the recommendation text; needs correction"
+      - id: C
+        label: "Uncertain — needs clinical UX owner confirmation of whether hiding co-infused sedatives behind a single first-match label is acceptable"
+    recommended: C
+    member_rule_ids: [RULE-SEDACAO-013, RULE-SEDACAO-025, RULE-SEDACAO-026]
+
+  - group_id: GRP-SED-B-MANUAL-COMPOSITE
+    question: >-
+      Confirm proprietary rule intent: three sedation-manual composite criteria (C4-C6) built on
+      P/F ratio and RASS sedation-depth bands — C4 sedation-justified-by-severity, where the
+      code's chained comparison `0 < ratio >= 200` evaluates as P/F>=200 while the model's own
+      _REGRAS descriptive text appears to describe a different oxygenation condition
+      (RULE-SEDACAO-018); C5 poor oxygenation with light/absent sedation, where P/F<200 (Berlin
+      moderate-ARDS boundary) and the RASS light-sedation band match the descriptive text with no
+      discrepancy (RULE-SEDACAO-019); and C6 severity without sedation, where P/F<200 matches
+      Berlin and the current _REGRAS text, though a superseded _ANTIGAS_REGRAS comment says
+      '<150' (RULE-SEDACAO-020) — is C4's code-vs-its-own-text mismatch confirmed intentional
+      (i.e., the _REGRAS text is imprecise but the code's P/F>=200 predicate is correct), or does
+      it need clinical correction, while C5/C6 are accepted as already consistent?
+    options:
+      - id: A
+        label: "Confirmed intentional for all three — C4's code (P/F>=200) is correct and its _REGRAS text is merely imprecise wording; C5/C6 need no change; carry forward as documented"
+      - id: B
+        label: "Not intentional for C4 — the code's chained-comparison predicate does not reflect the clinical intent described in _REGRAS and must be corrected to match the described oxygenation condition; C5/C6 confirmed unchanged"
+      - id: C
+        label: "Uncertain for C4 — needs clinical owner review of which of the code or the _REGRAS text reflects the true intended C4 trigger before v2 encoding; C5/C6 confirmed unchanged (Berlin/RASS-anchored, no discrepancy)"
+    recommended: C
+    member_rule_ids: [RULE-SEDACAO-018, RULE-SEDACAO-019, RULE-SEDACAO-020]
+
+  - group_id: GRP-EVOL-B-SCORE-DISPLAY
+    question: >-
+      Confirm proprietary rule intent: the medical-record clinical panel surfaces a
+      pre-computed, opaque escore_sofa value (RULE-EVOLUCOES-001, whose underlying sub-score
+      algorithm lives server-side outside this partition and is governed by the SOFA rules
+      already dispositioned elsewhere in this catalog) and gates the SOFA badge display on
+      score>=0 (RULE-EVOLUCOES-002) — is treating these as pure UI display/gating wrappers
+      around an externally-governed score (no independent formula decision needed here)
+      intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — both are pure display/gating wrappers; the actual SOFA computation is fully governed by RULE-CLINICAL-SCORING-001/002/005/007/008 elsewhere in this catalog, no independent action needed here"
+      - id: B
+        label: "Not intentional — the >=0 display gate should be reviewed against the SOFA scale's valid range (SOFA is defined 0-24; a gate of >=0 always passes for any valid score and only excludes true no-data sentinels, which should be made explicit)"
+      - id: C
+        label: "Uncertain — needs confirmation that no-data is represented distinctly from score=0 upstream, since >=0 cannot itself distinguish 'SOFA 0' from 'unscored'"
+    recommended: C
+    member_rule_ids: [RULE-EVOLUCOES-001, RULE-EVOLUCOES-002]
+
+  - group_id: GRP-EVOL-B-DATA-SHAPE
+    question: >-
+      Confirm proprietary rule intent: two EVOLUCOES data-shape conventions — the cardiac-arrest
+      occurrence flag typed as a free-form string while sibling DadosProntuario clinical flags
+      are typed boolean (RULE-EVOLUCOES-004), and the company-evolutions patient-name resolution
+      by attendance number using a defensive getattr default that returns None for either a
+      missing patient or a missing nome attribute (RULE-EVOLUCOES-005) — are these two
+      type/lookup conventions intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — the string-typed cardiac-arrest flag and the defensive-getattr name lookup are both accepted as-is; carry forward as documented"
+      - id: B
+        label: "Not intentional — the cardiac-arrest flag should be normalized to boolean for consistency with sibling flags in the v2 schema; needs correction"
+      - id: C
+        label: "Uncertain — needs data-modeling owner confirmation of whether the string type on RULE-EVOLUCOES-004 encodes more than yes/no (e.g., a tri-state or free-text detail) before deciding whether to normalize it"
+    recommended: C
+    member_rule_ids: [RULE-EVOLUCOES-004, RULE-EVOLUCOES-005]
+
+  - group_id: GRP-PC-B-GRADED-BANDS
+    question: >-
+      Confirm proprietary rule intent: Piora Clinica proprietary graded sub-score cutoffs with
+      no authoritative external calculator — respiratory-rate criterio_1 (directionally
+      monotone, both high and low RR escalate; RULE-PIORA-CLINICA-001), systolic-BP criterio_3
+      (the only criterion with all six signed bands, monotone; RULE-PIORA-CLINICA-003), and the
+      per-(criterio, severity-code) alert/recommendation/intervention text payload
+      (RULE-PIORA-CLINICA-011) — are these vendor-defined bands and their associated PT-BR
+      alert text intended as the facility's own institutional early-warning design, pending
+      clinical-committee sign-off rather than an external citation?
+    options:
+      - id: A
+        label: "Confirmed intentional — the vendor-defined RR/PAS bands and alert/recommendation text are the facility's own institutional design; carry forward verbatim (PT-BR labels included) pending routine clinical-committee review, not treated as a defect"
+      - id: B
+        label: "Not intentional — one or more of the bands or payload texts should be replaced with an externally-referenced early-warning scale (e.g., NEWS2 RR/SBP bands) instead of the vendor's own cutoffs; needs correction"
+      - id: C
+        label: "Uncertain — needs clinical-committee confirmation of the exact band edges before v2 encodes them as institutional standard"
+    recommended: A
+    member_rule_ids: [RULE-PIORA-CLINICA-001, RULE-PIORA-CLINICA-003, RULE-PIORA-CLINICA-011]
+
+  - group_id: GRP-PC-B-CONSCIOUSNESS-LADDER
+    question: >-
+      Confirm proprietary rule intent: Piora Clinica criterio_5 consciousness graded sub-score,
+      whose '+' (deteriorating) side reproduces the published AVPU-graded MEWS ladder
+      (acordado->0/Alert, reage_verbal->1+/Voice, reage_tatil->2+/Pain, coma->3+/Unresponsive;
+      RULE-PIORA-CLINICA-005) — given this strong external corroboration, should this sub-score
+      be flagged as a candidate for future ADOPT-with-citation (MEWS/AVPU, Royal College of
+      Physicians NEWS2 2017) rather than remaining purely proprietary/RATIFY-only?
+    options:
+      - id: A
+        label: "Confirmed intentional and externally corroborated as documented — treat as a strong AVPU/MEWS-aligned design; carry forward as documented, flag as a candidate for future ADOPT-with-citation once the full band table is reviewed against the MEWS source"
+      - id: B
+        label: "Not intentional — the apparent AVPU alignment is coincidental and the criterion should not be treated as guideline-anchored; needs clinical owner review"
+      - id: C
+        label: "Uncertain — needs clinical-committee confirmation before elevating this criterion's status beyond proprietary/RATIFY"
+    recommended: A
+    member_rule_ids: [RULE-PIORA-CLINICA-005]
+
+  - group_id: GRP-COM-B-REACTION-AGGREGATION
+    question: >-
+      Confirm proprietary rule intent / defect status: three communication (reaction/
+      observation) behaviors — the AcaoHomecare balanco_hidrico DISCREPANCY, where get_pk is
+      confirmed to be a @property (not a bound method as the original extraction framed it) yet
+      the underlying wrong-attribute-path defect still stands (RULE-COMUNICACAO-003);
+      reaction-count-by-emoji aggregation via itertools.groupby with no explicit .order_by() or
+      Meta ordering, so only contiguous same-emoji runs are merged and non-contiguous runs are
+      silently undercounted (RULE-COMUNICACAO-001); and the current user's own reaction id on an
+      observation, confirmed correct given get_pk's property nature and the enforced
+      unique_together constraint (RULE-COMUNICACAO-002) — is RULE-COMUNICACAO-001's
+      order-dependent undercounting accepted as a low-priority UI display quirk, or must it be
+      corrected with explicit ordering before v2?
+    options:
+      - id: A
+        label: "Confirmed acceptable as a low-priority UI quirk — reaction counts are cosmetic, not clinical; carry the order-dependent groupby forward as documented, correcting only the RULE-COMUNICACAO-003 mechanism description (get_pk is a property) without changing its underlying DISCREPANCY disposition"
+      - id: B
+        label: "Not acceptable — RULE-COMUNICACAO-001 must add an explicit order_by(emoji) or use a dict-based tally instead of groupby to eliminate the order-dependent undercount before v2; RULE-COMUNICACAO-003's underlying wrong-attribute defect must also be fixed, not merely re-described"
+      - id: C
+        label: "Uncertain — needs product owner confirmation of how much reaction-count accuracy matters for v2 before prioritizing a fix"
+    recommended: B
+    member_rule_ids: [RULE-COMUNICACAO-003, RULE-COMUNICACAO-001, RULE-COMUNICACAO-002]
+
+  - group_id: GRP-ETL-B-DASHBOARD-PROPORTIONS
+    question: >-
+      Confirm proprietary rule intent: sector-dashboard proportion/formatting conventions — the
+      dual-y-axis Chart.js toggle (RULE-INDICADORES-ETL-010), the alert-share percentage
+      (alerts/total, with an explicit total!==0 guard; RULE-INDICADORES-ETL-001), and the
+      assisted-share percentage whose denominator is AMARELO+VERMELHO only, excluding NEUTRO,
+      unlike the alert-share denominator (RULE-INDICADORES-ETL-002, with a documented edge case
+      where assisted patients exist but zero yellow/red alerts yields 0%) — is the denominator
+      asymmetry between RULE-INDICADORES-ETL-001 and -002, and the resulting 0%-with-assisted-
+      patients edge case, intended as documented dashboard semantics?
+    options:
+      - id: A
+        label: "Confirmed intentional — the denominator asymmetry (all alerts vs. AMARELO+VERMELHO only) and its 0% edge case are deliberate dashboard design; carry forward as documented"
+      - id: B
+        label: "Not intentional — the two percentages should use a consistent denominator; needs correction"
+      - id: C
+        label: "Uncertain — needs dashboard/product owner confirmation of the intended denominator semantics for assisted-share vs. alert-share"
+    recommended: C
+    member_rule_ids: [RULE-INDICADORES-ETL-010, RULE-INDICADORES-ETL-001, RULE-INDICADORES-ETL-002]
+
+  - group_id: GRP-ALERT-B-COUNTING
+    question: >-
+      Confirm proprietary rule intent: two alert-counting utilities verified byte-for-byte
+      against source — contar_qtd_criterios_alerta's strict-equality (==1) criteria counter,
+      where Python's True==1 also counts (RULE-ALERTAS-001, identical in two files), and the
+      aggregate alert-count across movimentacoes, including substring/membership 'in tuple'
+      precedence and an else->NEUTRO fallthrough for null/neutral values (RULE-ALERTAS-002) —
+      are these counting conventions, including the True==1 coercion and the NEUTRO fallthrough,
+      intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — both counting conventions, including the boolean/int coercion and NEUTRO fallthrough, are deliberate and already verified byte-for-byte; carry forward as documented"
+      - id: B
+        label: "Not intentional — the True==1 coercion or the NEUTRO fallthrough is a latent defect; needs correction"
+      - id: C
+        label: "Uncertain — needs owner confirmation, though the byte-for-byte verification already found no code-level ambiguity"
+    recommended: A
+    member_rule_ids: [RULE-ALERTAS-001, RULE-ALERTAS-002]
+
+  - group_id: GRP-AUTH-B-PAYLOADS
+    question: >-
+      Confirm proprietary rule intent: two access-control payload computations verified
+      byte-faithful to source — the GrupoAcesso permission catalog payload
+      ({codename: False for every system codename}, then iterate the Django group's
+      permissions; RULE-AUTH-USUARIOS-001), and the user cargos (roles) empresa-scoped lookup,
+      where 'no empresa in request context' returns a bare None rather than an empty list
+      (RULE-AUTH-USUARIOS-002) — is the None-vs-empty-list return-shape distinction in
+      RULE-AUTH-USUARIOS-002 intended as an explicit API contract to be preserved in v2?
+    options:
+      - id: A
+        label: "Confirmed intentional — both payload computations, including the None-vs-[] distinction, are deliberate and must be preserved explicitly in the v2 auth API contract"
+      - id: B
+        label: "Not intentional — the None return should be normalized to an empty list for consistency with other 'no results' cases; needs correction"
+      - id: C
+        label: "Uncertain — needs ADR-001 platform/auth-team confirmation of the intended v2 return-shape contract"
+    recommended: C
+    member_rule_ids: [RULE-AUTH-USUARIOS-001, RULE-AUTH-USUARIOS-002]
+
+  - group_id: GRP-DOCFAT-B-AMHDOCS
+    question: >-
+      Confirm proprietary rule intent: two AMHDocs external-integration proxy behaviors — the
+      file lookup that always treats the 'ocupacoes__pk' kwarg as a Leito pk directly with no
+      Movimentacao fallback (RULE-DOCUMENTACAO-FATURAMENTO-027), and the pagination
+      next/previous links being rewritten to the proxy's own URL rather than the upstream
+      AMHDocs URL (RULE-DOCUMENTACAO-FATURAMENTO-028) — are these two proprietary integration
+      conventions intended as documented, or does the Leito-pk-only lookup need a Movimentacao
+      fallback path?
+    options:
+      - id: A
+        label: "Confirmed intentional — both AMHDocs proxy conventions (Leito-pk-only lookup, proxy-URL pagination rewrite) are deliberate; carry forward as documented"
+      - id: B
+        label: "Not intentional — the lookup needs an explicit Movimentacao-pk fallback path in addition to Leito pk; needs correction"
+      - id: C
+        label: "Uncertain — needs the AMHDocs integration owner to confirm whether callers ever pass a Movimentacao pk here"
+    recommended: C
+    member_rule_ids: [RULE-DOCUMENTACAO-FATURAMENTO-027, RULE-DOCUMENTACAO-FATURAMENTO-028]
+
+  - group_id: GRP-EST-B-DRUG-COMBINATION
+    question: >-
+      Confirm proprietary rule intent: two Estabilidade drug-combination safety rules with
+      facility-specific ml/h/mg thresholds and no external authoritative reference —
+      antihypertensive administration with an active vasopressor, WIRED and firing at VERMELHO
+      severity (RULE-ESTABILIDADE-010), and manual C6's dobutamine>10 ml/h AND noradrenaline==50
+      ml exact-match rule, verified against source (RULE-ESTABILIDADE-022) — given that
+      RULE-ESTABILIDADE-010 is live and fires the highest-severity alert, must its drug
+      enumeration and ml/h vasopressor threshold be confirmed by clinical/pharmacy review before
+      being carried into v2 unchanged, or is it accepted as the facility's proprietary safety
+      rule as-is?
+    options:
+      - id: A
+        label: "Confirmed intentional — both drug-combination rules, including RULE-ESTABILIDADE-010's live VERMELHO firing threshold, are the facility's deliberate proprietary safety design; carry forward as documented with no change"
+      - id: B
+        label: "Not intentional — RULE-ESTABILIDADE-010's ml/h vasopressor threshold and drug enumeration require correction before it may continue firing a VERMELHO alert unchanged in v2"
+      - id: C
+        label: "Uncertain — because RULE-ESTABILIDADE-010 is wired and fires the platform's highest severity level on an unreferenced threshold, hold it for institutional pharmacy/clinical review before v2 activation; RULE-ESTABILIDADE-022 (lower-risk, exact-match, already verified) may carry forward as documented pending the same review pass"
+    recommended: C
+    member_rule_ids: [RULE-ESTABILIDADE-010, RULE-ESTABILIDADE-022]
+
+  - group_id: GRP-FORM-B-CAPTURE
+    question: >-
+      Confirm proprietary rule intent: two clinical-form capture conventions — the
+      nursing-technician high-cost drug/antibiotic list with a route multicheck
+      (ev/im/sc/sl/it/outras) and conditional-reveal logic, verified verbatim
+      (RULE-FORMULARIOS-CLINICOS-014), and the vasopressor/inotrope/sedative dosing capture form
+      with fixed field maxima (dobutamina<=30 ml/h, noradrenalina<=200 ml/h) that share raw
+      units with the dosing-threshold items reviewed elsewhere in this drafter's SEDACAO/
+      SINAIS-VITAIS groups (RULE-FORMULARIOS-CLINICOS-042) — are these proprietary vocabulary/UI
+      capture conventions, including the raw ml/h input-cap units, intended as documented, to be
+      resolved jointly with the related dosing-threshold unit question?
+    options:
+      - id: A
+        label: "Confirmed intentional — both capture-form conventions are the facility's own vocabulary/UI design; carry forward verbatim (PT-BR labels included), and resolve the ml/h-vs-mcg/kg/min unit question jointly with RULE-SINAIS-VITAIS-029/030 and RULE-SEDACAO-005/010"
+      - id: B
+        label: "Not intentional — the capture-form field maxima should be re-expressed in a weight/concentration-normalized unit consistent with a corrected dosing standard; needs correction"
+      - id: C
+        label: "Uncertain — needs institutional pharmacy confirmation of the intended capture unit before deciding"
+    recommended: A
+    member_rule_ids: [RULE-FORMULARIOS-CLINICOS-014, RULE-FORMULARIOS-CLINICOS-042]
+
+  - group_id: GRP-SV-B-DOSE-VALIDATORS
+    question: >-
+      Confirm proprietary rule intent: two input-capture dose-range validators with undocumented
+      units — DobutaminaValidator's 0-30 range with no zero exemption
+      (RULE-SINAIS-VITAIS-029) and NoradrenalinaValidator's 0-200 range with no zero exemption
+      (RULE-SINAIS-VITAIS-030), both confirmed at source but with the intended dosing UNIT
+      (ml/h vs mcg/min vs mcg/kg/min vs mg) undocumented in code, such that no plausible unit
+      interpretation can be independently validated against a published dosing reference — must
+      the intended unit be confirmed by institutional pharmacy/clinical-informatics review
+      before these validator ranges are carried into v2, or are the numeric bounds themselves
+      accepted as the facility's own input-safety caps regardless of unit?
+    options:
+      - id: A
+        label: "Confirmed intentional — the 0-30 and 0-200 bounds are accepted as the facility's own input-safety caps in whatever unit the current forms use; carry forward as documented, no unit re-derivation needed"
+      - id: B
+        label: "Not intentional — the undocumented unit makes these caps unverifiable and potentially unsafe (e.g., a 200 ml/h cap may be far outside a safe range if the true intended unit is mcg/kg/min); both validators must be corrected with an explicit, documented unit before v2"
+      - id: C
+        label: "Uncertain — hold both validator ranges for institutional pharmacy/clinical-informatics confirmation of the intended dosing unit before they are ported unchanged into v2; do not assume a unit"
+    recommended: C
+    member_rule_ids: [RULE-SINAIS-VITAIS-029, RULE-SINAIS-VITAIS-030]
+
+  - group_id: GRP-AUDIT-B-DATE-RANGE
+    question: >-
+      Confirm proprietary rule intent: the audit-log date-range filter's start-of-day/
+      end-of-day boundary formula (RULE-AUDITORIA-LOGS-001) — an internal business rule with no
+      clinical/regulatory reference — is the observed inclusive start-of-day/end-of-day boundary
+      convention intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — the start/end-of-day boundary convention is deliberate; carry forward as documented"
+      - id: B
+        label: "Not intentional — the boundary convention needs correction (e.g., timezone handling or inclusive/exclusive edge)"
+      - id: C
+        label: "Uncertain — needs engineering owner confirmation, particularly of timezone handling at the boundary"
+    recommended: A
+    member_rule_ids: [RULE-AUDITORIA-LOGS-001]
+
+  - group_id: GRP-EFF-B-FRAILTY
+    question: >-
+      Confirm proprietary rule intent: Eficiencia v3 criterio_6, frailty/palliative-
+      appropriateness, defined but UNWIRED, with thresholds that are clinically plausible and
+      internally consistent but not traceable to a single authoritative source
+      (RULE-EFICIENCIA-009) — is the current unwired state the accepted interim (pending
+      clinical-committee sign-off before activation), or should this criterion be dropped/
+      redesigned rather than carried forward toward eventual wiring?
+    options:
+      - id: A
+        label: "Confirmed intentional — keep the logic as designed and unwired, pending explicit clinical-committee sign-off before any future activation; carry forward as documented"
+      - id: B
+        label: "Not intentional — the criterion's uncited thresholds mean it should be redesigned (or dropped) rather than preserved toward future wiring"
+      - id: C
+        label: "Uncertain — needs a palliative-care/geriatrics clinical owner to evaluate the specific frailty thresholds before any activation decision"
+    recommended: C
+    member_rule_ids: [RULE-EFICIENCIA-009]
+
+  - group_id: GRP-PRESC-B-FLUID-EXPORT
+    question: >-
+      Confirm proprietary rule intent: ml-unit medications capture an exported quantity
+      (qtd_exportada) for fluid-balance purposes only when unidadeMedida==='ml'
+      (RULE-PRESCRICAO-001), verified byte-for-byte against source — is this ml-only
+      fluid-balance capture rule intended as documented?
+    options:
+      - id: A
+        label: "Confirmed intentional — ml-only capture for balanco hidrico is deliberate; carry forward as documented"
+      - id: B
+        label: "Not intentional — other volume-convertible units (e.g., L) should also trigger fluid-balance capture; needs correction"
+      - id: C
+        label: "Uncertain — needs nursing/clinical owner confirmation of which units should count toward fluid balance"
+    recommended: A
+    member_rule_ids: [RULE-PRESCRICAO-001]
+
+  - group_id: GRP-TRILHA-B-DOSING-IMAGE
+    question: >-
+      Confirm proprietary rule intent: the per-criterion drug-dosing reference image UI feature
+      (a 'Dosagens' modal shown when criterio.imagem is present; RULE-TRILHAS-ENGINE-017),
+      verified verbatim — is this pure UI affordance intended as documented with no further
+      clinical content to validate?
+    options:
+      - id: A
+        label: "Confirmed intentional — pure UI feature, no clinical formula to validate; carry forward as documented"
+      - id: B
+        label: "Not intentional — needs correction (e.g., image content/versioning governance)"
+      - id: C
+        label: "Uncertain — needs owner confirmation of image content governance (who maintains/approves the dosing reference images)"
+    recommended: A
+    member_rule_ids: [RULE-TRILHAS-ENGINE-017]
+
+  - group_id: GRP-VENT-B-DURATION
+    question: >-
+      Confirm proprietary rule intent: days-on-mechanical-ventilation duration helper
+      (buscar_dias_com_ventilacao_mecanica), a trivial internal day-count with documented
+      quirks for internal review — .days truncation understating fractional days
+      (RULE-VENTILACAO-002) — is the whole-day truncation convention intended as documented,
+      consistent with the same convention already ratified for RULE-OPERACIONAL-INFRA-006 and
+      RULE-MOVIMENTACAO-ADT-001?
+    options:
+      - id: A
+        label: "Confirmed intentional — whole-day truncation is the facility's consistent duration convention across LOS and ventilator-days helpers; carry forward as documented"
+      - id: B
+        label: "Not intentional — ventilator-days should round up (ceiling) rather than truncate, since even a partial day of ventilation is clinically meaningful (e.g., for VAP-prevention bundle day-counting); needs correction"
+      - id: C
+        label: "Uncertain — needs a respiratory-therapy/ICU clinical owner to confirm whether ventilator-day counts are used in any bundle-compliance metric where truncation direction matters"
+    recommended: C
+    member_rule_ids: [RULE-VENTILACAO-002]
+
+records:
+  - {item_id: ESC-UNVERIFIABLE-242, rule_id: RULE-OPERACIONAL-INFRA-006, outcome: RATIFY, group: GRP-INFRA-B-DURATION-PAGINATION}
+  - {item_id: ESC-UNVERIFIABLE-243, rule_id: RULE-OPERACIONAL-INFRA-007, outcome: RATIFY, group: GRP-INFRA-B-DURATION-PAGINATION}
+  - {item_id: ESC-UNVERIFIABLE-244, rule_id: RULE-OPERACIONAL-INFRA-008, outcome: RATIFY, group: GRP-INFRA-B-DURATION-PAGINATION}
+  - {item_id: ESC-UNVERIFIABLE-245, rule_id: RULE-MOVIMENTACAO-ADT-002, outcome: RATIFY, group: GRP-ADT-B-PAYLOAD-SHAPE}
+  - {item_id: ESC-UNVERIFIABLE-246, rule_id: RULE-MOVIMENTACAO-ADT-003, outcome: RATIFY, group: GRP-ADT-B-MORTALITY-SCORE}
+  - {item_id: ESC-UNVERIFIABLE-247, rule_id: RULE-MOVIMENTACAO-ADT-001, outcome: RATIFY, group: GRP-ADT-B-LOS}
+  - {item_id: ESC-UNVERIFIABLE-248, rule_id: RULE-MOVIMENTACAO-ADT-005, outcome: RATIFY, group: GRP-ADT-B-LOOKUP-KEY}
+  - {item_id: ESC-UNVERIFIABLE-249, rule_id: RULE-MOVIMENTACAO-ADT-011, outcome: RATIFY, group: GRP-ADT-B-SERIALIZER-DELEGATION}
+  - {item_id: ESC-UNVERIFIABLE-250, rule_id: RULE-MOVIMENTACAO-ADT-006, outcome: RATIFY, group: GRP-ADT-B-SERIALIZER-DELEGATION}
+  - {item_id: ESC-UNVERIFIABLE-251, rule_id: RULE-MOVIMENTACAO-ADT-007, outcome: RATIFY, group: GRP-ADT-B-SERIALIZER-DELEGATION}
+  - {item_id: ESC-UNVERIFIABLE-252, rule_id: RULE-MOVIMENTACAO-ADT-008, outcome: RATIFY, group: GRP-ADT-B-PAYLOAD-SHAPE}
+  - {item_id: ESC-UNVERIFIABLE-253, rule_id: RULE-MOVIMENTACAO-ADT-010, outcome: RATIFY, group: GRP-ADT-B-SERIALIZER-DELEGATION}
+  - {item_id: ESC-UNVERIFIABLE-254, rule_id: RULE-SEDACAO-005, outcome: RATIFY, group: GRP-SED-B-VOLUMETRIC-DOSING}
+  - {item_id: ESC-UNVERIFIABLE-255, rule_id: RULE-SEDACAO-010, outcome: RATIFY, group: GRP-SED-B-VOLUMETRIC-DOSING}
+  - {item_id: ESC-UNVERIFIABLE-256, rule_id: RULE-SEDACAO-013, outcome: RATIFY, group: GRP-SED-B-DRUG-VOCAB}
+  - {item_id: ESC-UNVERIFIABLE-257, rule_id: RULE-SEDACAO-025, outcome: RATIFY, group: GRP-SED-B-DRUG-VOCAB}
+  - {item_id: ESC-UNVERIFIABLE-258, rule_id: RULE-SEDACAO-026, outcome: RATIFY, group: GRP-SED-B-DRUG-VOCAB}
+  - {item_id: ESC-UNVERIFIABLE-259, rule_id: RULE-SEDACAO-018, outcome: RATIFY, group: GRP-SED-B-MANUAL-COMPOSITE}
+  - {item_id: ESC-UNVERIFIABLE-260, rule_id: RULE-SEDACAO-019, outcome: RATIFY, group: GRP-SED-B-MANUAL-COMPOSITE}
+  - {item_id: ESC-UNVERIFIABLE-261, rule_id: RULE-SEDACAO-020, outcome: RATIFY, group: GRP-SED-B-MANUAL-COMPOSITE}
+  - {item_id: ESC-UNVERIFIABLE-262, rule_id: RULE-EVOLUCOES-001, outcome: RATIFY, group: GRP-EVOL-B-SCORE-DISPLAY}
+  - {item_id: ESC-UNVERIFIABLE-263, rule_id: RULE-EVOLUCOES-002, outcome: RATIFY, group: GRP-EVOL-B-SCORE-DISPLAY}
+  - {item_id: ESC-UNVERIFIABLE-264, rule_id: RULE-EVOLUCOES-004, outcome: RATIFY, group: GRP-EVOL-B-DATA-SHAPE}
+  - {item_id: ESC-UNVERIFIABLE-265, rule_id: RULE-EVOLUCOES-005, outcome: RATIFY, group: GRP-EVOL-B-DATA-SHAPE}
+  - {item_id: ESC-UNVERIFIABLE-266, rule_id: RULE-PIORA-CLINICA-001, outcome: RATIFY, group: GRP-PC-B-GRADED-BANDS}
+  - {item_id: ESC-UNVERIFIABLE-267, rule_id: RULE-PIORA-CLINICA-003, outcome: RATIFY, group: GRP-PC-B-GRADED-BANDS}
+  - {item_id: ESC-UNVERIFIABLE-268, rule_id: RULE-PIORA-CLINICA-005, outcome: RATIFY, group: GRP-PC-B-CONSCIOUSNESS-LADDER}
+  - {item_id: ESC-UNVERIFIABLE-269, rule_id: RULE-PIORA-CLINICA-011, outcome: RATIFY, group: GRP-PC-B-GRADED-BANDS}
+  - {item_id: ESC-UNVERIFIABLE-270, rule_id: RULE-COMUNICACAO-003, outcome: RATIFY, group: GRP-COM-B-REACTION-AGGREGATION}
+  - {item_id: ESC-UNVERIFIABLE-271, rule_id: RULE-COMUNICACAO-001, outcome: RATIFY, group: GRP-COM-B-REACTION-AGGREGATION}
+  - {item_id: ESC-UNVERIFIABLE-272, rule_id: RULE-COMUNICACAO-002, outcome: RATIFY, group: GRP-COM-B-REACTION-AGGREGATION}
+  - {item_id: ESC-UNVERIFIABLE-273, rule_id: RULE-INDICADORES-ETL-010, outcome: RATIFY, group: GRP-ETL-B-DASHBOARD-PROPORTIONS}
+  - {item_id: ESC-UNVERIFIABLE-274, rule_id: RULE-INDICADORES-ETL-001, outcome: RATIFY, group: GRP-ETL-B-DASHBOARD-PROPORTIONS}
+  - {item_id: ESC-UNVERIFIABLE-275, rule_id: RULE-INDICADORES-ETL-002, outcome: RATIFY, group: GRP-ETL-B-DASHBOARD-PROPORTIONS}
+  - {item_id: ESC-UNVERIFIABLE-276, rule_id: RULE-ALERTAS-001, outcome: RATIFY, group: GRP-ALERT-B-COUNTING}
+  - {item_id: ESC-UNVERIFIABLE-277, rule_id: RULE-ALERTAS-002, outcome: RATIFY, group: GRP-ALERT-B-COUNTING}
+  - {item_id: ESC-UNVERIFIABLE-278, rule_id: RULE-AUTH-USUARIOS-001, outcome: RATIFY, group: GRP-AUTH-B-PAYLOADS}
+  - {item_id: ESC-UNVERIFIABLE-279, rule_id: RULE-AUTH-USUARIOS-002, outcome: RATIFY, group: GRP-AUTH-B-PAYLOADS}
+  - {item_id: ESC-UNVERIFIABLE-280, rule_id: RULE-DOCUMENTACAO-FATURAMENTO-027, outcome: RATIFY, group: GRP-DOCFAT-B-AMHDOCS}
+  - {item_id: ESC-UNVERIFIABLE-281, rule_id: RULE-DOCUMENTACAO-FATURAMENTO-028, outcome: RATIFY, group: GRP-DOCFAT-B-AMHDOCS}
+  - {item_id: ESC-UNVERIFIABLE-282, rule_id: RULE-ESTABILIDADE-010, outcome: RATIFY, group: GRP-EST-B-DRUG-COMBINATION}
+  - {item_id: ESC-UNVERIFIABLE-283, rule_id: RULE-ESTABILIDADE-022, outcome: RATIFY, group: GRP-EST-B-DRUG-COMBINATION}
+  - {item_id: ESC-UNVERIFIABLE-284, rule_id: RULE-FORMULARIOS-CLINICOS-014, outcome: RATIFY, group: GRP-FORM-B-CAPTURE}
+  - {item_id: ESC-UNVERIFIABLE-285, rule_id: RULE-FORMULARIOS-CLINICOS-042, outcome: RATIFY, group: GRP-FORM-B-CAPTURE}
+  - {item_id: ESC-UNVERIFIABLE-286, rule_id: RULE-SINAIS-VITAIS-029, outcome: RATIFY, group: GRP-SV-B-DOSE-VALIDATORS}
+  - {item_id: ESC-UNVERIFIABLE-287, rule_id: RULE-SINAIS-VITAIS-030, outcome: RATIFY, group: GRP-SV-B-DOSE-VALIDATORS}
+  - {item_id: ESC-UNVERIFIABLE-288, rule_id: RULE-AUDITORIA-LOGS-001, outcome: RATIFY, group: GRP-AUDIT-B-DATE-RANGE}
+  - {item_id: ESC-UNVERIFIABLE-289, rule_id: RULE-EFICIENCIA-009, outcome: RATIFY, group: GRP-EFF-B-FRAILTY}
+  - {item_id: ESC-UNVERIFIABLE-290, rule_id: RULE-PRESCRICAO-001, outcome: RATIFY, group: GRP-PRESC-B-FLUID-EXPORT}
+  - {item_id: ESC-UNVERIFIABLE-291, rule_id: RULE-TRILHAS-ENGINE-017, outcome: RATIFY, group: GRP-TRILHA-B-DOSING-IMAGE}
+  - {item_id: ESC-UNVERIFIABLE-292, rule_id: RULE-VENTILACAO-002, outcome: RATIFY, group: GRP-VENT-B-DURATION}

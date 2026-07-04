@@ -1,0 +1,813 @@
+scope: "P1 items 1-23 (in document order)"
+records:
+  - item_id: ESC-P1-013
+    rule_id: RULE-CLINICAL-SCORING-004
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The legacy SOFA liver sub-score (total bilirubin, mg/dL) uses strict < at
+        the upper band edges (1.9, 5.9, 11.9), creating dead gaps [1.9,2.0),
+        [5.9,6.0), [11.9,12.0) that return None (no score). Should v2 close these
+        gaps to the canonical inclusive SOFA bands?
+      options:
+        - id: A
+          text: >-
+            Adopt reference-correct inclusive bands per Vincent 1996 (<1.2=0;
+            1.2-1.9=1; 2.0-5.9=2; 6.0-11.9=3; >=12=4).
+          clinical_risk: >-
+            none - restores the validated standard scoring.
+        - id: B
+          text: >-
+            Preserve the legacy strict-< bands verbatim.
+          clinical_risk: >-
+            bilirubin values in the gaps score None, undercounting total SOFA and
+            delaying sepsis/mortality escalation.
+        - id: C
+          text: >-
+            Retire the hepatic sub-score.
+          clinical_risk: >-
+            loses the liver organ-dysfunction dimension of SOFA.
+      recommended: A
+      rationale: |-
+        SOFA is a validated ordinal score and the gap values are pure implementation artifacts of strict < with no clinical
+        justification. Adopting the canonical inclusive bands (Vincent JL et al., Intensive Care Med 1996) is unambiguous and
+        restores band continuity. Committee confirmation is required only because SOFA drives sepsis and mortality flags, so any
+        band change is clinically load-bearing.
+
+  - item_id: ESC-P1-014
+    rule_id: RULE-INDICADORES-ETL-012
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The ICU quality-indicator ETL (get_microindicadores) maps the generic
+        source field DVA (droga vasoativa = any vasoactive drug) to an output key
+        literally named "noradrenalina". Should v2 rename the indicator to a
+        generic vasopressor label or keep the norepinephrine-specific key?
+      options:
+        - id: A
+          text: >-
+            Rename to a generic key (droga_vasoativa / uso_vasopressor) reflecting
+            the DVA source semantics.
+          clinical_risk: >-
+            downstream dashboards keyed on "noradrenalina" must migrate; no
+            bedside-alert impact.
+        - id: B
+          text: >-
+            Keep the key "noradrenalina" but document that it means any vasoactive
+            drug.
+          clinical_risk: >-
+            misleading label over-reports norepinephrine-specific use in ICU
+            quality reporting.
+        - id: C
+          text: >-
+            Split into drug-specific keys.
+          clinical_risk: >-
+            source carries only the binary DVA flag; disaggregation is impossible.
+      recommended: A
+      rationale: |-
+        In standard Brazilian ICU terminology DVA = droga vasoativa, i.e. any vasoactive agent (noradrenalina, adrenalina,
+        vasopressina, dopamina, dobutamina, nitroprussiato...), so surfacing it as "noradrenalina" misrepresents the indicator.
+        This feeds ICU quality metrics rather than a bedside alert, so the fix is a naming/semantics decision for the data
+        owner, not a clinical-threshold change. Recommend the generic label with a downstream migration note.
+
+  - item_id: ESC-P1-015
+    rule_id: RULE-PIORA-CLINICA-008
+    outcome: RATIFY
+    ratify:
+      question: >-
+        For non-COPD ("regular") patients the Piora Clinica SatO2 sub-score
+        assigns a POSITIVE deterioration grade "2+" (labelled hiperoxia) to normal
+        high saturations >96%, firing a false AMARELO. Should v2 align this sub-
+        score with NEWS2 Scale 1 (SpO2 >=96% scores 0)?
+      options:
+        - id: A
+          text: >-
+            Adopt NEWS2 Scale 1 grading - penalize only low SpO2; normal/high
+            saturation scores 0.
+          clinical_risk: >-
+            none; removes systematic false positives.
+        - id: B
+          text: >-
+            Preserve the legacy hiperoxia penalty for SpO2 >96% in non-COPD
+            patients.
+          clinical_risk: >-
+            false AMARELO on healthy oxygenation drives alert fatigue and erodes
+            trust in the track-and-trigger.
+        - id: C
+          text: >-
+            Retire the non-COPD SatO2 sub-score.
+          clinical_risk: >-
+            loses hypoxaemia detection in the aggregated deterioration score.
+      recommended: A
+      rationale: |-
+        NEWS2 Scale 1 applies to patients without hypercapnic (type 2) respiratory failure risk; for them high SpO2 is not a
+        deterioration signal, so the "2+" hiperoxia band is a sign inversion. Aligning to NEWS2 Scale 1 removes the false
+        AMARELO on normal oxygenation while preserving low-SpO2 detection. Committee sign-off is required because it changes a
+        wired track-and-trigger sub-score that contributes to the aggregate color alert.
+
+  - item_id: ESC-P1-016
+    rule_id: RULE-PIORA-CLINICA-009
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The COPD (DPOC) SatO2 sub-score correctly penalizes over-oxygenation
+        (intent verified against NEWS2 Scale 2), but its band edges diverge from
+        Scale 2 and leave a dead gap 81-87% scoring 0 (sato2==94 -> 1+, >94 -> 3+,
+        91-93 -> 1-, 88-90 -> 2-, <=80 -> 3-). Should v2 adopt the exact NEWS2
+        Scale 2 bands?
+      options:
+        - id: A
+          text: >-
+            Adopt NEWS2 Scale 2 verbatim (<=83=3, 84-85=2, 86-87=1, 88-92=0, 93-94
+            on O2=1, 95-96=2, >=97=3).
+          clinical_risk: >-
+            none; closes the 81-87 gap and corrects both tails.
+        - id: B
+          text: >-
+            Preserve the legacy COPD bands.
+          clinical_risk: >-
+            81-87% (moderate hypoxaemia) scores 0 and misses deterioration; low-
+            and high-end cutoffs deviate from guideline.
+        - id: C
+          text: >-
+            Retire the COPD-specific scale and use a single SpO2 scale.
+          clinical_risk: >-
+            loses the clinically important over-oxygenation penalty for
+            hypercapnic patients.
+      recommended: A
+      rationale: |-
+        The design intent (penalize high SpO2 in COPD, target 88-92%) is verified correct against NEWS2 Scale 2 rationale; only
+        the numeric bands and the 81-87% coverage gap deviate. Adopting Scale 2 verbatim preserves the verified intent while
+        fixing the low-end grading and the dead zone. Committee confirmation is required because it retunes a wired sub-score
+        for the distinct DPOC population.
+
+  - item_id: ESC-P1-017
+    rule_id: RULE-SEPSE-002
+    outcome: RATIFY
+    ratify:
+      question: >-
+        SEPSE v3 combines its 11 maiores and 9 menores criteria with OR (VERMELHO
+        if maiores>=3 OR menores>=4; AMARELO if maiores>=2 OR menores>=3), whereas
+        v1 used AND (maiores AND menores). Which aggregation logic should the v2
+        sepsis alert adopt?
+      options:
+        - id: A
+          text: >-
+            Adopt v3 OR aggregation.
+          clinical_risk: >-
+            higher sensitivity, more alerts / lower PPV; note menores>=4 is
+            currently unreachable via ESC-P1-020.
+        - id: B
+          text: >-
+            Adopt v1 AND aggregation (maiores AND menores).
+          clinical_risk: >-
+            lower sensitivity; may miss severe single-axis presentations.
+        - id: C
+          text: >-
+            Retune thresholds with the committee (hybrid).
+          clinical_risk: >-
+            requires fresh PPV validation before deployment.
+      recommended: A
+      rationale: |-
+        OR aggregation favours sensitivity, which suits a sepsis safety-net, but it materially changes alert volume and PPV
+        versus the v1 AND logic, making this a clinical/operational trade-off for the committee. There is a hard dependency:
+        RULE-SEPSE-037 (ESC-P1-020) leaves the menores==4 branch unreachable, so effective firing is driven by maiores; the two
+        must be ratified together. Recommend v3 OR paired with an explicit PPV budget review.
+
+  - item_id: ESC-P1-018
+    rule_id: RULE-SEPSE-032
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Sepse major criterio_6 fires oliguria as a fixed absolute diurese_sonda
+        volume <=100 mL within the last 2h (plus an O2-support + SpO2<96% branch),
+        diverging from the KDIGO/SSC weight- and time-normalized oliguria
+        definition (<0.5 mL/kg/h over >=2h). Should v2 replace the fixed cutoff
+        with the guideline definition?
+      options:
+        - id: A
+          text: >-
+            Adopt KDIGO/SSC weight-normalized oliguria (<0.5 mL/kg/h for >=2h) and
+            set the desaturation branch to a NEWS2 target (SpO2 94-98%).
+          clinical_risk: >-
+            needs reliable weight and timed urine output; more inputs.
+        - id: B
+          text: >-
+            Preserve the fixed <=100 mL / 2h absolute cutoff.
+          clinical_risk: >-
+            not body-weight adjusted; a null volume defaults to 0<=100 (spurious
+            fire) and misclassifies across body sizes.
+        - id: C
+          text: >-
+            Keep the absolute cutoff but fix only the null-default and recency
+            bugs.
+          clinical_risk: >-
+            retains a non-standard, weight-agnostic threshold.
+      recommended: A
+      rationale: |-
+        The fixed 100 mL rule is neither weight- nor rate-normalized, and the null-default plus the timedelta.seconds recency
+        bug can spuriously satisfy it for stale records. KDIGO AKI 2012 and SSC define oliguria as <0.5 mL/kg/h for >=2
+        consecutive hours, and NEWS2 sets the SpO2 target at 94-98%. Because this is a wired major sepsis criterion, retuning it
+        requires committee ratification and confirmation that patient weight and timed urine output are available.
+
+  - item_id: ESC-P1-019
+    rule_id: RULE-SEPSE-033
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Sepse major criterio_7 returns True when the PREVIOUS consciousness
+        severity rank is greater than the CURRENT one (previous worse than now,
+        i.e. improvement), which is inverted versus the documented intent to
+        detect worsening. Should v2 flip the comparison to fire on deterioration?
+      options:
+        - id: A
+          text: >-
+            Fire when current severity rank > previous (deterioration).
+          clinical_risk: >-
+            none; matches the clinical intent of the criterion.
+        - id: B
+          text: >-
+            Preserve the legacy comparison (anterior > atual).
+          clinical_risk: >-
+            criterion fires on improvement and misses true deterioration - a
+            safety-relevant inversion.
+        - id: C
+          text: >-
+            Retire criterio_7.
+          clinical_risk: >-
+            loses the acute-encephalopathy axis of sepsis screening.
+      recommended: A
+      rationale: |-
+        In hierarquia_consciencia a higher number is worse (coma=6, acordado=1), so returning previous>current fires when the
+        patient has improved - the opposite of the intended "variacao para pior". Correcting the comparison to current>previous
+        restores deterioration detection. Committee sign-off is required because it is a wired major criterion and the inversion
+        is safety-relevant.
+
+  - item_id: ESC-P1-020
+    rule_id: RULE-SEPSE-037
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Sepse minor criterio_11 is hard-coded to always return False, so the
+        menores group (c8-c11) can reach at most 3 True and the alert branch
+        menores==4 is unreachable. Should v2 implement criterio_11 or restructure
+        the menores threshold?
+      options:
+        - id: A
+          text: >-
+            Implement criterio_11 per its intended clinical definition so
+            menores==4 becomes reachable.
+          clinical_risk: >-
+            requires defining and validating the missing criterion.
+        - id: B
+          text: >-
+            Lower the menores firing threshold to match the 3 implementable
+            minors.
+          clinical_risk: >-
+            changes alert sensitivity; requires PPV revalidation.
+        - id: C
+          text: >-
+            Preserve the always-False placeholder.
+          clinical_risk: >-
+            dead alert path; the menores axis under-counts by one, silently
+            reducing sensitivity.
+      recommended: A
+      rationale: |-
+        An always-False placeholder silently disables the menores==4 escalation, an unintended consequence rather than a
+        deliberate design choice. The committee must decide whether to supply the missing criterion (restoring the intended
+        4-of-4 semantics) or retune the threshold to the criteria that actually exist. This interacts directly with the v3 OR
+        aggregation (ESC-P1-017) and must be resolved jointly.
+
+  - item_id: ESC-P1-021
+    rule_id: RULE-SEDACAO-009
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Wired AMARELO criterio_5 fires when a sedative is present at the latest
+        balance AND there was no reduction of at least half between the 06:00 and
+        10:00 balances (midazolam/propofol/cetamina/dexmedetomidina). Should v2
+        ratify this daily sedation-reduction logic and its fixed 06:00->10:00
+        window?
+      options:
+        - id: A
+          text: >-
+            Ratify the >=50% morning-reduction rule with the fixed 06:00->10:00
+            comparison.
+          clinical_risk: >-
+            a rigid clock window may miss units whose sedation-hold schedule
+            differs.
+        - id: B
+          text: >-
+            Generalize to a daily sedation-interruption/reduction check
+            independent of fixed clock times.
+          clinical_risk: >-
+            needs a defined reference balance pair to compare against.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses an oversedation / daily-awakening stewardship prompt.
+      recommended: B
+      rationale: |-
+        The clinical concept (daily sedation reduction / spontaneous awakening for ventilated patients, PADIS-aligned) is sound,
+        but hard-coding 06:00 and 10:00 assumes a single nursing schedule and the AMBIGUOUS status reflects unclear balance-pair
+        selection. The committee should confirm the target reduction fraction (>=50%) and the window policy. Recommend
+        generalizing the window while preserving the >=50% reduction intent, since it is a wired AMARELO criterion.
+
+  - item_id: ESC-P1-022
+    rule_id: RULE-BALANCO-HIDRICO-006
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The 24h balanco hidrico (intake minus output) over the 07:00-07:00 nursing
+        day is computed with a defective window (month-agnostic __day filter, an
+        unsatisfiable second-queryset branch, and a 0-sum coerced to None). Should
+        v2 ratify a corrected 07:00-07:00 windowing that preserves the nursing-day
+        semantics?
+      options:
+        - id: A
+          text: >-
+            Adopt a timezone-aware 07:00->07:00 window (fixing month boundaries
+            and the dead qs2 branch); keep balance = intake - output with 0 as a
+            real value.
+          clinical_risk: >-
+            none clinical; totals change only where the old window mis-bucketed
+            records.
+        - id: B
+          text: >-
+            Preserve the legacy window verbatim.
+          clinical_risk: >-
+            month-boundary days drop records and net-zero balance is silently
+            None, breaking downstream displays.
+        - id: C
+          text: >-
+            Redefine the nursing day (e.g., calendar midnight).
+          clinical_risk: >-
+            departs from the established ICU 07:00 handover convention.
+      recommended: A
+      rationale: |-
+        The 07:00-07:00 nursing-day intent is clinically correct; only the windowing mechanism is buggy (the shared BE-09
+        defect), so this is an ADAPT-style correction that preserves clinical semantics. Because net balance drives fluid-
+        management decisions, the committee must ratify the day-boundary definition and the 0-vs-None convention. Recommend the
+        corrected window with 0 treated as a valid balance value.
+
+  - item_id: ESC-P1-023
+    rule_id: RULE-BALANCO-HIDRICO-007
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Ganhos (total fluid intake = Sum of Entrada.quantidade, no type filter)
+        over the 07:00-07:00 nursing day shares the same defective window as the
+        24h balance (month-agnostic day, dead qs2 branch, 0-sum coerced to None).
+        Should v2 ratify the corrected windowing while keeping the unfiltered
+        intake sum?
+      options:
+        - id: A
+          text: >-
+            Adopt the corrected 07:00->07:00 window; keep Ganhos = Sum(Entrada.
+            quantidade) unfiltered, with 0 as a real value.
+          clinical_risk: >-
+            none clinical; only mis-bucketed records change.
+        - id: B
+          text: >-
+            Preserve the legacy window.
+          clinical_risk: >-
+            month-boundary intake is dropped and a genuine zero is reported as
+            None in the balance numerator.
+        - id: C
+          text: >-
+            Add a type filter to Entrada before summing.
+          clinical_risk: >-
+            could exclude legitimate intake sources not currently typed.
+      recommended: A
+      rationale: |-
+        Ganhos is the intake numerator of the fluid balance and shares the same 07:00-07:00 window defect; the intent (sum all
+        Entrada over the nursing day) is correct. Correcting the window preserves clinical semantics while fixing month
+        boundaries and the None coercion. Committee ratification is warranted because intake feeds the wired balance used in
+        resuscitation decisions; recommend keeping the unfiltered Entrada sum.
+
+  - item_id: ESC-P1-024
+    rule_id: RULE-BALANCO-HIDRICO-008
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Diureses (urine output = Sum of Saida with tipo in {diurese_espontanea,
+        diurese_sonda}) over the 07:00-07:00 nursing day uses the same defective
+        two-queryset window. Should v2 ratify the corrected windowing and the two
+        urine tipos included?
+      options:
+        - id: A
+          text: >-
+            Adopt the corrected 07:00->07:00 window; keep tipo in
+            {diurese_espontanea, diurese_sonda}, with 0 as a real value.
+          clinical_risk: >-
+            none clinical; only mis-bucketed records change.
+        - id: B
+          text: >-
+            Preserve the legacy window.
+          clinical_risk: >-
+            urine totals drop records at month boundaries and report None on a
+            true zero, corrupting oliguria assessment.
+        - id: C
+          text: >-
+            Broaden or narrow the set of urine tipos.
+          clinical_risk: >-
+            changes what counts as urine output; needs clinical definition.
+      recommended: A
+      rationale: |-
+        Diureses is the urine-output measure feeding oliguria/AKI assessment and shares the same window defect; the two included
+        tipos (spontaneous and catheter diuresis) are clinically appropriate. Correcting the window preserves semantics while
+        fixing the boundary and None-coercion bugs. Committee ratification is required because urine output is clinically load-
+        bearing; recommend the corrected window with the existing two tipos.
+
+  - item_id: ESC-P1-025
+    rule_id: RULE-BALANCO-HIDRICO-010
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Maximum body temperature over the 07:00-07:00 nursing day takes the MAX of
+        per-window maxima using the same defective window construction. Should v2
+        ratify a corrected windowing that preserves the MAX aggregate?
+      options:
+        - id: A
+          text: >-
+            Adopt the corrected 07:00->07:00 window; keep Max(temperatura) with
+            None-stripping.
+          clinical_risk: >-
+            none clinical; only mis-bucketed records change.
+        - id: B
+          text: >-
+            Preserve the legacy window.
+          clinical_risk: >-
+            a peak temperature at a month boundary can be dropped, under-reporting
+            fever.
+        - id: C
+          text: >-
+            Change the aggregate (e.g., last value instead of max).
+          clinical_risk: >-
+            max is the clinically meaningful fever signal; a change loses it.
+      recommended: A
+      rationale: |-
+        Unlike the fluid helpers this aggregate is a Max (peak fever), but it shares the identical 07:00-07:00 window defect.
+        Correcting the window preserves the MAX semantics while ensuring boundary- spanning peaks are not dropped. Committee
+        ratification is warranted because the daily temperature maximum feeds fever-based deterioration signals; recommend the
+        corrected window with the MAX aggregate retained.
+
+  - item_id: ESC-P1-026
+    rule_id: RULE-BALANCO-HIDRICO-013
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The fluid-balance overview grid buckets quantities into twelve fixed
+        2-hour buckets starting at 08:00 (America/Sao_Paulo), but the
+        [22:00,00:00] bucket becomes SQL BETWEEN 22:00:00 and 00:00:00 (a
+        degenerate/empty range) so late-night entries are lost; the 08:00 anchor
+        also differs from the 07:00-07:00 balance day. Should v2 ratify a
+        corrected bucketing?
+      options:
+        - id: A
+          text: >-
+            Adopt corrected 2h buckets with a proper wrap of the 22:00-24:00
+            window, and confirm the 08:00 start + Sao_Paulo timezone.
+          clinical_risk: >-
+            none clinical; recovers currently-dropped late-night entries.
+        - id: B
+          text: >-
+            Preserve the legacy bucketing.
+          clinical_risk: >-
+            22:00-00:00 entries are silently excluded from the overview grid,
+            under-displaying intake/output.
+        - id: C
+          text: >-
+            Re-anchor the grid to the 07:00 nursing day to match the balance.
+          clinical_risk: >-
+            aligns display with the balance but changes long-standing bucket
+            labels clinicians read.
+      recommended: A
+      rationale: |-
+        The bucketing is a display grid, but the [22:00,00:00] BETWEEN range is a genuine defect that drops real late-night
+        entries. Correcting the wrap recovers those entries with no change to clinical semantics. The 08:00 grid anchor versus
+        the 07:00 balance day is a separate consistency question the committee should confirm; recommend fixing the wrap first
+        and keeping the 08:00 anchor unless the committee re-aligns it.
+
+  - item_id: ESC-P1-027
+    rule_id: RULE-BALANCO-HIDRICO-016
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The shared helper tempo_criacao (hours since a record was created, used as
+        the recency window guard in sepsis criteria) uses timedelta.seconds
+        (0..86399, intra-day only) instead of total_seconds(), so any record older
+        than 24h drops the day component and can spuriously pass "< N hours"
+        checks. Should v2 ratify the total_seconds() correction?
+      options:
+        - id: A
+          text: >-
+            Adopt total_seconds() so recency windows are correct for records >24h
+            old.
+          clinical_risk: >-
+            none; stale records stop spuriously satisfying recency gates in wired
+            sepsis criteria.
+        - id: B
+          text: >-
+            Preserve the legacy timedelta.seconds behavior.
+          clinical_risk: >-
+            records older than 24h can satisfy short recency windows (e.g., the 2h
+            oliguria gate), firing on stale data.
+        - id: C
+          text: >-
+            Remove the recency guard entirely.
+          clinical_risk: >-
+            criteria would ignore data staleness altogether.
+      recommended: A
+      rationale: |-
+        This is a pure mechanism bug with cross-cutting impact: the helper gates recency in wired sepsis criteria (e.g.,
+        criterio_6's 2h window). Because the fix changes whether stale records satisfy recency gates in firing alerts, committee
+        ratification is warranted despite the change being a one-line primitive swap. total_seconds() is the unambiguous correct
+        elapsed-time primitive.
+
+  - item_id: ESC-P1-028
+    rule_id: RULE-ESTABILIDADE-001
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Estabilidade criterio_5 (intended: noradrenaline started in last 6h AND
+        cumulative fluid balance < -2000 mL AND no >=500 mL Ringer/saline bolus in
+        last 4h) diverges substantially from its own docstring and is defined but
+        UNWIRED. Should v2 implement the intended logic and wire it, or retire it?
+      options:
+        - id: A
+          text: >-
+            Implement the intended clinical predicate and wire the criterion.
+          clinical_risk: >-
+            requires ratifying the exact predicate and the ml/h vs mcg/kg/min
+            dosing convention.
+        - id: B
+          text: >-
+            Preserve the criterion as-is (unwired, inert).
+          clinical_risk: >-
+            no effect; a documented but non-functional safety concept.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses the vasopressor-with-negative-balance under-resuscitation flag.
+      recommended: A
+      rationale: |-
+        The intent - flag a vasopressor-dependent patient with a large negative fluid balance who has not received a recent
+        volume bolus - is clinically reasonable and consistent with SSC fluid-responsiveness thinking. The code deviates from
+        its docstring and never runs, so the committee must ratify the canonical predicate before wiring. The noradrenaline
+        dosing units (ml/h vs mcg/kg/min) must be resolved jointly with the estabilidade dosing decision (ESC-P0-006,
+        ESC-P1-032/033/034).
+
+  - item_id: ESC-P1-029
+    rule_id: RULE-INDICADORES-ETL-004
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The two indicator viewsets display sedation inconsistently under the same
+        label "Tx. sedacao": the assistance view plots taxa_uso_sedacao * 100 (a
+        rate as percentage) while the infection-control view plots the raw
+        dias_sedacao field (days). Which representation should v2 standardize on?
+      options:
+        - id: A
+          text: >-
+            Standardize on the rate (taxa_uso_sedacao * 100, %) in both views.
+          clinical_risk: >-
+            infection-control view loses the absolute days-of-sedation figure.
+        - id: B
+          text: >-
+            Standardize on days (dias_sedacao) in both views.
+          clinical_risk: >-
+            assistance view loses the normalized rate used for benchmarking.
+        - id: C
+          text: >-
+            Keep both metrics but give them distinct, correct labels (e.g., "Tx.
+            uso sedacao %" vs "Dias de sedacao").
+          clinical_risk: >-
+            two labels to maintain, but each metric stays interpretable; no
+            information lost.
+      recommended: C
+      rationale: |-
+        Applying the same "Tx. sedacao" label to a percentage rate and to a raw day-count is a reporting-integrity defect, not a
+        clinical-threshold error. Both are legitimate ICU quality indicators serving different audiences (assistance vs
+        infection control). Recommend keeping both with distinct labels so neither signal is lost; this is a data-
+        owner/reporting decision with no bedside-alert impact.
+
+  - item_id: ESC-P1-030
+    rule_id: RULE-EFICIENCIA-006
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Wired AMARELO criterio_10 (mechanical restraint without agitation) checks
+        for delirium PRESENT and RASS not > +1, but the docstring intends ABSENCE
+        of delirium and absence of RASS > +1. Should v2 flip the delirium clause
+        to match the documented intent?
+      options:
+        - id: A
+          text: >-
+            Correct to ABSENCE of delirium (flag restraint on a non-agitated, non-
+            delirious patient = potential over-restraint).
+          clinical_risk: >-
+            none; restores the intended over-restraint safety flag.
+        - id: B
+          text: >-
+            Preserve the legacy clause (delirium presence required).
+          clinical_risk: >-
+            fires only when delirium is present - the opposite population - so it
+            never flags unjustified restraint.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses the restraint-appropriateness quality/safety prompt.
+      recommended: A
+      rationale: |-
+        The clinical intent is to flag physical restraint of a patient who is NOT agitated or delirious (ausencia de delirium),
+        an over-restraint quality and safety concern. The code inverts the delirium clause so it fires only when delirium is
+        present, targeting the wrong population. Correcting the clause restores intent; committee sign-off is required because
+        it is a wired AMARELO alert.
+
+  - item_id: ESC-P1-031
+    rule_id: RULE-ESTABILIDADE-005
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Estabilidade criterio_3 (lactate >= 2 mmol/L AND antibiotic prescribed AND
+        no mechanical ventilation in last 24h) checks noradrenaline PRESENCE, but
+        its docstring documents ABSENCE of noradrenaline; the criterion is defined
+        but UNWIRED. Which polarity should v2 adopt, and should it be wired?
+      options:
+        - id: A
+          text: >-
+            Adopt ABSENCE-of-noradrenaline (flag hyperlactatemia + sepsis therapy
+            in a patient not yet on vasopressors) and wire it.
+          clinical_risk: >-
+            requires ratifying polarity and the ml/h dosing convention before
+            enabling.
+        - id: B
+          text: >-
+            Adopt the PRESENCE-of-noradrenaline logic as currently coded.
+          clinical_risk: >-
+            targets patients already on vasopressors, missing the earlier-
+            escalation window the docstring intends.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses an early septic-shock escalation prompt.
+      recommended: A
+      rationale: |-
+        The docstring intent (elevated lactate with antibiotic but no vasopressor yet started) targets early septic shock before
+        vasopressor initiation, consistent with SSC hour-1 bundle timing. The code's presence check inverts this. Because the
+        criterion is unwired, the committee must ratify polarity and the ml/h dosing convention before enabling it. Recommend
+        the docstring (absence) form.
+
+  - item_id: ESC-P1-032
+    rule_id: RULE-ESTABILIDADE-007
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Wired VERMELHO criterio_7 fires when noradrenaline > 20 ml/h in last 4h
+        AND (no vasopressin recorded OR no hydrocortisone prescribed). The concept
+        is guideline-concordant but the dose trigger is an infusion volume (ml/h),
+        not weight-based mcg/kg/min. Should v2 ratify the ml/h threshold or
+        convert to standard dosing units?
+      options:
+        - id: A
+          text: >-
+            Convert to weight-based mcg/kg/min (SSC adjunct-therapy range),
+            requiring pump concentration + patient weight.
+          clinical_risk: >-
+            needs concentration and weight that the legacy system did not capture;
+            data-capture change required.
+        - id: B
+          text: >-
+            Ratify the legacy > 20 ml/h volume threshold as an institution-
+            specific proxy, pending confirmation of the standard noradrenaline
+            concentration.
+          clinical_risk: >-
+            valid only for the assumed infusion concentration; ambiguous if
+            concentrations vary between units.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses the high-dose-vasopressor-without-adjuncts VERMELHO flag.
+      recommended: B
+      rationale: |-
+        The clinical concept - add vasopressin and/or hydrocortisone as adjuncts in high-dose vasopressor septic shock and flag
+        when either is absent - is verified consistent with SSC-2021. The only defect is units: ml/h is not convertible to
+        mcg/kg/min without pump concentration and patient weight, which the legacy system did not store. Committee must ratify
+        the institutional noradrenaline concentration that makes > 20 ml/h meaningful (or mandate mcg/kg/min capture); this
+        threshold recurs across estabilidade (ESC-P1-033/034/035, ESC-P0-006) and must be resolved consistently.
+
+  - item_id: ESC-P1-033
+    rule_id: RULE-ESTABILIDADE-008
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Estabilidade criterio_8 (noradrenaline > 70 ml/h AND vasopressin > 5 ml/h
+        in the SAME record in last 4h AND absence of adrenaline) encodes the SSC
+        refractory-shock escalation (add epinephrine on NE + vasopressin) but uses
+        ml/h dosing and is UNWIRED. Should v2 ratify the thresholds/units and wire
+        it?
+      options:
+        - id: A
+          text: >-
+            Implement with weight-based mcg/kg/min thresholds and decouple the
+            same-record AND requirement, then wire.
+          clinical_risk: >-
+            requires concentration + weight capture and threshold re-derivation.
+        - id: B
+          text: >-
+            Ratify the legacy ml/h thresholds (> 70 nora, > 5 vaso) as
+            institutional proxies and wire.
+          clinical_risk: >-
+            depends on the assumed infusion concentration; the same-record
+            coupling may miss separately-charted infusions.
+        - id: C
+          text: >-
+            Keep the criterion unwired.
+          clinical_risk: >-
+            refractory-shock triple-therapy escalation never surfaces.
+      recommended: B
+      rationale: |-
+        The concept matches SSC-2021 (epinephrine as the third agent when MAP is inadequate on norepinephrine + vasopressin),
+        verified correct in the catalog. The ml/h thresholds depend on the institutional infusion concentration and are not
+        guideline numbers, and the same-record AND coupling (nora>70 AND vaso>5 co-occurring) is a modelling choice. The
+        committee must ratify the concentrations/units alongside criterio_7 and wire the criterion.
+
+  - item_id: ESC-P1-034
+    rule_id: RULE-ESTABILIDADE-009
+    outcome: RATIFY
+    ratify:
+      question: >-
+        Estabilidade criterio_9 (noradrenaline > 50 ml/h AND dobutamine > 10 ml/h
+        in the SAME record, last 4h) is UNWIRED and diverges from its paired
+        facade text, which conditions the recommendation on FC > 130 bpm (suspend
+        dobutamine when tachycardia impairs filling). Should v2 add the
+        tachycardia gate and reconcile dosing units?
+      options:
+        - id: A
+          text: >-
+            Implement with mcg/kg/min thresholds plus the FC > 130 bpm condition
+            from the facade, and wire.
+          clinical_risk: >-
+            needs concentration + weight and confirmation of the FC gate.
+        - id: B
+          text: >-
+            Ratify the legacy ml/h thresholds without the FC gate and wire.
+          clinical_risk: >-
+            predicate omits the physiologically-sound tachycardia condition shown
+            in the clinician advice.
+        - id: C
+          text: >-
+            Retire the criterion.
+          clinical_risk: >-
+            loses the dobutamine-with-high-dose-vasopressor prompt.
+      recommended: A
+      rationale: |-
+        SSC-2021 supports adding dobutamine for septic cardiac dysfunction, and the facade's FC > 130 note is physiologically
+        sound (tachycardia shortens diastolic filling and can reduce cardiac output). The predicate omits the tachycardia
+        condition present in the displayed advice - an intent/implementation split - and uses non-standard ml/h units. The
+        committee must reconcile the FC gate and the dosing units before wiring, resolving units jointly with criterio_7 and
+        criterio_8.
+
+  - item_id: ESC-P1-035
+    rule_id: RULE-ESTABILIDADE-015
+    outcome: RATIFY
+    ratify:
+      question: >-
+        The estabilidade facade alert-text catalog
+        (get_payload_trilha_estabilidade) renders clinician-facing recommendations
+        for the numeric-threshold criteria 1-6 and 11 (myocardiopathy/perfusion,
+        out-of-protocol noradrenaline, occult shock, septic shock in spontaneous
+        ventilation, negative fluid balance, bicarbonate). Should v2 ratify this
+        text and bind its thresholds to the reconciled v3 predicate code?
+      options:
+        - id: A
+          text: >-
+            Ratify the facade recommendation text and align its embedded
+            thresholds to the corrected v3 predicates (single source of truth).
+          clinical_risk: >-
+            requires the estabilidade dosing-unit and bicarbonate-pH decisions to
+            be settled first.
+        - id: B
+          text: >-
+            Keep facade text and predicate code independent, as in legacy.
+          clinical_risk: >-
+            displayed thresholds drift from the thresholds that actually fire the
+            alert, misleading clinicians.
+        - id: C
+          text: >-
+            Retire the facade recommendation text.
+          clinical_risk: >-
+            alerts fire without actionable bedside guidance.
+      recommended: A
+      rationale: |-
+        The facade renders the clinician-facing recommendation whose embedded thresholds (dosing, negative fluid balance,
+        bicarbonate pH) must match the predicates that actually fire the alert; legacy lets them drift. Binding the wording to a
+        single reconciled source prevents the displayed-vs- firing mismatch. This is the text counterpart of the estabilidade
+        dosing-unit and bicarbonate decisions (ESC-P0-006, ESC-P1-032/033/034, RULE-ESTABILIDADE-011), so it must be ratified
+        together with them.

@@ -1,0 +1,320 @@
+domain: hemodynamics
+# Hemodynamics domain alert definitions — IntensiCare v2 (vision §3.4, priority P4).
+# Reconciles the legacy's three parallel shock pathways (v3 'estabilidade', manual C1-C6, 'estabilizacao'/trilha2)
+# and the four catalog HEMO-* alerts into ONE evidence-anchored design: shock-index screening, lactate-clearance
+# resuscitation targeting, a vasopressor escalation/refractory-shock ladder (all vasopressor dosing in canonical
+# mcg/kg/min via the unit-conversion service — the audit's #1 finding, SYS-02/CON-0060), and medication-BP conflict.
+# Severity scale: normal|watch|urgent|critical. Every rule_ref cited in evidence has disposition
+# ADOPT / ADOPT-CORRECTED / ADAPT (per CONTRACTS §Alert). RATIFY-pending rules (RULE-ESTABILIDADE-001/005/007/008/
+# 009/010/015/016/017/022/024) are NOT cited as alert rule_refs; they are designed to the recommended default in
+# clinical/domains/hemodynamics.md §6 and flagged pending RAT-ESTABILIDADE-*. Fleet targets: PPV >=0.60, ignored <=10%.
+alerts:
+
+  # ==========================================================================================
+  # 1. SHOCK INDEX — occult hypoperfusion screen. Reconciles legacy HEMO-001.
+  #    Classic SI (Rady 1994) + modified SI (Liu 2012), enriched with a perfusion corroborator to lift PPV.
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-SHOCK-INDEX-01
+    name: "Índice de choque elevado — hipoperfusão oculta"
+    severity: watch
+    trigger:
+      logic: >-
+        ( indice_choque > 0.9 ratio OR ( frequencia_cardiaca / pressao_arterial_media ) > 1.3 ratio )
+        sustained > PT15M
+        AND ( lactato_arterial > 2 mmol/L OR tempo_enchimento_capilar > 3 s );
+        indice_choque := frequencia_cardiaca(bpm) / pressao_arterial_sistolica(mmHg) (classic SI, Rady 1994);
+        modified SI := frequencia_cardiaca / pressao_arterial_media (Liu 2012).
+        The perfusion corroborator (lactate>2 OR TEC>3s) is what lifts PPV above the 0.60 fleet floor — isolated
+        shock index has low specificity. Legacy RULE-ESTABILIDADE-002 used the more sensitive SI>0.7 / MSI>0.9
+        cutoffs; v2 adopts the vision/catalog-anchored SI>0.9 / MSI>1.3 (higher specificity). PT-BR display
+        vocabulary 'Indice de choque positivo' preserved verbatim (CLU-ESTABILIDADE-20).
+      window: PT15M
+    inputs:
+      - {name: frequencia_cardiaca, type: quantity, unit: "bpm", source: "local TimescaleDB (invasive/multiparameter monitor, continuous) / AMH Gold Observation LOINC 8867-4", staleness_max: PT15M}
+      - {name: pressao_arterial_sistolica, type: quantity, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8480-6", staleness_max: PT15M}
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8478-0", staleness_max: PT15M}
+      - {name: indice_choque, type: quantity, unit: "ratio", source: "hemodynamics domain (derived = HR/SBP)", staleness_max: PT15M}
+      - {name: lactato_arterial, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7", staleness_max: PT4H}
+      - {name: tempo_enchimento_capilar, type: quantity, unit: "s", source: "AMH Gold Observation (TEC bedside)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Rady MY et al. Ann Emerg Med 1994;24(4):685-693 (shock index vs isolated vital signs)", rule_refs: [RULE-ESTABILIDADE-002]}
+      - {citation: "Liu YC et al. Crit Care 2012;16:R150 (modified shock index HR/MAP >1.3); Cannon CM et al. West J Emerg Med 2011;12(4):459-464", rule_refs: []}
+      - {citation: "Hernandez G et al. ANDROMEDA-SHOCK, JAMA 2019;321(7):654-664 (capillary refill >3 s as perfusion target); Singer M et al. JAMA 2016;315(8):801-810 (lactate >2 mmol/L hypoperfusion)", rule_refs: [RULE-ESTABILIDADE-003]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 5
+      rationale: >-
+        Isolated shock index is a sensitive but low-specificity early marker (fires in pain/fever/anxiety/pacing/
+        beta-blockade without shock). Requiring the elevated index to be SUSTAINED >15 min AND corroborated by a
+        perfusion marker (lactate>2 mmol/L OR capillary refill>3 s) is what pulls PPV to the 0.60 fleet floor; it
+        also lets one watch-severity alert replace the two separate vision alerts (classic + modified SI). Kept at
+        WATCH (early trend, not immediate life threat) to protect the deterioration-alarm attention budget. ~5/100
+        beds/day given ICU tachycardia/hypotension prevalence; 2h cooldown prevents re-fire on the same episode.
+    response: {required: "avaliação de perfusão à beira-leito (lactato, TEC, diurese) e reavaliação volêmica", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {frequencia_cardiaca: 120, pressao_arterial_sistolica: 100, indice_choque: 1.2, lactato_arterial: 3.1}, expected: fire, note: "SI=1.2 (>0.9) sustained with lactate>2 mmol/L — corroborated occult hypoperfusion"}
+      - {id: TV-2, kind: fire, inputs: {frequencia_cardiaca: 110, pressao_arterial_media: 78, lactato_arterial: 1.5, tempo_enchimento_capilar: 4.0}, expected: fire, note: "modified SI=110/78=1.41 (>1.3) with capillary refill 4 s (>3 s) — MSI branch + TEC corroborator"}
+      - {id: TV-3, kind: no-fire, inputs: {frequencia_cardiaca: 120, pressao_arterial_sistolica: 100, indice_choque: 1.2, lactato_arterial: 1.4, tempo_enchimento_capilar: 2.0}, expected: no-fire, note: "SI elevated but NO perfusion corroborator (lactate<2 and TEC<3s) — suppressed for PPV protection"}
+      - {id: TV-4, kind: boundary, inputs: {frequencia_cardiaca: 90, pressao_arterial_sistolica: 100, indice_choque: 0.9, lactato_arterial: 3.0}, expected: no-fire, note: "boundary exact-threshold: SI=0.90 is NOT >0.9 (strict); index band not met even with high lactate"}
+      - {id: TV-5, kind: boundary, inputs: {frequencia_cardiaca: 91, pressao_arterial_sistolica: 100, indice_choque: 0.91, lactato_arterial: 2.01}, expected: fire, note: "boundary: SI=0.91 (>0.9) with lactate 2.01 (>2) both just above threshold — fires"}
+    reconciliation:
+      - {existing_id: HEMO-001, status: changed,
+         note: "vs alert-catalog.md HEMO-001 'Shock Index > 0,9 — hipoperfusão oculta' (URG/P2): legacy fired on SI>0.9 OR MSI>1.3 sustained >15 min with no corroborator. v2 changes it by adding a mandatory perfusion corroborator (lactato>2 mmol/L OR TEC>3 s) to lift PPV to the 0.60 floor and defeat the pain/pacing/beta-blockade false-positive flood, and lowers severity URG->watch (early trend, not immediate threat). Both classic and modified SI retained as OR branches; thresholds 0.9/1.3 kept."}
+
+  # ==========================================================================================
+  # 2. LACTATE CLEARANCE — resuscitation-response failure. Reconciles legacy HEMO-002.
+  #    OWNED here per orchestrator mandate (lactate clearance, mmol/L). Delegated in from sepsis SHOCK-03.
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-LACTATE-CLEARANCE-02
+    name: "Clearance de lactato inadequado"
+    severity: critical
+    trigger:
+      logic: >-
+        active_resuscitation
+        AND lactato_inicial >= 2 mmol/L
+        AND ( clearance_lactato_2h < 10 percent
+              OR lactato_6h > 2 mmol/L );
+        clearance_lactato_2h := (lactato_inicial - lactato_2h) / lactato_inicial * 100 (Jones 2010 JAMA);
+        active_resuscitation := fluid_bolus_given OR dose_vasopressor > 0 mcg/kg/min OR sepsis.shock.detected
+        received in the last PT6H. Lactate is mmol/L ONLY (mission law, SYS-03); a lactate value with no unit is a
+        build-time error. Anchored to Jones 2010 (10% 2-hour clearance) and SSC-2021 lactate-guided resuscitation.
+      window: PT6H
+    inputs:
+      - {name: lactato_inicial, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (resuscitation baseline)", staleness_max: PT6H}
+      - {name: lactato_2h, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (2h repeat)", staleness_max: PT4H}
+      - {name: lactato_6h, type: quantity, unit: "mmol/L", source: "AMH Gold lab_result LOINC 2524-7 (6h repeat)", staleness_max: PT4H}
+      - {name: clearance_lactato_2h, type: quantity, unit: "percent", source: "hemodynamics domain (derived = (inicial-2h)/inicial*100)", staleness_max: PT4H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain (conversion service, mL/h->mcg/kg/min)", staleness_max: PT1H}
+      - {name: fluid_bolus_given, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (crystalloid bolus, 6h lookback)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Jones AE et al. JAMA 2010;303(8):739-746 (lactate clearance >=10% at 2h non-inferior to ScvO2); Jansen TC et al. Am J Respir Crit Care Med 2010;182(6):752-761 (lactate-guided therapy)", rule_refs: []}
+      - {citation: "Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (lactate-guided resuscitation, remeasure within 2-4h); Singer M et al. JAMA 2016 (lactate >2 mmol/L)", rule_refs: [RULE-ESTABILIDADE-020, RULE-ESTABILIDADE-003]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "4/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.70
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Gated on ACTIVE resuscitation (fluid bolus / vasopressor / a received sepsis.shock.detected event), so it
+        fires only when the clearance question is clinically live — this is what keeps PPV high despite lactate's
+        known non-shock confounders (hepatopathy, epinephrine, metformin, seizures). Lactate can fail to clear for
+        non-perfusion reasons, so PPV is targeted 0.70 not higher. maintenance_window_aware:false — a critical
+        resuscitation-failure signal must never be muted by a maintenance window. ~2/100 beds/day (shock incidence
+        x resuscitation subset). One critical alert covering both the 2h-clearance and 6h-persistence branches.
+    response: {required: "reavaliação imediata da ressuscitação (fonte de choque, volemia, vasopressor) + medir lactato seriado", ack_sla: PT5M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {lactato_inicial: 4.0, lactato_2h: 3.8, clearance_lactato_2h: 5.0, fluid_bolus_given: true}, expected: fire, note: "baseline>=2, clearance 5% (<10%) at 2h during active resuscitation"}
+      - {id: TV-2, kind: fire, inputs: {lactato_inicial: 3.0, lactato_6h: 2.6, dose_vasopressor: 0.2}, expected: fire, note: "lactate persistently >2 mmol/L at 6h despite active vasopressor resuscitation (persistence branch)"}
+      - {id: TV-3, kind: no-fire, inputs: {lactato_inicial: 4.0, lactato_2h: 2.8, clearance_lactato_2h: 30.0, lactato_6h: 1.8, fluid_bolus_given: true}, expected: no-fire, note: "clearance 30% (>=10%) and 6h lactate <2 — adequate resuscitation response"}
+      - {id: TV-4, kind: no-fire, inputs: {lactato_inicial: 4.0, lactato_2h: 3.8, clearance_lactato_2h: 5.0, dose_vasopressor: 0, fluid_bolus_given: false}, expected: no-fire, note: "poor clearance but NO active resuscitation — gate not met (not a resuscitation-failure context)"}
+      - {id: TV-5, kind: boundary, inputs: {lactato_inicial: 2.0, lactato_2h: 1.8, clearance_lactato_2h: 10.0, lactato_6h: 2.0, fluid_bolus_given: true}, expected: no-fire, note: "boundary exact-threshold: clearance=10.0 is NOT <10 (strict) AND lactato_6h=2.0 is NOT >2 (strict) — both branches excluded"}
+      - {id: TV-6, kind: boundary, inputs: {lactato_inicial: 2.0, lactato_2h: 1.82, clearance_lactato_2h: 9.0, fluid_bolus_given: true}, expected: fire, note: "boundary: baseline exactly 2.0 (>=2 inclusive) with clearance 9% (<10) fires"}
+    reconciliation:
+      - {existing_id: HEMO-002, status: aligned,
+         note: "vs alert-catalog.md HEMO-002 'Clearance de lactato < 10% em 2h' (CRIT/P2): carried forward essentially unchanged — baseline lactate>=2 mmol/L AND (2h clearance<10% OR 6h lactate>2 mmol/L after resuscitation). v2 makes the implicit 'após ressuscitação ativa' condition an explicit active_resuscitation gate and pins lactate to canonical mmol/L; severity critical and the Jones 2010 anchor are unchanged."}
+
+  # ==========================================================================================
+  # 3. VASOPRESSOR ESCALATION — dose-trend / second-agent. Reconciles legacy HEMO-003a/003b.
+  #    ALL dosing in canonical mcg/kg/min via the conversion service (#vasopressor-unit-conversion-service).
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-VASO-ESCALATION-03
+    name: "Escalonamento de vasopressor"
+    severity: urgent
+    trigger:
+      logic: >-
+        dose_vasopressor > 0 mcg/kg/min
+        AND ( dose_vasopressor > 1.5 * dose_vasopressor_2h_atras     # >50% increase in PT2H
+              OR second_vasopressor_started_2h );                    # 2nd agent added while NE active
+        second_vasopressor_started_2h := any of {dose_vasopressina > 0 U/min, dose_adrenalina > 0 mcg/kg/min,
+        dose_dobutamina > 0 mcg/kg/min} newly started within PT2H while norepinephrine already active.
+        ALL weight-indexed doses are canonical mcg/kg/min produced by #vasopressor-unit-conversion-service from an
+        edge mL/h rate + concentracao_farmaco + peso (mL/h is NOT convertible without both; SYS-C-04 / CON-0060).
+        Vasopressin is U/min (fixed-rate, never coerced to mcg/kg/min). The >50%/2nd-agent TREND logic is SCCM-2024
+        anchored and unit-safe; the disputed ABSOLUTE ladder cutoffs (>0.5, >1.5 mcg/kg/min) are pending
+        RAT-ESTABILIDADE-08 (P0, RULE-ESTABILIDADE-016) and NOT used as a firing threshold here.
+      window: PT2H
+    inputs:
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (MedicationAdministration mL/h + concentracao_farmaco + peso)", staleness_max: PT1H}
+      - {name: dose_vasopressor_2h_atras, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (prior value, 2h lookback)", staleness_max: PT2H}
+      - {name: dose_vasopressina, type: quantity, unit: "U/min", source: "hemodynamics conversion service (MedicationAdministration; fixed-rate, NOT weight-indexed)", staleness_max: PT1H}
+      - {name: dose_adrenalina, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (MedicationAdministration mL/h + concentracao + peso)", staleness_max: PT1H}
+      - {name: dose_dobutamina, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (MedicationAdministration mL/h + concentracao + peso)", staleness_max: PT1H}
+    evidence:
+      - {citation: "SCCM/Society of Critical Care Medicine 2024 Adult Vasopressor Guidance; Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (vasopressor escalation, add vasopressin then epinephrine)", rule_refs: [RULE-ESTABILIDADE-014, RULE-ESTABILIDADE-018, RULE-ESTABILIDADE-026]}
+      - {citation: "Vasopressor-adjunct escalation rung (high-dose NE without vasopressin/hydrocortisone), reference-corrected inclusive boundary + mcg/kg/min canonicalization", rule_refs: [RULE-ESTABILIDADE-019]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT2H, rate_limit: "4/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.75
+      est_volume_per_100_beds_day: 3
+      rationale: >-
+        A dose-trend / second-agent alert is deterministic (a genuine >50% rate rise or a newly-added second
+        vasoactive drug), so PPV is high by construction; the only false positives are transient titration blips,
+        damped by the PT2H window and 2h cooldown. It is unit-SAFE because it compares canonical mcg/kg/min values
+        from the conversion service — the exact defect (SYS-02, mL/h vs mcg/kg/min vs mcg/kg/h 60x drift) this
+        domain owns. Kept URGENT (rapid escalation warrants action <30 min but is not itself the imminent-death
+        event — that is REFRACTORY-SHOCK-04). One alert covers both 003a (dose rise) and 003b (2nd agent).
+    response: {required: "reavaliação médica do choque e da estratégia vasoativa (fonte, volemia, adjuvantes vasopressina/hidrocortisona)", ack_sla: PT30M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {dose_vasopressor: 0.35, dose_vasopressor_2h_atras: 0.20}, expected: fire, note: "NE 0.20->0.35 mcg/kg/min = 75% increase (>50%) in 2h"}
+      - {id: TV-2, kind: fire, inputs: {dose_vasopressor: 0.30, dose_vasopressor_2h_atras: 0.28, dose_vasopressina: 0.03}, expected: fire, note: "vasopressin (0.03 U/min, fixed-rate) newly added while NE active — 2nd-agent branch"}
+      - {id: TV-3, kind: no-fire, inputs: {dose_vasopressor: 0.22, dose_vasopressor_2h_atras: 0.20}, expected: no-fire, note: "NE 0.20->0.22 = 10% increase (<50%), no 2nd agent — normal titration"}
+      - {id: TV-4, kind: no-fire, inputs: {dose_vasopressor: 0, dose_vasopressor_2h_atras: 0, dose_dobutamina: 5.0}, expected: no-fire, note: "dobutamine present but NO active norepinephrine (dose_vasopressor=0) — gate not met (inotrope-only, not vasopressor escalation)"}
+      - {id: TV-5, kind: boundary, inputs: {dose_vasopressor: 0.30, dose_vasopressor_2h_atras: 0.20}, expected: no-fire, note: "boundary exact-threshold: 0.30 = exactly 1.5x0.20 = exactly 50% increase, NOT >50% (strict) — no fire"}
+      - {id: TV-6, kind: boundary, inputs: {dose_vasopressor: 0.301, dose_vasopressor_2h_atras: 0.20}, expected: fire, note: "boundary: 0.301 just above 1.5x0.20 (>50%) fires"}
+    reconciliation:
+      - {existing_id: HEMO-003, status: changed,
+         note: "vs alert-catalog.md HEMO-003 'Escalonamento de vasopressor' (CRIT/P2): legacy bundled three triggers (003a dose +50% in 2h, 003b 2nd agent added, 003c refractory NE>1.0 mcg/kg/min + MAP<65 >30 min). v2 splits them: 003a+003b become this alert (severity urgent); 003c is promoted to the standalone ALERT-HEMO-REFRACTORY-SHOCK-04 (see its own reconciliation note). Changed because all dosing is now canonical mcg/kg/min from the vasopressor unit-conversion service (the audit's #1 finding, SYS-02/CON-0060 — legacy mixed mL, mL/h, mcg/kg/min, mcg/kg/h)."}
+
+  # ==========================================================================================
+  # 4. REFRACTORY SHOCK — hypotension on maximal vasopressor. Reconciles legacy HEMO-003c.
+  #    Recommended-default 'maximal' cutoff pending RAT-ESTABILIDADE-08 (P0 mcg/kg/min ladder).
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-REFRACTORY-SHOCK-04
+    name: "Choque refratário — hipotensão sob vasopressor máximo"
+    severity: critical
+    trigger:
+      logic: >-
+        pressao_arterial_media < 65 mmHg sustained > PT30M
+        AND dose_vasopressor > 1.0 mcg/kg/min;                       # norepinephrine-equivalent, canonical
+        the >1.0 mcg/kg/min 'maximal vasopressor' cutoff is the reference-anchored RECOMMENDED DEFAULT (vision
+        VIS-3.4-06; SEPSISPAM Asfar 2014) pending RAT-ESTABILIDADE-08 (P0, RULE-ESTABILIDADE-016 disputed ladder).
+        dose_vasopressor is canonical mcg/kg/min from #vasopressor-unit-conversion-service (mL/h NOT convertible
+        without concentration+weight; SYS-C-04). Enrichment (does not gate firing): flags absence of adjuncts
+        (vasopressina/hidrocortisona) per the high-dose-NE-without-adjuncts rung (RULE-ESTABILIDADE-019).
+        PT-BR display 'Noradrenalina >0,5mcg/kg/min, associar corticoide e vasopressina' preserved (CLU-ESTABILIDADE-20).
+      window: PT30M
+    inputs:
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "local TimescaleDB (invasive arterial line, continuous) / AMH Gold Observation LOINC 8478-0", staleness_max: PT15M}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (MedicationAdministration mL/h + concentracao_farmaco + peso)", staleness_max: PT1H}
+      - {name: dose_vasopressina, type: quantity, unit: "U/min", source: "hemodynamics conversion service (MedicationAdministration; adjunct-presence enrichment)", staleness_max: PT1H}
+      - {name: hidrocortisona_ativa, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (hydrocortisone; adjunct-presence enrichment)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Asfar P et al. SEPSISPAM, N Engl J Med 2014;370(17):1583-1593 (MAP target in septic shock); Evans L et al. SSC 2021, Crit Care Med 2021;49(11):e1063-e1143 (refractory shock, MAP>=65, add vasopressin/hydrocortisone)", rule_refs: []}
+      - {citation: "SCCM 2024 Adult Vasopressor Guidance (high-dose refractory shock); high-dose-NE-without-adjuncts rung reference-corrected to inclusive boundary + mcg/kg/min", rule_refs: [RULE-ESTABILIDADE-019]}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT1H, rate_limit: "6/24h/patient", maintenance_window_aware: false}
+    ppv_budget:
+      target_ppv: 0.80
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        Narrow, high-mortality definition (MAP<65 sustained >30 min on >1.0 mcg/kg/min norepinephrine-equivalent)
+        — unrecognized shock carries >80% mortality (VIS-3.4-01), so this is the domain's highest-PPV alert. The
+        30-min sustain window rejects transient dips; the high absolute-dose gate rejects the merely-hypotensive.
+        maintenance_window_aware:false — never mute a refractory-shock alarm. ~1/100 beds/day. Kept separate from
+        VASO-ESCALATION-03 because the response differs (immediate refractory-shock management + adjunct rescue,
+        not just escalation review). The adjunct-absence flag enriches the response text without adding an alert.
+    response: {required: "ativação de resposta rápida — manejo de choque refratário: confirmar volemia, associar vasopressina + hidrocortisona se ausentes, considerar segunda linha (adrenalina)", ack_sla: PT5M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {pressao_arterial_media: 58, dose_vasopressor: 1.4, dose_vasopressina: 0, hidrocortisona_ativa: false}, expected: fire, note: "MAP 58 (<65) sustained >30 min on NE 1.4 mcg/kg/min (>1.0); adjuncts absent -> rescue recommended"}
+      - {id: TV-2, kind: no-fire, inputs: {pressao_arterial_media: 58, dose_vasopressor: 0.4}, expected: no-fire, note: "MAP<65 but NE 0.4 mcg/kg/min (<=1.0) — hypotensive but not on MAXIMAL vasopressor; routes to VASO-ESCALATION-03 if rising"}
+      - {id: TV-3, kind: no-fire, inputs: {pressao_arterial_media: 72, dose_vasopressor: 1.5}, expected: no-fire, note: "high-dose NE but MAP 72 (>=65) — pressure target met, not refractory"}
+      - {id: TV-4, kind: boundary, inputs: {pressao_arterial_media: 65, dose_vasopressor: 1.5}, expected: no-fire, note: "boundary exact-threshold: MAP=65 is NOT <65 (strict) — target met"}
+      - {id: TV-5, kind: boundary, inputs: {pressao_arterial_media: 64, dose_vasopressor: 1.0}, expected: no-fire, note: "boundary: dose=1.0 is NOT >1.0 (strict); MAP<65 but not on maximal dose per recommended-default cutoff (pending RAT-ESTABILIDADE-08)"}
+      - {id: TV-6, kind: boundary, inputs: {pressao_arterial_media: 64, dose_vasopressor: 1.01}, expected: fire, note: "boundary: MAP 64 (<65) with dose 1.01 (>1.0) both just past threshold — fires"}
+    reconciliation:
+      - {existing_id: null, status: extended,
+         note: "Promotes the refractory-shock sub-trigger (003c: NE>1.0 mcg/kg/min AND MAP<65 for >30 min) embedded inside legacy catalog HEMO-003 (the formal HEMO-003 existing_id is recorded once, under ALERT-HEMO-VASO-ESCALATION-03) into a standalone critical alert with a 5-min ack SLA and rapid-response workflow, extended with an adjunct-absence enrichment (recommend vasopressin+hydrocortisone when missing, RULE-ESTABILIDADE-019). The >1.0 mcg/kg/min 'maximal vasopressor' cutoff is the recommended default pending RAT-ESTABILIDADE-08 (P0 mcg/kg/min ladder)."}
+
+  # ==========================================================================================
+  # 5. FLUID NON-RESPONSIVENESS — overload risk. Reconciles legacy HEMO-004.
+  #    Advanced-monitor primary path (PPV/SVV) + clinical fallback (fluid challenge).
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-FLUID-NONRESPONSIVE-05
+    name: "Não responsivo a fluidos — risco de sobrecarga"
+    severity: watch
+    trigger:
+      logic: >-
+        ( ( ppv < 10 percent OR svv < 10 percent ) AND delta_sv_pos_fluid < 10 percent
+          AND balanco_hidrico_24h > 3000 mL )
+        OR ( fluid_challenge_realizado AND delta_map_pos_fluid < 5 mmHg AND delta_lactato_pos_fluid < 5 percent
+             AND balanco_hidrico_24h > 3000 mL );                    # fallback when PPV/SVV unavailable
+        balanco_hidrico_24h is recomputed from source rows (never a mutable running total; SYS-10 window bug).
+        Sign convention: positive = net fluid gain (the legacy -2000 mL fluid-balance sign is disputed and RATIFY,
+        RAT-ESTABILIDADE-01 / RULE-ESTABILIDADE-001 — NOT used here; this alert uses the unambiguous +3000 mL gain).
+      window: PT24H
+    inputs:
+      - {name: ppv, type: quantity, unit: "percent", source: "local TimescaleDB (advanced hemodynamic monitor: pulse pressure variation)", staleness_max: PT1H}
+      - {name: svv, type: quantity, unit: "percent", source: "local TimescaleDB (advanced hemodynamic monitor: stroke volume variation)", staleness_max: PT1H}
+      - {name: delta_sv_pos_fluid, type: quantity, unit: "percent", source: "hemodynamics domain (stroke-volume change after fluid challenge)", staleness_max: PT2H}
+      - {name: delta_map_pos_fluid, type: quantity, unit: "mmHg", source: "hemodynamics domain (MAP change after 500 mL crystalloid over 30 min)", staleness_max: PT2H}
+      - {name: delta_lactato_pos_fluid, type: quantity, unit: "percent", source: "hemodynamics domain (lactate change after fluid challenge)", staleness_max: PT4H}
+      - {name: balanco_hidrico_24h, type: quantity, unit: "mL", source: "aki/equilibrio domain (recomputed from source rows; consumed here)", staleness_max: PT6H}
+      - {name: fluid_challenge_realizado, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (500 mL crystalloid over 30 min)", staleness_max: PT6H}
+    evidence:
+      - {citation: "Marik PE et al. Crit Care Med 2013;41(7):1774-1781 (dynamic predictors of fluid responsiveness; PPV/SVV); Monnet X et al. Intensive Care Med 2016;42(12):1935-1947 (functional hemodynamic monitoring)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "1/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        Dynamic non-responsiveness indices (PPV/SVV) are the reference-standard predictors, but availability is
+        LOW (invasive monitor + specific software; DATA-AVAIL-09) so this alert degrades to the clinical fluid-
+        challenge fallback. Requiring BOTH non-response AND a positive 24h balance >3000 mL targets the true
+        overload-risk patient and holds PPV at the 0.60 floor. WATCH severity (a de-resuscitation/stewardship
+        prompt, <2h action, not a life threat) and a 12h cooldown keep it well within the ignored-rate budget.
+        ~1/100 beds/day (limited by monitor availability). One alert, two evidence-graded input paths.
+    response: {required: "reavaliar estratégia de fluidos — considerar restrição/de-ressuscitação; evitar novo bolus se não responsivo", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {ppv: 6, delta_sv_pos_fluid: 4, balanco_hidrico_24h: 3800}, expected: fire, note: "PPV 6% (<10) + SV change 4% (<10) after challenge + 24h balance +3800 mL — non-responsive, overloaded"}
+      - {id: TV-2, kind: fire, inputs: {fluid_challenge_realizado: true, delta_map_pos_fluid: 3, delta_lactato_pos_fluid: 2, balanco_hidrico_24h: 3500}, expected: fire, note: "fallback path: fluid challenge with MAP change 3 mmHg (<5) and lactate change 2% (<5), positive balance"}
+      - {id: TV-3, kind: no-fire, inputs: {ppv: 15, delta_sv_pos_fluid: 18, balanco_hidrico_24h: 3800}, expected: no-fire, note: "PPV 15% (>=10) and SV rose 18% (>=10) — patient IS fluid-responsive, no overload alert"}
+      - {id: TV-4, kind: no-fire, inputs: {ppv: 6, delta_sv_pos_fluid: 4, balanco_hidrico_24h: 1500}, expected: no-fire, note: "non-responsive but 24h balance only +1500 mL (<=3000) — not yet an overload-risk picture"}
+      - {id: TV-5, kind: boundary, inputs: {ppv: 10, delta_sv_pos_fluid: 9, balanco_hidrico_24h: 3000}, expected: no-fire, note: "boundary exact-threshold: PPV=10 is NOT <10 (strict) AND balance=3000 is NOT >3000 (strict) — both fail"}
+    reconciliation:
+      - {existing_id: HEMO-004, status: aligned,
+         note: "vs alert-catalog.md HEMO-004 'Não responsivo a fluidos — risco de sobrecarga' (WARN/P3): carried forward — (PPV<10% OR SVV<10%) AND deltaSV<10% AND 24h balance >3000 mL positive, with the clinical fluid-challenge fallback (deltaMAP<5 mmHg, deltalactato<5%) when PPV/SVV unavailable. Severity WARN maps to watch; Marik 2013 anchor unchanged. 24h balance is recomputed from source rows (SYS-10 window-bug avoidance), positive-gain sign only."}
+
+  # ==========================================================================================
+  # 6. VASOACTIVE-MEDICATION vs BLOOD-PRESSURE CONFLICT — medication safety. NEW (no catalog HEMO-*).
+  #    Folds legacy RULE-ESTABILIDADE-012/013/021 (three medication-safety branches) into one alert.
+  # ==========================================================================================
+  - alert_id: ALERT-HEMO-ANTIHTN-CONFLICT-06
+    name: "Conflito anti-hipertensivo × pressão arterial / vasopressor"
+    severity: watch
+    trigger:
+      logic: >-
+        (A) deprescribe: antihipertensivo_agendado_ativo
+            AND ( recurrent_hypotension OR dose_vasopressor > 0 mcg/kg/min )
+        OR
+        (B) uncontrolled_htn_off_pressor: dose_vasopressor == 0 mcg/kg/min
+            AND recurrent_hypertension
+            AND NOT permissive_htn_indication;
+        recurrent_hypotension := >=2 of the last readings in PT24H with (pressao_arterial_sistolica < 90 mmHg OR
+        pressao_arterial_diastolica < 60 mmHg)  [corrected AND->OR, RULE-ESTABILIDADE-012 ADAPT];
+        recurrent_hypertension := >=2 of the last readings in PT24H with (pressao_arterial_sistolica > 155 mmHg OR
+        pressao_arterial_diastolica > 90 mmHg)  [corrected AND->OR + count==2->last-2 + fixed vacuous I64/AVCi
+        exclusion that filtered dict KEYS not values, RULE-ESTABILIDADE-013 ADAPT];
+        antihipertensivo_agendado_ativo uses the FULL scheduled-antihypertensive list (recommended default;
+        legacy 16-of-18 gap RULE-010 and the nora==50-mL exact-equality RULE-022 are pending RAT-ESTABILIDADE-06/10
+        and NOT used as the firing predicate). PT-BR display vocabulary preserved verbatim (CLU-ESTABILIDADE-20).
+      window: PT24H
+    inputs:
+      - {name: pressao_arterial_sistolica, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6 (serial)", staleness_max: PT6H}
+      - {name: pressao_arterial_diastolica, type: quantity, unit: "mmHg", source: "AMH Gold Observation LOINC 8462-4 (serial)", staleness_max: PT6H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics conversion service (MedicationAdministration)", staleness_max: PT1H}
+      - {name: antihipertensivo_agendado_ativo, type: boolean, unit: "boolean", source: "AMH Gold MedicationRequest (scheduled antihypertensive; full class list)", staleness_max: PT12H}
+      - {name: permissive_htn_indication, type: boolean, unit: "boolean", source: "AMH Gold Condition (e.g. AVCi/I64 permissive-hypertension window)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Institutional medication-safety pathway (antihypertensive vs vasopressor/BP conflict), boolean-logic corrected AND->OR and vacuous-exclusion fix; no external guideline cutoff (governance)", rule_refs: [RULE-ESTABILIDADE-012, RULE-ESTABILIDADE-013, RULE-ESTABILIDADE-021]}
+    suppression: {dedup_key: "patient_id+alert_id+branch", cooldown: PT8H, rate_limit: "2/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.62
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Deterministic medication-safety check (a scheduled antihypertensive co-existing with hypotension/vasopressor,
+        or uncontrolled hypertension off any pressor), so PPV is driven by data quality not physiology; requiring
+        >=2 confirming readings damps single-reading artefact. Folding the three legacy medication-conflict rules
+        (012/013/021) into ONE alert with a branch dedup key (rather than three separate alerts) directly serves the
+        fewer-richer-alerts principle. WATCH severity keeps it off the deterioration-alarm channel. ~2/100 beds/day.
+        The disputed institutional drug-list completeness and equality-vs-threshold bugs are handled by ratification,
+        not silently ported.
+    response: {required: "revisar prescrição de anti-hipertensivo à luz da PA/vasopressor atual (suspender se hipotenso/em DVA; tratar se HAS não controlada sem indicação permissiva)", ack_sla: PT2H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {antihipertensivo_agendado_ativo: true, dose_vasopressor: 0.15, pressao_arterial_sistolica: 88}, expected: fire, note: "branch A: scheduled antihypertensive active while patient on vasopressor — should hold antihypertensive"}
+      - {id: TV-2, kind: fire, inputs: {antihipertensivo_agendado_ativo: true, dose_vasopressor: 0, pressao_arterial_sistolica: 82, pressao_arterial_diastolica: 55}, expected: fire, note: "branch A: recurrent hypotension (SBP<90 OR DBP<60 on >=2 readings) with active antihypertensive"}
+      - {id: TV-3, kind: fire, inputs: {dose_vasopressor: 0, antihipertensivo_agendado_ativo: false, pressao_arterial_sistolica: 168, pressao_arterial_diastolica: 98, permissive_htn_indication: false}, expected: fire, note: "branch B: recurrent uncontrolled hypertension off any vasopressor, no permissive-HTN indication"}
+      - {id: TV-4, kind: no-fire, inputs: {dose_vasopressor: 0, antihipertensivo_agendado_ativo: false, pressao_arterial_sistolica: 168, pressao_arterial_diastolica: 98, permissive_htn_indication: true}, expected: no-fire, note: "recurrent HTN but AVCi/I64 permissive-hypertension window active — exclusion correctly suppresses (fixes legacy vacuous key-filter)"}
+      - {id: TV-5, kind: no-fire, inputs: {antihipertensivo_agendado_ativo: false, dose_vasopressor: 0.15, pressao_arterial_sistolica: 88}, expected: no-fire, note: "hypotensive on vasopressor but NO scheduled antihypertensive active — nothing to deprescribe"}
+      - {id: TV-6, kind: boundary, inputs: {antihipertensivo_agendado_ativo: true, dose_vasopressor: 0, pressao_arterial_sistolica: 90, pressao_arterial_diastolica: 60}, expected: no-fire, note: "boundary exact-threshold: SBP=90 is NOT <90 AND DBP=60 is NOT <60 (strict) — no hypotension reading, branch A not met"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No catalog HEMO-* alert covers this; sourced from legacy estabilidade medication-safety rules RULE-ESTABILIDADE-012 (recurrent hypotension + antihypertensive, ADAPT), -013 (recurrent hypertension off pressor, ADAPT), -021 (antihypertensive with adequate pressure/vasopressor, ADOPT). Three medication-conflict branches folded into one watch alert (fewer-richer). The disputed drug-list completeness (RULE-010) and nora==50-mL exact-equality bug (RULE-022) are pending RAT-ESTABILIDADE-06/10, not ported."}

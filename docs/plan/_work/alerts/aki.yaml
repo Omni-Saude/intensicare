@@ -1,0 +1,198 @@
+domain: aki
+# AKI domain alerts — KDIGO 2012 staging engine. Severity scale: normal|watch|urgent|critical.
+# Legacy catalog map CRIT->critical, URG->urgent, WARN->watch, INFO->normal.
+# Three rich alerts reconcile the five catalog AKI-* alerts (AKI-001/002/003 folded into one
+# stage-scaling alert for alarm-fatigue hygiene; AKI-004->progression; AKI-005->nephrotoxin).
+alerts:
+  - alert_id: ALERT-AKI-KDIGO-STAGE-01
+    name: "Lesão renal aguda — estadiamento KDIGO"
+    severity: watch            # dynamic: stage 1 -> watch, stage 2 -> urgent, stage 3 -> critical
+    trigger:
+      logic: >
+        kdigo_stage >= 1, where kdigo_stage = max(stage_cr, stage_uo).
+        stage_cr = 3 if (creatinina >= 3.0*creatinina_basal) OR
+        (creatinina >= 4.0 mg/dL AND delta_cr_48h >= 0.5 mg/dL) OR terapia_renal_substitutiva;
+        = 2 if creatinina >= 2.0*creatinina_basal;
+        = 1 if delta_cr_48h >= 0.3 mg/dL OR (creatinina >= 1.5*creatinina_basal within 7d);
+        else 0.
+        stage_uo = 3 if debito_urinario_horario(24h) < 0.3 mL/kg/h OR anuria(12h);
+        = 2 if debito_urinario_horario(12h) < 0.5 mL/kg/h;
+        = 1 if debito_urinario_horario(6h) < 0.5 mL/kg/h; else 0.
+        delta_cr_48h = creatinina - min(creatinina over trailing rolling 48h).
+        Severity output = watch(stage 1) | urgent(stage 2) | critical(stage 3).
+      window: PT48H            # creatinine acute-rise window; UO windows are 6/12/24h rolling (see logic)
+    inputs:
+      - {name: creatinina, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2160-0)", staleness_max: PT24H}
+      - {name: creatinina_basal, type: quantity, unit: "mg/dL",
+         source: "derived baseline resolver (known > 7d-min > MDRD eGFR 75)", staleness_max: PT30D}
+      - {name: debito_urinario_horario, type: quantity, unit: "mL/kg/h",
+         source: "derived rolling 6/12/24h window (requires validated peso)", staleness_max: PT6H}
+      - {name: debito_urinario, type: quantity, unit: "mL",
+         source: "AMH Gold Observation (LOINC 9187-6) / fluid-balance saida rows", staleness_max: PT6H}
+      - {name: peso, type: quantity, unit: "kg",
+         source: "AMH Gold Observation (LOINC 29463-7)", staleness_max: PT7D}
+      - {name: terapia_renal_substitutiva, type: boolean, unit: "boolean",
+         source: "AMH Gold Procedure / MedicationAdministration (RRT active)", staleness_max: PT24H}
+    evidence:
+      - {citation: "KDIGO 2012 Clinical Practice Guideline for AKI, Kidney Int Suppl 2012;2(1):1-138 (staging §2.1)",
+         rule_refs: [RULE-SINAIS-VITAIS-025, RULE-BALANCO-HIDRICO-001, RULE-BALANCO-HIDRICO-003, RULE-BALANCO-HIDRICO-014, RULE-BALANCO-HIDRICO-038]}
+    suppression:
+      dedup_key: "patient_id+alert_id+kdigo_stage"     # re-fires only when the stage increases, not per lab draw
+      cooldown: PT12H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.75
+      est_volume_per_100_beds_day: 5
+      rationale: >
+        AKI incidence 30-60% of ICU patients (VIS-3.2-01); a 100-bed ICU generates ~4-6 new-or-escalating
+        KDIGO stage transitions/day. KDIGO staging is an objective definition (Cr/UO vs a resolved baseline),
+        so true-positive rate is high; the ~25% non-actionable share is dominated by MDRD-estimated baselines
+        over-diagnosing known-CKD patients (surfaced via baseline_source) and transient pre-renal oliguria that
+        self-corrects. Folding three stage alerts into one stage-scaling alert (dedup on kdigo_stage) is the key
+        volume/PPV control vs the legacy three-alert design; supports the >=0.60 fleet PPV and <=10% ignored
+        targets (VIS-7.1-02/04).
+    response:
+      required: "avaliação médica; revisar nefrotóxicos, volemia e dosagem renal; considerar nefrologia se estágio >=2"
+      ack_sla: PT30M            # tightens to PT5M when severity resolves to critical (stage 3)
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {creatinina: 1.6, creatinina_basal: 1.0, debito_urinario_horario: 0.9},
+         expected: fire, note: "Cr 1.6 = 1.6x baseline (>=1.5x) -> stage 1 -> watch"}
+      - {id: TV-2, kind: fire, inputs: {creatinina: 2.2, creatinina_basal: 1.0, debito_urinario_horario: 0.9},
+         expected: fire, note: "Cr 2.2x baseline -> stage 2 -> urgent"}
+      - {id: TV-3, kind: fire, inputs: {creatinina: 1.0, creatinina_basal: 1.0, debito_urinario_horario: 0.25, peso: 70},
+         expected: fire, note: "UO 0.25 mL/kg/h over 24h < 0.3 -> stage_uo 3 -> critical (max of axes)"}
+      - {id: TV-4, kind: no-fire, inputs: {creatinina: 1.1, creatinina_basal: 1.0, debito_urinario_horario: 0.9},
+         expected: no-fire, note: "Cr 1.1x baseline (<1.5x), delta 0.1<0.3, UO normal -> stage 0"}
+      - {id: TV-5, kind: boundary, inputs: {creatinina: 1.5, creatinina_basal: 1.0, debito_urinario_horario: 0.5, peso: 70},
+         expected: fire, note: "Cr exactly 1.5x baseline -> stage 1 (>=1.5x inclusive); UO exactly 0.5 does NOT fire (<0.5 strict) so stage from Cr axis only"}
+      - {id: TV-6, kind: boundary, inputs: {creatinina: 1.29, creatinina_basal: 1.0, debito_urinario_horario: 0.5, peso: 70},
+         expected: no-fire, note: "delta 0.29<0.3, 1.29x<1.5x, UO exactly 0.5 not <0.5 -> stage 0; guards the 0.3 rise and <0.5 UO boundaries"}
+      - {id: TV-7, kind: fire, inputs: {creatinina: 4.2, creatinina_basal: 3.9, delta_cr_48h: 0.6, terapia_renal_substitutiva: false},
+         expected: fire, note: "Cr 4.2>=4.0 with acute rise 0.6>=0.5 -> stage 3 -> critical even though only ~1.08x baseline"}
+    reconciliation:
+      - {existing_id: AKI-001, status: changed,
+         note: "vs docs/clinical/alert-catalog.md: KDIGO stage 1 (WARN) folded into stage-scaling alert; UO window changed from 07:00-07:00 nursing day to KDIGO rolling 6h; baseline resolver made explicit."}
+      - {existing_id: AKI-002, status: changed,
+         note: "vs alert-catalog.md: KDIGO stage 2 (URG) folded in; UO rolling 12h replaces nursing-day window; severity = urgent branch."}
+      - {existing_id: AKI-003, status: changed,
+         note: "vs alert-catalog.md: KDIGO stage 3 (CRIT) folded in; adds RRT-initiation and anuria(12h) to critical branch; UO rolling 24h; severity = critical branch."}
+
+  - alert_id: ALERT-AKI-PROGRESSION-02
+    name: "Progressão de LRA — mudança de estágio KDIGO em 24h"
+    severity: urgent           # critical when the new stage == 3
+    trigger:
+      logic: >
+        kdigo_stage_now > kdigo_stage_24h_ago AND kdigo_stage_24h_ago is not null.
+        Severity = urgent, escalated to critical if kdigo_stage_now == 3. A worsening trajectory outranks a
+        static stage of equal value.
+      window: PT24H
+    inputs:
+      - {name: creatinina, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2160-0)", staleness_max: PT24H}
+      - {name: creatinina_basal, type: quantity, unit: "mg/dL",
+         source: "derived baseline resolver", staleness_max: PT30D}
+      - {name: debito_urinario_horario, type: quantity, unit: "mL/kg/h",
+         source: "derived rolling window (requires validated peso)", staleness_max: PT6H}
+      - {name: peso, type: quantity, unit: "kg",
+         source: "AMH Gold Observation (LOINC 29463-7)", staleness_max: PT7D}
+    evidence:
+      - {citation: "KDIGO 2012 (staging is dynamic; stage progression is a deterioration signal), Kidney Int Suppl 2012;2(1):1-138",
+         rule_refs: [RULE-SINAIS-VITAIS-025, RULE-BALANCO-HIDRICO-003]}
+    suppression:
+      dedup_key: "patient_id+alert_id+kdigo_stage_now"   # one progression alert per newly-reached stage
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.70
+      est_volume_per_100_beds_day: 2
+      rationale: >
+        Stage progression is rarer than a static stage: only patients already in AKI who worsen within 24h
+        (~1-2/100-beds/day). PPV is slightly below the staging alert because a single spurious creatinine spike
+        or a transiently mis-resolved baseline can register a false step-up; dedup on the newly-reached stage
+        prevents oscillation re-fires. Fires infrequently and carries a clear deterioration meaning, so it is
+        alarm-fatigue-efficient (few, high-signal).
+    response:
+      required: "reavaliação médica imediata; investigar causa da progressão (nefrotoxina, hipoperfusão, obstrução)"
+      ack_sla: PT30M
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {kdigo_stage_now: 2, kdigo_stage_24h_ago: 1},
+         expected: fire, note: "stage 1 -> 2 within 24h -> urgent"}
+      - {id: TV-2, kind: fire, inputs: {kdigo_stage_now: 3, kdigo_stage_24h_ago: 1},
+         expected: fire, note: "stage 1 -> 3 -> critical (new stage == 3)"}
+      - {id: TV-3, kind: no-fire, inputs: {kdigo_stage_now: 2, kdigo_stage_24h_ago: 2},
+         expected: no-fire, note: "no increase (static stage 2) -> staging alert owns this, not progression"}
+      - {id: TV-4, kind: boundary, inputs: {kdigo_stage_now: 1, kdigo_stage_24h_ago: null},
+         expected: no-fire, note: "no prior stage (null) -> first detection is the staging alert's job, not progression; guards the null-baseline boundary"}
+      - {id: TV-5, kind: no-fire, inputs: {kdigo_stage_now: 1, kdigo_stage_24h_ago: 2},
+         expected: no-fire, note: "improving (2 -> 1) -> no progression alert (direction guard; not the inverted legacy bug)"}
+    reconciliation:
+      - {existing_id: AKI-004, status: extended,
+         note: "vs alert-catalog.md: AKI-004 'Progressão AKI' aligned; extended with severity escalation to critical when new stage is 3 and explicit null-prior-stage guard."}
+
+  - alert_id: ALERT-AKI-NEPHROTOXIN-03
+    name: "Risco de nefrotoxicidade aditiva com creatinina em elevação"
+    severity: watch
+    trigger:
+      logic: >
+        rising_cr AND nephrotoxic_combo, where
+        rising_cr = creatinina > creatinina_basal + 0.2 mg/dL (sub-stage-1 upward trend);
+        nephrotoxic_combo = (vancomicina_ativa AND aminoglicosideo_ativo)
+        OR (vancomicina_ativa AND contraste_iodado)
+        OR (aminoglicosideo_ativo AND aine_ativo)
+        OR (ieca_bra_ativo AND hipovolemia).
+      window: PT72H            # contrast exposure lookback; drug-active flags evaluated as current
+    inputs:
+      - {name: creatinina, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2160-0)", staleness_max: PT24H}
+      - {name: creatinina_basal, type: quantity, unit: "mg/dL",
+         source: "derived baseline resolver", staleness_max: PT30D}
+      - {name: vancomicina_ativa, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration", staleness_max: PT24H}
+      - {name: aminoglicosideo_ativo, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration", staleness_max: PT24H}
+      - {name: contraste_iodado, type: boolean, unit: "boolean",
+         source: "AMH Gold Procedure (last 72h)", staleness_max: PT72H}
+      - {name: aine_ativo, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration", staleness_max: PT24H}
+      - {name: ieca_bra_ativo, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration", staleness_max: PT24H}
+      - {name: hipovolemia, type: boolean, unit: "boolean",
+         source: "hemodynamics domain (net-negative balance / volume depletion)", staleness_max: PT6H}
+    evidence:
+      - {citation: "KDIGO Drug-Induced AKI 2023 (Kidney Int); Rybak MJ et al. Am J Health Syst Pharm 2020;77(11):835-864 (vancomycin/AKI); vision AIN Consensus 2020",
+         rule_refs: [RULE-ANTIMICROBIANO-003, RULE-SINAIS-VITAIS-025]}
+    suppression:
+      dedup_key: "patient_id+alert_id+active_nephrotoxin_set"   # re-fires only when the offending combo changes
+      cooldown: PT24H
+      rate_limit: "1/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 2
+      rationale: >
+        Nephrotoxic combinations are common in the ICU, but the rising_cr gate (Cr > baseline + 0.2 mg/dL)
+        restricts firing to patients with an actual early renal signal, keeping volume to ~1-2/100-beds/day and
+        PPV at the fleet floor of 0.60. The gate is precisely the dedup boundary with the pharmaco-interaction
+        DDX-003 combination alert (which fires pre-injury): without a moving marker this alert stays silent,
+        avoiding a duplicate. It is intentionally the lowest-severity AKI alert (watch) because the intent is
+        pre-emptive drug withdrawal, not resuscitation.
+    response:
+      required: "revisar e suspender/ajustar nefrotóxicos; corrigir volemia; monitorar creatinina seriada"
+      ack_sla: PT2H
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {creatinina: 1.3, creatinina_basal: 1.0, vancomicina_ativa: true, aminoglicosideo_ativo: true},
+         expected: fire, note: "rising_cr (1.3 > 1.0+0.2) AND vanco+aminoglycoside -> watch"}
+      - {id: TV-2, kind: fire, inputs: {creatinina: 1.4, creatinina_basal: 1.0, ieca_bra_ativo: true, hipovolemia: true},
+         expected: fire, note: "rising_cr AND ACEi/ARB + volume depletion branch"}
+      - {id: TV-3, kind: no-fire, inputs: {creatinina: 1.15, creatinina_basal: 1.0, vancomicina_ativa: true, aminoglicosideo_ativo: true},
+         expected: no-fire, note: "combo present but Cr 1.15 <= baseline+0.2 -> no renal signal -> owned by pharmaco DDX-003, not this alert"}
+      - {id: TV-4, kind: boundary, inputs: {creatinina: 1.2, creatinina_basal: 1.0, vancomicina_ativa: true, aminoglicosideo_ativo: true},
+         expected: no-fire, note: "Cr exactly baseline+0.2 (1.2) is NOT > 0.2 rise (strict) -> no-fire; guards the +0.2 threshold"}
+      - {id: TV-5, kind: no-fire, inputs: {creatinina: 1.5, creatinina_basal: 1.0, vancomicina_ativa: true, aminoglicosideo_ativo: false, contraste_iodado: false},
+         expected: no-fire, note: "rising_cr true but only vancomycin alone (no second nephrotoxin) -> combo false -> no-fire"}
+    reconciliation:
+      - {existing_id: AKI-005, status: extended,
+         note: "vs alert-catalog.md: AKI-005 'Risco de AKI por nefrotoxicidade aditiva' aligned; extended with an explicit active_nephrotoxin_set dedup key and an explicit boundary with pharmaco DDX-003 (this alert requires rising_cr; DDX-003 fires pre-injury)."}

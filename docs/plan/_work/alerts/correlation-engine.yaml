@@ -1,0 +1,230 @@
+domain: correlation-engine
+# Correlation-engine alert definitions — IntensiCare v2 (vision §4.1, Fase 2d, VIS-5.2-04).
+# The Correlation Engine box (VIS-4-03) defines EXACTLY three cross-domain clinical correlations:
+#   (1) Sepsis + AKI — "sepse é #1 causa de AKI"      -> ALERT-CORR-SEPSIS-AKI-01
+#   (2) Respiratory + Hemodynamic — "SDRA + choque"    -> ALERT-CORR-RESP-HEMO-02
+#   (3) Drug + Electrolyte — "QTc + K+/Mg2+"           -> ALERT-CORR-QTC-ELEC-03
+# plus one efficiency correlation carried from my eficiencia cluster (RULE-EFICIENCIA-007 ADAPT):
+#   (4) Redundant diagnostic ordering                  -> ALERT-CORR-EXAM-REDUND-04
+# CORE PRINCIPLE (alarm-fatigue budget, VIS-7.1-04 ignored <=10%, fleet PPV >=0.60): a correlation is a
+# NEW richer alert that REPLACES its member alerts. Each fires only when BOTH members are present within a
+# temporal join window, so it is strictly MORE specific than either member -> higher PPV, fewer pushes.
+# Suppression vs amplification: clinical chains (1)(2)(3) emit correlation.member_suppressed to fold the
+# member alerts (one push instead of two+); chain (3) additionally AMPLIFIES severity (two WARN members ->
+# one critical). Every input unit is canonical per _work/units/registry.yaml. Severity: normal|watch|urgent|critical.
+# rule_refs on evidence are restricted to ADOPT/ADOPT-CORRECTED/ADAPT (CONTRACTS §Alert): clinical
+# correlations are a NEW layer with no legacy RULE-id, so they cite guidelines directly (rule_refs: []).
+alerts:
+
+  # ==========================================================================================
+  # 1. SEPSIS + AKI  ("sepse é #1 causa de AKI", VIS-4-03) — sepsis-associated AKI (SA-AKI).
+  #    Causal chain: sepsis organ-dysfunction/shock -> renal hypoperfusion/inflammation -> KDIGO>=1.
+  #    REPLACES the member sepsis alert (ORGAN-02/SHOCK-03) + AKI alert (KDIGO stage) with ONE alert.
+  # ==========================================================================================
+  - alert_id: ALERT-CORR-SEPSIS-AKI-01
+    name: "Sepse com lesão renal aguda associada (SA-AKI)"
+    severity: critical
+    trigger:
+      logic: >-
+        sepsis_active AND aki_active AND causal_temporal_link
+        where sepsis_active := (event sepsis.organ_dysfunction.detected OR sepsis.shock.detected) seen within PT72H;
+        aki_active := event aki.stage.detected with kdigo_stage >= 1
+          (creatinina rise >= 0.3 mg/dL over PT48H OR creatinina >= 1.5x baseline OR
+           debito_urinario_horario < 0.5 mL/kg/h for >= PT6H) seen within PT72H;
+        causal_temporal_link := aki_onset_at is within PT72H AT OR AFTER sepsis_onset_at
+          (sepsis-first ordering; concurrent within the same evaluation tick counts as linked).
+        Escalation stays critical; the emitted event carries kdigo_stage so the UI escalates the renal
+        message when stage >= 2 or when the sepsis member was sepsis.shock.detected.
+        Thresholds inherited from the member domains (KDIGO-2012 stage-1 anchors; Sepsis-3), NOT re-derived.
+      window: PT72H
+    inputs:
+      - {name: sepsis_event, type: enum, unit: "enum", source: "sepsis domain event {sepsis.organ_dysfunction.detected, sepsis.shock.detected} via Redis pub/sub", staleness_max: PT72H}
+      - {name: kdigo_stage, type: enum, unit: "enum", source: "aki domain event aki.stage.detected (ordinal 0-3; OQ-CORR-01 — not yet a units-registry parameter)", staleness_max: PT72H}
+      - {name: creatinina, type: quantity, unit: "mg/dL", source: "aki domain event aki.stage.detected (field creatinina_mg_dL, AMH Gold lab_result LOINC 2160-0)", staleness_max: PT48H}
+      - {name: debito_urinario_horario, type: quantity, unit: "mL/kg/h", source: "aki domain event aki.stage.detected (requires validated peso, SYS-09)", staleness_max: PT12H}
+      - {name: lactato_arterial, type: quantity, unit: "mmol/L", source: "sepsis domain event (field lactato_arterial_mmol_L, AMH Gold lab_result LOINC 2524-7)", staleness_max: PT6H}
+      - {name: sepsis_onset_at, type: quantity, unit: "s", source: "sepsis domain event detected_at (epoch seconds)", staleness_max: PT72H}
+      - {name: aki_onset_at, type: quantity, unit: "s", source: "aki domain event detected_at (epoch seconds)", staleness_max: PT72H}
+    evidence:
+      - {citation: "Zarbock A et al. Sepsis-associated acute kidney injury: consensus report of the 28th ADQI workgroup. Nat Rev Nephrol 2023;19:401-417 (SA-AKI definition; sepsis-first temporal ordering)", rule_refs: []}
+      - {citation: "Bagshaw SM et al. Septic acute kidney injury in critically ill patients. Clin J Am Soc Nephrol 2007;2(3):431-439 (sepsis is the leading cause of ICU AKI)", rule_refs: []}
+      - {citation: "KDIGO Clinical Practice Guideline for AKI. Kidney Int Suppl 2012;2(1):1-138 (KDIGO stage-1 creatinine/urine-output anchors, inherited from AKI domain)", rule_refs: []}
+      - {citation: "Evans L et al. Surviving Sepsis Campaign 2021. Crit Care Med 2021;49(11):e1063-e1143 (sepsis organ-dysfunction thresholds); vision VIS-3.2-01 (AKI 6.5x mortality), VIS-4-03", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT12H, rate_limit: "3/24h/patient", maintenance_window_aware: false, member_suppression: "folds member sepsis.organ_dysfunction/shock alert + AKI stage alert (SEP-002/AKI-001..004) for the cooldown; members still logged to prontuário NGS-2"}
+    ppv_budget:
+      target_ppv: 0.80
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Requiring BOTH an already-specific sepsis organ-dysfunction/shock event AND a KDIGO>=1 event, joined
+        by sepsis-first temporal ordering, is strictly more specific than either member (each of which is
+        already gated) — so PPV is high (~0.80) despite AKI's many non-septic causes, because the sepsis
+        member excludes them. Sepsis ~30% ICU incidence (VIS-3.1-01) and AKI 30-60% (VIS-3.2-01) co-occur in
+        a smaller septic-AKI subset; estimated ~2/100 beds/day. This ONE critical alert REPLACES the separate
+        sepsis and AKI pushes (net -1..-2 pushes/patient) — fewer, richer alerts. maintenance_window_aware
+        false: a two-organ-failure alert must never be muted by a maintenance window.
+    response: {required: "avaliação médica imediata beira-leito — controle de foco + reanimação dirigida com atenção à nefroproteção (evitar nefrotóxicos, revisar dose renal); registrar no prontuário NGS-2", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {sepsis_event: "sepsis.organ_dysfunction.detected", sepsis_onset_at: 0, aki_onset_at: 36000, kdigo_stage: 1, creatinina: 1.9, lactato_arterial: 3.2}, expected: fire, note: "sepsis then AKI KDIGO-1 10h later — sepsis-first causal link within 72h fires"}
+      - {id: TV-2, kind: fire, inputs: {sepsis_event: "sepsis.shock.detected", sepsis_onset_at: 0, aki_onset_at: 7200, kdigo_stage: 2, debito_urinario_horario: 0.28}, expected: fire, note: "septic shock + KDIGO-2 oliguria 2h later — most severe combined path"}
+      - {id: TV-3, kind: no-fire, inputs: {sepsis_event: null, kdigo_stage: 2, creatinina: 2.4}, expected: no-fire, note: "AKI present but NO sepsis member event — routes to AKI domain alert, not a correlation"}
+      - {id: TV-4, kind: no-fire, inputs: {sepsis_event: "sepsis.organ_dysfunction.detected", sepsis_onset_at: 0, aki_onset_at: null, kdigo_stage: 0}, expected: no-fire, note: "sepsis present but KDIGO-0 (no AKI) — routes to sepsis domain alert only"}
+      - {id: TV-5, kind: boundary, inputs: {sepsis_event: "sepsis.organ_dysfunction.detected", sepsis_onset_at: 0, aki_onset_at: 259200, kdigo_stage: 1}, expected: no-fire, note: "boundary exact-threshold: AKI onset exactly 72h (259200 s) after sepsis is the window edge but strict > sepsis_onset ordering holds; join uses within PT72H inclusive of edge -> set to just-outside (259201 s) semantics — at exactly 72h+epsilon the causal window has closed, no-fire"}
+      - {id: TV-6, kind: boundary, inputs: {sepsis_event: "sepsis.organ_dysfunction.detected", sepsis_onset_at: 0, aki_onset_at: 258000, kdigo_stage: 1, creatinina: 1.6}, expected: fire, note: "boundary: AKI onset ~71.7h after sepsis, inside the PT72H causal window -> fires"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — the correlation engine is a new cross-domain layer; no catalog alert correlated sepsis and AKI. At runtime this suppresses (folds) the member alerts owned by the sepsis domain (ORGAN-02/SHOCK-03, successors of catalog SEP-002) and the AKI domain (KDIGO stage alerts, successors of catalog AKI-001..004) into one push; those members are not dropped, they remain owned by their domains and stay logged to prontuário NGS-2."}
+
+  # ==========================================================================================
+  # 2. RESPIRATORY + HEMODYNAMIC  ("SDRA + choque", VIS-4-03) — combined cardiopulmonary failure.
+  #    Moderate/severe ARDS concurrent with shock: highest-mortality intersection; RV strain risk.
+  #    REPLACES member respiratory (SDRA moderada/grave) + hemodynamic (shock/vasopressor) alerts.
+  # ==========================================================================================
+  - alert_id: ALERT-CORR-RESP-HEMO-02
+    name: "Falência cardiopulmonar combinada (SDRA moderada/grave + choque)"
+    severity: critical
+    trigger:
+      logic: >-
+        ards_moderate_or_severe AND shock_active seen within PT6H of each other
+        where ards_moderate_or_severe := event respiratory.ards.detected with
+          (relacao_pao2_fio2 <= 200 ratio OR relacao_spo2_fio2 <= 235 ratio)   # Berlin moderate/severe
+        AND shock_active := event hemodynamic.shock.detected
+          OR (pressao_arterial_media < 65 mmHg AND dose_vasopressor > 0 mcg/kg/min).
+        Berlin moderate/severe anchor (PaO2/FiO2 <= 200) inherited from the respiratory domain; FiO2 MUST be
+        the canonical fraction (SYS-01) or the ratio is ~100x wrong. MAP<65 and vasopressor already canonical
+        mcg/kg/min from hemodynamics (mL/h NOT convertible without concentration+weight, CON-0060/SYS-C-04).
+      window: PT6H
+    inputs:
+      - {name: relacao_pao2_fio2, type: quantity, unit: "ratio", source: "respiratory domain event respiratory.ards.detected (FiO2 canonical fraction, SYS-01)", staleness_max: PT6H}
+      - {name: relacao_spo2_fio2, type: quantity, unit: "ratio", source: "respiratory domain event respiratory.ards.detected (non-invasive surrogate)", staleness_max: PT6H}
+      - {name: ards_severity, type: enum, unit: "enum", source: "respiratory domain event field ards_severity {leve, moderada, grave}", staleness_max: PT6H}
+      - {name: pressao_arterial_media, type: quantity, unit: "mmHg", source: "hemodynamics domain event (AMH Gold Observation LOINC 8478-0)", staleness_max: PT1H}
+      - {name: dose_vasopressor, type: quantity, unit: "mcg/kg/min", source: "hemodynamics domain event (conversion service, CON-0060)", staleness_max: PT1H}
+      - {name: shock_event, type: boolean, unit: "boolean", source: "hemodynamics domain event hemodynamic.shock.detected presence", staleness_max: PT6H}
+    evidence:
+      - {citation: "ARDS Definition Task Force. Acute respiratory distress syndrome: the Berlin Definition. JAMA 2012;307(23):2526-2533 (moderate PaO2/FiO2 <=200)", rule_refs: []}
+      - {citation: "Asfar P et al. High versus low blood-pressure target in septic shock (SEPSISPAM). N Engl J Med 2014;370(17):1583-1593 (MAP target >=65 mmHg)", rule_refs: []}
+      - {citation: "Vieillard-Baron A et al. Acute cor pulmonale in ARDS. Intensive Care Med 2016;42(5):862-870 (ARDS+shock RV failure interaction — rationale for combined alert)", rule_refs: []}
+      - {citation: "vision VIS-3.3 (Berlin severity), VIS-3.4-01 (unrecognized shock mortality >80%), VIS-4-03 (SDRA + choque)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT4H, rate_limit: "4/24h/patient", maintenance_window_aware: false, member_suppression: "folds member RESP-002 (SDRA moderada/grave) + HEMO-003 (escalonamento de vasopressor) pushes for the cooldown; members still logged to prontuário NGS-2"}
+    ppv_budget:
+      target_ppv: 0.85
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        The intersection of moderate/severe ARDS AND concurrent shock is narrow and carries the highest
+        combined mortality (unrecognized shock >80%, VIS-3.4-01) — so PPV is the highest of the clinical
+        correlations (~0.85). Both members are already specific detector events; requiring co-occurrence
+        within 6h excludes isolated respiratory or isolated circulatory failure. Estimated ~1/100 beds/day.
+        This ONE critical alert REPLACES the separate ARDS and vasopressor-escalation pushes.
+        maintenance_window_aware false: life-threatening two-organ failure.
+    response: {required: "ativação de equipe de resposta rápida — ventilação protetora + manejo de choque simultâneos; avaliar disfunção de VD (ecocardiograma à beira-leito)", ack_sla: PT5M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {relacao_pao2_fio2: 150, ards_severity: "moderada", shock_event: true}, expected: fire, note: "moderate ARDS (P/F 150) + active shock event within 6h"}
+      - {id: TV-2, kind: fire, inputs: {relacao_pao2_fio2: 90, ards_severity: "grave", pressao_arterial_media: 58, dose_vasopressor: 0.25}, expected: fire, note: "severe ARDS + MAP<65 on vasopressor — refractory shock branch"}
+      - {id: TV-3, kind: no-fire, inputs: {relacao_pao2_fio2: 260, ards_severity: "leve", shock_event: true}, expected: no-fire, note: "only MILD ARDS (P/F>200) + shock — mild ARDS excluded; routes to hemodynamic domain alert"}
+      - {id: TV-4, kind: no-fire, inputs: {relacao_pao2_fio2: 150, ards_severity: "moderada", pressao_arterial_media: 78, dose_vasopressor: 0, shock_event: false}, expected: no-fire, note: "moderate ARDS but NO shock — routes to respiratory domain alert only"}
+      - {id: TV-5, kind: boundary, inputs: {relacao_pao2_fio2: 200, ards_severity: "moderada", shock_event: true}, expected: fire, note: "boundary exact-threshold: P/F=200 is <=200 (inclusive, Berlin moderate) with shock -> fires"}
+      - {id: TV-6, kind: boundary, inputs: {relacao_pao2_fio2: 201, ards_severity: "leve", pressao_arterial_media: 65, dose_vasopressor: 0.1, shock_event: false}, expected: no-fire, note: "boundary: P/F=201 is NOT <=200 (mild), and MAP=65 is NOT <65 — neither gate met"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — suppresses/folds the member alerts owned by the respiratory domain (SDRA moderada/grave, successor of catalog RESP-002) and the hemodynamics domain (ALERT-HEMO-VASO-ESCALATION-03 / ALERT-HEMO-SHOCK-INDEX-01, successors of catalog HEMO-003/HEMO-001) when they co-occur within 6h. Members remain owned by their domains; none dropped."}
+
+  # ==========================================================================================
+  # 3. DRUG + ELECTROLYTE  ("QTc + K+/Mg2+", VIS-4-03) — amplified Torsades-de-Pointes substrate.
+  #    AMPLIFICATION (not just suppression): two WARN member signals (DDX-001b + ELY-002c/ELY-006c)
+  #    co-occurring form the classic TdP substrate -> escalated to ONE critical alert.
+  # ==========================================================================================
+  - alert_id: ALERT-CORR-QTC-ELEC-03
+    name: "Substrato de Torsades amplificado — QTc prolongado + hipocalemia/hipomagnesemia"
+    severity: critical
+    trigger:
+      logic: >-
+        qtc > 500 ms
+        AND qt_prolonging_drug_count >= 1                     # >=1 CredibleMeds Known-Risk drug active
+        AND ( potassio < 3.5 mmol/L OR magnesio < 0.7 mmol/L )
+        joined within PT24H (QTc ECG, active-drug list, and electrolyte result all within the window).
+        AMPLIFICATION rule: individually the QTc member (drug domain DDX-001b) and the electrolyte members
+        (ELY-002c hipocalemia-tendência, ELY-006c hipomagnesemia-contexto) are WARN; their co-occurrence is
+        the reversible-cause TdP substrate (Drew 2010 AHA/ACCF), so the correlation ESCALATES to critical and
+        surfaces the correctable trigger (hold QT drug + repor K+/Mg2+).
+      window: PT24H
+    inputs:
+      - {name: qtc, type: quantity, unit: "ms", source: "drug-interaction domain event drug.qtc.prolonged (AMH Gold Observation LOINC 44974-4)", staleness_max: PT24H}
+      - {name: qt_prolonging_drug_count, type: quantity, unit: "count", source: "drug-interaction domain event (CredibleMeds Known-Risk active drug count)", staleness_max: PT24H}
+      - {name: potassio, type: quantity, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypokalemia.detected (AMH Gold lab_result LOINC 6298-4)", staleness_max: PT24H}
+      - {name: magnesio, type: quantity, unit: "mmol/L", source: "electrolyte domain event electrolyte.hypomagnesemia.detected (AMH Gold lab_result LOINC 19123-9)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Drew BJ et al. Prevention of Torsade de Pointes in Hospital Settings: AHA/ACCF Scientific Statement. Circulation 2010;121(8):1047-1060 (QTc>500 + hypoK/hypoMg + QT drug = reversible TdP substrate)", rule_refs: []}
+      - {citation: "Tisdale JE et al. Development and validation of a risk score to predict QT prolongation. Circ Cardiovasc Qual Outcomes 2013;6(4):479-487 (QTc>500 ms; hypokalemia/loop-diuretic risk factors)", rule_refs: []}
+      - {citation: "CredibleMeds QTdrugs List (Known Risk of TdP); vision VIS-3.7-02 (QTc>500 + >=2 drugs), VIS-3.6-02 (K+ thresholds), VIS-3.6-09 (Mg2+ thresholds), VIS-4-03", rule_refs: []}
+    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT8H, rate_limit: "3/24h/patient", maintenance_window_aware: false, member_suppression: "folds member DDX-001 QTc alert + ELY-002/ELY-006 electrolyte-context alerts for the cooldown; members still logged to prontuário NGS-2"}
+    ppv_budget:
+      target_ppv: 0.70
+      est_volume_per_100_beds_day: 1
+      rationale: >-
+        Three co-occurring predicates (QTc>500 ms, an active Known-Risk drug, and hypoK OR hypoMg) select the
+        precise TdP substrate the vision names (QTc + K+/Mg2+); PPV ~0.70 (below the ARDS/sepsis correlations
+        because QTc measurement/algorithm variance and asymptomatic prolongation remain, CAT-DDX-001). Set to
+        critical by AMPLIFICATION — the whole point of the correlation is that neither WARN member alone
+        conveys the arrhythmia risk. Estimated ~1/100 beds/day. This ONE alert replaces the QTc + electrolyte
+        pushes, and its explainability lists the specific correctable drug + electrolyte so the action is one
+        decision, not three separate WARNs to reconcile.
+    response: {required: "revisão médica/farmacêutica imediata — suspender/substituir fármaco prolongador de QT + repor K+/Mg2+; monitorização eletrocardiográfica contínua", ack_sla: PT15M}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {qtc: 520, qt_prolonging_drug_count: 1, potassio: 3.1}, expected: fire, note: "QTc>500 + 1 QT drug + hypokalemia (K 3.1) — amplified critical"}
+      - {id: TV-2, kind: fire, inputs: {qtc: 540, qt_prolonging_drug_count: 2, magnesio: 0.55}, expected: fire, note: "QTc>500 + 2 QT drugs + hypomagnesemia (Mg 0.55) fires on the Mg branch"}
+      - {id: TV-3, kind: no-fire, inputs: {qtc: 520, qt_prolonging_drug_count: 1, potassio: 4.2, magnesio: 0.9}, expected: no-fire, note: "QTc prolonged on a QT drug but normal K+ and Mg2+ — no electrolyte substrate; stays a WARN in the drug domain (DDX-001b), not amplified"}
+      - {id: TV-4, kind: no-fire, inputs: {qtc: 520, qt_prolonging_drug_count: 0, potassio: 3.0}, expected: no-fire, note: "QTc prolonged + hypokalemia but NO QT-prolonging drug active — routes to electrolyte domain (ELY-002c), correctable-drug arm absent"}
+      - {id: TV-5, kind: boundary, inputs: {qtc: 500, qt_prolonging_drug_count: 1, potassio: 3.0}, expected: no-fire, note: "boundary exact-threshold: QTc=500 is NOT >500 (strict), matches DDX-001 anchor -> no-fire"}
+      - {id: TV-6, kind: boundary, inputs: {qtc: 501, qt_prolonging_drug_count: 1, potassio: 3.5, magnesio: 0.7}, expected: no-fire, note: "boundary: QTc just >500 and a drug active, but K=3.5 is NOT <3.5 and Mg=0.7 is NOT <0.7 (both strict) — no electrolyte substrate"}
+      - {id: TV-7, kind: boundary, inputs: {qtc: 501, qt_prolonging_drug_count: 1, potassio: 3.49}, expected: fire, note: "boundary: QTc 501>500, drug active, K 3.49<3.5 -> substrate complete, fires"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — amplifies (escalates watch->critical) and folds the member alerts owned by the pharmaco-interaction domain (QTc/Torsades, successor of catalog DDX-001) and the electrolyte domain (hipocalemia/hipomagnesemia context arms, successors of catalog ELY-002/ELY-006). Members remain owned by their domains; none dropped."}
+
+  # ==========================================================================================
+  # 4. REDUNDANT DIAGNOSTIC ORDERING — efficiency correlation (RULE-EFICIENCIA-007 ADAPT).
+  #    Temporal correlation of repeat same-class exam orders; corrected from the legacy
+  #    summed-across-classes bug to a PER-CLASS window test. Stewardship, not deterioration.
+  # ==========================================================================================
+  - alert_id: ALERT-CORR-EXAM-REDUND-04
+    name: "Solicitação redundante de exame (mesma classe dentro da janela de reavaliação)"
+    severity: normal
+    trigger:
+      logic: >-
+        for a NEW exam order of exam_class C:
+          repeat := EXISTS a prior resulted/pending order of the SAME class C whose result_at/order_at is
+          within C's class-specific reassessment window W(C)
+          where W(hemograma)=PT120H (5d), W(bioquimica_rotina)=PT168H (7d), W(rx_torax_rotina)=PT336H (14d),
+          W(marcadores_tireoide)=PT504H (21d), W(sorologias)=PT720H (30d);   # per-class, NOT summed
+        fire when repeat is true for that class. CORRECTED from RULE-EFICIENCIA-007's legacy defect that
+        summed positive window-hits ACROSS unrelated exam classes into one undifferentiated threshold;
+        v2 evaluates each class against its OWN window (ADAPT — same cost/burden intent, corrected mechanism).
+      window: PT720H
+    inputs:
+      - {name: exam_class, type: enum, unit: "enum", source: "AMH Gold ServiceRequest category (exam-class taxonomy)", staleness_max: PT720H}
+      - {name: prior_order_within_window, type: boolean, unit: "boolean", source: "AMH Gold ServiceRequest/DiagnosticReport (same-class prior order/result within W(class))", staleness_max: PT720H}
+      - {name: hours_since_prior_same_class, type: quantity, unit: "count", source: "derived (hours between prior same-class order/result and the new order)", staleness_max: PT720H}
+    evidence:
+      - {citation: "RULE-EFICIENCIA-007 (ADAPT) — legacy redundant-exam-ordering intent; per-class window mechanism corrected", rule_refs: [RULE-EFICIENCIA-007]}
+      - {citation: "Halpern SD et al. An official ATS/ACCP/SCCM/AACN policy statement: Choosing Wisely in critical care. Crit Care Med 2014 (avoid repeated routine diagnostics without a new question)", rule_refs: []}
+    suppression: {dedup_key: "patient_id+exam_class", cooldown: PT24H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    ppv_budget:
+      target_ppv: 0.60
+      est_volume_per_100_beds_day: 2
+      rationale: >-
+        Deterministic order-history correlation (not a physiological prediction): it fires on a genuine
+        same-class repeat within a clinically-set window, so PPV sits at the fleet floor (0.60) — the residual
+        false positives are legitimately-justified repeats (a new clinical question), which the clinician
+        dismisses in one tap. Severity normal (informational stewardship, <6h) keeps it OUT of the
+        deterioration-alarm attention budget so it cannot erode the <=10% ignored-rate target of the critical
+        alerts. Estimated ~2/100 beds/day. Per-class dedup + 24h cooldown prevent a busy-ordering storm.
+    response: {required: "confirmar necessidade clínica do exame repetido ou cancelar (revisão do prescritor)", ack_sla: PT6H}
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {exam_class: "hemograma", prior_order_within_window: true, hours_since_prior_same_class: 48}, expected: fire, note: "hemograma re-ordered 48h after a prior one, inside the 5-day (120h) window"}
+      - {id: TV-2, kind: no-fire, inputs: {exam_class: "hemograma", prior_order_within_window: false, hours_since_prior_same_class: 150}, expected: no-fire, note: "prior hemograma 150h ago (>120h window) — legitimately due, no redundancy"}
+      - {id: TV-3, kind: no-fire, inputs: {exam_class: "rx_torax_rotina", prior_order_within_window: false, hours_since_prior_same_class: 200}, expected: no-fire, note: "CXR 200h (<336h window) but NO prior same-class order flagged — cross-class hits are NOT summed (the corrected behavior)"}
+      - {id: TV-4, kind: boundary, inputs: {exam_class: "hemograma", prior_order_within_window: true, hours_since_prior_same_class: 120}, expected: no-fire, note: "boundary exact-threshold: prior exactly 120h (5d) ago is AT the window edge — window is strict '< W' so 120h is outside -> no-fire"}
+      - {id: TV-5, kind: boundary, inputs: {exam_class: "hemograma", prior_order_within_window: true, hours_since_prior_same_class: 119}, expected: fire, note: "boundary: prior 119h ago (<120h) is inside the window -> redundant, fires"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No v1.0.0 counterpart — new efficiency correlation carried from legacy RULE-EFICIENCIA-007 (ADAPT); no catalog alert covered redundant diagnostic ordering. Standalone (no member alert to suppress); a stewardship signal, not a fold of existing deterioration alerts."}

@@ -1,0 +1,54 @@
+domain: neuro-sedation
+
+# Inbound quantities this domain reads from sibling domains / the AMH Gold layer.
+# Every unit is canonical per _work/units/registry.yaml.
+consumes:
+  - {quantity: pf_ratio, unit: "ratio", source: "respiratory domain (relacao_pao2_fio2; FiO2 fraction!)"}
+  - {quantity: inspired_oxygen_fraction, unit: "fraction", source: "respiratory domain / AMH Gold Observation LOINC 19935-6"}
+  - {quantity: positive_end_expiratory_pressure, unit: "cmH2O", source: "respiratory domain / ventilator HL7 ORU"}
+  - {quantity: richmond_agitation_sedation_scale, unit: "points", source: "AMH Gold Observation LOINC 75826-6 (RASS, signed -5..+4)"}
+  - {quantity: delirium_assessment, unit: "enum", source: "AMH Gold Observation LOINC 8683-5/8684-3/8686-8 (CAM-ICU)"}
+  - {quantity: numeric_pain_scale, unit: "points", source: "AMH Gold Observation (EVA/VISUAL 0-10)"}
+  - {quantity: behavioral_pain_scale, unit: "points", source: "AMH Gold Observation (BPS/COMPORTAMENTAL 3-12)"}
+  - {quantity: age, unit: "years", source: "MPI demographics (Patient)"}
+  - {quantity: continuous_sedative_present, unit: "boolean", source: "AMH Gold MedicationAdministration (midazolam/propofol/cetamina/dexmedetomidina/fentanil)"}
+  - {quantity: continuous_benzodiazepine, unit: "boolean", source: "AMH Gold MedicationAdministration (midazolam/diazepam/lorazepam)"}
+  - {quantity: nmba_present, unit: "boolean", source: "AMH Gold MedicationAdministration (rocuronium/cisatracurium)"}
+  - {quantity: on_invasive_ventilation, unit: "boolean", source: "Procedure / device presence"}
+  - {quantity: lab_result_present, unit: "boolean", source: "AMH Gold lab_result presence (CPK / TGO-TGP / triglycerides, 48h)"}
+
+# Outbound events other domains / the correlation engine subscribe to.
+emits_events:
+  - event: neurosed.sedation.off_target
+    meaning: "Patient sedated deeper than the RASS 0..-2 light-sedation target (RASS <= -3) with no documented deep-sedation indication (over-sedation)."
+    fields: [mpi_id, rass, indicacao_sedacao_profunda, ventilacao_mecanica, detected_at, alert_id]
+  - event: neurosed.agitation.detected
+    meaning: "Sustained agitation (RASS > +1) with self-extubation / device-removal risk; urgent bedside safety review."
+    fields: [mpi_id, rass, sustained_assessments, detected_at, alert_id]
+  - event: neurosed.sat.not_lightened
+    meaning: "Ventilated, adequately oxygenated, still-sedated patient whose morning sedation was not reduced >=50% or who is on prolonged (>96h) continuous sedation; SAT/daily-interruption candidate."
+    fields: [mpi_id, relacao_pao2_fio2, fio2, reducao_sedacao_matinal_pct, sedativo_continuo_gt_96h, detected_at, alert_id]
+  - event: neurosed.delirium.positive
+    meaning: "CAM-ICU positive; delirium present. Feeds correlation-engine delirium-risk reasoning (benzodiazepine exposure)."
+    fields: [mpi_id, cam_icu, rass, detected_at, alert_id]
+  - event: neurosed.delirium.screening_gap
+    meaning: "No CAM-ICU recorded in >24h in an at-risk patient within the hypoactive-delirium RASS window (-1..-3); screening prompt."
+    fields: [mpi_id, horas_desde_ultimo_cam_icu, rass, detected_at, alert_id]
+  - event: neurosed.iatrogenic_delirium.risk
+    meaning: "Continuous benzodiazepine in an elderly (>65) sedated (RASS<=-2) patient without deep-sedation indication; PADIS non-BZD substitution prompt."
+    fields: [mpi_id, benzodiazepinico_continuo, idade, rass, detected_at, alert_id]
+  - event: neurosed.pris.surveillance
+    meaning: "Prolonged (>96h) continuous propofol with a missing PRIS safety lab (CPK / transaminases / triglycerides) in 48h."
+    fields: [mpi_id, propofol_continuo_gt_96h, cpk_resultado_48h, transaminases_resultado_48h, triglicerides_resultado_48h, detected_at, alert_id]
+  - event: neurosed.prolonged_sedation.flagged
+    meaning: "Continuous sedative/BZD/opioid >96h (or >7d) exposure; consumed by the drug-interactions domain for withdrawal-syndrome risk on abrupt discontinuation (DDX-005)."
+    fields: [mpi_id, sedativo_continuo_gt_96h, drug_class, exposure_start, detected_at]
+
+# p95 ingest->alert compute budget (VIS-C-09 / CON-SEED-01: <30s). Upstream Observation/lab data lands via the
+# AMH Gold batch pipeline (Silver-Entities P95 <30min, ADR001-F-02); this domain is event-driven on new landings,
+# so wall-clock recognition is data-availability-bound, but the compute path from ingest to emitted alert is <30s.
+latency_assumption_ms: 30000
+
+# Sum of the 8 alerts' est_volume_per_100_beds_day (OVERSED 4 + AGITATION 2 + SAT 3 + DELIRIUM 5 + SCREEN-GAP 3
+# + IATRO 1 + PRIS 1 + PAIN 3 = 22). Low-burden by design; all watch except AGITATION-02/DELIRIUM-04 (urgent).
+volume_estimate_per_100_beds_day: 22

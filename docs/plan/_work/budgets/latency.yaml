@@ -1,0 +1,97 @@
+# IntensiCare v2 — Canonical Latency Budget (ingest -> alert)
+# Owner: alert-engine-architect (co-owners at C3: amh-integration-architect, platform-reliability-engineer)
+# Resolves: CON-SEED-01 (latency-SLO split) — ONE canonical decomposition — final signoff barrier C3.
+#
+# CONFLICT (CON-SEED-01): vision states ONE number p95 ingest->alert < 30s (VIS-C-09/VIS-7.2-01);
+#   implementation-plan SPLITS it into score p95 <30s MVP/<5s prod (IMP-C-13) and alert p95
+#   <5s MVP/<2s prod (IMP-C-14). Summed naively the MVP figures give 30s+5s = 35s > 30s.
+# RESOLUTION:
+#   1. The 30s SLO is the END-TO-END envelope IntensiCare OWNS over the five controllable stages
+#      poll -> normalize -> evaluate -> persist -> deliver. impl 'score' maps to the evaluate stage;
+#      impl 'alert' maps to the deliver stage. They are intra-budget stage ceilings, not separate frames.
+#   2. Production stage targets are binding (sum ~9s << 30s). MVP relaxations are re-scoped so
+#      evaluate_MVP <= 30s - sum(other stages); end-to-end stays <= 30s. The 35s contradiction was an
+#      artifact of adding two intra-budget numbers AGAINST the ceiling instead of INSIDE it.
+#   3. Source freshness (AMH source->Gold, <=30min p95, ADR001-F-02) is INHERITED and EXCLUDED from the
+#      committed SLO (uncontrollable under ADR001-C-01/C-10); surfaced for transparency only.
+#      End-to-end bedside->alert = source_freshness + owned_pipeline.
+# Every number cites a source: VIS-*/IMP-*/ADR001-* brief fact, CON-* ledger, or INV-*.
+version: 1
+
+targets:
+  vision_p95_ingest_to_alert_s: 30          # VIS-C-09 / VIS-7.2-01 — the single end-to-end ceiling (owned pipeline)
+  personas_rrt_push_s: 5                     # CON-0092 / PER-C-06 — mobile deterioration notification to RRT
+  impl_plan:
+    ingest_vital_p95_ms:  {mvp: 500, prod: 200}   # IMP-C-12 -> maps to normalize(+persist) stage
+    score_calc_p95_s:     {mvp: 30,  prod: 5}     # IMP-C-13 -> maps to EVALUATE stage
+    alert_p95_s:          {mvp: 5,   prod: 2}     # IMP-C-14 -> maps to DELIVER stage
+  inherited:
+    amh_gold_batch_p95_min: 30               # ADR001-F-02 — Silver-Entities batch freshness (source freshness, EXCLUDED from 30s)
+    amh_data_availability:  0.995            # ADR001-C-10 — inherited analytics availability SLO
+  platform:
+    availability:            0.999           # VIS-C-10 / VIS-7.2-02
+    throughput_alerts_min:   500             # VIS-C-11 / VIS-7.2-03 (target > 500)
+
+# Canonical decomposition. p95 per stage. Path = near-real-time unless noted.
+# 'included_in_slo: false' marks the inherited source-freshness stage that sits BEFORE the clock.
+stages:
+  - stage: source_freshness
+    p95_ms: 2000                             # NRT path: operational stream/monitor datum query-visible ~2s
+    p95_ms_batch_path: 1800000               # batch path: AMH Gold P95 <30min = 1,800,000 ms (inherited)
+    included_in_slo: false
+    assumption: "Time from datum origin to IntensiCare's queryable surface. NRT ~2s; Athena/Gold batch <=30min. Uncontrollable under ADR001-C-01; held separate from the 30s IntensiCare commits."
+    source_ref: [ADR001-F-02, ADR001-C-10]
+  - stage: poll
+    p95_ms: 1000
+    included_in_slo: true
+    assumption: "Event pickup from Redis stream (NRT) or expedited micro-batch trigger."
+    source_ref: [VIS-2-08, IMP-3.2-05]
+  - stage: normalize
+    p95_ms: 500
+    included_in_slo: true
+    assumption: "Parse HL7/FHIR -> canonical units at the edge; within the ingest-vital write envelope. Unit mismatch is a build-time error, not a runtime cost (CON-SEED-12)."
+    source_ref: [IMP-C-12, CON-SEED-12]
+  - stage: evaluate
+    p95_ms: 5000                             # production score budget
+    p95_ms_mvp_ceiling: 26000                # re-scoped: <= 30000 - sum(other owned stages 4000) = 26000
+    included_in_slo: true
+    assumption: "Run score + alert-definition predicates. Production <5s (IMP-C-13). MVP ceiling re-scoped to fit the 30s end-to-end envelope, NOT a standalone 30s."
+    source_ref: [IMP-C-13]
+  - stage: persist
+    p95_ms: 500
+    included_in_slo: true
+    assumption: "Write clinical_score + alert + audit_trail rows (ON CONFLICT / append-only). Includes INV-1 audit write and INV-2 idempotent upsert."
+    source_ref: [IMP-C-12, CON-0066, CON-0067]
+  - stage: deliver
+    p95_ms: 2000                             # production alert budget
+    included_in_slo: true
+    assumption: "ARQ enqueue -> WS/mobile push, at-least-once with retry+backoff. 2s < 5s RRT push budget."
+    source_ref: [IMP-C-14, CON-0071, CON-0092]
+
+budget_check:
+  owned_pipeline_stages: [poll, normalize, evaluate, persist, deliver]
+  owned_pipeline_sum_ms: 9000                # 1000+500+5000+500+2000 (production); linear p95 upper bound
+  ceiling_ms: 30000                          # VIS-C-09
+  headroom_ms: 21000                         # absorbs MVP relaxation + sum-vs-true-p95 slack
+  within_ceiling: true
+  notes:
+    - "Linear sum of stage p95s OVER-estimates true end-to-end p95 (stages not perfectly correlated); 9s is a conservative upper bound."
+    - "deliver 2000ms < personas_rrt_push_s 5000ms (CON-0092/PER-C-06): PASS."
+    - "engine detection->delivery <=9s leaves the rest of the 5-min CRIT action window (CON-0062) for human response."
+    - "MVP evaluate ceiling 26000ms keeps end-to-end <=30000ms even under the relaxed IMP-C-13 MVP budget."
+
+notes:
+  con_seed_01: "This file IS the single canonical decomposition CON-SEED-01 asks for. Flag: RESOLVES CON-SEED-01; final signoff at barrier C3."
+  batch_path_caveat: >-
+    Micro-batch domains (AKI, electrolytes, drug-interactions, delirium, and the lab legs of sepsis/
+    hemodynamic/respiratory) inherit source_freshness <=30min (ADR001-F-02). For these, bedside->alert
+    = source_freshness + owned_pipeline and CANNOT be <30s end-to-end; the 30s SLO applies from the poll
+    boundary onward. This is acceptable because their clinical latency targets are hours (AKI 6h VIS-6.1-02;
+    delirium 4-12h VIS-4.2-05) — EXCEPT the electrolyte CRIT band (K+/Na+), which is the strongest candidate
+    to tighten poll cadence and/or adopt the Alternativa-B streaming escape hatch (ADR001-F-08).
+  nrt_path_caveat: >-
+    Vitals/monitor-driven NRT scores (MEWS/NEWS2/qSOFA, shock index, SpO2/FiO2) can meet bedside->alert
+    <30s ONLY with a sub-batch operational feed. Under a strict Athena-only reading of ADR001-C-01 this
+    requires the Alternativa-B dedicated MSK topic (ADR001-F-08). VIS-C-09 applied to these scores is the
+    quantified trigger ADR-001 left open. Owner: amh-integration-architect (CON-0001); signoff C3.
+  staleness_guard: "Because Gold freshness can lag <=30min and can fail silently, the alert-on-no-alerts staleness watchdog (INV-5, CON-0070) converts silence into a paged operational alert — see architecture/alert-engine.md sec 7.2."

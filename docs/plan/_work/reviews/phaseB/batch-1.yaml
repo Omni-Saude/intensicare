@@ -1,0 +1,52 @@
+batch: 1
+verdict: FAIL
+n_reviewed: 22
+defects:
+  - rule_id: RULE-PIORA-CLINICA-004
+    kind: policy
+    why: >-
+      The ADOPT-CORRECTED justification prescribes a clinically WRONG correction. It says v2 "must
+      adopt the corrected form that reinstates the 2- band" — i.e. the commented-out 81<=fc<=99 => "2-"
+      branch. But the rule's own P2 escalation (ESC-P2-063, point 1) states that this band would label
+      a NORMAL/high-normal heart rate (81-99 bpm, NEWS2/MEWS grade 0) as a LOW-deviation bradycardia
+      score. 81-99 bpm is a normal resting HR, not bradycardia, so the legacy developer correctly
+      DISABLED that band. Reinstating it verbatim reintroduces the exact clinical error the escalation
+      flags. Only the branch-order defect (fc==50 matching "50<=fc<=59" -> mild "1-" before reaching
+      "fc<=50" -> severe "3-") is a legitimate correction here.
+    suggested_fix: >-
+      Restrict the ADOPT-CORRECTED correction to the branch-order bug only (evaluate the severe
+      "fc<=50 => 3-" bound before "50<=fc<=59 => 1-" so fc==50 scores severe bradycardia), and do NOT
+      reinstate the 81-99 "2-" band. Because the intended moderate-bradycardia band is itself
+      undefined/clinically ambiguous (the legacy value was wrong), the band redesign should be routed
+      to RATIFY (RATIFICATION.md) rather than silently "corrected" in-line.
+  - rule_id: RULE-PIORA-CLINICA-005
+    kind: specificity
+    why: >-
+      The record's source_quote "Uses BalancoChoices.consciencia() enum values." is not a verbatim
+      >=20-char substring of this rule's logic / description / edge_cases as the disposition schema
+      requires. The rule's description reads "Graded consciousness sub-score mapped from the
+      consciousness enum", the logic references sinais_vitais.nv_consciencia and enum values
+      (reage_verbal, reage_tatil, coma, sonolencia, agitacao, convulsao), and the edge_cases reference
+      "acordado" — the string "BalancoChoices.consciencia()" appears in none of them. The quote is
+      therefore fabricated/non-verifiable against the rule text (the justification body itself is
+      correctly specific; only the source_quote field is defective). The disposition (RATIFY for the
+      UNVERIFIABLE band) is otherwise the right call.
+    suggested_fix: >-
+      Replace source_quote with an actual verbatim substring from the rule, e.g. 'The value "acordado"
+      (alert) and any unmapped value yield "0".' or a >=20-char slice of the logic enum mapping.
+notes: >-
+  Reviewed all 22 items across 5 clusters. The P0/UNVERIFIABLE clinical-scoring and piora-clinica
+  rules (SCORING-002/005/007/008, PIORA-001/005/006/007/010) are correctly RATIFY'd with pertinent,
+  matched guideline evidence (Vincent 1996 SOFA, ARDS Berlin JAMA 2012, Boonstra 2016 NRS, Payen 2001
+  BPS, NEWS2 2017) and correct RATIFICATION.md targets. VERIFIED OK rules (SCORING-013 GCS 3-15,
+  SCORING-015 NRS 0-10) correctly ADOPT to clinical-forms with matching Teasdale&Jennett/NRS-11
+  citations. Auth/visibility rule EVOLUCOES-007 correctly targets security-lgpd; SUPERSEDE
+  (TENANCY-019 -> Lake Formation ABAC) names replacement and loss; RETIRE items (ALERTAS-019,
+  TENANCY-025) justify the platform/anti-pattern basis. DISCREPANCY handling is policy-correct
+  (ALERTAS-003 ADOPT-CORRECTED for a pure logic dead-zone; TENANCY-049 RATIFY as a product decision) —
+  no DISCREPANCY was plain-ADOPT'd. FAIL is driven by the single POLICY defect on PIORA-CLINICA-004
+  (clinically incorrect prescribed correction); a policy defect forces FAIL per the rubric regardless
+  of the low overall defect rate (2/22 = 9%). One softer observation not counted as a defect:
+  EVOLUCOES-024 ADOPT carries forward a documented wrong-mechanism (most-recent SinaisVitais by
+  criado_em rather than clinical timestamp, mis-selecting backdated vitals) that arguably fits ADAPT;
+  left off the defect list as the rule is unescalated and the linkage intent is sound.

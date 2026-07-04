@@ -1,0 +1,387 @@
+shard: auth-usuarios-p1
+cluster: auth-usuarios
+records:
+  - rule_id: RULE-AUTH-USUARIOS-001
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "defaulting every entry to False, then flips to True"
+    disposition: RATIFY
+    justification: "UNVERIFIABLE band is mandatory-RATIFY per policy; RBAC catalog-to-payload construction is proprietary internal logic with no published reference, needs product sign-off before it becomes the v2 permission-catalog mechanism."
+    evidence: ["RULE-AUTH-USUARIOS-001", "ESC-UNVERIFIABLE-278"]
+    target: "RATIFICATION.md#rat-auth-usuarios-01"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-278, band: UNVERIFIABLE}]
+    ratify_ref: RAT-AUTH-USUARIOS-01
+  - rule_id: RULE-AUTH-USUARIOS-002
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: UNVERIFIABLE}
+    source_quote: "returns None (not an empty list)"
+    disposition: RATIFY
+    justification: "UNVERIFIABLE band is mandatory-RATIFY; the None-vs-empty-list distinction for empresa-scoped cargo lookup is a proprietary API contract nuance that downstream v2 consumers must explicitly agree to preserve or drop."
+    evidence: ["RULE-AUTH-USUARIOS-002", "ESC-UNVERIFIABLE-279"]
+    target: "RATIFICATION.md#rat-auth-usuarios-02"
+    supersedes_note: null
+    escalations: [{item_id: ESC-UNVERIFIABLE-279, band: UNVERIFIABLE}]
+    ratify_ref: RAT-AUTH-USUARIOS-02
+  - rule_id: RULE-AUTH-USUARIOS-003
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Grants access only to users flagged as chatbot superusers"
+    disposition: ADAPT
+    justification: "Sound intent (privileged super-admin gate for a bot integration) but the bespoke is_chatbot_superuser flag is legacy Django plumbing; v2 must express the same elevated-access concept through the new IAM-backed role model."
+    evidence: ["RULE-AUTH-USUARIOS-003"]
+    target: "architecture/security-lgpd.md#privileged-service-accounts"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-004
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Grants access only when the request is associated with a (non-null) partner"
+    disposition: RETIRE
+    justification: "Legacy partner/API-key middleware wiring specific to the old Django partner-auth mechanism; ADR-001 replaces bespoke partner auth with the AMH Data Platform's own IAM/SSO and tenant-scoping model, so this predicate has no v2 home."
+    evidence: ["RULE-AUTH-USUARIOS-004", "ADR001-F-01"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-005
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Object-level access granted only when the requesting user's id equals the object's owner id"
+    disposition: ADAPT
+    justification: "Owner-vs-self object-level authorization is a durable security lesson worth keeping, but the fallback-to-obj.id-when-no-owner mechanism is a legacy shortcut that must be replaced by an explicit ownership field check in v2."
+    evidence: ["RULE-AUTH-USUARIOS-005"]
+    target: "architecture/security-lgpd.md#object-level-authorization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-006
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Grants access to any user that exists and is not anonymous"
+    disposition: SUPERSEDE
+    justification: "This is a hand-rolled reimplementation of DRF's IsAuthenticated; v2's FastAPI stack has a native authenticated-dependency mechanism, so the bespoke predicate is replaced wholesale rather than adapted."
+    evidence: ["RULE-AUTH-USUARIOS-006"]
+    target: "architecture/security-lgpd.md#authenticated-dependency"
+    supersedes_note: {replaced_by: "FastAPI OAuth2/IAM-backed authenticated-request dependency", lost: "none — semantics (reject null/anonymous user) are fully preserved by the framework mechanism"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-007
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "class names imply differentiated read vs write authorization"
+    disposition: ADOPT-CORRECTED
+    justification: "DISCREPANCY forbids plain ADOPT; legacy's LeituraEmpresa/ReadAndWriteEmpresa are byte-identical (both just check authentication), so the reference-correct v2 form must implement genuinely distinct read and write checks per CON-0038 deny-by-default policy."
+    evidence: ["RULE-AUTH-USUARIOS-007", "ESC-P3-191", "CON-0038"]
+    target: "architecture/security-lgpd.md#read-write-permission-separation"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-191, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-008
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "effective permission codenames at a level are the union of permissions granted by access-groups"
+    disposition: ADAPT
+    justification: "The Empresa>Estabelecimento>Setor downward-cascade permission model is the load-bearing multi-tenant RBAC design worth carrying forward, but the Django ORM union-of-querysets mechanism must be re-expressed against the new data platform's identity/authz service."
+    evidence: ["RULE-AUTH-USUARIOS-008", "CLU-AUTH-USUARIOS-01"]
+    target: "architecture/security-lgpd.md#hierarchical-rbac-cascade"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-009
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "Enforces per-view permission requirements resolved against a configurable scope"
+    disposition: ADAPT
+    justification: "Scope-dispatch RBAC enforcement (empresa/estabelecimento/setor with per-method overrides) is the live authorization mechanism worth preserving conceptually, but the Django-mixin dispatch() pattern must be redesigned as explicit per-route deny-by-default guards per CON-0038."
+    evidence: ["RULE-AUTH-USUARIOS-009", "CLU-AUTH-USUARIOS-02", "CON-0038"]
+    target: "architecture/security-lgpd.md#scope-based-authorization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-010
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "setor (if setor__pk in URL) > estabelecimento (if estabelecimento__pk in URL) > empresa"
+    disposition: ADAPT
+    justification: "The setor>estabelecimento>empresa single-scope resolution priority for GrupoAcesso queryset filtering is a reusable tenancy pattern, but must be reimplemented against the v2 data model rather than Django's objects_without_deleted soft-delete manager."
+    evidence: ["RULE-AUTH-USUARIOS-010"]
+    target: "architecture/security-lgpd.md#scope-priority-resolution"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-011
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "resolves which permission-computation function to call using the same priority order as GrupoAcesso"
+    disposition: ADAPT
+    justification: "Mirrors RULE-010's setor>estabelecimento>empresa dispatch for permission lookup rather than queryset filtering; same tenancy-scope-priority lesson applies and should be unified with RULE-008/010 in a single v2 scope-resolution utility."
+    evidence: ["RULE-AUTH-USUARIOS-011", "RULE-AUTH-USUARIOS-010"]
+    target: "architecture/security-lgpd.md#scope-priority-resolution"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-012
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "is added to the response payload for every view action EXCEPT 'list' and 'destroy'"
+    disposition: RETIRE
+    justification: "Purely a Django REST Framework serializer performance optimization (skip nested user serialization on list/destroy) with no security or clinical semantics; v2's API schemas will define field inclusion explicitly per endpoint, making this legacy toggle obsolete."
+    evidence: ["RULE-AUTH-USUARIOS-012"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-013
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "hiding sector memberships from other companies (multi-tenant scoping)"
+    disposition: ADAPT
+    justification: "Filtering a user's sector list to the current empresa before serialization is a genuine multi-tenant data-isolation control worth keeping, but must move from a conditional serializer branch to a mandatory tenant-scoped query in v2's data access layer."
+    evidence: ["RULE-AUTH-USUARIOS-013", "CLU-AUTH-USUARIOS-04"]
+    target: "architecture/security-lgpd.md#tenant-scoped-serialization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-014
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "only returns users with is_active=True, additionally filtered to users belonging to request.empresa"
+    disposition: ADAPT
+    justification: "Active-user + tenant-scoped queryset filtering is a load-bearing tenant-isolation and account-lifecycle control that must carry forward, reimplemented against the v2 user store rather than Django's ORM filter chain."
+    evidence: ["RULE-AUTH-USUARIOS-014"]
+    target: "architecture/security-lgpd.md#tenant-scoped-queryset"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-015
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "meaning read operations and partial updates are exempted from this trilha-permission check"
+    disposition: SUPERSEDE
+    justification: "The exceto_metodo (GET/PATCH-bypass) mechanism is a legacy method-exemption shortcut that runs counter to CON-0038/CON-0056's mandate of explicit per-route deny-by-default permission declarations; v2 replaces implicit bypass lists with declared per-method permissions."
+    evidence: ["RULE-AUTH-USUARIOS-015", "CON-0038", "CON-0056"]
+    target: "architecture/security-lgpd.md#explicit-per-method-permissions"
+    supersedes_note: {replaced_by: "CON-0038/CON-0056 explicit per-route, per-method permission declarations (deny-by-default)", lost: "implicit method-exemption list (exceto_metodo); every method now requires an explicit declared permission, including GET/PATCH"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-016
+    cluster: auth-usuarios
+    category: care-pathway
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "only users holding that permission may reject or close the protocol"
+    disposition: ADAPT
+    justification: "Gating sepsis-protocol rejection/closure behind a dedicated can_recusar_protocolo_sepse permission is a clinically load-bearing safeguard (prevents unauthorized protocol dismissal) that must be reimplemented in the v2 sepsis domain's authorization layer."
+    evidence: ["RULE-AUTH-USUARIOS-016"]
+    target: "clinical/domains/sepsis.md#protocol-rejection-permission"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-017
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "showButtonAuditoria = isSetor && can_view_auditoria"
+    disposition: ADAPT
+    justification: "The distinct can_view_ocupacoes (navigation) vs can_view_auditoria (audit-button) permission split is a meaningful least-privilege UI pattern worth preserving in the new design system's sector dashboard, even though the legacy React component itself is being rebuilt."
+    evidence: ["RULE-AUTH-USUARIOS-017"]
+    target: "architecture/security-lgpd.md#permission-gated-audit-access"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-018
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "shown only if the current user holds at least one of the administrative permissions"
+    disposition: RETIRE
+    justification: "Purely cosmetic legacy UI mechanics (a gear-icon visibility OR-of-three-permissions check) tied to the old React header component; the v2 design system's navigation shell will derive icon visibility fresh from the new permission model, not this specific component logic."
+    evidence: ["RULE-AUTH-USUARIOS-018"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-019
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "renders as a plain, non-clickable tag when the signed-in user has access to one or zero companies"
+    disposition: RETIRE
+    justification: "Legacy header-component UI mechanics for the company-switcher dropdown with no security or clinical consequence; the v2 design system will define its own company-switcher affordance independent of this specific TSX conditional-rendering logic."
+    evidence: ["RULE-AUTH-USUARIOS-019"]
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-020
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "the `!token` half of the guard condition can never be true"
+    disposition: SUPERSEDE
+    justification: "DISCREPANCY forbids plain ADOPT; this is the cluster's single highest-impact finding — a dead-code token check lets 19+ pages render with zero server-side auth — and is exactly the failure mode CON-0038/CON-0056 mandate fixing via deny-by-default per-route server-side gates."
+    evidence: ["RULE-AUTH-USUARIOS-020", "ESC-P3-133", "CON-0038", "CON-0056"]
+    target: "architecture/security-lgpd.md#deny-by-default-ssr-gate"
+    supersedes_note: {replaced_by: "CON-0038/CON-0056 mandatory server-side deny-by-default route guard ahead of shell render", lost: "legacy default-allow validateRoute(ctx) behavior and its dead token-presence branch — both intentionally discarded as a critical security defect, not carried forward"}
+    escalations: [{item_id: ESC-P3-133, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-021
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "permission that gates Grupos/access-group management"
+    disposition: RETIRE
+    justification: "DISCREPANCY forbids plain ADOPT; reusing can_manage_grupo_acesso to gate the unrelated Leitos (beds) page is an unresolved copy-paste-or-intentional ambiguity tied to a specific legacy page route that will not exist in the v2 design, so it is dropped rather than corrected."
+    evidence: ["RULE-AUTH-USUARIOS-021", "ESC-P3-134"]
+    target: null
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-134, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-022
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "the restriction is UI-only and can be bypassed by direct URL navigation"
+    disposition: ADAPT
+    justification: "DISCREPANCY forbids plain ADOPT; the intended semantics (analítico/inconsistências features are automatica-tenant-only) are worth keeping, but v2 must enforce the tipo check server-side on the destination route, not merely hide a button client-side."
+    evidence: ["RULE-AUTH-USUARIOS-022", "ESC-P3-135", "CON-0038"]
+    target: "architecture/security-lgpd.md#server-side-tenant-type-enforcement"
+    supersedes_note: null
+    escalations: [{item_id: ESC-P3-135, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-023
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "the user is redirected to /empresa instead of seeing the login form"
+    disposition: ADAPT
+    justification: "Redirecting an already-authenticated user away from the login screen is a correct, low-risk UX affordance worth preserving in v2's auth flow, reimplemented against the new session/token mechanism rather than the raw trilhas.token cookie check."
+    evidence: ["RULE-AUTH-USUARIOS-023"]
+    target: "architecture/security-lgpd.md#authenticated-login-redirect"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-024
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "zero companies is treated as an error and forces logout"
+    disposition: ADAPT
+    justification: "The 0/1/>1-empresas post-login routing decision tree is a load-bearing cluster fact (CLU-AUTH-USUARIOS-06) with sound business logic that v2 must reproduce, adapted to the new token-refresh and company-selector UI rather than the legacy AuthContext implementation."
+    evidence: ["RULE-AUTH-USUARIOS-024", "CLU-AUTH-USUARIOS-06"]
+    target: "architecture/security-lgpd.md#post-login-routing"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-025
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "only if the profile belongs to themself, or if they hold the can_manage_usuario permission"
+    disposition: ADAPT
+    justification: "The self-or-can_manage_usuario object-level access rule for professional profiles is sound intent, but it is enforced only client-side in legacy (server route has no permission check); v2 must move this check server-side per CON-0038's deny-by-default mandate."
+    evidence: ["RULE-AUTH-USUARIOS-025", "CON-0038"]
+    target: "architecture/security-lgpd.md#object-level-authorization"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-026
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "only rendered when the viewer has can_manage_usuario permission AND the current company's tipo"
+    disposition: ADAPT
+    justification: "Gating the 'Gestão de Pacientes' tab on can_manage_usuario AND tenant tipo==homecare is a genuine tenant-type feature-flag pattern worth carrying into v2's clinical-forms screens, verbatim on the homecare vocabulary term, though the client-side-only enforcement must be hardened server-side."
+    evidence: ["RULE-AUTH-USUARIOS-026"]
+    target: "design/screens/clinical-forms.md#homecare-tenant-gating"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-027
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "shows/hides six navigation items strictly based on three permission flags"
+    disposition: ADAPT
+    justification: "The can_manage_empresa/can_manage_grupo_acesso/can_manage_usuario-to-menu-item mapping is a useful reference model for v2's admin navigation, but the legacy sidebar hook itself is being rebuilt in the new design system so only the permission-to-feature mapping carries forward."
+    evidence: ["RULE-AUTH-USUARIOS-027", "CLU-AUTH-USUARIOS-01"]
+    target: "architecture/security-lgpd.md#permission-based-navigation"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-028
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "additionally requires the global can_manage_evolucao permission"
+    disposition: ADAPT
+    justification: "Per-discipline can_preencher_formulario_<role> visibility plus a global can_manage_evolucao gate for submission is a real least-privilege clinical-forms control; the ten PT-BR professional roles (médico, enfermeiro, técnico de enfermagem, fisioterapeuta, musicoterapeuta, nutricionista, psicólogo, farmacêutico, fonoaudiólogo, intercorrência) must be preserved verbatim in v2's role-based authoring model."
+    evidence: ["RULE-AUTH-USUARIOS-028"]
+    target: "design/screens/clinical-forms.md#role-based-authoring"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-029
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "the system first attempts Django local authentication (username+password) before trying any external identity provider"
+    disposition: SUPERSEDE
+    justification: "Local-Django-auth-first login cascade with a non-standard HTTP 202 success status is a legacy Django-specific mechanism; ADR-001's security model mandates IAM Identity Center SSO as the authentication path, replacing this local-then-SSO ordering entirely."
+    evidence: ["RULE-AUTH-USUARIOS-029", "CON-0038"]
+    target: "architecture/security-lgpd.md#authentication"
+    supersedes_note: {replaced_by: "IAM Identity Center SSO (ADR-001 security model)", lost: "local Django-auth-first fallback ordering and the non-standard HTTP 202 (Accepted) success status; v2 login responses use standard 200-series codes"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-030
+    cluster: auth-usuarios
+    category: triage-eligibility
+    catalog_echo: {status: DISCREPANCY, verdict: NOT_APPLICABLE}
+    source_quote: "the user is treated as authenticated: a local Usuario is looked up by email=username, and auto-created if missing"
+    disposition: SUPERSEDE
+    justification: "DISCREPANCY forbids plain ADOPT; auto-provisioning any user who authenticates against the shared americashealth SSO with no Trilhas-entitlement check (an unresolved TODO) is a known security gap that ADR-001's IAM Identity Center SSO must not reproduce."
+    evidence: ["RULE-AUTH-USUARIOS-030", "ESC-P3-136"]
+    target: "architecture/security-lgpd.md#sso-entitlement-check"
+    supersedes_note: {replaced_by: "IAM Identity Center SSO with explicit per-tenant entitlement checks (ADR-001)", lost: "auto-provisioning of a local account without any project-entitlement verification — intentionally not carried forward"}
+    escalations: [{item_id: ESC-P3-136, band: P3}]
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-031
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "if the stored password is not already a recognized hash, it is hashed"
+    disposition: SUPERSEDE
+    justification: "The defensive auto-hash-on-save safeguard exists only because legacy stores local passwords in the app database; ADR-001's IAM Identity Center centralizes credential management, so v2 has no local password field for this safeguard to protect."
+    evidence: ["RULE-AUTH-USUARIOS-031", "CON-0134"]
+    target: "architecture/security-lgpd.md#authentication"
+    supersedes_note: {replaced_by: "IAM Identity Center centralized credential management (ADR-001)", lost: "local plaintext-detection-and-hash-on-save behavior; no longer applicable since v2 stores no local password"}
+    escalations: []
+    ratify_ref: null
+  - rule_id: RULE-AUTH-USUARIOS-032
+    cluster: auth-usuarios
+    category: billing-administrative
+    catalog_echo: {status: OK, verdict: NOT_APPLICABLE}
+    source_quote: "removes that company's access-group memberships and drops"
+    disposition: ADAPT
+    justification: "The invariant that unlinking a user from a company must cascade-remove that company's access-group memberships (preventing stale cross-tenant permissions) is a security-relevant lesson worth keeping, reimplemented against v2's tenancy model rather than the legacy 'u' access-code flag and Django signals."
+    evidence: ["RULE-AUTH-USUARIOS-032"]
+    target: "architecture/security-lgpd.md#membership-cascade-cleanup"
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

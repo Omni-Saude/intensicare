@@ -1,0 +1,393 @@
+domain: electrolyte
+# Electrolyte-emergency domain alerts — vision §3.6. Severity scale: normal|watch|urgent|critical.
+# Legacy catalog map CRIT->critical, URG->urgent, WARN->watch, INFO->normal.
+# Design principle (alarm-fatigue): FEWER, richer alerts. The six catalog ELY-* entries (ELY-001..006),
+# each with 2-3 internal severity bands, are folded into six per-ion severity-scaling alerts plus one
+# bidirectional sodium-correction safety alert and one new phosphate alert. All lab thresholds are
+# objective, so per-alert PPV is high; the main false-positive source is pre-analytic (hemolysis for K+,
+# tourniquet/pH for iCa, hyperglycemia pseudo-hyponatremia). Units are canonical per _work/units/registry.yaml.
+# Paired conditions per task: hyperkalemia+digoxin (toxicity/calcium caution) is a context escalation inside
+# ALERT-ELY-POTASSIUM-01; QTc-relevant K+/Mg2+ lows are emitted to the pharmaco domain (DDX-001 Torsades)
+# via the domain interface, realizing vision correlation #3 "Drug + Electrolyte — QTc + K+/Mg2+" (VIS-4-03).
+alerts:
+
+  - alert_id: ALERT-ELY-POTASSIUM-01
+    name: "Distúrbio grave do potássio — hipercalemia/hipocalemia"
+    severity: critical          # scaling: hyper >6.5 or hypo <2.5 -> critical; see logic for urgent/watch
+    trigger:
+      logic: >
+        Dyskalemia; output severity = worst band across the hyper and hypo axes.
+        HYPER: critical if potassio > 6.5 mmol/L; urgent if potassio > 6.0 mmol/L (and <= 6.5);
+        watch if potassio > 5.5 mmol/L AND delta_k_24h > 0.5 mmol/L AND
+        (ckd_moderada_grave OR medicamento_hipercalemiante_ativo OR digoxina_ativa).
+        HYPO: critical if potassio < 2.5 mmol/L; urgent if potassio < 3.0 mmol/L (and >= 2.5);
+        watch if potassio < 3.5 mmol/L AND (qtc > 500 ms OR furosemida_dose_alta OR digoxina_ativa OR magnesio < 0.7 mmol/L).
+        DIGOXIN pairing (paired-condition escalation): if digoxina_ativa AND (potassio > 6.0 OR potassio < 3.0),
+        attach digoxin_toxicity_context=true — hyperkalemia with digoxin signals digoxin toxicity (calcium given
+        with caution / consider digoxin-specific antibody); hypokalemia with digoxin potentiates toxic arrhythmia.
+      window: PT24H             # delta_k_24h lookback; absolute value evaluated on the latest result
+    inputs:
+      - {name: potassio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 6298-4)", staleness_max: PT12H}
+      - {name: delta_k_24h, type: quantity, unit: "mmol/L",
+         source: "derived (potassio_atual - potassio_24h_atras)", staleness_max: PT24H}
+      - {name: magnesio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 19123-9)", staleness_max: PT24H}
+      - {name: qtc, type: quantity, unit: "ms",
+         source: "AMH Gold Observation ECG QTc (LOINC 44974-4)", staleness_max: PT24H}
+      - {name: digoxina_ativa, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration (digoxina ativa)", staleness_max: PT24H}
+      - {name: medicamento_hipercalemiante_ativo, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration (espironolactona/eplerenona/IECA/BRA/TMP-SMX/heparina prolongada/succinilcolina)", staleness_max: PT24H}
+      - {name: ckd_moderada_grave, type: boolean, unit: "boolean",
+         source: "AMH Gold Condition / eGFR<60 (CKD estágio >=3)", staleness_max: PT30D}
+      - {name: furosemida_dose_alta, type: boolean, unit: "boolean",
+         source: "AMH Gold MedicationAdministration (furosemida dose alta)", staleness_max: PT24H}
+    evidence:
+      - {citation: "UK Kidney Association (UKKA) 2023 Clinical Practice Guideline: Treatment of Acute Hyperkalaemia in Adults (crit >6.5, urgent >6.0 mmol/L) — vision §3.6 VIS-3.6-02",
+         rule_refs: [RULE-EQUILIBRIO-004]}
+      - {citation: "Clase CM et al. Potassium homeostasis and management of dyskalemia. BMJ 2020 (KDIGO conference) — hyper/hypo bands; hypoK crit <2.5, urgent <3.0 mmol/L per vision §3.6 VIS-3.6-03",
+         rule_refs: []}
+      - {citation: "KDIGO hyperkalaemia conference summary, Eur J Emerg Med 2020;27(5):329-337 (PMC7448835); Mount DB, Sterns RH — Treatment of hyperkalemia (UpToDate) — rescue bundle basis for RULE-EQUILIBRIO-004",
+         rule_refs: [RULE-EQUILIBRIO-004]}
+    suppression:
+      dedup_key: "patient_id+alert_id+direction+band"   # re-fires only when direction (hyper/hypo) or band worsens
+      cooldown: PT6H
+      rate_limit: "4/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.88
+      est_volume_per_100_beds_day: 3
+      rationale: >
+        Severe dyskalemia at these bands is objective and clinically actionable; a 100-bed ICU (CKD, diuretics,
+        RRT, refeeding) yields ~3 critical/urgent potassium events/day. The dominant false positive is pre-analytic
+        pseudo-hyperkalemia from a hemolyzed or K-EDTA-contaminated sample, mitigated by dedup on band and by the
+        watch-band cofactor gate (trend + risk factor), which suppresses isolated mild values. Digoxin/QTc context
+        raises signal without adding volume. Comfortably above the >=0.60 fleet PPV and supports <=10% ignored
+        (VIS-7.1-02/04).
+    response:
+      required: >
+        avaliação médica beira-leito imediata. Hipercalemia crítica: bundle de resgate (RULE-EQUILIBRIO-004,
+        corrigido para mEq/L, NUNCA mg/dl): gluconato de cálcio (estabilização de membrana), solução polarizante
+        (insulina+glicose), beta-agonista (salbutamol/fenoterol), furosemida; reavaliação em +4h com bicarbonato
+        de sódio 8.4% 1 mL/kg e resina de troca (Sorcal) se K+ ainda > 5.5 mmol/L. Se digoxina ativa: cálcio com
+        cautela e considerar anticorpo antidigoxina. Hipocalemia crítica: reposição de potássio E correção
+        concomitante de magnésio (hipomagnesemia perpetua hipocalemia refratária).
+      ack_sla: PT5M
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {potassio: 7.0}, expected: fire,
+         note: "K+ 7.0 > 6.5 -> critical hyperkalemia"}
+      - {id: TV-2, kind: fire, inputs: {potassio: 2.2}, expected: fire,
+         note: "K+ 2.2 < 2.5 -> critical hypokalemia"}
+      - {id: TV-3, kind: boundary, inputs: {potassio: 6.5}, expected: fire,
+         note: "K+ exactly 6.5 is NOT > 6.5 (critical) but IS > 6.0 -> urgent; guards the 6.5/6.0 band edge"}
+      - {id: TV-4, kind: boundary, inputs: {potassio: 5.5, delta_k_24h: 0.8, ckd_moderada_grave: true}, expected: no-fire,
+         note: "K+ exactly 5.5 is NOT > 5.5 -> watch band does not open even with trend+CKD; guards the 5.5 floor"}
+      - {id: TV-5, kind: fire, inputs: {potassio: 6.8, digoxina_ativa: true}, expected: fire,
+         note: "critical hyperkalemia + digoxin -> digoxin_toxicity_context; calcium with caution (paired condition)"}
+      - {id: TV-6, kind: no-fire, inputs: {potassio: 4.5}, expected: no-fire,
+         note: "normokalemia -> no-fire"}
+      - {id: TV-7, kind: fire, inputs: {potassio: 3.2, qtc: 520}, expected: fire,
+         note: "K+ 3.2 < 3.5 AND QTc 520 > 500 -> watch; emits qtc_risk_electrolyte to pharmaco (Torsades)"}
+    reconciliation:
+      - {existing_id: ELY-001, status: changed,
+         note: "vs docs/clinical/alert-catalog.md: hyperkalemia ELY-001 (a/b/c bands) folded into a per-ion scaling alert; adds explicit digoxin-toxicity pairing; rescue bundle adopts RULE-EQUILIBRIO-004 corrected to mEq/L (CON-0159 / CLU-EQUILIBRIO-C-01, never propagate the legacy mg/dl mislabel)."}
+      - {existing_id: ELY-002, status: changed,
+         note: "vs alert-catalog.md: hypokalemia ELY-002 (a/b/c bands) folded into the same potassium alert; the high-risk watch band (QTc>500 / high-dose furosemide / digoxin / Mg<0.7) is retained and now emits qtc_risk_electrolyte to the pharmaco domain for Torsades correlation (VIS-4-03 #3)."}
+
+  - alert_id: ALERT-ELY-SODIUM-01
+    name: "Distúrbio grave do sódio — hipernatremia/hiponatremia"
+    severity: critical          # scaling: hyper >160 or hypo <120 -> critical; see logic
+    trigger:
+      logic: >
+        Dysnatremia (absolute value); output severity = worst band across the hyper and hypo axes.
+        Optional glucose correction: sodio_corrigido = sodio + 0.024*(glicemia - 100 mg/dL) when glicemia > 100
+        (guards pseudo-hyponatremia of hyperglycemia); bands evaluate sodio_corrigido when glicemia available.
+        HYPER: critical if sodio > 160 mmol/L; urgent if sodio > 155 mmol/L (and <= 160);
+        watch if sodio > 150 mmol/L AND delta_na_24h > 5 mmol/L (rising).
+        HYPO: critical if sodio < 120 mmol/L; urgent if sodio < 125 mmol/L (and >= 120);
+        watch if sodio < 130 mmol/L AND delta_na_24h <= -5 mmol/L (acute fall).
+        NOTE: the RATE-of-correction hazard is a SEPARATE alert (ALERT-ELY-SODIUM-CORRECTION-02).
+      window: PT24H             # delta_na_24h lookback; absolute value on latest result
+    inputs:
+      - {name: sodio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 2951-2)", staleness_max: PT12H}
+      - {name: delta_na_24h, type: quantity, unit: "mmol/L",
+         source: "derived (sodio_atual - sodio_24h_atras)", staleness_max: PT24H}
+      - {name: glicemia, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (glucose); optional glucose-correction context", staleness_max: PT12H}
+      - {name: creatinina, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2160-0); free-water/renal context", staleness_max: PT24H}
+    evidence:
+      - {citation: "Spasovski G et al. / ESICM-ESE-ERBP 2024 consensus on acute hyponatraemia and hypernatraemia (hyperNa crit >160, urgent >155; hypoNa crit <120, urgent <125 mmol/L) — vision §3.6 VIS-3.6-04/05",
+         rule_refs: []}
+      - {citation: "Adrogué HJ, Madias NE. N Engl J Med 2000;342:1493-1499 (dysnatremia water-deficit correction) — hypernatremia rescue path",
+         rule_refs: [RULE-EQUILIBRIO-002]}
+    suppression:
+      dedup_key: "patient_id+alert_id+direction+band"
+      cooldown: PT8H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.88
+      est_volume_per_100_beds_day: 2
+      rationale: >
+        Absolute severe dysnatremia at these bands is objective; ~2 critical/urgent sodium events/100-beds/day
+        (free-water losses, SIADH, hyperosmolar states). Glucose correction removes the main clinical false
+        positive (pseudo-hyponatremia of hyperglycemia). The watch bands require a trend cofactor (delta), so
+        isolated borderline values do not fire. Well above the >=0.60 fleet floor.
+    response:
+      required: >
+        avaliação médica. Hipernatremia: corrigir déficit de água livre (RULE-EQUILIBRIO-002: água filtrada
+        400 mL 6/6h, NaCl 0.22% 84 mL/h, hidroclorotiazida 25 mg) sem baixar o sódio > 8-10 mmol/L/24h.
+        Hiponatremia: tratar conforme sintomas/cronicidade e NÃO ultrapassar 8-10 mmol/L/24h de correção
+        (ver ALERT-ELY-SODIUM-CORRECTION-02, risco de mielinólise pontina).
+      ack_sla: PT5M
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {sodio: 162}, expected: fire, note: "Na+ 162 > 160 -> critical hypernatremia"}
+      - {id: TV-2, kind: fire, inputs: {sodio: 118}, expected: fire, note: "Na+ 118 < 120 -> critical hyponatremia"}
+      - {id: TV-3, kind: boundary, inputs: {sodio: 160}, expected: fire,
+         note: "Na+ exactly 160 is NOT > 160 (critical) but IS > 155 -> urgent; guards 160/155 band edge"}
+      - {id: TV-4, kind: boundary, inputs: {sodio: 155, delta_na_24h: 2}, expected: no-fire,
+         note: "Na+ exactly 155 NOT > 155; watch needs >150 AND delta>5 (delta=2) -> no-fire; guards 155 edge"}
+      - {id: TV-5, kind: fire, inputs: {sodio: 156}, expected: fire, note: "Na+ 156 > 155 -> urgent hypernatremia"}
+      - {id: TV-6, kind: no-fire, inputs: {sodio: 140}, expected: no-fire, note: "normonatremia -> no-fire"}
+      - {id: TV-7, kind: fire, inputs: {sodio: 128, delta_na_24h: -7}, expected: fire,
+         note: "Na+ 128 < 130 AND acute fall -7 -> watch (acute hyponatremia trend)"}
+    reconciliation:
+      - {existing_id: ELY-003, status: changed,
+         note: "vs alert-catalog.md: hyponatremia ELY-003 absolute bands (a crit<120, b urgent<125) folded here; adds glucose-correction guard; the ELY-003c rapid-correction SAFETY band is split out to ALERT-ELY-SODIUM-CORRECTION-02."}
+      - {existing_id: ELY-004, status: changed,
+         note: "vs alert-catalog.md: hypernatremia ELY-004 (a/b/c) folded here; restores the RULE-EQUILIBRIO-002 Na>160 correction path that legacy get_detalhe() never surfaced (CON-0161 / CLU-EQUILIBRIO-C-03, ADAPT to restore visibility)."}
+
+  - alert_id: ALERT-ELY-SODIUM-CORRECTION-02
+    name: "Velocidade de correção do sódio perigosa — risco de desmielinização osmótica"
+    severity: critical          # safety alert; urgent at the >8 band, critical at >10
+    trigger:
+      logic: >
+        Rate-of-change safety net (bidirectional, primarily guarding over-rapid UPWARD correction of chronic
+        hyponatremia). Let delta_na_24h be the change over a trailing 24h window.
+        critical if delta_na_24h > 10 mmol/L in 24h (exceeds the osmotic-demyelination safety ceiling);
+        urgent if delta_na_24h > 8 mmol/L in 24h (approaching the ceiling).
+        Highest concern when the 24h nadir sodium was < 130 mmol/L (chronic hyponatremia being corrected).
+        A rapid FALL is also flagged (abs value) but the canonical ODS risk is the rapid rise.
+      window: PT24H
+    inputs:
+      - {name: sodio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 2951-2)", staleness_max: PT6H}
+      - {name: delta_na_24h, type: quantity, unit: "mmol/L",
+         source: "derived (sodio_atual - sodio_nadir_24h; signed correction over 24h)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Sterns RH. Disorders of plasma sodium — overcorrection & osmotic demyelination. J Am Soc Nephrol 2015;26(9):2110-2115 (correction ceiling 8-10 mmol/L/24h) — vision §3.6 VIS-3.6-06; CON-0061 / CAT-C-01",
+         rule_refs: [RULE-EQUILIBRIO-002]}
+    suppression:
+      dedup_key: "patient_id+alert_id+band"
+      cooldown: PT6H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.80
+      est_volume_per_100_beds_day: 1
+      rationale: >
+        A low-volume (~1/100-beds/day), high-value safety net: the harm it prevents (central pontine
+        myelinolysis / osmotic demyelination syndrome) is catastrophic and iatrogenic, so a slightly lower PPV
+        than the absolute-value alerts is deliberately accepted — the cost of a missed overcorrection dwarfs the
+        cost of an occasional false alarm. It is exactly the alert whose ABSENCE is dangerous, so it is preserved
+        as its own alert rather than folded into ALERT-ELY-SODIUM-01.
+    response:
+      required: >
+        interromper/reduzir a reposição de sódio imediatamente; considerar re-abaixamento controlado do sódio
+        (água livre / DDAVP) se sobrecorreção confirmada; consultar nefrologia. Correção alvo <= 8-10 mmol/L/24h.
+      ack_sla: PT5M
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {sodio: 130, delta_na_24h: 12}, expected: fire,
+         note: "Na+ rose 118->130 (+12) in 24h > 10 -> critical overcorrection (ODS risk)"}
+      - {id: TV-2, kind: fire, inputs: {sodio: 128, delta_na_24h: 9}, expected: fire,
+         note: "+9 mmol/L/24h > 8 -> urgent (approaching ceiling)"}
+      - {id: TV-3, kind: boundary, inputs: {sodio: 130, delta_na_24h: 10}, expected: fire,
+         note: "exactly +10 is NOT > 10 (critical) but IS > 8 -> urgent; guards the 10/8 band edge"}
+      - {id: TV-4, kind: boundary, inputs: {sodio: 126, delta_na_24h: 8}, expected: no-fire,
+         note: "exactly +8 is NOT > 8 -> no-fire; guards the 8 mmol/L/24h floor"}
+      - {id: TV-5, kind: no-fire, inputs: {sodio: 124, delta_na_24h: 4}, expected: no-fire,
+         note: "controlled +4 mmol/L/24h correction -> no-fire"}
+    reconciliation:
+      - {existing_id: ELY-003, status: extended,
+         note: "vs alert-catalog.md: extends ELY-003c ('correção rápida demais — ALERTA DE SEGURANÇA', delta_na_24h>10) into a dedicated bidirectional rate alert with an added urgent band at >8 mmol/L/24h per vision VIS-3.6-06; enforces CON-0061 / CAT-C-01."}
+
+  - alert_id: ALERT-ELY-CALCIUM-01
+    name: "Distúrbio grave do cálcio iônico — hipocalcemia/hipercalcemia"
+    severity: critical          # scaling: iCa <0.80 or >1.60 -> critical; urgent at 0.90/1.45
+    trigger:
+      logic: >
+        Severe calcium disturbance. IONIZED calcium (calcio_ionizado) is the primary measure; corrected TOTAL
+        calcium is the fallback only when ionized is unavailable.
+        calcio_total_corrigido = calcio_total + 0.8*(4.0 - albumina), albumina in g/dL.
+        HYPO critical: calcio_ionizado < 0.80 mmol/L OR (calcio_ionizado unavailable AND calcio_total_corrigido < 7.0 mg/dL);
+        HYPO urgent: calcio_ionizado < 0.90 mmol/L (and >= 0.80);
+        HYPER critical: calcio_ionizado > 1.60 mmol/L OR (unavailable AND calcio_total_corrigido > 14.0 mg/dL);
+        HYPER urgent: calcio_ionizado > 1.45 mmol/L (and <= 1.60).
+        QTc context: hypocalcemia prolongs QTc — emit qtc_risk_electrolyte to pharmaco when qtc > 500 ms.
+      window: PT24H             # latest result; QTc lookback 24h
+    inputs:
+      - {name: calcio_ionizado, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 1994-3)", staleness_max: PT12H}
+      - {name: calcio_total, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 17861-6); fallback when ionized unavailable", staleness_max: PT12H}
+      - {name: albumina, type: quantity, unit: "g/dL",
+         source: "AMH Gold lab_result (LOINC 1751-7); for corrected-total-Ca fallback", staleness_max: PT24H}
+      - {name: qtc, type: quantity, unit: "ms",
+         source: "AMH Gold Observation ECG QTc (LOINC 44974-4)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Mousseaux C et al. Hypercalcaemia in the ICU. Nephrol Dial Transplant 2022 (ionized Ca crit >1.60, urgent >1.45 mmol/L) — vision §3.6 VIS-3.6-07",
+         rule_refs: []}
+      - {citation: "Cooper MS et al. Diagnosis and management of hypocalcaemia in the critically ill. Intensive Care Med 2022 (ionized Ca crit <0.80, urgent <0.90 mmol/L) — vision §3.6 VIS-3.6-08",
+         rule_refs: []}
+    suppression:
+      dedup_key: "patient_id+alert_id+direction+band"
+      cooldown: PT8H
+      rate_limit: "3/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.82
+      est_volume_per_100_beds_day: 2
+      rationale: >
+        Ionized calcium is an objective, frequently-measured ICU value; ~2 severe events/100-beds/day (citrate
+        anticoagulation/CRRT, sepsis, massive transfusion, malignancy). PPV slightly below the K/Na alerts because
+        the corrected-TOTAL fallback (albumin-dependent) is less reliable than a direct ionized measurement and
+        pH/tourniquet artifacts shift ionized Ca; the alert prefers ionized whenever present. Still well above the
+        >=0.60 fleet floor.
+    response:
+      required: >
+        avaliação médica. Hipocalcemia crítica: gluconato de cálcio IV (estabilização) e corrigir magnésio
+        (hipomagnesemia causa hipocalcemia refratária). Hipercalcemia crítica: hidratação salina, considerar
+        calcitonina/bisfosfonato, investigar causa (malignidade/hiperparatireoidismo).
+      ack_sla: PT5M
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {calcio_ionizado: 0.72}, expected: fire, note: "iCa 0.72 < 0.80 -> critical hypocalcemia"}
+      - {id: TV-2, kind: fire, inputs: {calcio_ionizado: 1.70}, expected: fire, note: "iCa 1.70 > 1.60 -> critical hypercalcemia"}
+      - {id: TV-3, kind: boundary, inputs: {calcio_ionizado: 0.80}, expected: fire,
+         note: "iCa exactly 0.80 is NOT < 0.80 (critical) but IS < 0.90 -> urgent; guards 0.80/0.90 edge"}
+      - {id: TV-4, kind: boundary, inputs: {calcio_ionizado: 0.90}, expected: no-fire,
+         note: "iCa exactly 0.90 is NOT < 0.90 -> no-fire; guards the 0.90 urgent floor"}
+      - {id: TV-5, kind: fire, inputs: {calcio_ionizado: null, calcio_total: 6.0, albumina: 4.0}, expected: fire,
+         note: "ionized unavailable; corrected total = 6.0 + 0.8*(4.0-4.0) = 6.0 < 7.0 -> critical (fallback path)"}
+      - {id: TV-6, kind: no-fire, inputs: {calcio_ionizado: 1.20}, expected: no-fire, note: "normal ionized calcium -> no-fire"}
+      - {id: TV-7, kind: fire, inputs: {calcio_ionizado: 0.85, qtc: 510}, expected: fire,
+         note: "iCa 0.85 < 0.90 -> urgent; QTc 510>500 -> emits qtc_risk_electrolyte to pharmaco"}
+    reconciliation:
+      - {existing_id: ELY-005, status: changed,
+         note: "vs alert-catalog.md: ELY-005 'Distúrbio grave do cálcio' (hypo/hyper bands a/b/c) folded into one bidirectional scaling alert; ionized-primary / corrected-total-fallback logic preserved verbatim; adds explicit QTc emission to pharmaco for hypocalcemia."}
+
+  - alert_id: ALERT-ELY-MAGNESIUM-01
+    name: "Hipomagnesemia grave"
+    severity: critical          # per vision VIS-3.6-09 (see reconciliation: conflict vs legacy ELY-006 URG)
+    trigger:
+      logic: >
+        Hypomagnesemia; output severity by band.
+        critical if magnesio < 0.5 mmol/L (1.2 mg/dL);
+        urgent if magnesio < 0.7 mmol/L (1.7 mg/dL) (and >= 0.5);
+        watch if magnesio < 0.9 mmol/L AND (potassio < 3.5 mmol/L OR qtc > 500 ms)
+        [hypomagnesemia exacerbates hypokalemia and prolongs QTc].
+      window: PT24H
+    inputs:
+      - {name: magnesio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 19123-9)", staleness_max: PT24H}
+      - {name: potassio, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 6298-4)", staleness_max: PT24H}
+      - {name: qtc, type: quantity, unit: "ms",
+         source: "AMH Gold Observation ECG QTc (LOINC 44974-4)", staleness_max: PT24H}
+    evidence:
+      - {citation: "Hansen BA, Bruserud Ø. Hypomagnesemia in critically ill patients. Intensive Care Med Exp 2018;6:21 (crit <0.5, urgent <0.7 mmol/L) — vision §3.6 VIS-3.6-09",
+         rule_refs: []}
+    suppression:
+      dedup_key: "patient_id+alert_id+band"
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.75
+      est_volume_per_100_beds_day: 1
+      rationale: >
+        Hypomagnesemia is common in the ICU (diuretics, PPIs, diarrhea, alcohol), so the watch band is gated by a
+        cofactor (K<3.5 or QTc>500) to stay actionable rather than firing on every mildly low magnesium. The
+        critical/urgent bands are objective. ~1 firing/100-beds/day. PPV is set at 0.75 — lower than the K/Na
+        alerts because a mildly low magnesium alone is often clinically minor; the cofactor gate keeps the watch
+        band above the >=0.60 fleet floor. Its main value is feeding the pharmaco QTc/Torsades correlation.
+    response:
+      required: >
+        reposição de magnésio (sulfato de magnésio IV); corrigir hipocalemia/hipocalcemia refratárias em conjunto
+        (magnésio baixo perpetua ambas); monitorar QTc se em uso de drogas QT-prolongadoras.
+      ack_sla: PT30M            # PT5M when band == critical (Mg < 0.5)
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {magnesio: 0.42}, expected: fire, note: "Mg 0.42 < 0.5 -> critical"}
+      - {id: TV-2, kind: fire, inputs: {magnesio: 0.62}, expected: fire, note: "Mg 0.62 < 0.7 -> urgent"}
+      - {id: TV-3, kind: boundary, inputs: {magnesio: 0.5}, expected: fire,
+         note: "Mg exactly 0.5 is NOT < 0.5 (critical) but IS < 0.7 -> urgent; guards 0.5/0.7 edge"}
+      - {id: TV-4, kind: boundary, inputs: {magnesio: 0.9, potassio: 3.0}, expected: no-fire,
+         note: "Mg exactly 0.9 is NOT < 0.9 -> watch does not open even with hypokalemia; guards the 0.9 ceiling"}
+      - {id: TV-5, kind: fire, inputs: {magnesio: 0.8, potassio: 3.2}, expected: fire,
+         note: "Mg 0.8 < 0.9 AND K 3.2 < 3.5 -> watch; emits qtc_risk_electrolyte / hypoK-perpetuation to pharmaco+potassium"}
+      - {id: TV-6, kind: no-fire, inputs: {magnesio: 1.0}, expected: no-fire, note: "normal magnesium -> no-fire"}
+    reconciliation:
+      - {existing_id: ELY-006, status: changed,
+         note: "vs alert-catalog.md: ELY-006 'Hipomagnesemia' folded and SEVERITY RAISED — legacy labeled <0.5 URG / <0.7 WARN, but vision VIS-3.6-09 labels <0.5 CRITICAL / <0.7 URGENT. CONFLICT RECORDED (CONTRACTS rule 5): vision > legacy-catalog precedence resolves to vision; documented in electrolyte.md §6. Watch cofactor band (K<3.5 or QTc>500) preserved."}
+
+  - alert_id: ALERT-ELY-PHOSPHATE-01
+    name: "Distúrbio grave do fosfato — hipofosfatemia/hiperfosfatemia"
+    severity: critical          # scaling: PO4 <1.0 -> critical; thresholds pending RAT-ELY-01
+    trigger:
+      logic: >
+        Phosphate disturbance. THRESHOLDS PENDING RATIFICATION (pending RAT-ELY-01): vision §3.6 names PO4 as
+        required data (VIS-3.6-10) but gives NO numeric alert band, and the units registry flags fosfato canonical
+        mg/dL as an open committee item — so these bands are DESIGNED TO THE RECOMMENDED DEFAULT and must be
+        ratified before go-live.
+        HYPO critical: fosfato < 1.0 mg/dL (severe: respiratory-muscle weakness, failure to wean, rhabdomyolysis);
+        HYPO urgent: fosfato < 1.5 mg/dL (and >= 1.0);
+        HYPER watch: fosfato > 7.0 mg/dL (marker of AKI / tumor-lysis; routes to AKI + oncologic-emergency review,
+        not itself a bedside emergency).
+      window: PT24H
+    inputs:
+      - {name: fosfato, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2777-1)", staleness_max: PT24H}
+      - {name: calcio_ionizado, type: quantity, unit: "mmol/L",
+         source: "AMH Gold lab_result (LOINC 1994-3); Ca x PO4 product context for hyperphosphatemia", staleness_max: PT24H}
+      - {name: creatinina, type: quantity, unit: "mg/dL",
+         source: "AMH Gold lab_result (LOINC 2160-0); AKI/tumor-lysis context", staleness_max: PT24H}
+    evidence:
+      - {citation: "Geerse DA et al. Treatment of hypophosphatemia in the intensive care unit: a review. Crit Care 2010;14:R147 (severe <0.32 mmol/L ~ <1.0 mg/dL; weaning failure/rhabdo) — designed default pending RAT-ELY-01",
+         rule_refs: []}
+      - {citation: "IntensiCare units registry fosfato canonical mg/dL (Brazilian-lab-convention); vision §3.6 VIS-3.6-10 lists PO4 as required data with no numeric band",
+         rule_refs: []}
+    suppression:
+      dedup_key: "patient_id+alert_id+direction+band"
+      cooldown: PT12H
+      rate_limit: "2/24h/patient"
+      maintenance_window_aware: true
+    ppv_budget:
+      target_ppv: 0.65
+      est_volume_per_100_beds_day: 1
+      rationale: >
+        Lowest-PPV alert in the domain (0.65, just above the 0.60 fleet floor) precisely because its thresholds are
+        unratified (RAT-ELY-01) and the hyperphosphatemia band is a MARKER (AKI/tumor-lysis) rather than a bedside
+        emergency — hence capped at watch to limit fatigue. Volume ~1/100-beds/day. If post-go-live ignored-rate on
+        this alert approaches 10%, the hyperphosphatemia band is the first candidate to drop; ratification should
+        confirm or tighten the <1.0 mg/dL critical cut.
+    response:
+      required: >
+        Hipofosfatemia grave: repor fosfato (IV/enteral), sobretudo em paciente em desmame ventilatório ou com
+        fraqueza muscular. Hiperfosfatemia: investigar lise tumoral / LRA, considerar quelante de fósforo se
+        indicado; correlacionar com o domínio AKI.
+      ack_sla: PT30M            # PT5M when band == critical (PO4 < 1.0 mg/dL)
+    test_vectors:
+      - {id: TV-1, kind: fire, inputs: {fosfato: 0.6}, expected: fire, note: "PO4 0.6 < 1.0 -> critical hypophosphatemia"}
+      - {id: TV-2, kind: fire, inputs: {fosfato: 1.3}, expected: fire, note: "PO4 1.3 < 1.5 -> urgent"}
+      - {id: TV-3, kind: boundary, inputs: {fosfato: 1.0}, expected: fire,
+         note: "PO4 exactly 1.0 is NOT < 1.0 (critical) but IS < 1.5 -> urgent; guards 1.0/1.5 edge"}
+      - {id: TV-4, kind: boundary, inputs: {fosfato: 1.5}, expected: no-fire,
+         note: "PO4 exactly 1.5 is NOT < 1.5 -> no-fire; guards the 1.5 urgent floor"}
+      - {id: TV-5, kind: fire, inputs: {fosfato: 8.5, creatinina: 3.0}, expected: fire,
+         note: "PO4 8.5 > 7.0 -> watch hyperphosphatemia (tumor-lysis/AKI marker)"}
+      - {id: TV-6, kind: no-fire, inputs: {fosfato: 3.0}, expected: no-fire, note: "normal phosphate -> no-fire"}
+    reconciliation:
+      - {existing_id: null, status: new,
+         note: "No ELY-* catalog alert exists for phosphate; vision §3.6 VIS-3.6-10 lists PO4 as required data only. New alert; thresholds designed to recommended default pending RAT-ELY-01 (canonical unit + numeric bands to be ratified by the clinical committee)."}
