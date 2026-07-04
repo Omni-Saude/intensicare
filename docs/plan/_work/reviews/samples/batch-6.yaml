@@ -1,0 +1,606 @@
+batch: 6
+clusters:
+- cadastros-ui
+- estabilidade
+- operacional-infra
+- sinais-vitais
+n_items: 13
+items:
+- rule_id: RULE-CADASTROS-UI-004
+  cluster: cadastros-ui
+  catalog_rule:
+    id: RULE-CADASTROS-UI-004
+    name: Camera credential fields gated on can_manage_camera permission
+    category: data-validation
+    type: eligibility
+    status: OK
+    description: 'Camera-related fields - login/senha de câmera on the Estabelecimento form, IP da câmera on the
+      Leito form - are only rendered for users holding the can_manage_camera permission.
+
+      '
+    logic: "if can_manage_camera:\n  render \"Login de acesso\" (login_camera) and \"Senha de acesso\" (senha_camera)\
+      \  // Estabelecimento\n  render \"IP da câmera do leito\" (ip_camera)                                    \
+      \ // Leito\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-CADASTROS-UI-004
+    cluster: cadastros-ui
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: are only rendered for users holding the can_manage_camera permission
+    disposition: ADAPT
+    justification: Gating sensitive camera credential fields (login/senha/IP) behind a dedicated can_manage_camera
+      permission is a deny-by-default authorization pattern worth keeping, but must be re-implemented with server-side
+      enforcement rather than client-side field visibility alone in v2.
+    evidence:
+    - RULE-CADASTROS-UI-004
+    - RULE-CADASTROS-UI-002
+    target: architecture/security-lgpd.md#permission-gated-field-visibility
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-CADASTROS-UI-009
+  cluster: cadastros-ui
+  catalog_rule:
+    id: RULE-CADASTROS-UI-009
+    name: CPF input mask and unformatting
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'Wherever a CPF (Brazilian taxpayer ID) is captured - the user filter and the user registration
+      form - input is masked as 000.000.000-00 for display/entry, then the mask punctuation is stripped (unformat)
+      before the value is sent to the filter/submit handler.
+
+      '
+    logic: 'MaskedInput(mask="000.000.000-00")
+
+      on submit/filter: cpf = values.cpf ? unformat(values.cpf) : values.cpf
+
+      '
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-CADASTROS-UI-009
+    cluster: cadastros-ui
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: input is masked as 000.000.000-00 for display/entry, then the mask punctuation is stripped
+    disposition: ADOPT
+    justification: The CPF mask (000.000.000-00) and unformat-before-submit pattern is a verified, Receita-Federal-conformant
+      Brazilian identifier convention used consistently across the user filter and registration forms, so it is
+      carried forward unchanged into the v2 clinical forms vocabulary.
+    evidence:
+    - RULE-CADASTROS-UI-009
+    target: design/screens/clinical-forms.md#cpf-mask
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-CADASTROS-UI-018
+  cluster: cadastros-ui
+  catalog_rule:
+    id: RULE-CADASTROS-UI-018
+    name: Date-field detection convention (data_ / dt_ key prefixes)
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: 'Convention used to auto-detect which object fields are dates for serialization/parsing: any key
+      whose name CONTAINS "data_" or "dt_" is treated as a date. Two variants convert such fields either to moment
+      objects (inbound) or to formatted date strings (outbound).
+
+      '
+    logic: "isDateKey(key) = keys.some(k => key.includes(k))\n# moment variant (dateTreatmentMoment):\nif obj is\
+      \ not Array:\n  for [key,value] in entries(obj) WHERE value is truthy:   # falsy values dropped\n    if isDateKey(key):\
+      \ out[key] = moment(value)\n    elif typeof value == \"object\": out[key] = recurse(value)\n    else: out[key]\
+      \ = value\n  return out\nelse return obj\n# string variant (dateTreatmentString):\nif obj is not Array:\n\
+      \  for [key,value] in entries(obj):                          # no pre-filter\n    if isDateKey(key): out[key]\
+      \ = value && moment(value).format(format)\n    elif value && typeof value==\"object\": out[key]=recurse(value)\n\
+      \    else: out[key]=value\n  return keys(out).length>0 ? out : null                    # empty -> null\nelse\
+      \ return obj\n"
+    edge_cases: 'Arrays are returned unchanged (not traversed element-wise). Moment variant drops all falsy-valued
+      keys via .filter; string variant keeps them but guards format with `value &&`. String variant returns null
+      when the resulting object is empty; moment variant returns {}. Recursion call omits the custom keys/format
+      args, so nested objects always use the defaults.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-CADASTROS-UI-018
+    cluster: cadastros-ui
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: any key whose name CONTAINS "data_" or "dt_" is treated as a date
+    disposition: ADAPT
+    justification: Auto-detecting date fields for serialization is a reasonable convenience, but keying detection
+      on a substring match of object keys (with divergent falsy-filtering behavior between the inbound moment and
+      outbound string variants) is an unreliable mechanism that v2 should replace with explicit schema-declared
+      date fields.
+    evidence:
+    - RULE-CADASTROS-UI-018
+    target: design/screens/clinical-forms.md#date-field-detection
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-ESTABILIDADE-014
+  cluster: estabilidade
+  catalog_rule:
+    id: RULE-ESTABILIDADE-014
+    name: Estabilidade v3 alert level (calcular_alerta == calcular_alerta_v2)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: 'v3 stability alert: VERMELHO if criterio_7 or criterio_10 set; else AMARELO if criterio_12 or
+      criterio_13 set; else NEUTRO. calcular_alerta and calcular_alerta_v2 are byte-identical; save() uses calcular_alerta_v2.
+
+      '
+    logic: 'amarelo = [criterio_12, criterio_13].count(True)
+
+      vermelho = [criterio_7, criterio_10].count(True)
+
+      if vermelho >= 1: return "VERMELHO"
+
+      elif amarelo >= 1: return "AMARELO"
+
+      else: return "NEUTRO"
+
+      '
+    edge_cases: 'Only criteria 7, 10, 12, 13 are computed by calcular_criterios (1-6, 8, 9, 11 stay null and never
+      influence the alert). If alerta == "NEUTRO", save() also resets assistido=False.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ESTABILIDADE-014
+    cluster: estabilidade
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: VERMELHO if criterio_7 or criterio_10 set
+    disposition: ADOPT
+    justification: The three-tier VERMELHO/AMARELO/NEUTRO aggregation shell (byte-identical calcular_alerta/calcular_alerta_v2)
+      is a sound, code-verified pattern eligible for plain ADOPT (status OK, verdict NOT_APPLICABLE); it becomes
+      the canonical v2 shock alert-tiering mechanism once its four feeder criteria (007, 010 RATIFY; 012, 013 ADAPT)
+      are individually resolved.
+    evidence:
+    - RULE-ESTABILIDADE-014
+    target: clinical/domains/hemodynamics.md#shock-alert-tiering
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-ESTABILIDADE-016
+  cluster: estabilidade
+  catalog_rule:
+    id: RULE-ESTABILIDADE-016
+    name: Estabilidade facade alert-text - vasopressor/inotrope escalation ladder (criteria 7-9)
+    category: drug-dosing
+    type: decision-tree
+    status: DISCREPANCY
+    description: 'Recommendation / alert-text catalog for the septic-shock vasopressor and inotrope escalation steps
+      (criteria 7-9), rendered by the v3 model''s get_detalhe. Contains the institutional dosing regimens surfaced
+      when noradrenaline dose crosses fixed cutoffs or dobutamine causes tachycardia.
+
+      '
+    logic: "criterio_7 noradrenalina > 0.5 mcg/kg/min -> Hidrocortisona 50 mg EV 6/6h (or switch current\n  corticoid\
+      \ to hydrocortisone) + Vasopressina EV continua 6 ml/h (dose maxima; diluicao\n  institucional: Vasopressina\
+      \ 2 amp em SG5% 98 ml).\ncriterio_8 noradrenalina > 1.5 mcg/kg/min -> associar Adrenalina (1 mg/mL, 1 amp\
+      \ 10 mL em\n  SG5% 90 mL = 0.1 mg/mL; iniciar 10 ml/h, progredir ate 100 ml/h).\ncriterio_9 choque refratario\
+      \ + altas doses de dobutamina: se FC > 130 bpm considerar SUSPENDER\n  dobutamina (taquicardia reduz enchimento\
+      \ de VE e debito cardiaco) e associar Adrenalina\n  (mesma diluicao/titulacao acima).\n"
+    edge_cases: Noradrenaline cutoffs strictly >0.5 and >1.5 mcg/kg/min; tachycardia cutoff FC>130 bpm.
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021): add vasopressin usually when
+        norepinephrine 0.25-0.5 mcg/kg/min; IV hydrocortisone 200 mg/d when norepinephrine or epinephrine >= 0.25
+        mcg/kg/min for >= 4h; epinephrine as second-line vasopressor in refractory shock. Tachycardia (FC>130 bpm)
+        impairs LV filling/CO (physiology of inotrope-induced tachyarrhythmia).
+
+        '
+      detail_file: estabilidade-batch3.yaml
+    escalations:
+    - item_id: ESC-P0-006
+      band: P0
+      title: Estabilidade facade alert-text - vasopressor/inotrope escalation ladder (criteria 7-9)
+      excerpt: 'Cross-implementation (facade text vs v3 predicate code): (a) UNITS — facade dosing is in noradrenaline
+        mcg/kg/min (>0.5, >1.5) whereas the paired v3 predicates trigger on qt_vol_nora infusion volume in ml/h
+        (RULE-007 >20 ml/h; RULE-008 >70 ml/h + vaso>5 ml/h), which are not convertible without concentration/weight;
+        (b) criterio_9 text centres on FC > 130 bpm tachycardia, but v3 criterio_9 (RULE-00'
+  disposition_record:
+    rule_id: RULE-ESTABILIDADE-016
+    cluster: estabilidade
+    category: drug-dosing
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: septic-shock vasopressor and inotrope escalation steps
+    disposition: RATIFY
+    justification: The vasopressor/inotrope escalation-ladder text displays mcg/kg/min cutoffs (>0.5, >1.5) and
+      an FC>130bpm dobutamine-stop rule that no paired v3 ml/h predicate (007/008/009) actually verifies, per CON-0060
+      non-interconvertible without concentration/weight; this is the cluster's single P0 escalation and clinical_impact
+      high, mandating ratification before any vasopressor-dosing content is designed.
+    evidence:
+    - RULE-ESTABILIDADE-016
+    - RULE-ESTABILIDADE-007
+    - RULE-ESTABILIDADE-008
+    - RULE-ESTABILIDADE-009
+    - ESC-P0-006
+    - CON-0060
+    target: RATIFICATION.md#rat-estabilidade-08
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-006
+      band: P0
+    ratify_ref: RAT-ESTABILIDADE-08
+- rule_id: RULE-ESTABILIDADE-018
+  cluster: estabilidade
+  catalog_rule:
+    id: RULE-ESTABILIDADE-018
+    name: Estabilidade manual C2 - noradrenaline started in last 24h
+    category: care-pathway
+    type: threshold
+    status: OK
+    description: 'True if any Noradrenalina in the patient''s lookback chain has horario_inicio within the last
+      24h.
+
+      '
+    logic: "horario = now - 24h\nNoradrenalina.objects.filter(pk__in=dados_prontuario.buscar_ultimos_dados,\n  \
+      \                           horario_inicio__gt=horario).exists()\n"
+    edge_cases: 'Strict > (started exactly 24h ago excluded). Searches across chained prontuarios (same pk space
+      as dados_prontuario).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ESTABILIDADE-018
+    cluster: estabilidade
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: horario_inicio within the last 24h
+    disposition: ADOPT
+    justification: The noradrenaline-started-in-last-24h temporal lookback is a purely structural chained-prontuario
+      query with no numeric clinical anchor (verify:false, verdict NOT_APPLICABLE, no escalation), so it is eligible
+      for plain ADOPT as the vasopressor-initiation-window check feeding the manual hemodynamics pathway.
+    evidence:
+    - RULE-ESTABILIDADE-018
+    target: clinical/domains/hemodynamics.md#vasopressor-initiation-window
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-OPERACIONAL-INFRA-023
+  cluster: operacional-infra
+  catalog_rule:
+    id: RULE-OPERACIONAL-INFRA-023
+    name: Prescription/balance offline endpoints only include currently-occupied homecare beds
+    category: data-validation
+    type: threshold
+    status: OK
+    description: Both PrescricoesOfflineView.get and BalancoHidricoOfflineView.get restrict the candidate leitos
+      to ocupado=True AND tipo='homecare' (in addition to the user-link filter), before building their respective
+      offline payloads.
+    logic: "leitos = Leito.objects.filter(\n    paciente__usuarios_setores_pacientes__usuario=request.user, ocupado=True,\
+      \ tipo=\"homecare\")"
+    edge_cases: Unlike DadosOfflineView (RULE-offline-BE-05-005), this filter does NOT require setor/estabelecimento/empresa
+      user-membership - only the patient-link (usuarios_setores_pacientes) and the ocupado+tipo constraints.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-OPERACIONAL-INFRA-023
+    cluster: operacional-infra
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: ocupado=True AND tipo='homecare'
+    disposition: RETIRE
+    justification: Restricting prescription/balance offline endpoints to occupied beds with tipo='homecare', without
+      the setor/estabelecimento/empresa membership chain that DadosOfflineView enforces, is an inconsistent legacy
+      homecare-offline-sync shortcut; v2 has no homecare-specific offline-cache tier to inherit this filter into.
+    evidence:
+    - RULE-OPERACIONAL-INFRA-023
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-OPERACIONAL-INFRA-046
+  cluster: operacional-infra
+  catalog_rule:
+    id: RULE-OPERACIONAL-INFRA-046
+    name: Celery queue naming convention — environment-namespaced routing keys
+    category: scheduling-operational
+    type: workflow
+    status: OK
+    description: 'Every Celery queue/routing-key in the project is namespaced by the ENVIRONMENT variable (e.g.
+      ''prod.trilhas.amhdocs'', ''demo.trilhas.etl''), so the same RabbitMQ broker can host isolated queues per
+      deployment environment (demo/homol/prod) without collision. 12 queues are declared: atualizar_trilhas, log,
+      mensagens, etl, executar_trilhas, estabelecimento_setor_leito, etl_dados_brutos, prescricoes, prescricao_continua,
+      notificacoes, callprocedure, amhdocs.'
+    logic: "FOR queue_name IN [atualizar_trilhas, log, mensagens, etl, executar_trilhas,\n                   estabelecimento_setor_leito,\
+      \ etl_dados_brutos, prescricoes,\n                   prescricao_continua, notificacoes, callprocedure, amhdocs]:\n\
+      \  Queue(\n    name = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n    routing_key = f\"\
+      {os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n  )\ntask_default_exchange = \"trilhas\"; task_default_exchange_type\
+      \ = \"direct\"; task_default_queue = \"default\""
+    edge_cases: If ENVIRONMENT is unset, queue names begin with a leading '.' (e.g. '.trilhas.log') since the empty-string
+      default is still concatenated with the '.' separator.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-OPERACIONAL-INFRA-046
+    cluster: operacional-infra
+    category: scheduling-operational
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: namespaced by the ENVIRONMENT variable (e.g. 'prod.trilhas.amhdocs', 'demo.trilhas.etl')
+    disposition: SUPERSEDE
+    justification: The lesson of isolating queues per deployment environment on a shared broker is sound, but Celery/RabbitMQ
+      queue routing-key namespacing is superseded by the AMH Data Platform's own MSK topic/queue conventions and
+      the new v2 messaging mechanism per ADR-001, which does not use Celery/RabbitMQ.
+    evidence:
+    - RULE-OPERACIONAL-INFRA-046
+    - ADR001-F-10
+    target: 'SUPERSEDE: AMH Data Platform MSK-based messaging conventions'
+    supersedes_note:
+      replaced_by: AMH Data Platform MSK topics and Silver/Gold pipeline routing per ADR-001
+      lost: Celery/RabbitMQ per-environment queue naming convention and the specific 12-queue enumeration
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-OPERACIONAL-INFRA-054
+  cluster: operacional-infra
+  catalog_rule:
+    id: RULE-OPERACIONAL-INFRA-054
+    name: UniqueManagerMixin.save — single-field uniqueness excluding soft-deleted rows
+    category: data-validation
+    type: validation
+    status: OK
+    description: Before saving, for each field name in a model's `Unique.value`, checks independently (not combined)
+      whether another non-deleted row has the same value for that field (excluding self by pk); raises ValidationError
+      if so, unless an `except_has` bypass condition matches.
+    logic: "FOR param IN self.Unique.value:\n  value = getattr(self, param, None)\n  IF value:\n    qs = Klass.objects.filter(~Q(pk=self.get_pk),\
+      \ Q(deletado_em__isnull=True), Q(**{param: value}))\n    FOR except_param IN except_has:\n      (key, value)\
+      \ = except_param if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value\
+      \ given): qs = Klass.objects.none(); BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"\
+      O campo <param> deve ser único\")"
+    edge_cases: A falsy field value (None/empty) is simply never checked for uniqueness (silently skipped), unlike
+      UniqueTogetherManagerMixin where a falsy field skips the WHOLE combo — here each field is independent so only
+      that one field's check is skipped.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-OPERACIONAL-INFRA-054
+    cluster: operacional-infra
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: checks independently (not combined) whether another non-deleted row has the same value
+    disposition: RETIRE
+    justification: UniqueManagerMixin.save is the single-field counterpart to RULE-OPERACIONAL-INFRA-053, another
+      legacy Django model-mixin implementation detail of the ahlabs-trilhas ORM layer; it is retired alongside the
+      rest of the custom uniqueness-mixin machinery in favor of native PostgreSQL/TimescaleDB constraints in v2.
+    evidence:
+    - RULE-OPERACIONAL-INFRA-054
+    - RULE-OPERACIONAL-INFRA-053
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-OPERACIONAL-INFRA-059
+  cluster: operacional-infra
+  catalog_rule:
+    id: RULE-OPERACIONAL-INFRA-059
+    name: Per-company auto-refresh interval field
+    category: scheduling-operational
+    type: threshold
+    status: AMBIGUOUS
+    description: Each company (Usuario.Empresa) carries a numeric "tempo_atualizacao" (update time/interval) field,
+      presumably configuring how often the UI should auto-refresh/poll for that company's data, but its unit (seconds
+      vs milliseconds) and the code that actually applies it are not present in this partition.
+    logic: 'Usuario.Empresa.tempo_atualizacao: number   // consumed by an auto-reload mechanism out of this partition''s
+      scope
+
+      '
+    edge_cases: Not applied anywhere within this partition's files (AutoReloadContext in this partition only exposes
+      a generic update/setUpdate boolean toggle with no interval/timer logic of its own).
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-342
+      band: AMBIGUOUS
+      title: scheduling-operational
+      excerpt: Per-company auto-refresh interval field
+  disposition_record:
+    rule_id: RULE-OPERACIONAL-INFRA-059
+    cluster: operacional-infra
+    category: scheduling-operational
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: its unit (seconds vs milliseconds) and the code that actually applies it are not present
+    disposition: RATIFY
+    justification: 'AMBIGUOUS band on the per-company tempo_atualizacao auto-refresh interval field: neither its
+      unit (seconds vs milliseconds) nor its consuming logic is recoverable from this partition, so whether v2''s
+      UI polling/auto-refresh design should preserve a per-tenant configurable interval at all needs ratification
+      rather than a guessed default.'
+    evidence:
+    - RULE-OPERACIONAL-INFRA-059
+    - ESC-AMBIGUOUS-342
+    target: RATIFICATION.md#rat-operacional-infra-07
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-342
+      band: AMBIGUOUS
+    ratify_ref: RAT-OPERACIONAL-INFRA-07
+- rule_id: RULE-SINAIS-VITAIS-003
+  cluster: sinais-vitais
+  catalog_rule:
+    id: RULE-SINAIS-VITAIS-003
+    name: Urine-output and temperature plausible ranges (movimentacao form)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: 'Frontend min/max bounds for 24h urine output and body temperature on the movimentacao form. Numeric
+      bounds match the backend validators exactly.
+
+      '
+    logic: 'debito_urinario_24h: 0-10000
+
+      temperatura: min 20, max 43
+
+      '
+    edge_cases: 'Temperature floor 20C admits severe hypothermia; ceiling 43C. FE temperature min of 20 has no zero-exemption,
+      whereas backend TemperaturaValidator exempts 0 as a "not measured" sentinel (FE expresses "not measured" via
+      blank).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SINAIS-VITAIS-003
+    cluster: sinais-vitais
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Frontend min/max bounds for 24h urine output and body temperature
+    disposition: RETIRE
+    justification: Urine-output and temperature bounds on this legacy movimentacao form duplicate backend validators
+      RULE-SINAIS-VITAIS-021/023 exactly with no additional clinical content; the antd form itself is a Tasy-era
+      UI mechanic that does not survive the ADR-001 platform change, so it is retired rather than carried forward.
+    evidence:
+    - RULE-SINAIS-VITAIS-003
+    - RULE-SINAIS-VITAIS-021
+    - RULE-SINAIS-VITAIS-023
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SINAIS-VITAIS-009
+  cluster: sinais-vitais
+  catalog_rule:
+    id: RULE-SINAIS-VITAIS-009
+    name: PorcentagemValidator — generic percentage range
+    category: data-validation
+    type: validation
+    status: OK
+    description: Generic percentage field validator; value must be between 0 and 100 inclusive.
+    logic: 'IF NOT (0 <= valor <= 100): RAISE ValidationError(f"{valor} deve estar entre 0 e 100")
+
+      (TypeError on non-numeric input -> ValidationError "deve ser um numero")
+
+      '
+    edge_cases: No zero-value exemption; 0 and 100 are both valid boundary values.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SINAIS-VITAIS-009
+    cluster: sinais-vitais
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Generic percentage field validator; value must be between 0 and 100
+    disposition: ADOPT
+    justification: PorcentagemValidator is a generic 0-100 inclusive percentage-field bound with no zero exemption,
+      unattached to any single vital sign; it is a reusable form-validation building block for any percentage-typed
+      clinical field, unlike the sign-specific validators elsewhere in this cluster.
+    evidence:
+    - RULE-SINAIS-VITAIS-009
+    target: design/screens/clinical-forms.md#percentage-field-validation
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SINAIS-VITAIS-015
+  cluster: sinais-vitais
+  catalog_rule:
+    id: RULE-SINAIS-VITAIS-015
+    name: FRValidator — respiratory rate range, no zero exemption
+    category: data-validation
+    type: validation
+    status: OK
+    description: FR (respiratory rate) must be between 0 and 50 inclusive. Applied on dados_prontuario.fr.
+    logic: 'IF NOT (0 <= fr <= 50): RAISE ValidationError(f"{fr} deve estar entre 0 e 50")
+
+      '
+    edge_cases: No zero exemption (0 breaths/min = apnea is representable); 55 -> error. Test test_limites_parametros.py:50-52.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SINAIS-VITAIS-015
+    cluster: sinais-vitais
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: FR (respiratory rate) must be between 0 and 50 inclusive
+    disposition: ADOPT
+    justification: FRValidator's 0-50 inclusive range with no zero exemption (0 breaths/min represents apnea) is
+      confirmed by test_limites_parametros.py:50-52; the movimentacao form matches it while the physician form's
+      divergent unbounded FR is tracked separately under RULE-SINAIS-VITAIS-005, so this backend bound is the correct-form
+      target for the respiratory domain.
+    evidence:
+    - RULE-SINAIS-VITAIS-015
+    target: clinical/domains/respiratory.md#respiratory-rate-bounds
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

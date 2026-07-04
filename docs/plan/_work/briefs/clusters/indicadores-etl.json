@@ -1,0 +1,174 @@
+{
+  "brief_id": "cluster-indicadores-etl",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/indicadores-etl.yaml",
+    "lines": 1278,
+    "read_complete": true
+  },
+  "facts": [
+    {
+      "id": "CLU-INDICADORES-ETL-01",
+      "claim": "Indicadores cluster comprises 27 active rules spanning dashboard aggregation (sector KPI rollup, color-coded alerts), ETL pipelines (Tasy-to-Trilha incremental sync in two versions), micro-indicator mapping (invasive procedures, clinical scoring), and clinical time-series visualization (dual-axis charts, indicator display filters).",
+      "kind": "entity",
+      "source_ref": "indicadores-etl.yaml §rules[1-27]"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-02",
+      "claim": "Alert color decision hierarchy: ASSISTIDO (100% assisted yellow+red alerts) ⊃ VERMELHO (red, highest count) ⊃ AMARELO (amber, >red) ⊃ NEUTRO (green, fallback); each color has distinct percentage and display rules (RULE-INDICADORES-ETL-001, -002, -005, -006).",
+      "kind": "threshold",
+      "source_ref": "indicadores-etl.yaml §RULE-INDICADORES-ETL-005, -006, §lines 205-308"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-03",
+      "claim": "Dual data integration paths: etl_schema v1 (RULE-INDICADORES-ETL-015, 30-day watermark, hardcoded americashealth tenant) and novo_etl_schema v2 (RULE-INDICADORES-ETL-016, full scan every run, homecare fallback) represent unresolved divergence in criterio-modified flag logic and tenant scoping, with v2 containing dead code and potential assistido reset loss.",
+      "kind": "workflow",
+      "source_ref": "indicadores-etl.yaml §RULE-INDICADORES-ETL-015/016, §lines 645-738"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-04",
+      "claim": "Sedation (taxa_uso_sedacao) represented inconsistently across indicator charts: assistance view plots taxa*100 (%), infection-control view plots dias_sedacao (days), both labeled 'Tx. sedacao' despite different units and fields (RULE-INDICADORES-ETL-004, DISCREPANCY, moderate clinical impact per PADIS 2018 sedation minimization).",
+      "kind": "metric",
+      "source_ref": "indicadores-etl.yaml §RULE-INDICADORES-ETL-004, §lines 154-204"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-05",
+      "claim": "Frontend/backend Indicador tipo mismatch: backend enumerates 2 valid tipos (interacao_notificacao, entrada_videochamada) with type-specific DRF serializers; TypeScript Models.Indicador only declares 1 literal ('entrada_videochamada'), rendering interacao_notificacao payload untyped and unrepresentable in frontend (RULE-INDICADORES-ETL-027, DISCREPANCY).",
+      "kind": "policy",
+      "source_ref": "indicadores-etl.yaml §RULE-INDICADORES-ETL-027, §lines 1209-1268"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-06",
+      "claim": "Rule distribution: 20 OK + 5 DISCREPANCY + 1 AMBIGUOUS + 1 unverifiable by design (UI formulas). Verdict: 21 NOT_APPLICABLE (display logic), 3 UNVERIFIABLE (percentage math), 1 VERIFIED (TLP conversion), 2 DISCREPANCY (sedation units, tipo enum). Type distribution: 4 formula + 3 threshold + 3 decision-tree + 8 workflow + 6 validation + 3 other.",
+      "kind": "histogram",
+      "source_ref": "indicadores-etl.yaml §status/verdict fields across all rules"
+    }
+  ],
+  "load_bearing_rules": [
+    {"id": "RULE-INDICADORES-ETL-006", "what": "Alert-color decision tree (ASSISTIDO>VERMELHO>AMARELO>NEUTRO) gates dashboard card state", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-INDICADORES-ETL-001", "what": "Alert-share percentage formula (part/whole*100) for progress bar segments", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-INDICADORES-ETL-002", "what": "Assisted-share formula gates ASSISTIDO override; edge case: 0 if zero yellow+red alerts", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-INDICADORES-ETL-012", "what": "Micro-indicator mapping: DVA flag mapped to 'noradrenalina', overstating specificity vs Surviving Sepsis 2021", "verdict": "DISCREPANCY"},
+    {"id": "RULE-INDICADORES-ETL-015", "what": "etl_schema v1: incremental Tasy sync (30-day watermark, OR-flag logic, americashealth tenant)", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-INDICADORES-ETL-016", "what": "novo_etl_schema v2: full-scan Tasy sync (flag overwrite bug, homecare fallback, dead except clause)", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-INDICADORES-ETL-003", "what": "TLP standardized mortality % conversion (ratio*100, monthly aggregation) — VERIFIED", "verdict": "VERIFIED"},
+    {"id": "RULE-INDICADORES-ETL-018", "what": "KPI hierarchy: DashboardItem shape applies uniformly across empresa/estabelecimento/setor levels", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-INDICADORES-ETL-004", "what": "Sedation unit drift: % (assistenciais) vs days (controle_infeccao), same label — moderate clinical impact", "verdict": "DISCREPANCY"},
+    {"id": "RULE-INDICADORES-ETL-027", "what": "Indicador tipo mismatch: backend enums 2 types, frontend only types 1 (interacao_notificacao unrepresentable)", "verdict": "NOT_APPLICABLE"}
+  ],
+  "systemic_issues": [
+    {"issue": "Unit drift: sedation % (assistenciais) vs days (controle_infeccao)", "rule_ids": ["RULE-INDICADORES-ETL-004"], "note": "Same label despite differing units/fields, moderate clinical impact"},
+    {"issue": "Frontend/backend tipo enum mismatch", "rule_ids": ["RULE-INDICADORES-ETL-027"], "note": "Backend accepts 2 tipos, frontend types 1; interacao_notificacao unrepresentable"},
+    {"issue": "Alert color enum inconsistency", "rule_ids": ["RULE-INDICADORES-ETL-007"], "note": "DashboardItem uses 4 levels (adds LARANJA), other alerts use 3 levels"},
+    {"issue": "Criterio-modified flag overwrite bug", "rule_ids": ["RULE-INDICADORES-ETL-016"], "note": "v2 overwrites per iteration (not OR-accumulates), loses earlier changes"},
+    {"issue": "Dead code & unreachable exception", "rule_ids": ["RULE-INDICADORES-ETL-016"], "note": "Duplicate except clause at same try level, never executes"},
+    {"issue": "URL template literal bug", "rule_ids": ["RULE-INDICADORES-ETL-019"], "note": "Stray '}' after ${empresaId} produces malformed path '/123}/...'"},
+    {"issue": "DVA/noradrenalina semantic ambiguity", "rule_ids": ["RULE-INDICADORES-ETL-012"], "note": "Generic vasoactive flag labeled specifically, conflicts with Surviving Sepsis specificity"},
+    {"issue": "Falsy-zero display inconsistency", "rule_ids": ["RULE-INDICADORES-ETL-022"], "note": "tx_mortalidade=0 hidden by truthy check, but numeric fields use not-null check"},
+    {"issue": "Silent ETL error swallowing", "rule_ids": ["RULE-INDICADORES-ETL-015", "RULE-INDICADORES-ETL-016"], "note": "Failures pprint() only, no raise/alert, batch continues with data loss invisibility"},
+    {"issue": "Watermark removal (v1→v2 regression)", "rule_ids": ["RULE-INDICADORES-ETL-015", "RULE-INDICADORES-ETL-016"], "note": "v1 uses 30-day filter, v2 full-scans all rows every run — performance concern"}
+  ],
+  "intensicare_v2_domains": [
+    {
+      "domain": "platform",
+      "evidence": "Dashboard KPI hierarchy, macro-indicator rollup, ETL orchestration, data integration framework"
+    },
+    {
+      "domain": "experience",
+      "evidence": "Alert color decision tree, progress bar rendering, occupancy visualization, indicator tile display filters"
+    },
+    {
+      "domain": "governance",
+      "evidence": "Data validation, type safety gaps (frontend/backend mismatch), assistido reset logic, watermark integrity"
+    },
+    {
+      "domain": "early-warning-scores",
+      "evidence": "Micro-indicator mapping (ventilacao_mecanica, sedacao, hemodialise, noradrenalina), clinical scoring components"
+    },
+    {
+      "domain": "correlation",
+      "evidence": "Hierarchical indicator rollup, multi-level sector/establishment/company aggregation, nested dashboard structures"
+    },
+    {
+      "domain": "retire-candidate",
+      "evidence": "Legacy Tasy-direct ETL (two divergent versions), v1/v2 duplication, dead code, hardcoded tenant references"
+    }
+  ],
+  "pt_br_vocabularies": {
+    "invasive_procedures": [
+      "Punção de Acesso Venoso Central Mono Lúmen",
+      "Punção de Acesso Venoso Central Duplo Lúmen",
+      "Punção de Acesso Venoso Central Triplo Lúmen",
+      "Implante de Cateter Venoso Central Por Punção - Cvc",
+      "Implante de Cateter Venoso Central Para Hemodialise",
+      "Colocação De Cateter Venoso Central Ou Portocath",
+      "Intubação orotraqueal",
+      "Traqueostomia",
+      "Passagem de Sonda Vesical de Demora - 2 Vias",
+      "Passagem de Sonda Vesical de Demora - 3 Vias"
+    ],
+    "vasoactive_drug_terminology": [
+      "droga vasoativa (DVA)",
+      "noradrenalina",
+      "adrenalina",
+      "vasopressina",
+      "dopamina",
+      "dobutamina"
+    ],
+    "clinical_indicators": [
+      "taxa de letalidade padronizada (TLP)",
+      "taxa de mortalidade",
+      "taxa_uso_sedacao",
+      "dias_sedacao",
+      "taxa de ocupacao",
+      "tempo de permanencia"
+    ],
+    "alert_color_levels": [
+      "NEUTRO (green/neutral)",
+      "AMARELO (amber/warning)",
+      "VERMELHO (red/critical)",
+      "LARANJA (orange, DashboardItem only)"
+    ],
+    "field_names": [
+      "vidas_salvas",
+      "obitos",
+      "tempo_permanencia",
+      "tx_mortalidade",
+      "tx_ocupacao",
+      "admissao",
+      "qtd_mensagens"
+    ]
+  },
+  "constraints": [
+    {
+      "id": "CLU-INDICADORES-ETL-C-01",
+      "text": "Alert color decision precedence is strict and unambiguous: ASSISTIDO 100% ⊃ VERMELHO ⊃ AMARELO ⊃ NEUTRO with specific tiebreaker rules (VERMELHO preferred on count ties over AMARELO).",
+      "type": "invariant",
+      "source_ref": "RULE-INDICADORES-ETL-006, lines 248-308"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-C-02",
+      "text": "Every indicator chart field with a 0 value (e.g., RASS 0 = alert & calm, tempo_internacao 0 days, mortalidade_esperada 0%) MUST be displayable and not hidden by falsy checks; only null/undefined should hide.",
+      "type": "unit",
+      "source_ref": "RULE-INDICADORES-ETL-024, -025, -026 display rules"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-C-03",
+      "text": "Vasoactive drug mapping MUST distinguish between generic DVA flag and specific norepinephrine dosing; conflating them violates Surviving Sepsis 2021 specificity for norepinephrine as first-line agent.",
+      "type": "regulatory",
+      "source_ref": "RULE-INDICADORES-ETL-012, Evans L et al. JAMA 2016; SSC 2021"
+    },
+    {
+      "id": "CLU-INDICADORES-ETL-C-04",
+      "text": "Indicador tipo enumeration MUST be identical and synchronized between backend model (choices enum) and frontend TypeScript union literal; both tipos (interacao_notificacao, entrada_videochamada) must be typeable from frontend.",
+      "type": "invariant",
+      "source_ref": "RULE-INDICADORES-ETL-027, core/models/indicador.py vs Indicadores.d.ts"
+    }
+  ],
+  "open_questions": [
+    "Is LARANJA alert level ever produced server-side (RULE-007) or dead code?",
+    "Which sedation representation is canonical: % vs days (RULE-004)? Verify against PADIS 2018.",
+    "Root cause of criterio-modified flag overwrite in v2 (RULE-016): deliberate or regression from v1 OR-logic?",
+    "Does URL template bug (RULE-019) cause 404 or backend tolerance?"
+  ]
+}

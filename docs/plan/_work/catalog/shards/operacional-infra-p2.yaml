@@ -1,0 +1,1541 @@
+shard: operacional-infra-p2
+cluster: operacional-infra
+rule_count: 31
+rules_with_escalations: 7
+rules:
+- id: RULE-OPERACIONAL-INFRA-032
+  name: popular_banco valores_maximos_atributos — vital-sign reference ranges for synthetic data, PEEP mismatch
+    vs validators.py
+  category: data-validation
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Test/seed-data generator (popular_banco) defines a table of (min,max) reference ranges per vital-sign/lab
+    attribute used to produce random plausible values for synthetic ICU records. For every attribute EXCEPT peep,
+    these ranges are numerically identical to the corresponding validators in utils/validators.py. For peep, this
+    table uses an upper bound of 41, while PeepValidator (RULE-vitais-BE-11-009) enforces an upper bound of 40 —
+    a synthetic record generated with peep=41 would fail real validation.
+  inputs:
+  - name: atributo
+    type: string
+    unit: null
+    range: 'one of: peep, po2, tec, fr, lactato_arterial, volume_corrente, pas, pad, pam, debito_urinario_24h, bilirrubinas,
+      temperatura, paco2, creatinina, leucocitos, frequencia_cardiaca, plaquetas, dobutamina'
+  outputs:
+  - name: valor_sorteado
+    type: random integer in (min,max) via randint(a,b)
+    unit: null
+  logic: "valores_maximos_atributos = {\n  \"peep\": (0, 41),                 # PeepValidator uses (0, 40) -- MISMATCH\n\
+    \  \"po2\": (0, 500),\n  \"tec\": (3, 20),\n  \"fr\": (0, 50),\n  \"lactato_arterial\": (0, 20),\n  \"volume_corrente\"\
+    : (0, 1500),\n  \"pas\": (50, 250),\n  \"pad\": (0, 150),\n  \"pam\": (0, 200),\n  \"debito_urinario_24h\":\
+    \ (0, 10000),\n  \"bilirrubinas\": (0, 30),\n  \"temperatura\": (20, 43),\n  \"paco2\": (0, 150),\n  \"creatinina\"\
+    : (0, 20),\n  \"leucocitos\": (0, 40000),\n  \"frequencia_cardiaca\": (0, 200),\n  \"plaquetas\": (0, 700000),\n\
+    \  \"dobutamina\": (0, 30),\n}\nsorteia_dados(dados_prontuario):\n  _atributo = atributos[randint(0, 16)]  \
+    \   # atributos has 18 items, indices 0-17\n  a, b = valores_maximos_atributos[_atributo]\n  dados_prontuario[_atributo]\
+    \ = randint(a, b)"
+  edge_cases: atributos list has 18 entries (index 0-17), but randint(0,16) can only select indices 0 through 16
+    — index 17, 'dobutamina', can NEVER be chosen by sorteia_dados, so the 'dobutamina' key is never populated into
+    dados_prontuario by this random-selection mechanism (dead/unreachable branch for that attribute in the seed
+    generator).
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-012
+  - RULE-OPERACIONAL-INFRA-013
+  - RULE-OPERACIONAL-INFRA-055
+  merged_from:
+  - RULE-seed-BE-11-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/popular_banco.py
+    lines: 38-62
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY #1: peep upper bound 41 here vs 40 in PeepValidator (RULE-vitais-BE-11-009) — recorded verbatim
+    from both files, not reconciled. DISCREPANCY #2 (bug, not a data-range issue): dobutamina is statistically unreachable
+    via sorteia_dados due to the randint(0,16) bound against an 18-item list. This is a test-data script, not an
+    enforced validator, so it does not itself gate real user input — but it is documented here because it encodes
+    the same reference ranges as the production validators and reveals the one place they diverge.'
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: No external authoritative published reference defines a numeric data-entry cap for PEEP; PEEP (cmH2O)
+      is a set ventilator parameter, not a validated scale/equation. The only governing authority is the internal
+      production validator PeepValidator (utils/validators.py:73-81, RULE-vitais-BE-11-009), which enforces 0 <=
+      peep <= 40. Clinically, applied PEEP is typically 5-15 cmH2O and rarely exceeds ~24 (up to ~30 in severe ARDS),
+      so both 40 and 41 are non-physiologic sanity ceilings well above real use (cf. ARDSNet/Berlin high-PEEP tables).
+    detail_file: operacional-infra-batch3.yaml
+  escalations:
+  - item_id: ESC-P3-172
+    band: P3
+    title: data-validation
+    excerpt: 'Confirmed verbatim: utils/popular_banco.py:39 peep=(0,41) vs utils/validators.py:76 PeepValidator
+      enforcing 0<=peep<=40. Internal inconsistency (off-by-one upper bound) is real and reproducible — randint(0,41)
+      can emit peep=41 which the …'
+- id: RULE-OPERACIONAL-INFRA-033
+  name: TEMPO_ATUALIZACAO_TRILHAS — automatic pathway recalculation cadence
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: Defines (via environment variable, default 7200) the cadence in seconds at which automatic care pathways
+    (trilhas) are expected to be recalculated/refreshed — i.e. a default 2-hour update interval.
+  inputs: []
+  outputs:
+  - name: TEMPO_ATUALIZACAO_TRILHAS
+    type: integer
+    unit: seconds
+    range: default 7200 (2 hours), overridable via env var
+  logic: TEMPO_ATUALIZACAO_TRILHAS = os.environ.get("TEMPO_ATUALIZACAO_TRILHAS", 7200)
+  edge_cases: When read from the environment, the value is a STRING (os.environ.get returns str), not cast to int
+    here — any consumer must cast it; when the env var is unset, the Python int literal 7200 is used instead (a
+    type-inconsistency between the default and the overridden path, though not necessarily a bug if the consumer
+    always casts).
+  confidence: medium
+  merged_from:
+  - RULE-settings-BE-11-065
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/settings.py
+    lines: '183'
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: The actual consumer of this setting (presumably a periodic task in trilha_automatica, out of BE-11 scope)
+    is not visible in this partition; recorded here as the cadence DEFINITION only.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-034
+  name: Shift-turnover (virada de turno) cutoff for date navigation
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: The generic date picker used across record-navigation screens disables selecting or advancing to
+    any date beyond the current clinical shift-turnover boundary, computed via the shared dateTurn(now, "7:00",
+    "7:00") utility (out of partition), effectively pinning the latest navigable "day" to the current shift.
+  inputs:
+  - name: current (candidate date in the picker)
+    type: moment.Moment
+    unit: date
+    range: null
+  - name: date (currently selected date)
+    type: moment.Moment
+    unit: date
+    range: null
+  - name: dateTurnProps
+    type: '{ start: string; end: string } | undefined'
+    unit: null
+    range: null
+  outputs:
+  - name: disabledDate (DatePicker)
+    type: boolean
+  - name: disabled (next-day Button)
+    type: boolean
+  logic: "cutoff = dateTurn(moment(), \"7:00\", \"7:00\")          // external util, out of partition\nDatePicker.disabledDate(current)\
+    \ = current > cutoff\nnextButton.disabled =\n     !date\n  OR date.isSame( dateTurnProps ? cutoff : moment(),\
+    \ \"day\" )\nbackButton.disabled = !date\nonBack:  onBack(date - 1 day);  setDate(date - 1 day)\nonNext:  onNext(date\
+    \ + 1 day);  setDate(date + 1 day)"
+  edge_cases: If dateTurnProps is not supplied, the "next" button's same-day check compares against plain moment()
+    (now) instead of the shift-cutoff moment, so behavior differs depending on whether the caller passes dateTurnProps.
+    No date is selected (date falsy) disables both back and next or renders the DatePicker unusable via allowClear={false}
+    (no clearing once a date is chosen).
+  confidence: medium
+  related:
+  - RULE-OPERACIONAL-INFRA-029
+  - RULE-OPERACIONAL-INFRA-049
+  - RULE-OPERACIONAL-INFRA-035
+  merged_from:
+  - RULE-turno-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/CustomDatePicker/CustomDatePicker.tsx
+    lines: 20-65
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: dateTurn() itself is defined in src/utils/dateTurn.ts (out of this partition's scope), so the exact cutoff-time
+    semantics (e.g. how "7:00","7:00" args resolve to a Moment) could not be verified here; behavior is inferred
+    purely from this call site. Cross-reference for a verifier auditing utils/dateTurn.ts.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-035
+  name: data_7_as_7 — 7am-to-7am shift/reporting-day boundary
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: 'Computes the ''reporting day'' used for shift-based aggregation: if the current local hour is 7
+    (07:00) or later, the reporting day is today''s date; otherwise (before 07:00) it is yesterday''s date.'
+  inputs: []
+  outputs:
+  - name: data
+    type: date
+    unit: null
+  logic: "now = datetime.now().astimezone()\nIF now.hour >= 7:\n  RETURN now.date()\nELSE:\n  RETURN now.date()\
+    \ - 1 day"
+  edge_cases: Uses the server/process local timezone via astimezone() with no explicit timezone parameter passed;
+    Django project TIME_ZONE is 'America/Sao_Paulo' (trilhas/settings.py) but this function does not explicitly
+    use Django's timezone-aware `django.utils.timezone.now()`, it uses the stdlib `datetime.now().astimezone()`
+    — potential source of discrepancy if the OS/process timezone differs from the configured Django TIME_ZONE.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-029
+  - RULE-OPERACIONAL-INFRA-049
+  - RULE-OPERACIONAL-INFRA-034
+  merged_from:
+  - RULE-util-BE-11-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/handlers.py
+    lines: 226-229
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Encodes a 7am-to-7am ICU shift/reporting-day convention, common in hospital operations (e.g. daily census
+    counted at a fixed cutover hour rather than midnight).
+
+
+    See RULE-OPERACIONAL-INFRA-029 for the cross-implementation (BE vs FE) reconciliation of this exact 7am-to-7am
+    boundary: confirmed behaviorally equivalent, no divergence found.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-036
+  name: custom_exception_handler / flatten_errors — DRF error envelope mapping with a Python 3.10+ incompatible
+    collections reference
+  category: data-validation
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'Maps Django/DRF exceptions to a standard response envelope: Http404 -> NotFound, PermissionDenied
+    -> PermissionDenied, IntegrityError -> ValidationError(''Erro de integridade! Verifique os dados enviados.'').
+    Any resulting APIException response is rewrapped into {errors: <flattened>, status: <code>, exception: str(exc)}.
+    flatten_errors recursively flattens one level of nested mapping values using `isinstance(v, collections.MutableMapping)`
+    — this attribute was removed from the `collections` module in Python 3.10 (moved to collections.abc in 3.3,
+    removed from `collections` entirely in 3.10), so this line raises AttributeError on Python 3.10+ despite functioning
+    under the project''s pinned Python 3.9 (per Dockerfile: python:3.9-slim-bullseye).'
+  inputs:
+  - name: exc
+    type: Exception instance
+    unit: null
+  - name: context
+    type: DRF exception context dict
+    unit: null
+  outputs:
+  - name: response
+    type: DRF Response with {errors, status, exception} or None (falls through to 500)
+    unit: null
+  logic: "IF isinstance(exc, Http404): exc = exceptions.NotFound()\nELIF isinstance(exc, PermissionDenied): exc\
+    \ = exceptions.PermissionDenied()\nELIF isinstance(exc, IntegrityError): exc = exceptions.ValidationError(\"\
+    Erro de integridade! Verifique os dados enviados.\")\nIF isinstance(exc, exceptions.APIException):\n  set_rollback()\
+    \  # rolls back atomic DB transactions if in one\n  response = Response(data, status=exc.status_code, headers=...)\n\
+    response2 = custom_exception_handler(exc, context) wraps response.data into:\n  {\"errors\": flatten_errors(data),\
+    \ \"status\": response.status_code, \"exception\": str(exc)}\nflatten_errors(d, key=\"\"):\n  FOR k, v IN d.items():\n\
+    \    IF isinstance(v, collections.MutableMapping): items.extend(flatten_errors(v, k).items())   # AttributeError\
+    \ on Python >= 3.10\n    ELSE: items.append((k, v))\n  RETURN dict(items)"
+  edge_cases: flatten_errors only flattens ONE level of recursion correctly for dict values that are themselves
+    plain dicts wrapped via the recursive call, but keys from nested dicts are not prefixed/namespaced — a naming
+    collision between a nested key and a top-level key would silently overwrite one entry in the final flat dict
+    (Python dict() from a list of tuples keeps the LAST occurrence of a repeated key).
+  confidence: high
+  merged_from:
+  - RULE-err-BE-11-070
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/exceptions.py
+    lines: 17-83
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY/technical-debt flag for the rebuild: `collections.MutableMapping` must become `collections.abc.MutableMapping`
+    (or an isinstance check against dict) on any Python >= 3.10 runtime, otherwise every API error response containing
+    nested validation errors will 500 instead of returning the intended flattened error body.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-173
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-OPERACIONAL-INFRA-037
+  name: ListChoiceField.to_representation — context-dependent representation switch
+  category: data-validation
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: 'A DRF ChoiceField subclass whose representation behavior depends on whether the serializer was instantiated
+    WITH a context: if there is NO context, values are mapped through the choices dict directly (handling both list-of-values
+    and single-value cases); if there IS a context, it defers entirely to the standard DRF ChoiceField.to_representation.'
+  inputs:
+  - name: obj
+    type: value or list of values
+    unit: null
+  outputs:
+  - name: representation
+    type: mapped label(s) or standard DRF representation
+    unit: null
+  logic: "to_representation(obj):\n  IF NOT self.context:\n    IF obj:\n      IF isinstance(obj, list):\n      \
+    \  RETURN [self.choices.get(v) FOR v IN obj]\n      ELSE:\n        RETURN self.choices.get(obj)\n    # implicit:\
+    \ returns None if obj is falsy and there's no context\n  ELSE:\n    RETURN super().to_representation(obj)"
+  edge_cases: If context is falsy AND obj is falsy, the function implicitly returns None (no explicit return statement
+    executed).
+  confidence: medium
+  merged_from:
+  - RULE-ser-BE-11-071
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/serializer.py
+    lines: 4-16
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: the intent of switching representation strictly on context PRESENCE (not on any specific context
+    key/value) is not evident from this file alone; likely used to render human-readable labels in one serialization
+    path (e.g. admin/read views without request context) vs raw values in another (e.g. API responses with request
+    context). Flag for verifier with visibility into call sites (out of BE-11 scope).'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-335
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: ListChoiceField.to_representation — context-dependent representation switch
+- id: RULE-OPERACIONAL-INFRA-038
+  name: PWA service-worker generation disabled only in local development
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'next.config.js wraps the Next config with `withPwa({ dest: "public", disable: process.env.NODE_ENV
+    === "development" })`. The generated service worker (public/sw.js) and workbox chunks (public/workbox-*.js)
+    are explicitly gitignored, confirming they are build-time artifacts produced by next-pwa and are expected to
+    be absent from source control and regenerated on every non-development build (demo/homol/prod, all of which
+    set NODE_ENV=production per RULE-DEPLOY-FE-09-001).'
+  inputs:
+  - name: NODE_ENV
+    type: string
+    unit: n/a
+    range: development | production
+  outputs:
+  - name: service_worker_generation_enabled
+    type: boolean
+    unit: n/a
+  logic: "pwa.disable = (NODE_ENV == \"development\") ? true : false\nIF NOT disable:\n  generate public/sw.js and\
+    \ public/workbox-*.js at build time"
+  edge_cases: Because all three PM2 environments (demo/homol/prod) set NODE_ENV="production", the PWA/service-worker
+    is generated and active in all deployed environments, including demo/homol — there is no separate "staging"
+    behavior for PWA caching.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-039
+  - RULE-OPERACIONAL-INFRA-042
+  merged_from:
+  - RULE-BUILD-FE-09-003
+  sources:
+  - repo: trilhas-frontend
+    path: next.config.js
+    lines: 37-41
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Cross-referenced with .gitignore lines 38-40 (public/sw.js, public/workbox-*.js).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-039
+  name: PM2 multi-environment process configuration
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'ecosystem.config.js defines three named PM2 applications, one per deploy target: trilhas-demo (PORT
+    3002), trilhas-prod (PORT 3001), and trilhas-homol (PORT 3000). Each runs `yarn start` (i.e. a pre-built `next
+    start`), uses `watch: true` (PM2 restarts the process whenever a file in the working directory changes), NODE_ENV
+    is hardcoded to "production" for all three environment blocks (env_demo/env_prod/env_homol), and the shell interpreter
+    is selected based on host platform (cmd.exe on win32, else sh).'
+  inputs:
+  - name: app_name
+    type: string
+    unit: n/a
+    range: trilhas-demo | trilhas-prod | trilhas-homol
+  - name: PORT
+    type: integer
+    unit: port
+    range: 3000-3002
+  outputs:
+  - name: running_pm2_process
+    type: process
+    unit: n/a
+  logic: "FOR EACH env IN [demo(port=3002), prod(port=3001), homol(port=3000)]:\n  pm2_app = {\n    name: \"trilhas-\"\
+    \ + env,\n    script: \"yarn\",\n    args: \"start\",\n    watch: true,               # auto-restart on filesystem\
+    \ change\n    interpreter: (platform == \"win32\") ? \"cmd.exe\" : \"sh\",\n    env_<env>: { PORT: port, NODE_ENV:\
+    \ \"production\" }\n  }"
+  edge_cases: 'All three environments set NODE_ENV=production even for demo/homol, so any app code branching on
+    NODE_ENV cannot distinguish staging/demo from real production at runtime — only the PORT and the externally-supplied
+    --env flag (see RULE-DEPLOY-FE-09-002) differ. `watch: true` in a production-style deployment means any incidental
+    file write to the working directory (e.g. log files written under the project root) could trigger an unplanned
+    process restart.'
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-040
+  - RULE-OPERACIONAL-INFRA-014
+  - RULE-OPERACIONAL-INFRA-041
+  merged_from:
+  - RULE-DEPLOY-FE-09-001
+  sources:
+  - repo: trilhas-frontend
+    path: ecosystem.config.js
+    lines: 1-40
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Verbatim as coded; no correction applied.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-040
+  name: Per-environment deploy script workflow with asymmetric env-file loading
+  category: scheduling-operational
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: package.json defines paired "init-deploy:<env>" (first deploy, `pm2 start`) and "deploy:<env>" (redeploy,
+    `pm2 restart ... --update-env`) scripts for prod/homol/demo. All variants do `git pull && yarn install` then
+    build and then start/restart via `ecosystem.config.js --only trilhas-<env> --env <env>`. However, only the homol
+    and demo variants wrap the `next build` (and `next dev`) command with `env-cmd -f ./.homol.env` / `env-cmd -f
+    ./.demo.env` to inject environment variables; the prod variants call `next build`/`next dev` directly with no
+    env-cmd wrapper.
+  inputs:
+  - name: target_env
+    type: string
+    unit: n/a
+    range: prod | homol | demo
+  - name: env_file
+    type: file
+    unit: n/a
+    range: .homol.env | .demo.env (prod has none)
+  outputs:
+  - name: deployed_app
+    type: process
+    unit: n/a
+  logic: '# first-time deploy
+
+    init-deploy:prod  = git pull && yarn install && next build && pm2 start ecosystem.config.js --only trilhas-prod  --env
+    prod
+
+    init-deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 start ecosystem.config.js
+    --only trilhas-homol --env homol
+
+    init-deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 start ecosystem.config.js
+    --only trilhas-demo  --env demo
+
+    # redeploy (adds --update-env, uses pm2 restart instead of start)
+
+    deploy:prod  = git pull && yarn install && next build && pm2 restart ecosystem.config.js --only trilhas-prod  --env
+    prod  --update-env
+
+    deploy:homol = git pull && yarn install && env-cmd -f ./.homol.env next build && pm2 restart ecosystem.config.js
+    --only trilhas-homol --env homol --update-env
+
+    deploy:demo  = git pull && yarn install && env-cmd -f ./.demo.env  next build && pm2 restart ecosystem.config.js
+    --only trilhas-demo  --env demo  --update-env'
+  edge_cases: 'AMBIGUOUS: it is unclear from this partition whether prod relies on Next.js''s own automatic loading
+    of a `.env.production` file (which Next supports natively, unlike the non-standard "homol"/"demo" suffixes which
+    require the explicit `env-cmd` wrapper), or whether this is a genuine gap where prod could build with stale/missing
+    environment variables if no `.env.production` file is present on the deploy host. `.gitignore` only lists `.env.local`,
+    `.homol.env`, `.demo.env`, and the three `.env.<stage>.local` variants — it does NOT list `.env.production`,
+    so it is not clear a `.env.production` file is even expected to exist locally.'
+  confidence: medium
+  related:
+  - RULE-OPERACIONAL-INFRA-039
+  - RULE-OPERACIONAL-INFRA-041
+  merged_from:
+  - RULE-DEPLOY-FE-09-002
+  sources:
+  - repo: trilhas-frontend
+    path: package.json
+    lines: 5-17
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Verbatim as coded; flagged AMBIGUOUS per ground rules rather than corrected.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-341
+    band: AMBIGUOUS
+    title: scheduling-operational
+    excerpt: Per-environment deploy script workflow with asymmetric env-file loading
+- id: RULE-OPERACIONAL-INFRA-041
+  name: Environment secret files excluded from version control per deploy target
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: .gitignore excludes .env.local, .homol.env, .demo.env, .env.development.local, .env.test.local, and
+    .env.production.local from the repository. Cross-referenced with package.json (RULE-DEPLOY-FE-09-002), the homol
+    and demo deploy scripts explicitly load .homol.env / .demo.env via env-cmd — meaning each deploy target's secrets
+    file must be provisioned directly on that target's server/host out-of-band, since it is never committed to git
+    and would not arrive via `git pull`.
+  inputs:
+  - name: env_filename
+    type: string
+    unit: n/a
+    range: .homol.env | .demo.env | .env.local | .env.*.local
+  outputs:
+  - name: tracked_in_git
+    type: boolean
+    unit: n/a
+    range: 'false'
+  logic: "GITIGNORED = [\".env.local\", \".homol.env\", \".demo.env\",\n              \".env.development.local\"\
+    , \".env.test.local\", \".env.production.local\"]\nFOR file IN GITIGNORED: file NOT tracked by git\n=> deploy\
+    \ scripts referencing these files (env-cmd -f ./.homol.env, ./.demo.env)\n   require the file to pre-exist on\
+    \ the deploy host already; `git pull`\n   alone cannot supply it."
+  edge_cases: If a fresh server is provisioned without the corresponding .homol.env/ .demo.env already present,
+    `init-deploy:homol`/`init-deploy:demo` (which run `env-cmd -f ./.<env>.env next build`) would fail at build
+    time for missing the file.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-040
+  merged_from:
+  - RULE-DEPLOY-FE-09-008
+  sources:
+  - repo: trilhas-frontend
+    path: .gitignore
+    lines: 27-34
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Cross-referenced with package.json lines 7,13,14,16,17.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-042
+  name: PWA app identity and installed-app display behavior
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'public/manifest.json declares the installable web-app identity for the product: short_name/name
+    = "teleUTI" (i.e. the product''s actual name is "teleUTI" — a tele-ICU product), start_url "/", scope "/", display
+    mode "standalone" (launches without browser chrome), background_color #FFFFFF, theme_color #000000, and an icon
+    set spanning 36x36 through 512x512 plus a 192x192 "maskable" icon for adaptive Android icons.'
+  inputs: []
+  outputs:
+  - name: installed_app_name
+    type: string
+    unit: n/a
+    range: teleUTI
+  - name: display_mode
+    type: string
+    unit: n/a
+    range: standalone
+  logic: "manifest = {\n  name: \"teleUTI\", short_name: \"teleUTI\",\n  start_url: \"/\", scope: \"/\",\n  display:\
+    \ \"standalone\",\n  background_color: \"#FFFFFF\", theme_color: \"#000000\",\n  icons: [36,48,72,96,144,192,512\
+    \ px PNGs + 192px maskable],\n  shortcuts: []\n}"
+  edge_cases: '"shortcuts": [] means no PWA app-shortcuts (e.g. quick actions from a long-press on the home-screen
+    icon) are configured despite the field being present.'
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-038
+  merged_from:
+  - RULE-PWA-FE-09-006
+  sources:
+  - repo: trilhas-frontend
+    path: public/manifest.json
+    lines: 1-55
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Verbatim as coded.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-043
+  name: Breadcrumb hides UUID-shaped route segments
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: When building the breadcrumb trail from the current route path, any path segment whose string length
+    is exactly 36 characters (the length of a canonical UUID) is dropped from the displayed trail, so entity IDs
+    embedded in the URL never appear as breadcrumb labels.
+  inputs:
+  - name: router.asPath segments
+    type: string[]
+    unit: null
+    range: null
+  outputs:
+  - name: breadcrumbs
+    type: '{ breadcrumbName: string; path: string }[]'
+  logic: "linkPath = router.asPath.split(\"/\"); linkPath.shift()   // drop leading empty segment\nfor each (path,\
+    \ i) in linkPath:\n  if path.length !== 36:\n    emit { breadcrumbName: capitalize(path), path: \"/\" + linkPath.slice(0,i).join(\"\
+    /\") }\n  else:\n    emit undefined   // filtered out at render time (falsy Bread entries are skipped)"
+  edge_cases: Uses a raw length check (===36) rather than a UUID regex, so any non-UUID path segment that happens
+    to be exactly 36 characters long would also be hidden, and a UUID rendered without dashes or with different
+    formatting would not be hidden. Breadcrumbs accumulate onto previous state across router changes ([...prevState,
+    ...pathArray]) rather than being replaced, relying on route decomposition being consistent.
+  confidence: medium
+  merged_from:
+  - RULE-breadcrumb-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Breadcrumbs/Breadcrumbs.tsx
+    lines: 20-35
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Minor routing-convention rule; included because it encodes an assumption about the URL structure (bare
+    UUIDs as path segments) that a rebuild must preserve to avoid breadcrumbs showing raw entity IDs.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-044
+  name: Assistido flag reset - 1-minute update window
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: Celery task that clears the "assistido" (attended) flag on automatic trilhas that were updated in
+    the last minute but not themselves assisted in the last minute.
+  inputs:
+  - name: dt_atualizacao
+    type: datetime
+    unit: null
+    range: null
+  - name: assistido_em
+    type: datetime
+    unit: null
+    range: null
+  outputs:
+  - name: assistido / assistido_por / assistido_em reset
+    type: fields
+    unit: null
+  logic: "now = datetime.now().astimezone()\nFor each trilha in Leito.get_trilhas_automaticas_v2():\n  rows = trilha.objects\n\
+    \    .exclude(assistido_em__gte = now - 1 minute)\n    .filter(dt_atualizacao__gte = now - 1 minute, dt_atualizacao__lte\
+    \ = now)\n  rows.update(assistido=False, assistido_por=None, assistido_em=None)\nlimpar_todos_os_assistidos():\
+    \ over Leito.get_trilhas_automaticas() (v1 set) resets ALL rows\n  unconditionally."
+  edge_cases: Window is exactly timedelta(minutes=1), timezone-aware (astimezone()). Boundary uses >= for lower
+    bound and <= for upper. Uses v2 trilha set for the windowed reset but the v1 set for the full wipe.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-045
+  merged_from:
+  - RULE-ops-BE-01-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/tasks/atualizar_assistido.py
+    lines: 12-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-045
+  name: Interactive sepsis - overdue item auto-check and alert message
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: Celery task scanning interactive sepsis trilhas for overdue checklist items and emitting a delay
+    observation message from the system user.
+  inputs:
+  - name: trilha.leito.ocupado
+    type: bool
+    unit: null
+    range: null
+  - name: finalizado / aceito flags
+    type: bool
+    unit: null
+    range: null
+  - name: item.atraso_item_interativa
+    type: bool
+    unit: null
+    range: null
+  outputs:
+  - name: observacao message
+    type: string
+    unit: null
+  logic: "For each TrilhaInterativaSpese WHERE trilha.leito.ocupado = True\n    AND finalizado = False AND aceito\
+    \ = True:\n  For each item in itens_trilha_interativa:\n    checagem_envio_automatico(item)   # out-of-scope:\
+    \ computes atraso flag\n    IF item.atraso_item_interativa:\n      message = f\"A checagem do item {item.nome_item}\
+    \ esta atrasada\"\n      enviar_observacao_trilha_interativa(message, tipo_trilha=\"sepse\",\n        trilha_interativa=item.trilha_interativa,\n\
+    \        responsavel=Usuario(username=\"sistema\").get_pk)"
+  edge_cases: Only occupied beds and accepted, non-finalized interactive trilhas are scanned. The overdue predicate
+    itself (atraso_item_interativa / checagem_envio_automatico) is computed in core.utils (out of scope). tipo_trilha
+    hard-coded to "sepse".
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-044
+  merged_from:
+  - RULE-ops-BE-01-023
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/tasks/checagem_trilha_interativa.py
+    lines: 12-28
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-046
+  name: Celery queue naming convention — environment-namespaced routing keys
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Every Celery queue/routing-key in the project is namespaced by the ENVIRONMENT variable (e.g. ''prod.trilhas.amhdocs'',
+    ''demo.trilhas.etl''), so the same RabbitMQ broker can host isolated queues per deployment environment (demo/homol/prod)
+    without collision. 12 queues are declared: atualizar_trilhas, log, mensagens, etl, executar_trilhas, estabelecimento_setor_leito,
+    etl_dados_brutos, prescricoes, prescricao_continua, notificacoes, callprocedure, amhdocs.'
+  inputs:
+  - name: ENVIRONMENT
+    type: string
+    unit: null
+    range: e.g. demo | homol | prod | '' (default)
+  outputs:
+  - name: Queue/routing_key
+    type: string
+    unit: null
+  logic: "FOR queue_name IN [atualizar_trilhas, log, mensagens, etl, executar_trilhas,\n                   estabelecimento_setor_leito,\
+    \ etl_dados_brutos, prescricoes,\n                   prescricao_continua, notificacoes, callprocedure, amhdocs]:\n\
+    \  Queue(\n    name = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\",\n    routing_key = f\"{os.environ.get('ENVIRONMENT','')}.trilhas.{queue_name}\"\
+    ,\n  )\ntask_default_exchange = \"trilhas\"; task_default_exchange_type = \"direct\"; task_default_queue = \"\
+    default\""
+  edge_cases: If ENVIRONMENT is unset, queue names begin with a leading '.' (e.g. '.trilhas.log') since the empty-string
+    default is still concatenated with the '.' separator.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-025
+  - RULE-OPERACIONAL-INFRA-047
+  merged_from:
+  - RULE-ops-BE-11-066
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/celery.py
+    lines: 21-71
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Matches the -Q flags seen in the uwsgi ini attach-daemon lines (RULE-ops-BE-11-067) and the routing_key
+    in utils/integracoes.py's enviar_arquivo_amhdocs task.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-047
+  name: Celery beat scheduler — DatabaseScheduler, with a duplicate-beat-daemon discrepancy in demo/legacy configs
+  category: scheduling-operational
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: All active uwsgi configs run `celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler`
+    as a standalone daemon, meaning periodic task schedules are stored in the Django DB (via django_celery_beat
+    / admin) rather than in code (no in-code CELERYBEAT_SCHEDULE was found anywhere in this partition). However,
+    uwsgi-demo.ini and uwsgi-homol-old.ini ALSO attach the embedded-beat flag (-B) to the 'atualizar_trilhas' worker
+    line IN ADDITION TO the standalone beat daemon, meaning TWO beat schedulers would run concurrently against the
+    same database-backed schedule in those environments — a known source of duplicate/double-fired periodic tasks.
+    uwsgi-homol.ini and uwsgi-prod.ini (the current, non-'-old'/non-demo configs) do NOT have the -B flag on that
+    worker line, keeping only the single standalone beat daemon.
+  inputs: []
+  outputs:
+  - name: active beat scheduler count per environment
+    type: integer
+    unit: null
+    range: 2 for demo/homol-old (bug), 1 for homol/prod (correct)
+  logic: '# demo.ini / homol-old.ini (BUGGY):
+
+    attach-daemon = celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
+
+    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas
+    -B
+
+    # homol.ini / prod.ini (CORRECT, single beat):
+
+    attach-daemon = celery -A trilhas beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
+
+    attach-daemon = celery -A trilhas worker -n <env>-trilhas@atualizar_trilhas -c 1 -E -Q <env>.trilhas.atualizar_trilhas   #
+    no -B'
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-046
+  - RULE-OPERACIONAL-INFRA-025
+  merged_from:
+  - RULE-ops-BE-11-068
+  sources:
+  - repo: ahlabs-trilhas
+    path: uwsgi/uwsgi-demo.ini, uwsgi/uwsgi-homol-old.ini, uwsgi/uwsgi-homol.ini, uwsgi/uwsgi-prod.ini
+    lines: uwsgi-demo.ini:20-21; uwsgi-homol-old.ini:21-22; uwsgi-homol.ini:18-19; uwsgi-prod.ini:20-21
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY flagged for the demo environment specifically since uwsgi-demo.ini (unlike the '-old' homol
+    file) does not carry an 'old'/deprecated naming signal and may still be an actively-used config; verify whether
+    the demo environment is currently double-scheduling periodic tasks.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-185
+    band: P3
+    title: scheduling-operational
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-OPERACIONAL-INFRA-048
+  name: Backend CI gate covers only trilha_manual tests
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: Continuous integration for the backend runs on pushes to master and homologacao, provisions Python
+    3.8 + Postgres 10 + RabbitMQ, runs makemigrations+migrate, and then executes ONLY the trilha_manual test suite.
+    No other app (core, trilha_automatica, trilha_homecare, log) is tested in CI; migration generation happens at
+    CI time rather than being committed.
+  inputs:
+  - name: push event branch
+    type: string
+    unit: null
+    range: master | homologacao
+  outputs:
+  - name: CI pass/fail
+    type: boolean
+    unit: null
+  logic: "on push to [master, homologacao]:\n  setup python 3.8, postgres:10 (db 'dev-trilhas'), rabbitmq\n  pip\
+    \ install -r requirements.txt + psycopg2-binary\n  python manage.py makemigrations && python manage.py migrate\n\
+    \  python manage.py test trilha_manual        # ONLY this app"
+  edge_cases: makemigrations at CI time can generate migrations that differ from any committed state; a hardcoded
+    Postgres password ('DA-amh-2019') is embedded in the workflow file (security observation for the escalation
+    report, not a functional rule).
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-056
+  merged_from:
+  - RULE-ops-COORD-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: .github/workflows/trilhas.yml
+    lines: 1-63
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Clinical-risk relevance: the automated ICU pathway engine (trilha_automatica) and homecare scoring engines
+    (trilha_homecare) have NO CI test gate; only the manual-pathway app is regression-tested. Cross-reference BE-10
+    (trilha_manual tests encode parameter-range rules).'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-049
+  name: Nursing-shift day window 07:00-07:00
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The prescription screen operates on a nursing shift running 07:00 to 07:00 (24h window starting
+    at 7am). The selected "day" of prescriptions is derived by mapping the current moment into the shift-day: times
+    before 07:00 belong to the previous calendar day. The UI label reads "Turno vigente: 7:00 as 7:00".'
+  inputs:
+  - name: currentMoment
+    type: moment (now)
+    unit: null
+    range: null
+  - name: startHour
+    type: string
+    unit: HH:mm
+    range: null
+  - name: endHour
+    type: string
+    unit: HH:mm
+    range: null
+  outputs:
+  - name: shiftDay
+    type: moment (date used as dia=YYYY-MM-DD filter)
+    unit: null
+  logic: "date = dateTurn(moment(), \"7:00\", \"7:00\")   # start == end\ndateTurn(currentMoment, startHour, endHour):\n\
+    \  start = moment(startHour,\"HH:mm\"); end = moment(endHour,\"HH:mm\")\n  if (end.isBefore(start) || end.isSame(start))\
+    \ end.add(1,\"day\")   # 7:00==7:00 -> end pushed +1 day\n  currentHour = moment(now.format(\"HH:mm\"),\"HH:mm\"\
+    )\n  if (currentHour.isBetween(start,end)) return currentMoment\n  else if (currentHour.isBefore(start))  return\
+    \ currentMoment.subtract(1,\"day\")\n  else if (currentHour.isAfter(end))     return currentMoment.add(1,\"\
+    day\")\n  else return currentMoment\n# Prescriptions fetched with { dia: date.format(\"YYYY-MM-DD\") }."
+  edge_cases: 'Because start==end=="7:00", end is bumped to next day so the window is [07:00, 07:00+1d]. isBetween
+    is exclusive of endpoints: exactly 07:00 is neither before start nor between, and not after end (end is 07:00
+    next day), so the final else returns currentMoment unchanged. Comparisons use HH:mm only (date component stripped
+    for the hour test).'
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-029
+  - RULE-OPERACIONAL-INFRA-034
+  - RULE-OPERACIONAL-INFRA-035
+  merged_from:
+  - RULE-turno-FE-04-015
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricoes/Prescricoes.tsx
+    lines: 49-49
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: dateTurn algorithm defined in src/utils/dateTurn.ts (cross-partition). Also passed to CustomDatePicker
+    dateTurnProps {start:"7:00", end:"7:00"} (lines 282-285). Label at line 287-289.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-050
+  name: next/image remote image domain whitelist
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: next.config.js restricts Next.js's built-in Image Optimization (`next/image`) to only fetch/optimize
+    remote images whose host is "firebasestorage.googleapis.com" or "omni-pub-bkt.s3.amazonaws.com". Any other remote
+    image domain is rejected by the framework at request time.
+  inputs:
+  - name: image_src_hostname
+    type: string
+    unit: n/a
+    range: firebasestorage.googleapis.com | omni-pub-bkt.s3.amazonaws.com
+  outputs:
+  - name: image_optimization_allowed
+    type: boolean
+    unit: n/a
+  logic: "ALLOWED_DOMAINS = [\"firebasestorage.googleapis.com\", \"omni-pub-bkt.s3.amazonaws.com\"]\nIF request.image_hostname\
+    \ NOT IN ALLOWED_DOMAINS:\n  REJECT (next/image throws/blocks optimization)"
+  edge_cases: Any future image source (e.g. a new CDN or a different S3 bucket) must be added to this list or images
+    from it will fail to render via next/image. This is a security/allow-list control (mitigates SSRF-style abuse
+    of the image-proxy) as well as a functional dependency on exactly two storage backends (Firebase Storage and
+    an "omni-pub-bkt" S3 bucket), consistent with the `firebase` dependency in package.json.
+  confidence: high
+  merged_from:
+  - RULE-DATA-FE-09-004
+  sources:
+  - repo: trilhas-frontend
+    path: next.config.js
+    lines: 25-30
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Verbatim as coded.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-051
+  name: Uniqueness constraints across org hierarchy
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Composite uniqueness rules that structure the company > establishment > sector > bed hierarchy and
+    identity fields.
+  inputs:
+  - name: hierarchy identifiers
+    type: mixed
+    unit: null
+    range: null
+  outputs:
+  - name: DB uniqueness
+    type: constraint
+    unit: null
+  logic: 'Estabelecimento: unique_together(empresa, codigo)
+
+    Setor:           unique_together(estabelecimento, codigo)
+
+    Leito:           unique_together(setor, codigo, nome)
+
+    Empresa.whitelabel unique; Usuario.username unique; Usuario.cpf unique
+
+    UsuarioEmpresa unique_together(usuario, empresa)
+
+    UsuarioEstabelecimento unique_together(usuario, estabelecimento)
+
+    UsuarioSetor unique_together(usuario, setor)
+
+    UsuarioGrupoAcesso unique_together(usuario, grupo)
+
+    UsuarioNotificacao unique_together(notificacao, usuario)
+
+    UsuarioSetorPaciente unique_together(usuario, setor, paciente)
+
+    Reacao unique_together(observacao, usuario)  # see RULE-029
+
+    Glossario.nome unique'
+  edge_cases: Enforced at DB level; codes are scoped to their immediate parent (not globally unique).
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-058
+  merged_from:
+  - RULE-data-BE-04-051
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 56-58
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Aggregated constraint rule. Individual sources: estabelecimento.py:29, setor.py:26, leito.py:58, empresa.py:14,
+    usuario.py:53/18-29, usuario_empresa.py:14, usuario_estabelecimento.py:15, usuario_setor.py:15, usuario_grupo_acesso.py:13,
+    usuario_notificacao.py:13, usuario_setor_paciente.py:15, reacao.py:19, glossario.py:6.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-052
+  name: Observation-by-bed includes replies to that bed
+  category: scheduling-operational
+  type: validation
+  status: OK
+  verify: false
+  description: Filtering observations by leito returns observations on that bed OR replies whose parent observation
+    is on that bed.
+  inputs:
+  - name: leito (id)
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: filtered queryset
+    type: queryset
+    unit: null
+  logic: 'ObservacaoFilter.filter_leito: queryset.filter(Q(leito=value) | Q(resposta__leito=value))'
+  edge_cases: Reply observations may have leito=null but are still included via their parent (resposta__leito).
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-015
+  - RULE-OPERACIONAL-INFRA-016
+  merged_from:
+  - RULE-filter-BE-04-047
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/filters/observacao.py
+    lines: 19-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-053
+  name: UniqueTogetherManagerMixin.save — composite uniqueness excluding soft-deleted rows
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Before saving, for each unique-together field-combo declared in a model's `UniqueTogether.value`
+    (which may be a single flat tuple of field names, or a tuple of such tuples for multiple constraints — depth-detected),
+    builds a Q-filter requiring ALL present (truthy) field values to match, excludes the current row (by pk) and
+    soft-deleted rows (deletado_em__isnull=True); if an `except_has` condition (key or key/value pair) matches the
+    current instance, the check is bypassed entirely for that combo. If a matching non-deleted row exists for a
+    combo where every field produced a truthy filter value, raises ValidationError with a default or custom message.
+  inputs:
+  - name: self.UniqueTogether.value
+    type: tuple of field names, or tuple of tuples
+    unit: null
+  - name: self.UniqueTogether.except_has
+    type: tuple of (key) or (key, value) bypass conditions
+    unit: null
+  outputs:
+  - name: validity
+    type: raises ValidationError otherwise
+    unit: null
+  logic: "FOR unique IN (UniqueTogether.value if nested else [UniqueTogether.value]):\n  args_to_check = []\n  FOR\
+    \ param IN unique:\n    value = getattr(self, param, None)\n    IF value: args_to_check.append(Q(**{param: value}))\n\
+    \  IF len(unique) == len(args_to_check):    # every field in the combo had a truthy value\n    qs = Klass.objects.filter(~Q(pk=self.get_pk),\
+    \ Q(deletado_em__isnull=True), *args_to_check)\n    FOR except_param IN except_has:\n      (key, value) = except_param\
+    \ if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given): qs = Klass.objects.none();\
+    \ BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"Os campos <unique> devem ser únicos\"\
+    )"
+  edge_cases: If ANY field in a combo is falsy (None/empty) on self, that field is omitted from the filter and,
+    because len(unique) != len(args_to_check), the ENTIRE combo check is skipped — a unique-together constraint
+    with any blank component is not enforced at all for that row.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-054
+  merged_from:
+  - RULE-model-BE-11-055
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/models.py
+    lines: 46-113
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Soft-deleted rows (deletado_em not null) are always excluded from the uniqueness check, i.e. a soft-deleted
+    record does not block re-creating a 'duplicate'. Compare RULE-model-BE-11-058 (SetUpModel) which overrides delete()
+    but this mixin's own save() logic is shared by any model class combining it.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-054
+  name: UniqueManagerMixin.save — single-field uniqueness excluding soft-deleted rows
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Before saving, for each field name in a model's `Unique.value`, checks independently (not combined)
+    whether another non-deleted row has the same value for that field (excluding self by pk); raises ValidationError
+    if so, unless an `except_has` bypass condition matches.
+  inputs:
+  - name: self.Unique.value
+    type: tuple of field names, each checked independently
+    unit: null
+  - name: self.Unique.except_has
+    type: tuple of (key) or (key, value) bypass conditions
+    unit: null
+  outputs:
+  - name: validity
+    type: raises ValidationError otherwise
+    unit: null
+  logic: "FOR param IN self.Unique.value:\n  value = getattr(self, param, None)\n  IF value:\n    qs = Klass.objects.filter(~Q(pk=self.get_pk),\
+    \ Q(deletado_em__isnull=True), Q(**{param: value}))\n    FOR except_param IN except_has:\n      (key, value)\
+    \ = except_param if tuple/list else (except_param, None)\n      IF getattr(self, key) == value (when value given):\
+    \ qs = Klass.objects.none(); BREAK\n    IF qs.exists(): RAISE ValidationError(message OR default \"O campo <param>\
+    \ deve ser único\")"
+  edge_cases: A falsy field value (None/empty) is simply never checked for uniqueness (silently skipped), unlike
+    UniqueTogetherManagerMixin where a falsy field skips the WHOLE combo — here each field is independent so only
+    that one field's check is skipped.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-053
+  merged_from:
+  - RULE-model-BE-11-056
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/models.py
+    lines: 116-157
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-055
+  name: popular_banco gender enum (synthetic data)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The synthetic test-data generator draws a random patient gender code from 4 categories: M (male),
+    F (female), O (other), N (not informed).'
+  inputs: []
+  outputs:
+  - name: genero
+    type: string
+    unit: null
+  logic: 'genero_choices = ["M", "F", "O", "N"]
+
+    genero = genero_choices[randint(0, 3)]'
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-OPERACIONAL-INFRA-032
+  - RULE-OPERACIONAL-INFRA-012
+  - RULE-OPERACIONAL-INFRA-013
+  merged_from:
+  - RULE-seed-BE-11-034
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/popular_banco.py
+    lines: 73, 129
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Same provenance caveat as RULE-seed-BE-11-032/033. Meaning of 'O' and 'N' inferred (Other / Não informado)
+    from context, not stated explicitly in code.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-056
+  name: Diagnosis-list checks are non-functional (vars().fromkeys misuse)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Every criterion that tries to test whether a diagnosis string is present/absent in diagnostico_1..4
+    or diag_inter_1..5 builds the candidate set with vars(ultima_evolucao).fromkeys((...field names...)). dict.fromkeys(iterable)
+    returns a NEW dict whose KEYS are the field-name strings (e.g. "diagnostico_1") and whose VALUES are all None;
+    it does NOT read the object's actual field values. Consequently the membership/startswith tests operate on the
+    literal field-name strings (or on all-None .values()), never on real diagnoses.
+  inputs:
+  - name: ultima_evolucao diagnostico_1..4 / diag_inter_1..5
+    type: string fields on DadosBrutosEvolucao
+    unit: null
+    range: null
+  outputs:
+  - name: diagnosis sub-condition
+    type: boolean (effectively constant)
+    unit: null
+  logic: 'candidate = vars(ultima_evolucao).fromkeys(("diagnostico_1","diagnostico_2","diagnostico_3","diagnostico_4"))
+
+    # candidate == {"diagnostico_1": None, ...}  -> keys are field names, values all None
+
+    list(filter(lambda x: x == "DRC em TRS", candidate))            # iterates KEY strings -> always []
+
+    list(filter(lambda x: x.startswith("I64"), candidate))          # iterates KEY strings -> always []
+
+    "SCA - ..." in candidate.fromkeys(...).values()                 # values() all None -> always False
+
+    # => "presence" tests are always False; "not <presence>" (absence) tests are always True.'
+  edge_cases: Systemic; makes presence-of-diagnosis gates unsatisfiable and absence-of-diagnosis gates vacuously
+    satisfied.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-048
+  merged_from:
+  - RULE-systemic-BE-03-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 593-605, 654-666, 722-734
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Same defect recurs in trilha_estabilidade.py c13 (I64 startswith, lines 692-704), trilha_eficiencia.py
+    c3/c4/c5/c6/c7 (SCA/I64/antecedentes, lines 456-487, 521-552, 588-607, 698-713, 770-785), trilha_profilaxia.py
+    c1 (diagnosticos_intern, lines 259-271), and trilha_sepse.py c8/c9/c10. Flagged individually in each affected
+    criterion rule.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-174
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-OPERACIONAL-INFRA-057
+  name: upload_to — model-type-based storage folder convention
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Determines the storage sub-folder prefix for an uploaded file based on the type of the owning model
+    instance: Usuario -> ''usuario'', ObservacaoArquivo -> ''observacao'', Empresa -> ''empresa'', Formulario ->
+    ''formulario-<instance.tipo>''. If the instance type matches none of these, raises a ValidationError instructing
+    that a prefix must be set.'
+  inputs:
+  - name: instance
+    type: Django model instance (Usuario | ObservacaoArquivo | Empresa | Formulario | other)
+    unit: null
+  - name: filename
+    type: string
+    unit: null
+  outputs:
+  - name: path
+    type: string
+    unit: null
+  logic: 'prefix = ""
+
+    IF isinstance(instance, Usuario): prefix = "usuario"
+
+    ELIF isinstance(instance, ObservacaoArquivo): prefix = "observacao"
+
+    ELIF isinstance(instance, Empresa): prefix = "empresa"
+
+    IF isinstance(instance, Formulario): prefix = "formulario-" + instance.tipo   # note: independent `if`, not
+    `elif`
+
+    IF NOT prefix: RAISE ValidationError({"file": "Não foi possível fazer upload, coloque um prefixo para pasta."})
+
+    RETURN "{prefix}/{instance.pk}-{filename}"'
+  edge_cases: The Formulario check is a separate `if`, not chained via `elif` to the preceding Usuario/ObservacaoArquivo/Empresa
+    checks — harmless in practice since the four types are mutually exclusive classes, but notable as the only branch
+    NOT part of the elif chain.
+  confidence: high
+  merged_from:
+  - RULE-util-BE-11-043
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/handlers.py
+    lines: 76-96
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-058
+  name: verificar_setor_da_empresa — tenant-hierarchy consistency check
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: For each Setor whose pk is in a given list, validates that its estabelecimento's empresa matches
+    the given empresa; raises a ValidationError naming the offending setor if not.
+  inputs:
+  - name: setores
+    type: list of Setor pks
+    unit: null
+  - name: empresa
+    type: Empresa instance
+    unit: null
+  outputs:
+  - name: validity
+    type: raises ValidationError otherwise
+    unit: null
+  logic: "FOR setor IN Setor.objects.filter(pk__in=setores):\n  IF setor.estabelecimento.empresa != empresa:\n \
+    \   RAISE ValidationError({\"setores\": f\"O setor {setor.nome} não pertence a empresa {empresa.nome}.\"})"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-051
+  merged_from:
+  - RULE-util-BE-11-044
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/handlers.py
+    lines: 99-106
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Conceptually duplicates the tenant-hierarchy checks performed at the HTTP-request level by EstabelecimentoMiddleware/SetorMiddleware
+    (RULE-mw-BE-11-060, 061) — same business rule enforced in two different layers (explicit call-site validation
+    vs URL-path middleware).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-059
+  name: Per-company auto-refresh interval field
+  category: scheduling-operational
+  type: threshold
+  status: AMBIGUOUS
+  verify: false
+  description: Each company (Usuario.Empresa) carries a numeric "tempo_atualizacao" (update time/interval) field,
+    presumably configuring how often the UI should auto-refresh/poll for that company's data, but its unit (seconds
+    vs milliseconds) and the code that actually applies it are not present in this partition.
+  inputs:
+  - name: tempo_atualizacao
+    type: number
+    unit: unknown — presumed seconds
+    range: null
+  outputs:
+  - name: tempo_atualizacao
+    type: number
+    unit: unknown
+  logic: 'Usuario.Empresa.tempo_atualizacao: number   // consumed by an auto-reload mechanism out of this partition''s
+    scope
+
+    '
+  edge_cases: Not applied anywhere within this partition's files (AutoReloadContext in this partition only exposes
+    a generic update/setUpdate boolean toggle with no interval/timer logic of its own).
+  confidence: low
+  merged_from:
+  - RULE-usuario-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/User.d.ts
+    lines: 34-34
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Field name suggests a polling interval per the scope instructions' explicit callout of "polling intervals";
+    the consuming logic likely lives in a component/page file outside this hooks/contexts/@types partition.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-342
+    band: AMBIGUOUS
+    title: scheduling-operational
+    excerpt: Per-company auto-refresh interval field
+- id: RULE-OPERACIONAL-INFRA-060
+  name: TasyModel Oracle database routing (reads and writes forced to the 'oracle' connection)
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: Any model mixing in the abstract TasyModel is force-routed to the legacy Oracle 'Tasy' EMR database.
+    Its default manager (TasyModelManager) appends .using("oracle") in get_queryset() so all reads hit Oracle, and
+    TasyModel.save() forces kwargs["using"]="oracle" so all writes hit Oracle, instead of the default Postgres connection.
+    A second manager, objects_without_request, is a plain models.Manager() without the Oracle routing.
+  inputs:
+  - models mixing in TasyModel
+  - database aliases 'oracle' (Tasy) and default (Postgres)
+  outputs:
+  - all TasyModel reads/writes routed to the 'oracle' connection
+  logic: "class TasyModelManager(models.Manager):\n    def get_queryset(self):\n        return super().get_queryset().using(\"\
+    oracle\")    # reads -> oracle\n\nclass TasyModel(models.Model):\n    objects = TasyModelManager()         \
+    \                 # default manager -> oracle\n    objects_without_request = models.Manager()            # plain\
+    \ manager (no forced oracle)\n    class Meta:\n        abstract = True\n    def save(self, *args, **kwargs):\n\
+    \        kwargs[\"using\"] = \"oracle\"                        # writes -> oracle (overrides caller)\n     \
+    \   super().save(*args, **kwargs)\n"
+  edge_cases: save() unconditionally overwrites kwargs["using"] with "oracle", so even a caller explicitly passing
+    using="default" is silently redirected to Oracle. Reads via the default `objects` manager go to Oracle; the
+    `objects_without_request` manager bypasses the routing and uses the default database. Being abstract, this applies
+    to every concrete model that inherits TasyModel.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-017
+  - RULE-OPERACIONAL-INFRA-018
+  - RULE-OPERACIONAL-INFRA-053
+  merged_from:
+  - RULE-gap6-07
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/models.py
+    lines: 263-277
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Sibling mixins in the same file (ParanoiaMixin soft-delete 193-243, SetUpModel 245-261, uniqueness mixins
+    46-157) are captured as RULE-OPERACIONAL-INFRA-017/018/053/054, but this Oracle-routing convention had no corresponding
+    rule.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-061
+  name: Request-body upload size cap (DATA_UPLOAD_MAX_MEMORY_SIZE = 100 MiB)
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: Django DATA_UPLOAD_MAX_MEMORY_SIZE is set to 104857600 bytes (100 MiB = 100 * 1024 * 1024), capping
+    the maximum size of an incoming request body Django will read before raising RequestDataTooBig. Governs clinical
+    PDF/attachment and formulario file uploads (handled via utils/pdfs.py and formulario file inputs).
+  inputs:
+  - incoming request body size (bytes)
+  outputs:
+  - accept vs reject (RequestDataTooBig) decision
+  logic: 'DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600   # bytes = 100 * 1024 * 1024 = 100 MiB
+
+    '
+  edge_cases: Per Django semantics this caps the aggregate request body (notably non-file form data and the total
+    upload); requests exceeding 100 MiB are rejected before view code runs. FILE_UPLOAD_MAX_MEMORY_SIZE (the in-memory
+    vs temp-file streaming threshold) is not set here, so it keeps its Django default.
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-062
+  merged_from:
+  - RULE-gap6-11
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/settings.py
+    lines: '236'
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Only settings.py lines 173-181 and 183 were previously cited for this file (plus 245 PIN_DEFAULT via RULE-AUTH-USUARIOS-062);
+    this upload-size validation constraint was uncovered.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-OPERACIONAL-INFRA-062
+  name: Per-environment uWSGI worker capacity and recycling thresholds
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: Per-environment uWSGI worker/process capacity and recycling thresholds. Production runs workers=4/processes=4;
+    demo runs workers=2/processes=2; old runs workers=2/processes=4. All three set max-requests=1000 (recycle a
+    worker after 1000 requests) and idle=3600 (recycle idle workers after 3600s). harakiri (request timeout) is
+    360s in prod and demo, and is DISABLED in old (the ';harakiri=60' line is commented out).
+  inputs:
+  - deployment environment (prod / demo / old)
+  outputs:
+  - uWSGI workers, processes, max-requests, harakiri, idle values
+  logic: '# param          prod (uwsgi-prod.ini:6-16)   demo (uwsgi-demo.ini:6-16)   old (uwsgi-old.ini:6-15)
+
+    workers        = 4                            2                            2
+
+    processes      = 4                            2                            4
+
+    max-requests   = 1000                         1000                         1000
+
+    harakiri       = 360                          360                          (;harakiri=60 -> disabled)
+
+    idle           = 3600                         3600                         3600
+
+    '
+  edge_cases: harakiri is disabled in uwsgi-old.ini (the line is commented out), so a hung request there is never
+    force-killed, unlike the 360s cap in prod/demo. old.ini is asymmetric (workers=2 but processes=4) vs prod (4/4)
+    and demo (2/2). max-requests=1000 recycles each worker after 1000 requests (leak mitigation); idle=3600 recycles
+    workers idle for more than one hour; harakiri=360 kills any request exceeding 360 seconds.
+  confidence: high
+  related:
+  - RULE-OPERACIONAL-INFRA-025
+  - RULE-OPERACIONAL-INFRA-047
+  merged_from:
+  - RULE-gap6-12
+  sources:
+  - repo: ahlabs-trilhas
+    path: uwsgi/uwsgi-prod.ini
+    lines: 6-16
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: uwsgi/uwsgi-demo.ini
+    lines: 6-16
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: ahlabs-trilhas
+    path: uwsgi/uwsgi-old.ini
+    lines: 6-15
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Only the attach-daemon queue/worker list (lines ~20-33) was previously cited (RULE-OPERACIONAL-INFRA-025/047);
+    the per-environment worker/process capacity and recycling thresholds (workers/processes/max-requests/harakiri/idle)
+    were uncovered.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

@@ -1,0 +1,142 @@
+{
+  "brief_id": "cluster-nutricao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/nutricao.yaml",
+    "lines": 565,
+    "read_complete": true
+  },
+  "facts": [
+    {
+      "id": "CLU-NUTRICAO-01",
+      "claim": "11 rules: BMI computation, FOIS 7-level oral intake, care pathway (GRV/vasopressor/transfusion thresholds), diet & SUP enums. Backend/frontend enum pairs replicate verbatim; no divergence.",
+      "kind": "entity",
+      "source_ref": "nutricao.yaml §1-565"
+    },
+    {
+      "id": "CLU-NUTRICAO-02",
+      "claim": "Critical dead code: RULE-NUTRICAO-004 AMARELO unreachable (`amarelo > 2` but max=2). Hinting: commented-out criterio_11/12 suggest boundary predates removal.",
+      "kind": "policy",
+      "source_ref": "RULE-NUTRICAO-004 §177-199"
+    },
+    {
+      "id": "CLU-NUTRICAO-03",
+      "claim": "Embedded thresholds: GRV 500 ml/6h (ASPEN/SCCM 2016), noradrenaline >30 ml/h, transfusion Hb<7, SUP VM>72h (ASHP 1999 vs SCCM 2024 conflict).",
+      "kind": "threshold",
+      "source_ref": "RULE-NUTRICAO-003, -006"
+    },
+    {
+      "id": "CLU-NUTRICAO-04",
+      "claim": "Systemic issues: BMI unguarded Infinity (altura=0); HGT max/min uncross-validated; Volume_prescrito_* capitalized; GRV unit window implicit.",
+      "kind": "policy",
+      "source_ref": "RULE-NUTRICAO-001, -005, -007"
+    },
+    {
+      "id": "CLU-NUTRICAO-05",
+      "claim": "Status: 10 OK, 1 DISCREPANCY; Verdict: 2 VERIFIED, 3 DISCREPANCY, 6 NOT_APPLICABLE; Type: 5 decision-tree, 1 each formula/scoring/threshold/eligibility, 2 validation.",
+      "kind": "metric",
+      "source_ref": "nutricao.yaml"
+    },
+    {
+      "id": "CLU-NUTRICAO-06",
+      "claim": "PT-BR vocab to preserve: FOIS nivel1-7, diet routes (dieta_zero/via_oral/enteral_sne_gtt/parenteral), acceptance (total/parcial/recusado), prophylaxis (dva/tce/avc/queimado/jejum_prolongado/nao_indicado/terapeutico/vm_mais_72h), risk (lpp/broncoaspiracao/alergia_alimentar).",
+      "kind": "vocabulary",
+      "source_ref": "RULE-NUTRICAO-002, -005, -006, -010"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "CLU-NUTRICAO-C-01",
+      "text": "MUST preserve PT-BR clinical vocab verbatim (FOIS, diet routes, acceptance, prophylaxis, risk flags).",
+      "type": "naming",
+      "source_ref": "RULE-NUTRICAO-002, -005, -006, -010"
+    },
+    {
+      "id": "CLU-NUTRICAO-C-02",
+      "text": "MUST assign GRV 500 ml/6h (ASPEN/SCCM 2016). Clarify unit: ml/6h vs last-6h implicit window.",
+      "type": "unit",
+      "source_ref": "RULE-NUTRICAO-003"
+    },
+    {
+      "id": "CLU-NUTRICAO-C-03",
+      "text": "MUST resolve RULE-NUTRICAO-004 dead code: grow criteria, reduce to 2-color, or document why AMARELO unreachable.",
+      "type": "invariant",
+      "source_ref": "RULE-NUTRICAO-004"
+    },
+    {
+      "id": "CLU-NUTRICAO-C-04",
+      "text": "MUST guard BMI: altura=0 & peso>0 → \"Infinity\". Either reject altura=0 or catch in fallback.",
+      "type": "invariant",
+      "source_ref": "RULE-NUTRICAO-001"
+    }
+  ],
+  "load_bearing": [
+    {
+      "id": "RULE-NUTRICAO-003",
+      "what": "10-criterion pathway (diet, SNE, tolerance, diarrhea, vasopressor, GI-bleed, NPT, insulin); GRV 500ml/6h, noradrenaline >30ml/h, Hb<7 & plt<150k",
+      "verdict": "DISCREPANCY"
+    },
+    {
+      "id": "RULE-NUTRICAO-004",
+      "what": "Nutrition alert coloring: AMARELO unreachable, VERMELHO OK, NEUTRO OK",
+      "verdict": "NOT_APPLICABLE (dead)"
+    },
+    {
+      "id": "RULE-NUTRICAO-001",
+      "what": "BMI = peso/altura^2, live on field change, 2-decimal string; edge case altura=0",
+      "verdict": "VERIFIED"
+    },
+    {
+      "id": "RULE-NUTRICAO-005",
+      "what": "Frontend nutrition assessment: diet routes, acceptance enum, vomit/GRV/HGT ranges, SUP enum (vm_mais_72h)",
+      "verdict": "DISCREPANCY"
+    },
+    {
+      "id": "RULE-NUTRICAO-002",
+      "what": "FOIS 7-level ordinal (nil-oral to unrestricted)",
+      "verdict": "VERIFIED"
+    },
+    {
+      "id": "RULE-NUTRICAO-006",
+      "what": "SUP eligibility enum (8 values including vm_mais_72h)",
+      "verdict": "DISCREPANCY"
+    }
+  ],
+  "systemic": [
+    {
+      "issue": "dead-code",
+      "desc": "RULE-NUTRICAO-004: amarelo > 2 never true (max=2)",
+      "rules": ["RULE-NUTRICAO-004"]
+    },
+    {
+      "issue": "edge-unguarded",
+      "desc": "RULE-NUTRICAO-001: altura=0 & peso>0 → \"Infinity\" string",
+      "rules": ["RULE-NUTRICAO-001"]
+    },
+    {
+      "issue": "validation-gap",
+      "desc": "RULE-NUTRICAO-005: HGT max/min not cross-validated",
+      "rules": ["RULE-NUTRICAO-005"]
+    },
+    {
+      "issue": "case-sensitivity",
+      "desc": "RULE-NUTRICAO-007: Volume_prescrito_* capitalized vs snake_case",
+      "rules": ["RULE-NUTRICAO-007"]
+    },
+    {
+      "issue": "unit-ambiguity",
+      "desc": "RULE-NUTRICAO-003: GRV ml/6h window implicit; vasopressor needs weight context",
+      "rules": ["RULE-NUTRICAO-003"]
+    }
+  ],
+  "v2_domains": ["early-warning-scores", "sepsis", "hemodynamics", "electrolyte", "governance", "platform"],
+  "pt_br_vocab": {
+    "FOIS": "nivel1-7",
+    "diet_routes": "dieta_zero | dieta_via_oral | enteral_sne_gtt | nutricao_parenteral",
+    "acceptance": "total | parcial | recusado",
+    "prophylaxis": "dva | tce | avc | queimado | jejum_prolongado | nao_indicado | terapeutico | vm_mais_72h",
+    "risk": "lpp | broncoaspiracao | alergia_alimentar",
+    "intolerance": "sim | nao | desconhece"
+  },
+  "notes": "Lightweight (11 rules); tight backend/frontend enum alignment. One critical dead-code defect (AMARELO). Thresholds carry published anchors but diverge from SCCM 2024 (MV-alone SUP de-emphasis). Feeds 6 v2 domains."
+}

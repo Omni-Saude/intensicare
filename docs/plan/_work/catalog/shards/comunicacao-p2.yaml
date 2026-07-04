@@ -1,0 +1,1090 @@
+shard: comunicacao-p2
+cluster: comunicacao
+rule_count: 23
+rules_with_escalations: 5
+rules:
+- id: RULE-COMUNICACAO-024
+  name: WebSocket-driven feed auto-refresh policy
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The homecare activity feed listens on a WebSocket for update notifications. When a message with
+    update === true arrives, the feed is only auto-refreshed and scrolled to top if the user has NOT scrolled away
+    from the top of the feed (scrollTop === 0); if the user has scrolled down, no auto-refresh happens (a manual
+    "Novas Atualizações" button is shown instead, per the surrounding UI).
+
+    '
+  inputs:
+  - name: ws message payload .update
+    type: boolean
+    unit: null
+  - name: feed scroll position (element#feed.scrollTop)
+    type: number
+    unit: pixels
+  outputs:
+  - name: feed refreshed / scrolled
+    type: boolean
+    unit: null
+  logic: "ws.onmessage = ({ data }) => {\n  parsed = JSON.parse(data)\n  checkScroll()                 // updates\
+    \ feedRolled state\n  if (parsed.update === true) {\n    rolled = checkScroll()      // rolled = (scrollTop\
+    \ !== 0)\n    if (!rolled) {\n      _getFeed()\n      scrollToTop()\n    }\n  }\n}\n"
+  edge_cases: 'checkScroll returns undefined if the #feed DOM element is not present (e.g. before first render);
+    the `!rolled` check would then be `!undefined` = true, causing a refresh attempt.
+
+    '
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-025
+  - RULE-COMUNICACAO-026
+  merged_from:
+  - RULE-feed-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/feed/index.tsx
+    lines: 66-149
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-025
+  name: Feed pagination thresholds
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The activity feed initially loads 20 items (offset 0, limit 20). Additional pages are loaded 20
+    at a time via a "Mais" (load more) button, which is only shown once at least 20 items are loaded and there are
+    more items available (nextOffset <= total count).
+
+    '
+  inputs:
+  - name: offset
+    type: number
+    unit: items
+    range: '>= 0, default 0'
+  - name: limit
+    type: number
+    unit: items
+    range: default 20
+  - name: count (total items available)
+    type: number
+    unit: items
+  outputs:
+  - name: load-more button visibility
+    type: boolean
+    unit: null
+  logic: "initial fetch: _getFeed(offset=0, limit=20)\non success with offset===0 && limit===20:\n  feed = data.results;\
+    \ count = data.count; nextOffset = 20\non success otherwise (subsequent pages):\n  feed = [...feed, ...data.results];\
+    \ nextOffset += 20\n\nshow \"Mais\" button IF (feed.length >= 20 AND nextOffset <= count)\nonClick \"Mais\"\
+    : _getFeed(nextOffset)   // limit defaults to 20\n"
+  edge_cases: 'If the backend returns fewer than 20 results on the very first page, feed.length < 20 so the load-more
+    button is never shown even if count implies more exist elsewhere (feed.length gate, not count-based alone).
+
+    '
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-021
+  - RULE-COMUNICACAO-024
+  merged_from:
+  - RULE-feed-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/feed/index.tsx
+    lines: 100-134, 230-242
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-026
+  name: Hardcoded neutral-alert mock pathways in feed drawer
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: 'When opening the recommendations drawer from a feed item, the feed page passes a hardcoded array
+    of four "mock" care pathways (trilhasMock) — Reinternação, Alta Melhorada, Segurança do paciente, Restrições
+    alimentares — each with a fixed alerta value of "NEUTRO", instead of deriving pathway/alert state from the actual
+    occupancy data returned for that patient.
+
+    '
+  inputs: []
+  outputs:
+  - name: trilhasMock
+    type: array of 4 Trilha objects
+    unit: null
+  logic: "trilhasMock = [\n  { nome: \"Reinternação\",             tipo: \"reinternacao\",          alerta: \"NEUTRO\"\
+    , id: \"0\" },\n  { nome: \"Alta Melhorada\",            tipo: \"alta_melhorada\",        alerta: \"NEUTRO\"\
+    , id: \"1\" },\n  { nome: \"Segurança do paciente\",      tipo: \"seguranca_paciente\",    alerta: \"NEUTRO\"\
+    , id: \"2\" },\n  { nome: \"Restrições alimentares\",     tipo: \"restricoes_alimentares\",alerta: \"NEUTRO\"\
+    , id: \"3\" },\n]\n<TabRecomendacoes trilhasMock={trilhasMock} ... ocupacao={drawerContent.data} .../>\n"
+  edge_cases: 'Because alerta is fixed to "NEUTRO" for all four pathways regardless of the patient''s actual clinical
+    state, any alert-coloring/urgency logic inside TabRecomendacoes (out of FE-08 scope) driven by these four mock
+    entries will always render as neutral for feed-opened drawers, even if the patient truly has an active/urgent
+    alert on one of these pathways.
+
+    '
+  confidence: medium
+  related:
+  - RULE-COMUNICACAO-024
+  - RULE-COMUNICACAO-025
+  merged_from:
+  - RULE-feed-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/feed/index.tsx
+    lines: 155-181, 263-274
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Recorded verbatim; flagged as a likely-unfinished/stub implementation rather than corrected, per ground
+    rules. Only this feed page passes trilhasMock; other pages that render TabRecomendacoes (chats/index.tsx, setor/[id_setor].tsx)
+    do not pass this prop.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-115
+    band: P3
+    title: care-pathway
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-COMUNICACAO-027
+  name: Reaction hard-delete override
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Deleting a reaction bypasses normal (soft-delete) semantics by calling delete(force_delete=True),
+    permanently removing the row.
+  inputs: []
+  outputs: []
+  logic: "def perform_destroy(instance):\n    instance.delete(force_delete=True)\n"
+  edge_cases: Contrasts with the soft-delete convention seen elsewhere (e.g. objects_without_deleted managers, is_active
+    flags on Usuario) - reactions are truly hard-deleted.
+  confidence: medium
+  related:
+  - RULE-COMUNICACAO-038
+  - RULE-COMUNICACAO-001
+  merged_from:
+  - RULE-reacao-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/reacao.py
+    lines: 35-36
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: force_delete kwarg implies the underlying model's default .delete() is a soft-delete; the model itself
+    is out of this partition's scope.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-028
+  name: Online-call roster filtered to users currently in call
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The "Usuários na sala" list for a sector''s video room is populated from Firestore users under that
+    sector filtered to online_call === true, i.e. only users who are presently marked as being in the call are listed;
+    if none are online, an empty-state is shown instead.
+
+    '
+  inputs:
+  - name: Firestore path /chats/{setor.id}/usuarios/ documents where online_call === true
+  outputs:
+  - name: usersOnline
+    type: Models.Usuario.UserFirebase[]
+  logic: "useCollection({ path: `/chats/${setor.id}/usuarios/`, initialFilter: ref => ref.where(\"online_call\"\
+    ,\"==\",true) })\nrender: if usersOnline.length > 0: list each user (with a green \"online\" Ball + avatar +\
+    \ name)\n        else: show Divider + Empty(\"Nenhum usuário na sala\")\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-016
+  - RULE-COMUNICACAO-029
+  - RULE-COMUNICACAO-030
+  - RULE-COMUNICACAO-044
+  merged_from:
+  - RULE-video-FE-05-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BuildVideoChat/BuildVideoChat.tsx
+    lines: 34-37,113-146
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-029
+  name: Video call auto-leaves on route change
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'While in an active video call, if the user starts navigating to a different Next.js route, the call-leave
+    handler is invoked automatically so the user does not remain connected to the call after leaving the page.
+
+    '
+  inputs:
+  - name: Next.js Router "routeChangeStart" event
+  outputs:
+  - name: onLeave() invocation
+    type: side effect
+  logic: 'Router.events.on("routeChangeStart", () => { onLeave(); })   // registered on every render of Controls
+
+    '
+  edge_cases: 'The listener is registered unconditionally on every render (not inside a useEffect and not cleaned
+    up/removed), so repeated renders of Controls attach additional "routeChangeStart" listeners, each of which will
+    independently call onLeave() on the next route change.
+
+    '
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-028
+  - RULE-COMUNICACAO-030
+  - RULE-COMUNICACAO-031
+  merged_from:
+  - RULE-video-FE-05-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BuildVideoChat/VideoCall/Controls/Controls.tsx
+    lines: 59-61
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Flagged for a verifier as a likely resource/listener leak (missing useEffect + cleanup / Router.events.off),
+    recorded as implemented rather than corrected.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-030
+  name: Single-join guard and forced reload after leaving a call
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The Agora video-call session only calls client.join(...) once per "canJoin" cycle (guarded by a
+    canJoin flag flipped to false immediately after joining), and forces a full browser page reload immediately
+    after a user leaves the call/closes tracks.
+
+    '
+  inputs:
+  - name: canJoin (state, initial true)
+  - name: ready, tracks (Agora hook state)
+  outputs:
+  - name: client.join(appId, channelName, token, null) invocation
+    type: side effect
+  - name: window.location.reload()
+    type: side effect
+  logic: "effect on [channelName, client, ready, tracks]:\n  if ready && tracks: init(channelName)\ninit(name):\n\
+    \  register user-published/unpublished/left handlers\n  if canJoin:\n    await client.join(appId, name, token,\
+    \ null)\n    if tracks: await client.publish([tracks[0], tracks[1]])\n    canJoin = false\n    start = true\n\
+    leaveChannel():\n  await client.leave(); await offlineUser(); client.removeAllListeners()\n  if tracks: tracks[0].close();\
+    \ tracks[1].close()\n  setInCall(false); canJoin = true\n  window.location.reload()      // unconditional full\
+    \ page reload after leaving\n"
+  edge_cases: 'Because window.location.reload() runs unconditionally at the end of leaveChannel, any further in-memory
+    app state is discarded and the whole SPA reloads from scratch every time a user leaves a video call, not just
+    on error paths.
+
+    '
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-028
+  - RULE-COMUNICACAO-029
+  merged_from:
+  - RULE-video-FE-05-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BuildVideoChat/VideoCall/VideoCall.tsx
+    lines: 27,32-77,79-90
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-031
+  name: Video-call room exit confirmation guard
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: While a video-call room has unsaved-changes state active (defaulting to true), both browser tab-close/refresh
+    and in-app route navigation are intercepted with a confirmation prompt asking "Deseja sair da sala de video
+    chamada?" (Do you want to leave the video call room?); confirming an in-app navigation additionally invokes
+    an onLeaveConfirm callback.
+  inputs:
+  - name: unsavedChanges
+    type: boolean
+    unit: null
+    range: default true
+  outputs:
+  - name: navigation/unload block or allow
+    type: boolean (route change aborted or allowed)
+    unit: null
+  logic: "message = \"Deseja sair da sala de video chamada?\"\non beforeunload: if unsavedChanges: preventDefault();\
+    \ returnValue = message\non routeChangeStart(url):\n  if Router.asPath != url AND unsavedChanges AND NOT confirm(message):\n\
+    \    emit \"routeChangeError\"; Router.replace(Router, Router.asPath); throw (abort navigation)\n  if confirm(message):\n\
+    \    onLeaveConfirm()\n"
+  edge_cases: confirm(message) is called up to twice in the same routeChangeStart handler (once inside the abort-condition
+    check, once again unconditionally afterward) — meaning the user could see the native confirm dialog twice for
+    a single navigation attempt if the first confirm() returns true (the abort branch's `!confirm(...)` short-circuits
+    to false, so the code falls through to the second unconditional `if (confirm(message))`, prompting again).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-029
+  - RULE-COMUNICACAO-030
+  merged_from:
+  - RULE-video-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useWarnIfUnsavedChanges.ts
+    lines: 4-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Recorded verbatim; the double-confirm() behavior looks unintentional but is reproduced exactly as implemented,
+    per ground rules.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-032
+  name: Real-time telemedicine dependency stack (Agora RTC + Firebase + websocket)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'package.json pins agora-rtc-react ^1.1.1 (Agora.io real-time video/audio conferencing SDK for React),
+    firebase ^8.7.1 (used for storage — see RULE-DATA-FE-09-004''s firebasestorage.googleapis.com whitelist — and
+    likely realtime DB/auth), and the raw websocket ^1.0.34 package, alongside chart.js/react-chartjs-2 (vitals/dashboard
+    charting), downloadjs (report/ file downloads), antd-mask-input (masked form inputs, e.g. Brazilian document/phone
+    formats), and nprogress (route-transition loading bar). Together these indicate the product ("teleUTI") supports
+    live video/audio tele-consultation and real-time data synchronization as a core care-delivery workflow.
+
+    '
+  inputs: []
+  outputs: []
+  logic: "dependencies include: {\n  \"agora-rtc-react\": \"^1.1.1\",   # live video/audio calls\n  \"firebase\"\
+    : \"^8.7.1\",          # storage/realtime/auth backend\n  \"websocket\": \"^1.0.34\",        # additional realtime\
+    \ channel\n  \"chart.js\"/\"react-chartjs-2\": \"^3.9.1\"/\"^4.3.1\",  # vitals/analytics charts\n  \"downloadjs\"\
+    : \"^1.4.7\",        # client-side file download (e.g. PDF reports)\n  \"antd-mask-input\": \"^2.0.7\"    #\
+    \ masked inputs (e.g. CPF/phone)\n}\n"
+  edge_cases: 'This is inferred purely from the dependency manifest; the actual call sites, video-call business
+    rules (e.g. who can initiate a call, session limits), and mask patterns are implemented in files outside this
+    partition''s scope and were not examined here.
+
+    '
+  confidence: medium
+  related:
+  - RULE-COMUNICACAO-016
+  - RULE-COMUNICACAO-028
+  - RULE-COMUNICACAO-029
+  - RULE-COMUNICACAO-030
+  merged_from:
+  - RULE-CAREPATH-FE-09-009
+  sources:
+  - repo: trilhas-frontend
+    path: package.json
+    lines: 20-46
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Dependency-manifest-only evidence per task instructions ("dependency pins with business significance").
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-033
+  name: checado_por_id always forced to the requesting user
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: ChecagemObservacaoViewSet.manage_data overwrites checado_por_id with the current authenticated user's
+    pk, preventing a client from checking off an observation on someone else's behalf.
+  inputs:
+  - name: request.user.pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: data.checado_por_id
+    type: uuid
+    unit: null
+  logic: 'data = super().manage_data(request, *args, **kwargs)
+
+    data["checado_por_id"] = str(request.user.pk)
+
+    return data
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-006
+  - RULE-COMUNICACAO-014
+  merged_from:
+  - RULE-checagem-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/checagem_observacao.py
+    lines: 20-25
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-034
+  name: Validacao de leito para acao de feed homecare
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Validates that a feed action is only registered for a homecare-type bed; a second guard intended
+    to block actions on unoccupied beds is present but unreachable.
+  inputs:
+  - name: self.leito.tipo
+    type: enum
+    unit: null
+    range: null
+  - name: self.leito.ocupado
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: raises ValidationError or passes
+    type: control-flow
+    unit: null
+  logic: "if self.leito.tipo != \"homecare\":\n    raise ValidationError(\"Apenas leitos de homecare podem ter acoes\
+    \ do feed registradas\")\nif not self.leito.ocupado:\n    if self.leito.tipo != \"homecare\":          # always\
+    \ False here (tipo already == \"homecare\")\n        raise ValidationError(\"Leitos ocupados nao podem ter acoes\
+    \ registradas\")\n"
+  edge_cases: 'The inner condition can never be True because the first check already guaranteed tipo == "homecare";
+    therefore the "unoccupied bed" validation NEVER fires (dead code).
+
+    '
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-003
+  - RULE-COMUNICACAO-012
+  - RULE-COMUNICACAO-035
+  merged_from:
+  - RULE-feed-BE-06-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/acao_homecare.py
+    lines: 117-128
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: "DISCREPANCY: the nested `if self.leito.tipo != \"homecare\"` inside the `if not self.leito.ocupado` block\
+    \ is dead code; the intended rule (block feed actions on unoccupied beds) is not enforced. Also validar_leito()\
+    \ is defined but not called from save() in this file (save only sets paciente and builds mensagem, lines 107-115).\n\
+    \ | RECONCILED: confirmed directly against trilha_homecare/models/acao_homecare.py (docstring: \"Modelo do feed\
+    \ do homecare\") that (a) validar_leito()'s inner 'unoccupied bed' check is dead code as originally flagged,\
+    \ AND (b) validar_leito() itself is never invoked anywhere in save() (save() only sets self.paciente and builds\
+    \ self.mensagem) — so BOTH the outer 'must be homecare bed' and inner 'must be occupied' guards are entirely\
+    \ unenforced at the model layer, not merely the inner one. Same model/serializer family as RULE-COMUNICACAO-003."
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-154
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-COMUNICACAO-035
+  name: Homecare feed action-type vocabulary — acaoDict render map vs Feed.Acao TS union
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: The setor activity feed renders each recorded 'ação' using a fixed dictionary mapping raw action
+    keys to pt-BR display labels (acaoDict, 8 keys). Separately, the shared TypeScript model declares the closed
+    Feed.Acao union type consumed by Feed.acoes — but that union only enumerates 7 values, omitting 'editar' even
+    though acaoDict maps 'editar' -> 'Editar' and force-casts itself `as Record<Models.Feed.Acao, string>`.
+  inputs:
+  - name: acao
+    type: 'Models.Feed.Acao (declared: 7 values) at runtime rendered against an 8-key dict'
+    unit: null
+  outputs:
+  - name: displayed label
+    type: string
+  - name: acao
+    type: string enum
+  logic: "// FeedBallon.tsx:28-39 (render map — 8 keys)\nacaoDict = {\n  criar: \"Criar\", alterar: \"Alterar\"\
+    , editar: \"Editar\", inativar: \"Inativar\",\n  assinar: \"Assinar\", liberar: \"Liberar\", administrar: \"\
+    Administrar\",\n  nao_administrar: \"Não Administrar\"\n} as Record<Models.Feed.Acao, string>\nrender: itemFeed.acoes.map(acao\
+    \ => Tag(color=\"cyan\", acaoDict[acao]))\n\n// src/@types/models/Feed.d.ts:25-32 (declared union — 7 values,\
+    \ no 'editar')\ntype Feed.Acao =\n  | \"criar\" | \"alterar\" | \"inativar\" | \"assinar\"\n  | \"liberar\"\
+    \ | \"administrar\" | \"nao_administrar\"\n"
+  edge_cases: 'No fallback/default label is used for an unrecognized acao value — acaoDict[acao] would be undefined
+    and the Tag would render with empty text rather than the raw key or a placeholder. Separately: the ''as Record<Models.Feed.Acao,
+    string>'' cast on an object literal with an EXTRA key (''editar'') beyond the declared union bypasses TypeScript''s
+    excess-property check (assertions, unlike direct annotations, don''t flag this), so this divergence would not
+    surface as a compile error.'
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-034
+  - RULE-COMUNICACAO-003
+  divergence: acaoDict (FeedBallon.tsx) implements 8 action keys including 'editar' -> 'Editar'; the Feed.Acao TS
+    union (Feed.d.ts) declares only 7 values and omits 'editar' entirely. Either the type declaration is stale (the
+    backend/model can emit an 'editar' action that renders correctly here but is not type-recognized anywhere else
+    consuming Feed.Acao) or 'editar' is unreachable dead code in the dictionary — confirmed by direct inspection
+    of both files at the pinned frontend commit.
+  merged_from:
+  - RULE-feed-FE-05-001
+  - RULE-feed-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FeedBallon/FeedBallon.tsx
+    lines: 28-39,161-170
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/Feed.d.ts
+    lines: 25-32
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: 'The Models.Feed.Acao type definition itself is out of this partition''s scope; the enumerated keys are
+    inferred solely from this dictionary''s literal keys. | administrar/nao_administrar align with Prescricao''s
+    administrado boolean lifecycle (RULE-prescricao-FE-07-001); assinar/liberar align with the signing/release themes
+    seen in BalancoHidrico and Evolucao.Status. | Reconciled during Phase-2: the Models.Feed.Acao type definition
+    (out of the original FE-05 partition''s scope) was located and compared directly against acaoDict''s literal
+    keys — divergence confirmed, not merely inferred.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-155
+    band: P3
+    title: data-validation
+    excerpt: acaoDict (FeedBallon.tsx) implements 8 action keys including 'editar' -> 'Editar'; the Feed.Acao TS
+      union (Feed.d.ts) declares only 7 values and omits 'editar' entirely. Either the type declaration is stale
+      (the backend/model can emit an…
+- id: RULE-COMUNICACAO-036
+  name: Chat/feed emoji-reaction enumeration
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Reactions to a chat/feed message are restricted to one of seven named emoji types — smile, cry, approval,
+    disapproval, strength, gratitude, heart.
+  inputs:
+  - name: emoji
+    type: string enum
+    unit: null
+    range: sorriso | choro | aprovacao | reprovacao | forca | gratidao | coracao
+  outputs:
+  - name: emoji
+    type: string enum
+    unit: null
+  logic: 'Chat.Reacao.TipoReacao = "sorriso" | "choro" | "aprovacao" | "reprovacao" | "forca" | "gratidao" | "coracao"
+
+    '
+  edge_cases: None beyond the closed 7-value set.
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-037
+  - RULE-COMUNICACAO-038
+  - RULE-COMUNICACAO-001
+  - RULE-COMUNICACAO-002
+  merged_from:
+  - RULE-mensagem-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Mensagem.d.ts
+    lines: 55-62
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: ' | RECONCILED: cross-checked against backend core/models/choices/reacao.py (ReacaoChoices.emoji()) — both
+    enumerate the identical 7 values in the identical order (sorriso, choro, aprovacao, reprovacao, forca, gratidao,
+    coracao). No divergence.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-037
+  name: One reaction per user per observation + unread-counter side effect
+  category: scheduling-operational
+  type: validation
+  status: OK
+  verify: false
+  description: A user may have at most one reaction on a given observation; saving/deleting a reaction adjusts Firebase
+    unread-message counters.
+  inputs:
+  - name: observacao
+    type: Observacao FK
+    unit: null
+    range: null
+  - name: usuario
+    type: Usuario FK
+    unit: null
+    range: null
+  - name: emoji
+    type: string
+    unit: null
+    range: sorriso|choro|aprovacao|reprovacao|forca|gratidao|coracao
+  outputs:
+  - name: Reacao (unique) + firebase counter
+    type: side-effect
+    unit: null
+  logic: "unique_together(observacao, usuario).\n_trigger_firebase(): if reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase(setor.pk,\
+    \ responsavel.pk, False, True)\n  else:\n    send_qtd_mensagens_to_firebase(setor.pk, responsavel.pk, True)\n\
+    Called on both save() and delete().\n"
+  edge_cases: Counter side-effect fires on every save and delete (idempotency depends on reduzir_qtd).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-001
+  - RULE-COMUNICACAO-002
+  - RULE-COMUNICACAO-038
+  - RULE-COMUNICACAO-036
+  - RULE-COMUNICACAO-004
+  - RULE-COMUNICACAO-005
+  merged_from:
+  - RULE-reacao-BE-04-029
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/reacao.py
+    lines: 8-43
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Emoji enum from ReacaoChoices.emoji().
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-038
+  name: Reaction usuario/observacao always server-injected
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: manage_data forces usuario_id to the current authenticated user and 'observacao' to the observacoes__pk
+    URL kwarg on every reaction create, so a client cannot react as another user nor attach a reaction to an arbitrary
+    observation via the body.
+  inputs:
+  - name: request.user.get_pk
+    type: uuid
+    unit: null
+  - name: kwargs.observacoes__pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: data.usuario_id
+    type: uuid
+    unit: null
+  - name: data.observacao
+    type: uuid
+    unit: null
+  logic: 'data["usuario_id"] = request.user.get_pk
+
+    data["observacao"] = kwargs.get("observacoes__pk")
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-001
+  - RULE-COMUNICACAO-002
+  - RULE-COMUNICACAO-015
+  - RULE-COMUNICACAO-027
+  - RULE-COMUNICACAO-037
+  merged_from:
+  - RULE-reacao-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/reacao.py
+    lines: 24-33
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-039
+  name: Message scope enumeration
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Every chat message is scoped to exactly one of two levels — sector-level (setor) or bed-level (leito).
+  inputs:
+  - name: tipo_mensagem
+    type: string enum
+    unit: null
+    range: setor | leito
+  outputs:
+  - name: tipo_mensagem
+    type: string enum
+    unit: null
+  logic: 'Chat.TipoMensagem = "setor" | "leito"
+
+    '
+  edge_cases: tipo_mensagem is optional on Chat.Mensagem (may be undefined for message types that predate this scoping
+    distinction, or for other message categories not scoped this way).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-011
+  - RULE-COMUNICACAO-019
+  merged_from:
+  - RULE-mensagem-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Mensagem.d.ts
+    lines: 41-41
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: ' | RECONCILED: cross-checked against backend core/models/observacao.py (tipo_mensagem = "leito" if self.leito
+    else "setor") — matches this 2-value union exactly, no divergence.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-040
+  name: Conditional rendering of trilha-criteria checklist in send-observation modal
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: When sending an observation message from a bed's trilha (care pathway), the "Pontos de atenção" (points
+    of attention) checkbox checklist section is rendered only if the trilha has at least one criterio; otherwise
+    only the free-text observation field is shown.
+  inputs:
+  - name: trilha.criterios
+    type: Models.Criterio[], optional
+    unit: null
+    range: null
+  outputs:
+  - name: rendered checklist section
+    type: boolean (present/absent)
+    unit: null
+  logic: 'show_criterios_section = trilha.criterios != null AND trilha.criterios.length > 0
+
+    // each checkbox option carries { nome, alerta, recomendacoes } from the criterio, displayed by its "alerta"
+    label
+
+    '
+  edge_cases: If trilha.criterios is an empty array or undefined, the section is omitted entirely (not shown disabled/empty).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-012
+  merged_from:
+  - RULE-mensagem-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useModalSender.tsx
+    lines: 112-139
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-041
+  name: Observation setor_id is always forced from the URL
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: try_set_setor overwrites request.data['setor_id'] with the setor__pk URL kwarg on every create; if
+    that kwarg is missing/invalid, a ValidationError is raised requiring the setor be supplied via the URL - a client
+    cannot set the setor via the request body.
+  inputs:
+  - name: kwargs.setor__pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: request.data.setor_id
+    type: uuid
+    unit: null
+  logic: "try:\n    request.data[\"setor_id\"] = str(kwargs.get(\"setor__pk\"))\nexcept:\n    raise ValidationError({\"\
+    setor_obrigatorio\": \"é obrigatório o envio do setor na url\"})\n"
+  edge_cases: kwargs.get returns None if absent, but str(None) = 'None' would not normally raise - the except is
+    really only for pathological cases (e.g., immutable request.data); in practice a missing setor__pk still sets
+    'setor_id':'None' string rather than raising, unless the exception is triggered elsewhere (e.g., a QueryDict
+    being immutable).
+  confidence: medium
+  related:
+  - RULE-COMUNICACAO-042
+  merged_from:
+  - RULE-observacao-BE-05-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/observacao.py
+    lines: 40-46
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS edge case: str(None) does not raise, so the stated validation message may not actually trigger
+    when setor__pk is absent from the URL (which would be unusual for a nested route, but noted for completeness).
+    | RECONCILED: verified directly against core/api/v1/views/observacao.py try_set_setor — `request.data["setor_id"]
+    = str(self.kwargs.get("setor__pk"))` — kwargs.get returns None when absent and str(None) does not raise, so
+    the bare except/ValidationError path is not reachable via a missing URL kwarg alone; it would only fire for
+    pathological cases (e.g. an immutable request.data). Status set to AMBIGUOUS per Phase-1''s own flagged concern
+    (preserved verbatim, not corrected).'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-322
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Observation setor_id is always forced from the URL
+- id: RULE-COMUNICACAO-042
+  name: Observation responsavel_id is always forced to the authenticated user
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: try_set_responsavel overwrites request.data['responsavel_id'] with request.user.pk on every create;
+    failure raises ValidationError requiring login.
+  inputs:
+  - name: request.user.pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: request.data.responsavel_id
+    type: uuid
+    unit: null
+  logic: "try:\n    request.data[\"responsavel_id\"] = request.user.pk\nexcept:\n    raise ValidationError({\"responsavel_obrigatorio\"\
+    : \"é necessario estar logado para fazer essa observacao\"})\n"
+  edge_cases: A client cannot spoof responsavel_id via the request body; it is always overwritten to the authenticated
+    user.
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-041
+  merged_from:
+  - RULE-observacao-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/observacao.py
+    lines: 48-57
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-043
+  name: Observation reply field rename
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: manage_data renames incoming 'resposta' to 'resposta_id' when present.
+  inputs:
+  - name: resposta
+    type: uuid
+    unit: null
+  outputs:
+  - name: resposta_id
+    type: uuid
+    unit: null
+  logic: "if data.get(\"resposta\"):\n    data[\"resposta_id\"] = data.pop(\"resposta\")\n"
+  edge_cases: Falsy resposta (None/0/'') is left un-renamed.
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-007
+  merged_from:
+  - RULE-observacao-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/observacao.py
+    lines: 16-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-044
+  name: Video-call online-presence flag derivation
+  category: scheduling-operational
+  type: validation
+  status: OK
+  verify: false
+  description: A user's real-time video-call presence status for a given sector/chat is written to Firestore as
+    online_call=true when the triggering action is "in", and false for any other action (in practice "out").
+  inputs:
+  - name: action
+    type: string enum
+    unit: null
+    range: in | out
+  outputs:
+  - name: online_call
+    type: boolean
+    unit: null
+  logic: 'online_call = (action == "in") ? true : false
+
+    // written via Firestore document update at path /chats/{setor}/usuarios/{usuario}/
+
+    '
+  edge_cases: Any action value other than the literal "in" (the type only allows "in"|"out", but the ternary itself
+    would treat any non-"in" value as false) results in online_call=false.
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-028
+  - RULE-COMUNICACAO-016
+  merged_from:
+  - RULE-video-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useUpdateStatus.ts
+    lines: 3-17
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-COMUNICACAO-045
+  name: FilePicker only reconciles local file list on removal
+  category: data-validation
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'The multi-file chat picker''s onChange handler updates the locally tracked file list only when the
+    new fileList is shorter than the current one (i.e. a file was removed); additions are otherwise assumed to already
+    be reflected via the separate customRequest upload handler.
+
+    '
+  inputs:
+  - name: files (antd Upload fileList on change)
+    type: Models.LocalFile[]
+  outputs:
+  - name: customFileList (state)
+    type: Models.LocalFile[]
+  logic: "handleChange(files):\n  if files.length < customFileList.length:\n    setCustomFileList(files)\n  // else:\
+    \ no-op, even if files.length > customFileList.length\n"
+  edge_cases: 'If antd''s onChange ever fires with a same-length but reordered/replaced list (e.g. a replace-in-place
+    edit), this guard silently drops that update since length is unchanged; only pure removals are reconciled through
+    this path.
+
+    '
+  confidence: medium
+  related: []
+  merged_from:
+  - RULE-upload-FE-05-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilePicker/FilePicker.tsx
+    lines: 48-52,79-82
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Ambiguous whether this is an intentional dedup guard (additions always go through handleB64Upload/customRequest
+    so re-adding them here would double them) or an incomplete handler; recorded as observed without correcting
+    it.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-323
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: FilePicker only reconciles local file list on removal
+- id: RULE-COMUNICACAO-046
+  name: Unread-counter decrement eligibility predicate (reduzir_qtd)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Predicate that decides whether the per-user unread-alert/notification badge counter should be decremented.
+    It returns True only when the observation, after the triggering change, has zero reactions, zero checked confirmations
+    (checagens with checado=True), and zero other replies (excluding the given resposta pk). Gates send_qtd_mensagens_to_firebase(reduzir_qtd=True)
+    from Reacao.save, the ChecagemObservacao serializer and the Observacao serializer.
+  inputs:
+  - observacao (Observacao; with .reacoes, .checagens, .observacoes_respondidas relations)
+  - resposta (pk of the reply being excluded; default None)
+  outputs:
+  - bool (True => decrement the unread counter)
+  logic: "def reduzir_qtd(observacao, resposta=None):\n    return all([\n        not observacao.reacoes.count(),\n\
+    \        not observacao.checagens.filter(checado=True).exists(),\n        not observacao.observacoes_respondidas.exclude(pk=resposta).count(),\n\
+    \    ])\n"
+  edge_cases: All three conditions must hold (all([...])) for a True result. With resposta=None, exclude(pk=None)
+    excludes nothing, so ANY existing reply blocks the decrement. checagens are only counted when checado=True (unchecked
+    confirmations do not block). A True result means the observation has become fully un-engaged (no reactions,
+    no checks, no other replies).
+  confidence: high
+  related:
+  - RULE-COMUNICACAO-004
+  - RULE-COMUNICACAO-037
+  merged_from:
+  - RULE-gap6-05
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/firebase.py
+    lines: 77-84
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Only lines 19-75 of utils/firebase.py (RULE-COMUNICACAO-004, the counter fanout) were previously cited;
+    this decrement-eligibility predicate itself was uncovered. It is the gate that decides when RULE-COMUNICACAO-004
+    is invoked with reduzir_qtd=True.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

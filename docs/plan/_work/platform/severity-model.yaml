@@ -29,7 +29,7 @@ severities:
     response_sla_source: CON-0064   # CAT-C-04: WARN action <2h
     ack_sla: PT60M
     delivery_tier: 3
-    delivery: "WebSocket push + bed-board badge; no mobile page; no escalation."
+    delivery: "WebSocket push + bed-board badge; no mobile page AT RAISE; escalates to the assigned clinician (R2, board + targeted push) on PT60M ack-SLA breach — NOT to the RRT. Only urgent/critical climb toward the RRT tiers. Reconciles §3 delivery with the lifecycle raised->escalated transition and alert-routing.md §2 (B2-003)."
     paging: false
     rate_limited: true
     encoding: {color_token: "clinical.severity.watch", color_family: amber, icon: eye, shape: rounded-square}
@@ -78,6 +78,18 @@ mappings:
       AMARELO: watch
       LARANJA: urgent
       VERMELHO: critical
+    note: >-
+      This is the 4-COLOR statusTrilha law (NEUTRO/AMARELO/LARANJA/VERMELHO -> normal/watch/urgent/critical);
+      here VERMELHO -> critical, always. It is DISTINCT from the per-domain 3-COLOR legacy aggregate scales
+      (NEUTRO/AMARELO/VERMELHO, no LARANJA) that some domains are SUPERSEDING with a modern score band: in a
+      3-color aggregate the TOP legacy color maps to the aggregate score's TOP band, which need NOT be
+      'critical'. Cross-references (B2-005): (a) clinical/domains/early-warning-scores.md — the proprietary
+      NEUTRO/AMARELO/VERMELHO aggregate (RULE-PIORA-CLINICA-010) is SUPERSEDED by NEWS2 low/medium/high ->
+      normal/watch/urgent, so VERMELHO -> urgent (NEWS2 'high') is INTENTIONAL, not a re-map of this
+      statusTrilha law; (b) clinical/domains/hemodynamics.md — a 3-color hemodynamic-staging aggregate maps
+      VERMELHO -> critical/urgent per staging severity. These 3-color supersessions and the 4-color law are
+      complementary, not contradictory: the 4-color statusTrilha color VERMELHO stays critical everywhere it
+      is the statusTrilha scale; a 3-color aggregate's top color takes its band from the superseding score.
   # 4->4 ordinal mapping from the existing alert catalog (docs/clinical/alert-catalog.md legend).
   existing_catalog:
     source_ref: "CON-SEED-11; LEGEND-SEV (alert-catalog.md L13-21); CAT-C-02..05"
@@ -121,14 +133,17 @@ lifecycle:
     with data-architect: add the two statuses, or model acting as acknowledged+timestamp
     and escalated as a boolean flag. Auto-clear routes to 'expired' to stay within the enum.
   audit: "Every transition writes an immutable append-only audit_trail row (INV-1, CON-0066). LGPD + CFM 1.821/07."
+  escalation_policy:
+    actors: "system (timer) OR clinician (manual 'Escalar agora' — an early trigger of the same raised->escalated / acknowledged->escalated transition); both audited, distinguished by triggered_by (system vs user_id). (B2-002)"
+    band_aware_target: "watch: ack-SLA PT60M breach escalates to the ASSIGNED CLINICIAN (R2 board + targeted push), NOT the RRT. urgent/critical: escalate toward the next RRT tier. Only urgent and critical ever reach R3/RRT. Source of the correct ladder: alert-routing.md §2. (B2-003)"
   transitions:
     - {from: null,          to: raised,       actor: system,               audited: true, sla: null,   trigger: "definition predicate fires + passes suppression"}
     - {from: raised,        to: acknowledged, actor: clinician,            audited: true, sla: "ack-window per severity (critical PT2M / urgent PT10M / watch PT60M)", trigger: "1-click ack (CON-0091/PER-C-05)"}
     - {from: acknowledged,  to: acting,       actor: clinician,            audited: true, sla: null,   trigger: "intervention started"}
     - {from: acting,        to: resolved,     actor: clinician,            audited: true, sla: "action-window per severity (CON-0062..64)", trigger: "sets resolution true_positive|false_positive|intervention_done"}
     - {from: acknowledged,  to: resolved,     actor: clinician,            audited: true, sla: "action-window per severity", trigger: "direct resolve; sets resolution"}
-    - {from: raised,        to: escalated,    actor: system,               audited: true, sla: "ack-window breach", trigger: "page next tier (RRT)"}
-    - {from: acknowledged,  to: escalated,    actor: system,               audited: true, sla: "action-window breach", trigger: "page next tier"}
+    - {from: raised,        to: escalated,    actor: 'system | clinician', audited: true, sla: "ack-window breach (band-aware)", trigger: "BAND-AWARE climb on ack-window breach (B2-003): watch (PT60M breach) -> assigned clinician (R2), NOT the RRT; urgent/critical -> page next tier (RRT). The manual 'Escalar agora' path is a clinician early-trigger of this SAME transition (B2-002), audited with triggered_by = system vs user_id. Aligns with alert-routing.md §2."}
+    - {from: acknowledged,  to: escalated,    actor: 'system | clinician', audited: true, sla: "action-window breach", trigger: "page next tier on action-window breach; the manual 'Escalar agora' path (B2-002) is a clinician early-trigger of this SAME transition, audited with triggered_by = system vs user_id."}
     - {from: escalated,     to: acknowledged, actor: escalation-clinician, audited: true, sla: null,   trigger: "RRT/next-tier acknowledges"}
     - {from: raised,        to: expired,      actor: system,               audited: true, sla: null,   trigger: "triggering condition cleared before ack, or alert TTL"}
 

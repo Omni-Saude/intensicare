@@ -53,10 +53,10 @@ stages:
     source_ref: [IMP-C-12, CON-SEED-12]
   - stage: evaluate
     p95_ms: 5000                             # production score budget
-    p95_ms_mvp_ceiling: 26000                # re-scoped: <= 30000 - sum(other owned stages 4000) = 26000
+    p95_ms_mvp_ceiling: 23000                # re-scoped: 30000 - poll 1000 - normalize 500 - persist 500 - deliver_MVP 5000 = 23000 (B3-001)
     included_in_slo: true
-    assumption: "Run score + alert-definition predicates. Production <5s (IMP-C-13). MVP ceiling re-scoped to fit the 30s end-to-end envelope, NOT a standalone 30s."
-    source_ref: [IMP-C-13]
+    assumption: "Run score + alert-definition predicates. Production <5s (IMP-C-13). MVP ceiling re-scoped to fit the 30s end-to-end envelope using the IMP-C-14 MVP deliver (5000ms) — NOT the PROD deliver (2000ms) — so it honours IMP-C-14's <5s MVP alert budget; NOT a standalone 30s."
+    source_ref: [IMP-C-13, IMP-C-14]
   - stage: persist
     p95_ms: 500
     included_in_slo: true
@@ -64,8 +64,9 @@ stages:
     source_ref: [IMP-C-12, CON-0066, CON-0067]
   - stage: deliver
     p95_ms: 2000                             # production alert budget
+    p95_ms_mvp_ceiling: 5000                 # deliver_MVP explicit: IMP-C-14 alert p95 <5s MVP (subtracted from the MVP evaluate re-scope) (B3-001)
     included_in_slo: true
-    assumption: "ARQ enqueue -> WS/mobile push, at-least-once with retry+backoff. 2s < 5s RRT push budget."
+    assumption: "ARQ enqueue -> WS/mobile push, at-least-once with retry+backoff. PROD 2s; MVP <=5s (IMP-C-14). 2s < 5s RRT push budget."
     source_ref: [IMP-C-14, CON-0071, CON-0092]
 
 budget_check:
@@ -78,10 +79,10 @@ budget_check:
     - "Linear sum of stage p95s OVER-estimates true end-to-end p95 (stages not perfectly correlated); 9s is a conservative upper bound."
     - "deliver 2000ms < personas_rrt_push_s 5000ms (CON-0092/PER-C-06): PASS."
     - "engine detection->delivery <=9s leaves the rest of the 5-min CRIT action window (CON-0062) for human response."
-    - "MVP evaluate ceiling 26000ms keeps end-to-end <=30000ms even under the relaxed IMP-C-13 MVP budget."
+    - "MVP column sums to EXACTLY 30000ms: poll 1000 + normalize 500 + evaluate 23000 + persist 500 + deliver_MVP 5000 = 30000 (== VIS-C-09 ceiling), honouring IMP-C-14's <5s MVP alert budget (B3-001). PROD column (Sigma 9000ms) is unaffected."
 
 notes:
-  con_seed_01: "This file IS the single canonical decomposition CON-SEED-01 asks for. Flag: RESOLVES CON-SEED-01; final signoff at barrier C3."
+  con_seed_01: "Machine-readable companion to the canonical decomposition in architecture/alert-engine.md sec8 — which is the SOLE canonical PROSE statement of the CON-SEED-01 resolution. This file is the single source of the NUMBERS; alert-engine.md sec8 is the canonical prose; observability-slo.md sec3 is a downstream restatement that MUST introduce no number absent here. Flag: RESOLVES CON-SEED-01; final signoff at barrier C3. (B3-005)"
   batch_path_caveat: >-
     Micro-batch domains (AKI, electrolytes, drug-interactions, delirium, and the lab legs of sepsis/
     hemodynamic/respiratory) inherit source_freshness <=30min (ADR001-F-02). For these, bedside->alert

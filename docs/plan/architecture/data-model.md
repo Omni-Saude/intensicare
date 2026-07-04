@@ -70,8 +70,49 @@ Column shapes for `patient_cache`, `vital_sign`, `clinical_score`, `alert`, `thr
 |---|---|---|
 | `patient_cache` | Add PHI columns `cpf`, `cns` (encrypted, §6); wrap `display_name`, `mrn`, `birth_date` under pgcrypto (INV-4). | `IMP-C-04`/`CON-0069`/`CON-0103` |
 | `clinical_score` | `algorithm_version` → `NOT NULL`, FK to `algorithm_registry` (INV-3). | `IMP-C-03`/`CON-0068` |
-| `alert` | Add `definition_version_id` FK → `alert_definition_version` (stamps the exact firing definition, INV-3); add `correlation_event_id` (nullable) FK → `correlation_event`. | INV-3, `VIS-4-03` |
-| `threshold_config` | Every write is mirrored into `audit_trail` (INV-1); superseded rows retained (config is versioned, never hard-deleted while referenced). | INV-1 |
+| `alert` | Add `definition_version_id` FK → `alert_definition_version` (stamps the exact firing definition, INV-3); add `correlation_event_id` (nullable) FK → `correlation_event`. **Extend `status` enum with `acting` + `escalated`; extend `severity` with a delivery-only `normal`/`info` value** (§3.1 reconciliation). | INV-3, `VIS-4-03`, `alert-engine.md` §9 (B2-001) |
+| `threshold_config` | **Add nullable `bed_id VARCHAR` (third scope; resolution bed ≻ unit ≻ tenant); new `UNIQUE (tenant_id, unit, bed_id, score_type)`** (§3.1). Every write is mirrored into `audit_trail` (INV-1); superseded rows retained (config is versioned, never hard-deleted while referenced). | INV-1, `alert-engine.md` §6, `DM-T-05` (B2-001) |
+
+### 3.1 Engine-flagged severity/lifecycle reconciliations (barrier C2 — ADOPTED)
+
+The alert engine flags three schema reconciliations "→ C2 / data-architect" (`alert-engine.md` §6/§9, `_work/platform/severity-model.yaml`, `design-tokens.md` §6.4), and the API contract already exposes two as real fields (`architecture/api/openapi.yaml` `ThresholdConfig.bed_id`, `AlertStatus` acting/escalated). Previously the persistence contract was silent on all three, so C2 could not close. This data model **adopts** all three exactly as the engine + severity-model define them; each is recorded in §10 open-questions until ratified (B2-001).
+
+**(a) `threshold_config.bed_id` — three-scope resolution, bed ≻ unit ≻ tenant.**
+
+```sql
+ALTER TABLE threshold_config ADD COLUMN bed_id VARCHAR(32);       -- NULL = unit-/tenant-wide (extends DM-T-05)
+-- Most-specific-wins for a patient in (tenant, unit, bed): match the bed_id row; else the unit row;
+-- else the tenant default (unit NULL, bed_id NULL). Precedence bed ≻ unit ≻ tenant (alert-engine.md §6).
+ALTER TABLE threshold_config
+    ADD CONSTRAINT uq_threshold_scope UNIQUE (tenant_id, unit, bed_id, score_type);
+```
+
+`patient_cache` already carries `bed_id` + `unit` (`DM-T-01`); this only extends the `DM-T-05` scope key. `threshold_config` stays operational-only and every write is audited (INV-1, §6).
+
+**(b) `alert.status` enum — extend with `acting` + `escalated`.**
+
+```sql
+-- DM-VOCAB-04 alert.status was {active, acknowledged, resolved, expired}; extend to match the lifecycle
+-- state machine (alert-engine.md §9) and openapi AlertStatus -> {active, acknowledged, acting, resolved, escalated, expired}:
+ALTER TYPE alert_status ADD VALUE 'acting';      -- = acknowledged + intervention_started_at
+ALTER TYPE alert_status ADD VALUE 'escalated';   -- system-timer OR manual "Escalar agora" (B2-002); band-aware target (B2-003)
+```
+
+Ratifiable alternative (the engine's own option, `alert-engine.md` §9): model `acting` as `acknowledged` + a non-null `intervention_started_at`, and `escalated` as a boolean flag on active/acknowledged. Either satisfies the contract; the enum form is adopted here for parity with `openapi.yaml AlertStatus`.
+
+**(c) `alert.severity` — add a delivery-only `normal`/`info` value.**
+
+`alert_definition_version.severity` (§4.1) already spans `normal|watch|urgent|critical`, but the alert-ROW enum `DM-VOCAB-03` has only `{watch, urgent, critical}`, so a `normal`-band definition (e.g. `sepsis.yaml`, `respiratory.yaml`, `correlation-engine.yaml`, `early-warning-scores.yaml` discharge-readiness) has no persistable alert row.
+
+```sql
+-- Add a delivery-only 'normal' (a.k.a. 'info') value so Tier-4 advisories persist + PPV-analyze as first-class,
+-- audited rows, aligning alert.severity with alert_definition_version.severity (severity-model.yaml data_model_alert_severity):
+ALTER TABLE alert ALTER COLUMN severity TYPE VARCHAR(16);   -- enum now {normal, watch, urgent, critical}
+```
+
+The ratifiable alternative is to keep the 3-value alert-row enum and formally accept "the `normal` band creates NO alert row" (a bed-board/score-band annotation only). This doc adopts the additive `normal`/`info` value.
+
+**ADR-lineage.** All three reconciliations descend from the alert engine's own flags — §6 (`bed_id` → `DM-T-05`), §9 (status enum), §3 + `severity-model.yaml` (severity) — themselves rooted in the platform-constraint precedence ADR-001 ≻ vision (`CON-SEED-11` severity mapping; `DM-VOCAB-03/04`; `DM-T-05`; `INV-1`). They stay barrier-C2 co-owned with the alert-engine-architect until ratified (§10).
 
 ---
 
@@ -395,3 +436,6 @@ Requirements owned by this data model. IDs are `REQ-INV-<invariant>-<k>`. (INV-2
 3. **NRT operational feed vs Athena-only** for meds/labs/vitals used by NRT detectors — the ADR-001 Alternativa-B decision is owned by amh-integration-architect and signed off at barrier C3 (see `alert-engine.md` §1.2). This data model states the *hot cache* shape regardless of feed mechanism.
 4. **`threshold_config.unit` matching** (exact vs wildcard) — unchanged open question from `data-model.json`; affects `alert_definition.tenant_id` override resolution.
 5. **`patient_cache` primary key** — recommend `PRIMARY KEY (mpi_id)` (natural key, one cache row per patient); confirms `data-model.json` open-Q.
+6. **`threshold_config.bed_id` scope (§3.1a, ADOPTED pending ratification).** The nullable `bed_id` third scope + `UNIQUE (tenant_id, unit, bed_id, score_type)` and the bed ≻ unit ≻ tenant resolution are adopted from `alert-engine.md` §6 / `openapi.yaml ThresholdConfig`. Confirm at barrier C2 (data-architect + alert-engine-architect).
+7. **`alert.status` enum extension (§3.1b, ADOPTED pending ratification).** Adding `acting` + `escalated` (`alert-engine.md` §9 / `openapi.yaml AlertStatus`) vs the alternative modelling (`acting` = acknowledged + `intervention_started_at`; `escalated` = boolean flag). Includes the escalation actor (`system | clinician`, B2-002) and band-aware target (B2-003). Confirm at C2.
+8. **`alert.severity` delivery-only `normal`/`info` (§3.1c, ADOPTED pending ratification).** Adding a `normal`/`info` value so Tier-4 advisories persist as first-class alert rows, aligning `alert.severity` with `alert_definition_version.severity` (`severity-model.yaml data_model_alert_severity`) — vs formally ratifying "the `normal` band creates no alert row". Confirm at C2.

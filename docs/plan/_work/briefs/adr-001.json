@@ -1,0 +1,140 @@
+{
+  "brief_id": "adr-001",
+  "authority": "adr-001",
+  "source": {
+    "path": "docs/architecture/adr/ADR-001-amh-data-platform-consumer.md",
+    "lines": 73,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/architecture/adr/ADR-001-amh-data-platform-consumer.md", "line_ranges": "1-73"}
+  ],
+  "facts": [
+    {
+      "id": "ADR001-F-01",
+      "claim": "Intensicare inherits the AMH Data Platform's data-availability SLO: 99,5% (99.5%) for analytics.",
+      "kind": "metric",
+      "source_ref": "ADR-001 §Consequências, line 66"
+    },
+    {
+      "id": "ADR001-F-02",
+      "claim": "AMH DP batch pipeline latency target for Silver-Entities is P95 < 30 min; this is the trigger metric for reconsidering Alternativa B (dedicated MSK streaming channel) in Fase 4 if insufficient for ICU use case.",
+      "kind": "threshold",
+      "source_ref": "ADR-001 §Alternativa B, line 59"
+    },
+    {
+      "id": "ADR001-F-03",
+      "claim": "Alternativa A (independent platform with own ingestion/storage stack) was rejected; estimated cost was 3-5x higher (custo 3-5x maior) than consuming the AMH Data Platform, plus infra duplication and data inconsistency risk.",
+      "kind": "metric",
+      "source_ref": "ADR-001 §Alternativa A, line 50"
+    },
+    {
+      "id": "ADR001-F-04",
+      "claim": "AMH Data Platform (and thus Intensicare's ECS Fargate deployment, per Implicação 8) runs in AWS region sa-east-1.",
+      "kind": "entity",
+      "source_ref": "ADR-001 §Contexto, line 14"
+    },
+    {
+      "id": "ADR001-F-05",
+      "claim": "Gold write-back analytical fact tables for Intensicare are named exactly fact_patient_score and fact_alert.",
+      "kind": "vocabulary",
+      "source_ref": "ADR-001 §Implicação 4, line 35"
+    },
+    {
+      "id": "ADR001-F-06",
+      "claim": "AMH Data Platform medallion lakehouse layers, in order, are: Raw → Bronze → Silver-Rules → Silver-Entities → Gold.",
+      "kind": "vocabulary",
+      "source_ref": "ADR-001 §Contexto, line 17"
+    },
+    {
+      "id": "ADR001-F-07",
+      "claim": "Patient identity source is the Master Patient Index (MPI), which performs deterministic and probabilistic linking (linking determinístico e probabilístico); Intensicare consumes its mpi_id and mints no identifiers of its own.",
+      "kind": "entity",
+      "source_ref": "ADR-001 §Contexto line 18 and §Implicação 2 line 31"
+    },
+    {
+      "id": "ADR001-F-08",
+      "claim": "Alternativa B's proposed escape-hatch mechanism, if reconsidered, is one additional dedicated MSK topic (streaming channel) feeding Intensicare directly, bypassing the AMH DP batch pipeline.",
+      "kind": "other",
+      "source_ref": "ADR-001 §Alternativa B, line 59"
+    },
+    {
+      "id": "ADR001-F-09",
+      "claim": "ADR-001 status is Proposto (Proposed), dated 26/06/2026, authored by Parreira (Hermes DevOps Orchestrator); stakeholders are CTO Office and Time de Engenharia AMH.",
+      "kind": "entity",
+      "source_ref": "ADR-001 header, lines 3-6"
+    },
+    {
+      "id": "ADR001-F-10",
+      "claim": "Ingestion technologies explicitly excluded from Intensicare's own scope: NiFi, Kafka, Debezium (own ingestion stack); source transactional systems feeding AMH DP via CDC are Tasy ERP, OMNI, Diagnose via Debezium → MSK → Flink.",
+      "kind": "vocabulary",
+      "source_ref": "ADR-001 §Contexto line 16 and §Implicação 1 line 29"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "ADR001-C-01",
+      "text": "MUST NOT implement own data ingestion (NiFi/Kafka/Debezium); MUST read clinical data only from the AMH Gold layer via Amazon Athena. Verbatim PT: \"O Intensicare NÃO implementará ingestão própria (NiFi, Kafka, Debezium). Lerá dados clínicos do Gold layer da AMH Data Platform via Amazon Athena.\" EN gloss: Athena-only reads against AMH Gold; no proprietary ingestion pipeline.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Implicação 1, line 29"
+    },
+    {
+      "id": "ADR001-C-02",
+      "text": "MUST use the existing MPI's mpi_id as patient identity; MUST NOT create proprietary patient identifiers. Verbatim PT: \"O Intensicare usará o mpi_id do MPI existente. Não criará identificadores próprios de paciente.\" EN gloss: MPI mpi_id is the sole patient-identity key.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Implicação 2, line 31"
+    },
+    {
+      "id": "ADR001-C-03",
+      "text": "PostgreSQL/TimescaleDB MUST be used only for operational application state (computed scores, active alerts, threshold configurations), never as an analytical data store. Verbatim PT: \"O Intensicare manterá um banco PostgreSQL/TimescaleDB próprio para estado operacional (scores calculados, alertas ativos, configurações de thresholds). Estes são dados de aplicação, não dados analíticos.\" EN gloss: operational-only PostgreSQL/TimescaleDB, not analytical.",
+      "type": "policy",
+      "source_ref": "ADR-001 §Implicação 3, line 33"
+    },
+    {
+      "id": "ADR001-C-04",
+      "text": "MUST write historical/aggregated scores back to the AMH Gold layer as analytical facts fact_patient_score and fact_alert, enabling corporate analytics. Verbatim PT: \"Scores históricos e agregados serão gravados de volta ao Gold layer da AMH Data Platform como fatos analíticos (fact_patient_score, fact_alert), permitindo analytics corporativo.\" EN gloss: Gold write-back to fact_patient_score/fact_alert is mandatory.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Implicação 4, line 35"
+    },
+    {
+      "id": "ADR001-C-05",
+      "text": "MUST consume enriched clinical context via the existing HAPI FHIR server; MUST NOT operate its own FHIR server. Verbatim PT: \"O Intensicare consumirá dados clínicos via HAPI FHIR existente quando precisar de contexto enriquecido. Não operará seu próprio servidor FHIR.\" EN gloss: existing HAPI FHIR only, no own FHIR server.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Implicação 5, line 37"
+    },
+    {
+      "id": "ADR001-C-06",
+      "text": "Metrics and traces MUST be emitted via OpenTelemetry into the existing AMP + Grafana stack. Verbatim PT: \"Métricas e traces serão emitidos via OpenTelemetry para o stack AMP + Grafana existente.\" EN gloss: OTEL → AMP/Grafana is the sole observability path.",
+      "type": "policy",
+      "source_ref": "ADR-001 §Implicação 6, line 39"
+    },
+    {
+      "id": "ADR001-C-07",
+      "text": "MUST inherit the AMH Data Platform security model: IAM Identity Center for SSO, per-tenant KMS for encryption, and Lake Formation ABAC for data access. Verbatim PT: \"O Intensicare herdará o modelo de segurança da AMH Data Platform (IAM Identity Center para SSO, KMS por tenant para criptografia, ABAC via Lake Formation para acesso a dados).\" EN gloss: IAM Identity Center SSO + per-tenant KMS + Lake Formation ABAC, inherited not reimplemented.",
+      "type": "policy",
+      "source_ref": "ADR-001 §Implicação 7, line 41"
+    },
+    {
+      "id": "ADR001-C-08",
+      "text": "MUST deploy on ECS Fargate in the same VPC and AWS accounts as the AMH Data Platform (region sa-east-1 per §Contexto), aligned to corporate standard. Verbatim PT: \"O Intensicare será deployado em ECS Fargate na mesma VPC e contas AWS da AMH Data Platform, alinhado ao padrão corporativo.\" EN gloss: ECS Fargate, shared VPC/accounts, sa-east-1.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Implicação 8, line 43 (region sa-east-1 from §Contexto, line 14)"
+    },
+    {
+      "id": "ADR001-C-09",
+      "text": "Any change to the AMH Gold schema is a breaking change for Intensicare and MUST be versioned. Verbatim PT: \"Mudanças no schema Gold da AMH Data Platform são breaking changes para o Intensicare e devem ser versionadas.\" EN gloss: Gold schema changes = versioned breaking changes, treat accordingly.",
+      "type": "invariant",
+      "source_ref": "ADR-001 §Consequências, line 65"
+    },
+    {
+      "id": "ADR001-C-10",
+      "text": "Intensicare inherits the AMH Data Platform's 99.5% data-availability SLO for analytics; downstream design must not assume higher availability than this without an explicit escape hatch. Verbatim PT: \"O Intensicare herda os SLOs da AMH Data Platform para disponibilidade de dados (99,5% analytics).\" EN gloss: 99.5% data-availability SLO, inherited.",
+      "type": "slo",
+      "source_ref": "ADR-001 §Consequências, line 66"
+    }
+  ],
+  "open_questions": [
+    "ADR-001 does not define the numeric ICU-specific latency requirement that would render the AMH DP's P95 < 30 min (Silver-Entities) batch pipeline 'insuficiente para o caso de uso de UTI' — the Alternativa B (MSK streaming escape hatch) trigger threshold is qualitative only ('Fase 4' reconsideration), not quantified.",
+    "ADR-001 does not specify who owns/approves the Fase 4 decision to activate Alternativa B, nor the SLA for provisioning the additional MSK topic if triggered."
+  ]
+}

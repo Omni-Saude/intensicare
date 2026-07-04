@@ -1,0 +1,60 @@
+{
+  "brief_id": "cluster-ventilacao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/ventilacao.yaml",
+    "lines": 1073,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/ventilacao.yaml", "line_ranges": "1-1073"}
+  ],
+  "facts": [
+    {"id": "CLU-VENTILACAO-01", "claim": "26 rules cover PBW/VT calc, trilha_manual 10-criterion pathway (C1-C10) w/ two competing alert-aggregation variants, a parallel trilha_automatica v1 pathway (active+dead alert fn), a facade weaning/PEEP-titration protocol, ventilator-param validation across 4 forms, mode/device/modality enums, and free-text classification lists.", "kind": "entity", "source_ref": "ventilacao.yaml rules[]"},
+    {"id": "CLU-VENTILACAO-02", "claim": "THREE independent ventilation pathways exist: trilha_manual C1-C10 (003-014), trilha_automatica v1 (015/016), facade ventilacao_automatica (017); thresholds diverge, e.g. COVID trach >10d (C6) vs >14d (facade).", "kind": "entity", "source_ref": "RULE-VENTILACAO-009, -017"},
+    {"id": "CLU-VENTILACAO-03", "claim": "FiO2 unit handling inconsistent in one model: C2/C3 (004/005) treat fio2 as percent (÷100 for PEEP-table key); C8 (011) treats fio2 as fraction (fio2<0.4).", "kind": "policy", "source_ref": "RULE-VENTILACAO-004,-005,-011"},
+    {"id": "CLU-VENTILACAO-04", "claim": "PEEP/PINS validation bounds diverge by layer: movimentacao+physician forms allow PEEP 0-40/PINS 0-30 cmH2O (018/019); physiotherapist form+backend homecare allow PEEP 5-18/PINS 5-40 cmH2O (020/022/023).", "kind": "threshold", "source_ref": "RULE-VENTILACAO-018/019/020/022/023"},
+    {"id": "CLU-VENTILACAO-05", "claim": "C1 (003) VT flag is absolute >500mL, not weight-indexed, contradicting the correct PBW calculator (001); ARDSNet reference is <=6 mL/kg PBW.", "kind": "threshold", "source_ref": "RULE-VENTILACAO-003, verification.reference"},
+    {"id": "CLU-VENTILACAO-06-histogram", "claim": "By type: decision-tree=13, validation=6, threshold=5, formula=2. By status: OK=15, DISCREPANCY=9, AMBIGUOUS=2. By verdict: NOT_APPLICABLE=12, DISCREPANCY=8, VERIFIED=5, UNVERIFIABLE=1. Total=26.", "kind": "metric", "source_ref": "ventilacao.yaml rules[] (counted)"}
+  ],
+  "constraints": [],
+  "load_bearing_rules": [
+    {"id": "RULE-VENTILACAO-001", "what": "PBW+4/5/6mL/kg VT targets", "verdict": "VERIFIED"},
+    {"id": "RULE-VENTILACAO-002", "what": "Days-on-VM helper for C4/5/6/8", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-VENTILACAO-003", "what": "C1: PINS>16 OR VC>500mL absolute; alert-forcing", "verdict": "DISCREPANCY (not weight-indexed)"},
+    {"id": "RULE-VENTILACAO-004", "what": "C2: FiO2xPEEP, P/F 151-300", "verdict": "DISCREPANCY (dead guard + unit bug)"},
+    {"id": "RULE-VENTILACAO-005", "what": "C3: FiO2xPEEP, P/F<150", "verdict": "DISCREPANCY (unit bug)"},
+    {"id": "RULE-VENTILACAO-008", "what": "C5: TOT>10d -> trach workup", "verdict": "VERIFIED"},
+    {"id": "RULE-VENTILACAO-009", "what": "C6: TOT+COVID >10d code vs >14d facade/guideline", "verdict": "DISCREPANCY"},
+    {"id": "RULE-VENTILACAO-011", "what": "C8: extubation-readiness bundle; alert-forcing", "verdict": "DISCREPANCY (FiO2 fraction/% clash)"},
+    {"id": "RULE-VENTILACAO-012", "what": "C9: shock w/o VM (lactate>2.5+pressors+no VM); alert-forcing", "verdict": "DISCREPANCY (lactate boundary)"},
+    {"id": "RULE-VENTILACAO-013", "what": "C10: oxygenation incl. COPD SpO2 target", "verdict": "VERIFIED"},
+    {"id": "RULE-VENTILACAO-014", "what": "trilha_manual alert: VERMELHO if >=3 crit or C1/C8/C9", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-VENTILACAO-017", "what": "Facade weaning/PEEP/PRONA/trach protocol", "verdict": "VERIFIED"},
+    {"id": "RULE-VENTILACAO-025", "what": "Device/modality enums; C4 uppercase PCV/VCV vs lowercase field -> unreachable branch", "verdict": "DISCREPANCY"}
+  ],
+  "systemic_issues": [
+    {"issue": "unit-inconsistency", "detail": "FiO2 percent (C2/C3) vs fraction (C8)", "rule_ids": ["RULE-VENTILACAO-004", "RULE-VENTILACAO-005", "RULE-VENTILACAO-011"]},
+    {"issue": "unit-inconsistency", "detail": "PEEP/PINS bounds differ 2x across 4 forms", "rule_ids": ["RULE-VENTILACAO-018", "RULE-VENTILACAO-019", "RULE-VENTILACAO-020", "RULE-VENTILACAO-022", "RULE-VENTILACAO-023"]},
+    {"issue": "dead-code", "detail": "peep_old_table defined, never read", "rule_ids": ["RULE-VENTILACAO-006"]},
+    {"issue": "dead-code", "detail": "Legacy calcular_alerta unused by save(); AMBIGUOUS intent", "rule_ids": ["RULE-VENTILACAO-016"]},
+    {"issue": "unreachable-branch", "detail": "C4 device-path unreachable outside tests", "rule_ids": ["RULE-VENTILACAO-007", "RULE-VENTILACAO-025"]},
+    {"issue": "malformed-guard", "detail": "C2 peep>0 check dead inside 'False and ...'", "rule_ids": ["RULE-VENTILACAO-004"]},
+    {"issue": "threshold-drift-vs-guideline", "detail": "Absolute VT; trach 10d vs 14d; lactate >2.5 vs Sepsis-3 >2", "rule_ids": ["RULE-VENTILACAO-003", "RULE-VENTILACAO-009", "RULE-VENTILACAO-012"]},
+    {"issue": "verbatim-typo-preservation", "detail": "Free-text lists preserve misspellings/misroutes, exact-match only", "rule_ids": ["RULE-VENTILACAO-024"]},
+    {"issue": "label/value-drift", "detail": "vm_invasiva value paired with nasal-cannula label BE+FE", "rule_ids": ["RULE-VENTILACAO-025"]}
+  ],
+  "feeds_domains": ["respiratory", "sepsis", "early-warning-scores", "correlation"],
+  "pt_br_vocabularies": [
+    {"name": "VentilacaoChoices.ventilacao", "values": "assistida, controlada (Sera desativado), ar_ambiente, vm_invasiva('Cateter Nasal de O2'), vm_nao_invasiva('VM Nao Invasiva'), mascara_facial_o2, tenda_o2_tqt, ''('Nao informado')"},
+    {"name": "dispositivo/modalidade", "values": "dispositivo: tot,tqt,dni(Sera desativado); modalidade: psv,vcv,pcv"},
+    {"name": "FormularioMedico tipo_ventilacao", "values": "ventilacao_ar_ambiente('Espontanea'), ventilacao_suporte_o2('VNI'), ventilacao_mecanica_invasiva('VM'), intermitente"},
+    {"name": "avaliacao_ventilacao (nursing)", "values": "secrecao_traqueal{pouca,media,grande,aspiracao_ausente}; tosse{eficaz,nao_eficaz,ausente}; ausculta{murmurios_vesiculares,pulmoes_livres,roncos,sibilos,estertores}"},
+    {"name": "get_ventilacao free-text lists", "values": "espontanea incl. misspellings 'espontnaea','estpotanea','esponatea' + mismapped 'vni/ mascara facial','ve pela tqt por mascara' — VERBATIM"}
+  ],
+  "open_questions": [
+    "COVID trach timing: code >10d or facade >14d?",
+    "Which alert-aggregation convention (count(True) vs count(1)) is intended?",
+    "Which PEEP/PINS range (0-40/0-30 vs 5-18/5-40) is correct for v2?"
+  ]
+}

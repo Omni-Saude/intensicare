@@ -65,7 +65,7 @@ One canonical four-band scale, **`normal / watch / urgent / critical`**, used fo
 | Band | Definition | Response expectation | Delivery tier | Encoding (color · icon · shape) |
 |---|---|---|---|---|
 | **normal** | Within expected range / advisory trend or opportunity; no deterioration. | Review < 6h (advisory) — from INFO SLA `CON-0065`/`CAT-C-05` | **Tier 4** — bed-board / worklist advisory only; no push, no page; suppressible/coalescable | green · check-circle · circle |
-| **watch** | Relevant change worth noticing. | Clinical action < 2h (`CON-0064`/`CAT-C-04`) | **Tier 3** — WS push + bed-board badge; no page; no escalation | amber · eye · rounded-square |
+| **watch** | Relevant change worth noticing. | Clinical action < 2h (`CON-0064`/`CAT-C-04`) | **Tier 3** — WS push + bed-board badge; no page **at raise**; escalates to the **assigned clinician (R2)** on `PT60M` ack-SLA breach, **not** the RRT (only urgent/critical climb toward RRT — §9, `alert-routing.md` §2) | amber · eye · rounded-square |
 | **urgent** | Significant deterioration. | Clinical action < 30 min (`CON-0063`/`CAT-C-03`) | **Tier 2** — WS push + bed-board + mobile push; ack expected; escalate on ack-SLA breach | orange · exclamation · triangle |
 | **critical** | Imminent life risk. | Clinical action < 5 min (`CON-0062`/`CAT-C-02`) | **Tier 1** — interruptive multi-channel: WS push + **mobile page to RRT <5s** (`CON-0092`/`PER-C-06`) + bed-board + audible; **mandatory ack**; escalate on ack-SLA breach; **never rate-limited** | red · alert-octagon · octagon |
 
@@ -156,6 +156,8 @@ The batch reality makes **silent staleness** the signature failure: an Athena po
 
 **Barrier C3 note.** Final signoff of these stage numbers, of the source-freshness exclusion, and of the Alternativa-B trigger (§1.2) belongs to C3 (latency + PPV), co-owned with amh-integration-architect and platform-reliability-engineer. Full machine-readable budget: `docs/plan/_work/budgets/latency.yaml`.
 
+**Canonical-source designation (`CON-SEED-01`, B3-005).** This §8 is the **sole canonical PROSE** statement of the `CON-SEED-01` resolution. `docs/plan/_work/budgets/latency.yaml` is its **machine-readable companion — the single source of the numbers** (it self-describes as such, not as a competing canonical). `observability-slo.md §3` is a **downstream restatement** that must introduce no number absent from `latency.yaml`. The three artifacts state one resolution once, not three times: prose here, numbers in `latency.yaml`, SRE-facing restatement in `observability-slo.md §3`.
+
 ---
 
 ## 9. Alert lifecycle state machine (every transition audited — INV-1; feeds PPV analytics)
@@ -190,13 +192,14 @@ Task lifecycle `raise → acknowledge → act → resolve` reconciled with the d
 | acknowledged | **acting** | clinician | ✅ | intervention start |
 | acting | **resolved** | clinician | ✅ | action-window: crit <5 min / urg <30 min / watch <2h (`CON-0062..64`); sets `resolution` |
 | acknowledged | **resolved** | clinician | ✅ | direct resolve; sets `resolution` |
-| raised | **escalated** | system (timer) | ✅ | ack-window breached → page next tier (RRT) |
-| acknowledged | **escalated** | system (timer) | ✅ | action-window breached |
+| raised | **escalated** | system (timer) **or** clinician (manual "Escalar agora") | ✅ | ack-window breached → **band-aware** climb: `watch` (`PT60M`) → assigned clinician (R2), **not** RRT; `urgent`/`critical` → page next tier (RRT). Manual "Escalar agora" early-triggers the same transition (`triggered_by` = system vs user_id) |
+| acknowledged | **escalated** | system (timer) **or** clinician (manual "Escalar agora") | ✅ | action-window breached → page next tier. Manual "Escalar agora" early-triggers the same transition (`triggered_by`) |
 | escalated | **acknowledged** | escalation-tier clinician | ✅ | — |
 | raised | **expired** | system | ✅ | triggering condition cleared before ack, or alert TTL |
 
 - **Every transition writes an immutable `audit_trail` row** (INV-1, `CON-0066`; append-only + anti-mutation trigger). Legal requirement (LGPD + CFM 1.821/07).
-- **`acting` and `escalated` extend the data-model `status` enum** (currently active/acknowledged/resolved/expired). Auto-clear routes to `expired` to stay within the enum; human resolutions use `true_positive/false_positive/intervention_done`. **Reconciliation (→ C2 / data-architect):** add `acting` + `escalated` (or model `acting` as acknowledged + `intervention_started_at`, `escalated` as a flag).
+- **`acting` and `escalated` extend the data-model `status` enum** (currently active/acknowledged/resolved/expired). Auto-clear routes to `expired` to stay within the enum; human resolutions use `true_positive/false_positive/intervention_done`. **Reconciliation (→ C2 / data-architect):** add `acting` + `escalated` (or model `acting` as acknowledged + `intervention_started_at`, `escalated` as a flag). The persistence side of this reconciliation is now adopted in `data-model.md` §3/§4.1/§10 (B2-001).
+- **Escalation actor + target (canonical with `severity-model.yaml` and `alert-routing.md` §2):** the `raised → escalated` and `acknowledged → escalated` transitions may be driven by the **system timer** OR by a **clinician manually** ("Escalar agora"); the manual path is an *early trigger of the same transition*, audited with `triggered_by` distinguishing `system` from a `user_id` (B2-002). The `raised → escalated` climb is **band-aware** (B2-003): a `watch` breaching its `PT60M` ack-SLA escalates to the **assigned clinician (R2)**, **never** to the RRT; only `urgent` and `critical` climb toward the RRT tier (`alert-routing.md` §2 is the source of the correct ladder). The `watch` §3 delivery descriptor therefore reads "no page *at raise*; escalates to the assigned clinician on `PT60M` ack breach", not "no escalation".
 - **Feeds PPV analytics** (co-owned, barrier C3): `resolution` gives **PPV = TP/(TP+FP)** (target ≥60%, `VIS-7.1-02`); `acknowledged_at − created_at` gives time-to-recognition; `resolved_at − created_at` gives time-to-action (target ≤15 min, `VIS-7.1-03`); expired-unacked / total feeds alarm-fatigue (≤10%, `VIS-7.1-04`). These flow to Gold `fact_alert` (`CON-0028`).
 
 ---

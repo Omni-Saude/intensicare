@@ -1,0 +1,856 @@
+batch: 3
+clusters:
+- auditoria-logs
+- documentacao-faturamento
+- indicadores-etl
+- profilaxia
+- ventilacao
+n_items: 16
+items:
+- rule_id: RULE-AUDITORIA-LOGS-026
+  cluster: auditoria-logs
+  catalog_rule:
+    id: RULE-AUDITORIA-LOGS-026
+    name: LogModel *_tag() HTML-table helper methods are dead code
+    category: data-validation
+    type: workflow
+    status: DISCREPANCY
+    description: 'LogModel defines headers_tag(), meta_tag(), request_body_tag(), and response_body_tag(), each
+      building an HTML <table> (via utils.html_template. table_template) of the corresponding JSON field''s key/value
+      pairs. None of these methods are referenced anywhere in the repository (no admin.py registers list_display/readonly_fields
+      using them, no template calls them) — the log app has no admin.py at all in this partition.
+
+      '
+    logic: 'def headers_tag(self): return table_template(self.headers)
+
+      def meta_tag(self): return table_template(self.meta)
+
+      def request_body_tag(self): return table_template(self.request_body)
+
+      def response_body_tag(self): return table_template(self.response_body)
+
+      # grep across repo for these method names: only these 4 definitions, zero call sites
+
+      '
+    edge_cases: n/a — dead code, no runtime effect.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-145
+      band: P3
+      title: data-validation
+      excerpt: headers_tag()/meta_tag()/request_body_tag()/response_body_tag() build HTML <table> markup but have
+        zero call sites repo-wide (no admin.py exists for the log app in this snapshot) -- dead code, likely intended
+        for a Django admin change-li…
+  disposition_record:
+    rule_id: RULE-AUDITORIA-LOGS-026
+    cluster: auditoria-logs
+    category: data-validation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: LogModel *_tag() HTML-table helper methods are dead code
+    disposition: RETIRE
+    justification: The four *_tag() HTML-table helper methods have zero call sites (no admin.py wires them up) and
+      are confirmed dead code; being DISCREPANCY they cannot be plain-ADOPTed, and they are retired with the rest
+      of the unused legacy model code.
+    evidence:
+    - ESC-P3-145
+    - RULE-AUDITORIA-LOGS-026
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-145
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-AUDITORIA-LOGS-030
+  cluster: auditoria-logs
+  catalog_rule:
+    id: RULE-AUDITORIA-LOGS-030
+    name: Allowed log-list filter fields whitelist
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: 'Only whitelisted GET parameters with a truthy value are turned into ORM filter kwargs for LogModel.objects.filter(**filtros);
+      everything else is silently ignored. The whitelist includes ''origem'' and ''cpf'', but LogModel has no such
+      fields, and no UI control ever emits them (both are commented out in the template and in the surrounding view
+      code).
+
+      '
+    logic: "filtros_permitidos = [\"nome\",\"origem\",\"cpf\",\"response_status_code\",\"method\",\"dispositivo\"\
+      ,\n                       \"geolocalizacao__country_name\",\"geolocalizacao__region\",\"geolocalizacao__city\"\
+      ,\n                       \"criado_em__gte\",\"criado_em__lte\",\"path\"]\nfiltros = {}\nfor chave, valor\
+      \ in request.GET.items():\n    if valor and chave in filtros_permitidos:\n        # date-specific handling,\
+      \ see RULE-018\n        filtros[chave] = valor\nlogs = LogModel.objects.filter(**filtros)\n"
+    edge_cases: If a client ever sends ?origem=x or ?cpf=y directly (bypassing the UI, which has no such inputs),
+      filtros would include a key with no matching model field, and LogModel.objects.filter(**filtros) would raise
+      a Django FieldError (500 error) since 'origem' and 'cpf' are not attributes of LogModel.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-146
+      band: P3
+      title: data-validation
+      excerpt: filtros_permitidos includes 'origem' and 'cpf', but LogModel has no such fields and no UI control
+        ever emits them (both commented out in log.html and in the view's commented qs_origem block). If either
+        param is ever supplied directly via…
+  disposition_record:
+    rule_id: RULE-AUDITORIA-LOGS-030
+    cluster: auditoria-logs
+    category: data-validation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: Allowed log-list filter fields whitelist
+    disposition: RETIRE
+    justification: Dead 'origem'/'cpf' whitelist entries that would raise a Django FieldError if ever supplied directly
+      are legacy-app query-parameter debris; being DISCREPANCY they cannot be plain-ADOPTed, and the whole filter
+      mechanism is retired with the legacy dashboard.
+    evidence:
+    - ESC-P3-146
+    - RULE-AUDITORIA-LOGS-030
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-146
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-AUDITORIA-LOGS-034
+  cluster: auditoria-logs
+  catalog_rule:
+    id: RULE-AUDITORIA-LOGS-034
+    name: Country -> region -> city cascading filter (city not re-scoped by country)
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    description: 'The geolocation filter dropdowns cascade: regions are looked up filtered by an exact (case-insensitive)
+      country name match; cities are looked up filtered ONLY by an exact (case-insensitive) region name match —
+      with no additional country constraint — relying on the assumption that region names are globally unique across
+      countries.
+
+      '
+    logic: "# EstadoLogView.get(pais):\nregioes = logs.distinct(\"geolocalizacao__region\").order_by(\"geolocalizacao__region\"\
+      )\n              .filter(geolocalizacao__country_name__iexact=pais).exclude(geolocalizacao__region=None)\n\
+      # CityLogView.get(estado):\ncidades = LogModel.objects.distinct(\"geolocalizacao__city\").order_by(\"geolocalizacao__city\"\
+      )\n              .filter(geolocalizacao__region__iexact=estado).exclude(geolocalizacao__city=None)\n     \
+      \         # note: no geolocalizacao__country_name filter here\n"
+    edge_cases: If two different countries in the GeoIP data happen to share an identically-named region/state (a
+      real possibility, e.g. common region names), the city dropdown would show cities from both countries merged
+      together for that region name.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-316
+      band: AMBIGUOUS
+      title: data-validation
+      excerpt: Country -> region -> city cascading filter (city not re-scoped by country)
+  disposition_record:
+    rule_id: RULE-AUDITORIA-LOGS-034
+    cluster: auditoria-logs
+    category: data-validation
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: Country -> region -> city cascading filter (city not re-scoped by country)
+    disposition: RETIRE
+    justification: The city-not-rescoped-by-country geolocation cascade assumes globally unique region names, a
+      legacy dashboard dropdown quirk with no clinical bearing that is retired along with GeoIP2 enrichment (RULE-020)
+      and the rest of the legacy dashboard.
+    evidence:
+    - ESC-AMBIGUOUS-316
+    - RULE-AUDITORIA-LOGS-034
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-316
+      band: AMBIGUOUS
+    ratify_ref: null
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-010
+  cluster: documentacao-faturamento
+  catalog_rule:
+    id: RULE-DOCUMENTACAO-FATURAMENTO-010
+    name: Digital-signature eligibility - user must have CPF and PIN
+    category: data-validation
+    type: eligibility
+    status: OK
+    description: 'A clinical document (SinaisVitais / Entrada / Saida etc.) is digitally signed via Cryptocubo only
+      if the acting user has both a CPF and a PIN. Otherwise signing is skipped and a warning is logged; the object
+      is left unsigned.
+
+      '
+    logic: "if user.cpf and user.pin:\n    data = vars(objeto).copy(); data.pop(\"_state\")\n    assinatura = assinar_xml_cryptocubo({tipo:\
+      \ data}, user)   # xml-escaped dict2xml, single-line\n    if not assinatura.get_error():\n        objeto.assinatura\
+      \ = AssinaturaCryptocubo.create(\n            documento_assinado=sign_response, assinado_por=user,\n     \
+      \       data_assinatura=now(), tipo=tipo, documento_original=xml_original)\n    # on ValidationError: log\
+      \ warning, leave unsigned\nelse:\n    log warning \"usuario nao possui cpf ou pin\"; leave unsigned\n"
+    edge_cases: 'Both cpf AND pin required (either missing -> no signature, warning only, no exception raised to
+      caller). Signature generation failure (ValidationError from assinar_xml_cryptocubo) is caught and logged,
+      not propagated. Object._state is stripped before serialising to XML.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-DOCUMENTACAO-FATURAMENTO-010
+    cluster: documentacao-faturamento
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: digitally signed via Cryptocubo only if the acting user has both a CPF and a PIN
+    disposition: ADAPT
+    justification: The deny-by-default eligibility gate (no signature without both CPF and PIN, silent skip plus
+      warning) is a sound credential-completeness pattern worth adapting into v2's identity/authorization design,
+      even though the specific CryptoCubo signing mechanism itself is retired with the legacy stack.
+    evidence:
+    - RULE-DOCUMENTACAO-FATURAMENTO-010
+    target: architecture/security-lgpd.md#credential-completeness-gating
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-013
+  cluster: documentacao-faturamento
+  catalog_rule:
+    id: RULE-DOCUMENTACAO-FATURAMENTO-013
+    name: Leito upload tab gated on can_upload_files_amhdocs permission
+    category: data-validation
+    type: eligibility
+    status: OK
+    description: 'The "Enviar arquivo" tab (and the drawer''s Save/Ok button) inside the leito files drawer is only
+      rendered/enabled for users holding the can_upload_files_amhdocs permission; users without it only see the
+      "Arquivos Enviados" (already-sent files) tab.
+
+      '
+    logic: "hideOk = !can_upload_files_amhdocs\nif can_upload_files_amhdocs:\n  render Tabs.TabPane(\"Enviar arquivo\"\
+      ) containing FilesPickContent\nalways render Tabs.TabPane(\"Arquivos Enviados\") containing ArquivosContent\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-DOCUMENTACAO-FATURAMENTO-013
+    cluster: documentacao-faturamento
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: only rendered/enabled for users holding the can_upload_files_amhdocs permission
+    disposition: ADAPT
+    justification: The specific upload-tab UI is retired legacy plumbing, but the underlying deny-by-default, permission-gated-tab
+      authorization pattern (hide/disable UI when a named permission is absent) is a lesson worth preserving for
+      v2's own permission-gated screens per ADR-001's inherited IAM model.
+    evidence:
+    - RULE-DOCUMENTACAO-FATURAMENTO-013
+    - ADR001-C-07
+    target: architecture/security-lgpd.md#permission-gated-ui
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-DOCUMENTACAO-FATURAMENTO-020
+  cluster: documentacao-faturamento
+  catalog_rule:
+    id: RULE-DOCUMENTACAO-FATURAMENTO-020
+    name: Uploaded medical-record/document category code catalog — three divergent hand-maintained copies (54-code
+      runtime map vs 34-value vs 33-value TS union types)
+    category: billing-administrative
+    type: validation
+    status: DISCREPANCY
+    description: 'Fixed code->label dictionary classifying uploaded medical-record attachments (fiscal notes, TISS/SADT
+      insurance guides, prescriptions, exam results, authorization guides, homecare evolution notes by discipline,
+      etc.).
+
+
+
+      This runtime label dictionary (categoriaArquivo.ts, `as Record<Models.Arquivo.Categoria, string>`) is a 54-code
+      superset of two separate, independently hand-maintained TypeScript union types that constrain which categoria
+      values can actually be assigned/selected at compile time: Models.Arquivo.Categoria (34 values; types Arquivo.Upload/Download/Filter.categoria)
+      and Models.Leito.CategoriaArquivo (33 values; types Leito.Upload.categoria), and the three have drifted out
+      of sync with each other.'
+    logic: "# --- (A) PRIMARY / most complete: runtime label dictionary (src/utils/categoriaArquivo.ts:1-54), 54\
+      \ codes ---\ncategoriaArquivo: Record<Models.Arquivo.Categoria, string> = {\n  nao_informado->\"Não informado\"\
+      , ID->\"Nota Fiscal\", AT->\"Atendimento\", RG->\"Documento Identidade\",\n  CC->\"Carteira do Convênio\"\
+      , PE->\"Pedido de Exame\", GT->\"Guia TISS/ SADT\", DC->\"Documentos Pessoais\",\n  AS->\"Documentos Assitencias\"\
+      , GC->\"Guias\", EC->\"Exames Eletrocardiograma (ECG)\",\n  RM->\"Exame Ressonancia Magnética\", CT->\"Contrato\
+      \ \", GS->\"Guia de Solicitação de Internação Externa\",\n  GI->\"Guia de Internação Interna\", EE->\"Evolução\
+      \ externa\", EI->\"Evolução interna\",\n  EP->\"Prescrição Externa\", FR->\"Formulario de Remoção\", TG->\"\
+      Ticket Gasometria\",\n  RT->\"Requisição de Transfusão\", TC->\"Consentimento\", PX->\"Prontuário externo\"\
+      ,\n  RE->\"Resultado de Exames/ Procedimentos\", PM->\"Parecer Médico\", PU->\"Prescrição Emergência\",\n\
+      \  IM->\"Invólucros\", LI->\"Laudo Imagem\", RH->\"Requisição de Hemodiálise\", LL->\"Laudo Laboratorial\"\
+      ,\n  AI->\"Guia Autorização Internação\", AP->\"Guia Autorização de Prorrogação\",\n  AR->\"Guia Autorização\
+      \ de Procedimento\", AM->\"Guia Autorização Mat/Med/Dieta/OPME\",\n  DO->\"Declaração de Óbito\", EX->\"Exame\
+      \ externo\", FG->\"Folha de Gastos de Cirurgia\",\n  EHCMED->\"Evolução HC de Médico\", EHCTEC->\"Evolução\
+      \ HC de Técnico de Enfermagem\",\n  EHCENF->\"Evolução HC de Enfermagem\", EHCFIS->\"Evolução HC de Fisioterapeuta\"\
+      ,\n  EHCTER->\"Evolução HC de Terapeuta\", EHCMUS->\"Evolução HC de Musicoterapeuta\",\n  EHCNUT->\"Evolução\
+      \ HC de Nutricionista\", EHCPSI->\"Evolução HC de Psicólogo\",\n  EHCFON->\"Evolução HC de Fonoaudiólogo\"\
+      , EHCFCT->\"Evolução HC de Farmacêutico\",\n  EHCINT->\"Evolução HC de Intercorrência\", PRHC->\"Prescrição\
+      \ Vida Conecta\",\n  BHHC->\"Balanço Hídrico Vida Conecta\",\n}   // 54 keys total; TS \"as\" type-assertion\
+      \ suppresses excess-property checking against the 34-value type below\n\n# --- (B) src/@types/models/Arquivo.d.ts:26-60\
+      \ — Models.Arquivo.Categoria, 34 values (used by Arquivo.Upload/Download/Filter.categoria) ---\ntype Arquivo.Categoria\
+      \ =\n  nao_informado | AT | ID | RG | CC | PE | GT | DC | AS | GC | EC | RM | CT | GS | GI |\n  EE | EI |\
+      \ EP | FR | TG | RT | TC | PX | RE | PM | PU | IM | LI | RH | LL | AI | AP | AR | AM\n\n# --- (C) src/@types/models/Leito.d.ts:17-50\
+      \ — Models.Leito.CategoriaArquivo, 33 values (used by Leito.Upload.categoria) ---\ntype Leito.CategoriaArquivo\
+      \ =\n  nao_informado | AT | ID | RG | CC | PE | GT | DC | AS | GC | EC | RM | CT | GS | GI |\n  EE | /* EI\
+      \ missing here */ EP | FR | TG | RT | TC | PX | RE | PM | PU | IM | LI | RH | LL | AI | AP | AR | AM\n"
+    edge_cases: 'Verbatim typos preserved: "Documentos Assitencias" (should be Assistenciais), "Contrato " (trailing
+      space). "EHC*" codes are homecare (HC / "Vida Conecta") evolution notes per discipline; PRHC/BHHC are Vida
+      Conecta prescription / fluid balance. "nao_informado" is the explicit not-informed default. No runtime validator
+      exists for the Arquivo.Categoria/Leito.CategoriaArquivo types (compiler-enforced only). If Leito.Upload uses
+      CategoriaArquivo, uploading category "EI" (Evolução interna) against a Leito.Upload payload is a type error
+      even though the same code is valid for Arquivo.Upload and has a runtime label.'
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-190
+      band: P3
+      title: billing-administrative
+      excerpt: 'Three independently hand-maintained catalogs of the same "document category" concept disagree in
+        scope: (1) categoriaArquivo.ts (runtime label dictionary, rendered wherever a category needs a human-readable
+        label) defines 54 codes; (2) M…'
+  disposition_record:
+    rule_id: RULE-DOCUMENTACAO-FATURAMENTO-020
+    cluster: documentacao-faturamento
+    category: billing-administrative
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: 54-code superset of two separate
+    disposition: ADOPT-CORRECTED
+    justification: The 54-code document-category vocabulary (fiscal notes, TISS/SADT guides, EHC* per-discipline
+      evolution notes, Vida Conecta codes) is a genuine PT-BR controlled vocabulary asset, but its three hand-maintained
+      copies disagree (54 vs 34 vs 33, EI missing from Leito per ESC-P3-190); adopt the reference-correct form as
+      a single canonical 54-code enum (the runtime categoriaArquivo.ts superset) rather than porting any of the
+      drifted subsets.
+    evidence:
+    - RULE-DOCUMENTACAO-FATURAMENTO-020
+    - ESC-P3-190
+    target: design/screens/clinical-forms.md#document-category-codes
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-INDICADORES-ETL-005
+  cluster: indicadores-etl
+  catalog_rule:
+    id: RULE-INDICADORES-ETL-005
+    name: Bed-occupancy percentage color thresholds
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: 'The circular occupancy-percentage indicator on a sector''s dashboard card is colored red above
+      70%, amber between 50% and 70%, and green at or below 50%.
+
+      '
+    logic: "strokeColor = item.ocupacao > 70   ? \"#FF1633\"   // red\n            : item.ocupacao > 50   ? \"#FFAB00\"\
+      \   // amber\n            :                        \"#00DC50\"   // green\n"
+    edge_cases: 'Boundaries are strict ''>'' (not >=): exactly 70 and exactly 50 fall into the lower/green-ward
+      tier, i.e. 70.0 is amber (not red) and 50.0 is green (not amber).'
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-INDICADORES-ETL-005
+    cluster: indicadores-etl
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: colored red above 70%, amber between 50% and 70%, and green at or below 50%
+    disposition: RETIRE
+    justification: Legacy Trilha-frontend circular-gauge stroke-color thresholds are pure client display mechanics
+      tied to the retired dashboard component (DashboardCard.tsx); the underlying occupancy percentage itself is
+      computed server-side and survives, but this specific strict-inequality color-banding UI rule does not carry
+      forward into the v2 design system.
+    evidence:
+    - RULE-INDICADORES-ETL-005
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-INDICADORES-ETL-006
+  cluster: indicadores-etl
+  catalog_rule:
+    id: RULE-INDICADORES-ETL-006
+    name: Sector-level aggregate alert-color decision tree
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: 'Determines the single overall alert color badge for a sector''s dashboard card, given its counts
+      of red/amber/neutral alerts and its assisted-percentage. ASSISTIDO takes top priority; otherwise the highest-count
+      color wins, with VERMELHO (red) preferred on ties over AMARELO, and AMARELO preferred on ties over NEUTRO.
+
+      '
+    logic: 'if (!item.total_alertas) return "NEUTRO"
+
+      if (assistPercent(item.total_assistidos) === 100) return "ASSISTIDO"
+
+      else if (VERMELHO >= AMARELO && VERMELHO >= NEUTRO && VERMELHO > 0) return "VERMELHO"
+
+      else if (AMARELO > VERMELHO && AMARELO >= NEUTRO && AMARELO > 0) return "AMARELO"
+
+      else if (NEUTRO > AMARELO && NEUTRO > VERMELHO && NEUTRO > 0) return "NEUTRO"
+
+      else return ""
+
+      '
+    edge_cases: 'When all three counts are 0 (and total_alertas object is present but empty/zeroed), none of the
+      branches match and the result is "" (falls through to no color, card gets the "empty" CSS class instead).
+      If total_alertas is falsy/absent entirely, defaults straight to "NEUTRO" without evaluating assistPercent.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-INDICADORES-ETL-006
+    cluster: indicadores-etl
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: ASSISTIDO takes top priority; otherwise the highest-count color wins, with VERMELHO (red) preferred
+      on ties
+    disposition: SUPERSEDE
+    justification: The three/four-color NEUTRO/AMARELO/VERMELHO(/ASSISTIDO) precedence tree is replaced by the vision-mandated
+      canonical clinical.* severity scale (normal|watch|urgent|critical, per constraint CON-SEED-11); the ASSISTIDO-override
+      and count-based tiebreak semantics are legacy Trilha-specific and are not reimplementable against the new
+      scale as-is.
+    evidence:
+    - RULE-INDICADORES-ETL-006
+    - CON-SEED-11
+    target: clinical/domains/correlation-engine.md#alert-severity-rollup
+    supersedes_note:
+      replaced_by: canonical clinical.* severity scale normal|watch|urgent|critical
+      lost: ASSISTIDO 100%-override precedence and VERMELHO/AMARELO count-tiebreak rules specific to the legacy
+        3-color scheme
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-INDICADORES-ETL-020
+  cluster: indicadores-etl
+  catalog_rule:
+    id: RULE-INDICADORES-ETL-020
+    name: Generic indicator create always stamps server-side usuario_id and timestamp
+    category: data-validation
+    type: workflow
+    status: OK
+    description: IndicadorViewSet.create builds an Indicador record whose 'dados' JSON always includes usuario_id
+      (current user) and data_entrada (current timestamp, stringified) merged on top of (i.e., overriding) whatever
+      the client sent in 'dados'; 'tipo' is taken directly from the client without validation against any enum.
+    logic: "indicador_data = {\n  \"tipo\": data.get(\"tipo\"),\n  \"dados\": {**data.get(\"dados\", {}), \"usuario_id\"\
+      : request.user.get_pk, \"data_entrada\": str(timezone.now())},\n}\nIndicador(**indicador_data).save()\nreturn\
+      \ Response({\"ok\": True})\n"
+    edge_cases: '''tipo'' is unrestricted free-form input from the client - no choices/enum validation visible in
+      this partition. Because usuario_id/data_entrada are spread after the client''s dados dict then set as explicit
+      keys, any client-supplied usuario_id/data_entrada in the body is overwritten by the server values.'
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-INDICADORES-ETL-020
+    cluster: indicadores-etl
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: always includes usuario_id (current user) and data_entrada (current timestamp, stringified)
+    disposition: ADAPT
+    justification: The intent of always server-stamping usuario_id and timestamp so client-supplied values cannot
+      override the audit trail is a lesson worth keeping (an audit-integrity pattern), but the unrestricted free-form
+      'tipo' field with no enum validation is a mechanism defect that must be corrected against a proper schema-validated
+      audit envelope in the new architecture.
+    evidence:
+    - RULE-INDICADORES-ETL-020
+    target: architecture/security-lgpd.md#server-side-audit-stamping
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-PROFILAXIA-005
+  cluster: profilaxia
+  catalog_rule:
+    id: RULE-PROFILAXIA-005
+    name: Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophylaxis indicated but absent (AMARELO)
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    description: 'criterio_1 predicate: no PPI/cimetidine prescribed AND at least one stress-ulcer prophylaxis indication
+      present (noradrenaline in balance; OR mechanical ventilation >48h; OR platelets <= 50000; OR no enteral/oral
+      diet logged >24h; OR high-risk admission diagnosis).
+
+      '
+    logic: "diagnosticos_intern = [\n  \"Traumatismo cranio-encefalico - TCE\",\n  \"Acidente vascular cerebral\
+      \ isquemico - AVCi\",\n  \"Acidente vascular cerebral hemorragico\" \"Grande queimado\",   # implicit-concat\
+      \ bug -> single fused string\n  \"SEPSE\",\n  \"Pos- operatorio recente de cirurgia abdominal\",\n  \"Cirrose\
+      \ hepatica\",\n  \"Hemorragia digestiva alta - HDA\",\n]\nreturn any([\n  all([ not get_number(cpoe.omeprazol),\
+      \ not get_number(cpoe.pantoprazol),\n        not get_number(cpoe.esomeprazol), not get_number(cpoe.cimetidina),\n\
+      \        get_number(balanco.qt_vol_nora) ]),\n  evolucao(dt_atualizacao >= now - 50h).annotate(vent=Lower(diurna_ventilacao))\n\
+      \        .filter(vent in ventilacao_mecanica | ventilacao_mecanica_invasiva),\n  get_number(evolucao.diurna_plaquetas)\
+      \ <= 50000,\n  not balanco(dt_atualizacao >= now - 26h).filter(qt_vol_dieta__gt=0).exists(),\n  list(filter(lambda\
+      \ x: x in diagnosticos_intern,\n       vars(ultima_evolucao).fromkeys((\"diag_inter_1\",\"diag_inter_2\",\"\
+      diag_inter_3\",\"diag_inter_4\")))),  # inert\n]) if (ultima_prescricao and ultimo_balanco and ultima_evolucao\n\
+      \       and evolucao_50h and balanco_26h) else False\n"
+    edge_cases: 'Documented "48h" ventilation window is implemented as now-50h; documented "24h" diet window is
+      implemented as now-26h. The high-risk-diagnosis list membership check is non-functional: dict.fromkeys(("diag_inter_1"...))
+      iterates the literal KEY NAMES, never the evolucao field VALUES, so no real diagnosis is ever matched (per
+      systemic finding RULE-systemic-BE-03-001). One list entry is a Python implicit-string-concatenation bug: "Acidente
+      vascular cerebral hemorragico" "Grande queimado" fuse into a single string "Acidente vascular cerebral hemorragicoGrande
+      queimado", merging two distinct diagnoses into one unmatchable entry.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: moderate
+      reference: 'Cook DJ et al. "Risk Factors for Gastrointestinal Bleeding in Critically Ill Patients." N Engl
+        J Med 1994;330:377-381 (Canadian Critical Care Trials Group). Two independent risk factors for clinically
+        important GI bleeding: respiratory failure = mechanical ventilation >48h (OR 15.6) and coagulopathy = platelet
+        count <50,000/mm3 OR INR >1.5 OR PTT >2x ULN (OR 4.3). ASPEN/ASHP stress-ulcer prophylaxis guidance adds
+        high-risk conditions (TBI, extensive burns, sepsis, hepatic failure, GI bleed) as accepted additional indications.
+
+        '
+      detail_file: profilaxia-batch1.yaml
+    escalations:
+    - item_id: ESC-P1-049
+      band: P1
+      title: Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophylaxis indicated but absent (AMARELO)
+      excerpt: '*`profilaxia` · `care-pathway` · DISCREPANCY/DISCREPANCY*  - **Legacy:** criterio_1 predicate: no
+        PPI/cimetidine prescribed AND at least one stress-ulcer prophylaxis indication present (noradrenaline in
+        balance; OR mechanical ventilation >48h; OR platelets <= 50000; OR no enteral/oral diet logged >24h; OR
+        high-risk admission diagnosis). - **Deviation:** Intent (docstring) vs implementation diverge'
+  disposition_record:
+    rule_id: RULE-PROFILAXIA-005
+    cluster: profilaxia
+    category: care-pathway
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: no PPI/cimetidine prescribed AND at least one stress-ulcer prophylaxis indication present
+    disposition: RATIFY
+    justification: criterio_1's stress-ulcer predicate carries a P1 escalation (ESC-P1-049) and DISCREPANCY verdict
+      for three verified implementation-vs-docstring gaps (48h->50h, 24h->26h windows, an inert diagnosis-list check,
+      and a string-concat bug fusing two diagnoses); P1 bands are mandatory-RATIFY, matching ledger CON-0187's requirement
+      to confirm clinical intent before any correction is designed.
+    evidence:
+    - RULE-PROFILAXIA-005
+    - ESC-P1-049
+    - CON-0187
+    - Cook DJ et al. NEJM 1994;330:377-381
+    target: RATIFICATION.md#rat-profilaxia-01
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P1-049
+      band: P1
+    ratify_ref: RAT-PROFILAXIA-01
+- rule_id: RULE-PROFILAXIA-006
+  cluster: profilaxia
+  catalog_rule:
+    id: RULE-PROFILAXIA-006
+    name: Prophylaxis v3 criterio_9 - invasive device prescribed (VERMELHO)
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: 'criterio_9 predicate: prescription of double-lumen central venous puncture OR double-lumen hemodialysis
+      catheter OR indwelling bladder catheter (device-associated infection risk trigger).
+
+      '
+    logic: "ultima_prescricao = cpoe_leito.first()\nreturn any([\n  get_number(cpoe.puncao_cateter_duplo),\n  get_number(cpoe.cateter_duplo_hemod),\n\
+      \  get_number(cpoe.sonda_vesical_demora),\n]) if ultima_prescricao else False\n"
+    edge_cases: Uses the latest CPOE prescription only (cpoe_leito.first()).
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-PROFILAXIA-006
+    cluster: profilaxia
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: double-lumen central venous puncture OR double-lumen hemodialysis catheter
+    disposition: ADOPT
+    justification: criterio_9's device-associated-infection trigger (double-lumen CVC, double-lumen hemodialysis
+      catheter, or indwelling bladder catheter) is an unescalated, internally-consistent institutional predicate
+      (verify:false, NOT_APPLICABLE) using only the latest CPOE prescription, so it adopts unchanged into the v2
+      sepsis-adjacent device-infection-prevention logic.
+    evidence:
+    - RULE-PROFILAXIA-006
+    target: clinical/domains/sepsis.md#device-associated-infection-bundle
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-PROFILAXIA-008
+  cluster: profilaxia
+  catalog_rule:
+    id: RULE-PROFILAXIA-008
+    name: Prophylaxis v3 - reduced active criteria set facade (LAMGD + insertion bundle only)
+    category: care-pathway
+    type: decision-tree
+    status: AMBIGUOUS
+    description: 'profilaxia v3 facade recommendation catalog returning ONLY criterio_1 (LAMGD prophylaxis) and
+      criterio_9 (invasive-procedure insertion bundle); criteria 2-8 are commented out in source.
+
+      '
+    logic: "criterio_1 ausencia de profilaxia LAMGD -> esomeprazol VO/SNE\n           (preferencialmente) ou pantoprazol\
+      \ VO ou cimetidina EV ou\n           omeprazol VO/EV.\ncriterio_9 procedimento invasivo -> preencher Bundle\
+      \ de prevencao de IRAs\n           associado a dispositivo (presencial ou a distancia).\n"
+    edge_cases: 'The commented-out criteria 3-8 in this file are copy-pasted SEPSE thresholds (Falencia respiratoria
+      VMI iniciada <24h, Hipotensao refrataria DVA <6h, PAS<90/PAM<60, TEC>3s, lactato>=3 mmol/L, oliguria diurese<=0.5
+      ml/kg/h) that do NOT belong to prophylaxis - dead code, ignored by runtime.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-303
+      band: AMBIGUOUS
+      title: care-pathway
+      excerpt: Prophylaxis v3 - reduced active criteria set facade (LAMGD + insertion bundle only)
+  disposition_record:
+    rule_id: RULE-PROFILAXIA-008
+    cluster: profilaxia
+    category: care-pathway
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: criteria 2-8 are commented out in source
+    disposition: RATIFY
+    justification: The v3 facade's AMBIGUOUS status (ESC-AMBIGUOUS-303) and its dead SEPSE-threshold comment block
+      make it unclear whether the 2-criterion scope (vs v1's 11) is an intentional narrowing or an incomplete migration;
+      AMBIGUOUS bands are RATIFY when clinically worth keeping, which both retained criteria (LAMGD, device bundle)
+      are, resolving the CON-0190 'do not adopt as-is' constraint via ratification rather than a unilateral ADAPT.
+    evidence:
+    - RULE-PROFILAXIA-008
+    - ESC-AMBIGUOUS-303
+    - CON-0190
+    - RULE-PROFILAXIA-007
+    target: RATIFICATION.md#rat-profilaxia-02
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-303
+      band: AMBIGUOUS
+    ratify_ref: RAT-PROFILAXIA-02
+- rule_id: RULE-VENTILACAO-011
+  cluster: ventilacao
+  catalog_rule:
+    id: RULE-VENTILACAO-011
+    name: Ventilation C8 - extubation-readiness bundle
+    category: care-pathway
+    type: decision-tree
+    status: DISCREPANCY
+    description: Flags a full readiness bundle - awake, >1d VM, low PEEP/FiO2, adequate FR and oxygenation, no noradrenaline.
+      Hard alert-forcing criterion.
+    logic: "all([\n  any([(glasgow>=10) if glasgow else False, (int(rass)>=-2) if rass else False]),\n  (dias_com_ventilacao_mecanica\
+      \ > 1) if VM exists else False,\n  (peep <= 8) if peep else False,\n  (fio2 < 0.4) if fio2 else False,\n \
+      \ (fr <= 22) if fr else False,\n  (relacao_po2_fio2 >= 200) if (po2 and fio2) else False,\n  not verificar_objeto_existe(dp,'noradrenalina')\
+      \ ])\n"
+    edge_cases: 'fio2 < 0.4 treats FiO2 as a fraction here (contrast C2/C3 which divide fio2 by 100 as a percentage).
+      Inclusive peep<=8, fr<=22, ratio>=200; strict glasgow>=10; dias_vm>1.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Boles J-M, et al. "Weaning from mechanical ventilation." ERS/ATS/ESICM/SCCM/SRLF Task Force. Eur
+        Respir J 2007;29:1033-1056 (International Consensus Conference on weaning). Readiness-to-wean/SBT screening:
+        adequate oxygenation = SpO2 >=90% on FiO2 <=0.40 and PEEP <=8 cmH2O, OR PaO2/FiO2 >=150 (PEEP <=8); some
+        protocols use P/F >200. Adequate consciousness, RR criterion, no/minimal vasopressors.
+
+        '
+      detail_file: ventilacao-batch3.yaml
+    escalations:
+    - item_id: ESC-P0-011
+      band: P0
+      title: Ventilation C8 - extubation-readiness bundle
+      excerpt: FiO2 treated as a FRACTION here (fio2 < 0.4), contrasting C2/C3 (RULE-VENTILACAO-004/005) which divide
+        fio2 by 100 as a PERCENTAGE - FiO2 unit inconsistency within the same model.
+  disposition_record:
+    rule_id: RULE-VENTILACAO-011
+    cluster: ventilacao
+    category: care-pathway
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: fio2 < 0.4 treats FiO2 as a fraction here
+    disposition: RATIFY
+    justification: C8's extubation-readiness bundle is a hard alert-forcing criterion whose fio2<0.4 fraction convention
+      directly clashes with C2/C3's fio2/100 percentage convention on the same model, a mandatory P0 escalation
+      because a unit mismatch in a hard-alert extubation-readiness rule can silently mis-fire or mis-suppress a
+      safety-critical alert; ratification must fix the canonical FiO2 unit before v2 adopts this bundle.
+    evidence:
+    - RULE-VENTILACAO-011
+    - RULE-VENTILACAO-004
+    - RULE-VENTILACAO-005
+    - ESC-P0-011
+    - Boles J-M et al., Eur Respir J 2007;29:1033-1056
+    target: RATIFICATION.md#rat-ventilacao-06
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-011
+      band: P0
+    ratify_ref: RAT-VENTILACAO-06
+- rule_id: RULE-VENTILACAO-013
+  cluster: ventilacao
+  catalog_rule:
+    id: RULE-VENTILACAO-013
+    name: Ventilation C10 - adequate oxygenation (incl. COPD target)
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Flags SatO2>96 OR PO2>100 OR (COPD AND SatO2>92).
+    logic: "any([\n  (sato2 > 96) if sato2 else False,\n  (po2 > 100) if po2 else False,\n  all([ dpoc, (sato2 >\
+      \ 92) if sato2 else False ]) ])\n"
+    edge_cases: Strict >96, >100, >92. COPD lowers the SpO2 target to >92.
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'O''Driscoll BR, et al. BTS Guideline for oxygen use in adults in healthcare and emergency settings.
+        Thorax 2017;72(Suppl 1):ii1-ii90. Target SpO2 94-98% for most acutely ill adults (avoid hyperoxia); 88-92%
+        for patients at risk of hypercapnic respiratory failure (e.g. COPD). PaO2 hyperoxia above the normal 80-100
+        mmHg range.
+
+        '
+      detail_file: ventilacao-batch3.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-VENTILACAO-013
+    cluster: ventilacao
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: COPD lowers the SpO2 target to >92
+    disposition: ADOPT
+    justification: C10's oxygenation-adequacy check, including the COPD-specific lowered SpO2 target, matches the
+      BTS 2017 oxygen guideline's 94-98% general / 88-92% hypercapnic-risk targets and is carried forward unchanged
+      into the respiratory domain's oxygenation-target logic.
+    evidence:
+    - RULE-VENTILACAO-013
+    - O'Driscoll BR et al., BTS Guideline, Thorax 2017;72(Suppl 1):ii1-ii90
+    target: clinical/domains/respiratory.md#oxygenation-targets
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-VENTILACAO-014
+  cluster: ventilacao
+  catalog_rule:
+    id: RULE-VENTILACAO-014
+    name: Ventilation pathway alert (count + special-criterion override) - trilha_manual
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Ventilation alert is VERMELHO if >=3 criteria OR any of C1/C8/C9 is set; AMARELO if >=1; else NEUTRO.
+    logic: 'n = count(True among criterio_1..10)
+
+      if n >= 3 or (criterio_1 or criterio_8 or criterio_9): ''VERMELHO''
+
+      elif n > 0: ''AMARELO''
+
+      else: ''NEUTRO''
+
+      '
+    edge_cases: A single C1/C8/C9 -> immediate VERMELHO even though count is 1.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-VENTILACAO-014
+    cluster: ventilacao
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: VERMELHO if >=3 criteria OR any of C1/C8/C9 is set
+    disposition: ADAPT
+    justification: The trilha_manual count-plus-hard-override aggregation (>=3 true criteria escalate, OR any of
+      the three alert-forcing criteria C1/C8/C9 force escalation regardless of count) is the most complete of the
+      three competing legacy alert-aggregation variants and its clinical intent (severity by count with critical-criterion
+      override) is preserved, but the three-state VERMELHO/AMARELO/NEUTRO mechanism is replaced by v2's normal/watch/urgent/critical
+      severity scale per the alert entry schema.
+    evidence:
+    - RULE-VENTILACAO-014
+    - RULE-VENTILACAO-003
+    - RULE-VENTILACAO-011
+    - RULE-VENTILACAO-012
+    target: clinical/domains/respiratory.md#alert-aggregation
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-VENTILACAO-019
+  cluster: ventilacao
+  catalog_rule:
+    id: RULE-VENTILACAO-019
+    name: Physician respiratory-assessment ventilation decision tree (FormularioMedico)
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Ventilation type conditionally reveals invasive-VM parameters (with ranges) or a supplemental-O2
+      flow field.
+    logic: "tipo_ventilacao options (value/label): ventilacao_ar_ambiente \"Espontanea\",\n  ventilacao_suporte_o2\
+      \ \"VNI\", ventilacao_mecanica_invasiva \"VM\", intermitente \"Intermitente\".\nconditions:\n  ventilacao_mecanica_invasiva\
+      \ -> fio2(21-100) + peep(0-40) + pins(0-30) + vc(0-1500)\n  ventilacao_suporte_o2        -> fluxo_o2 (1-15)\n\
+      Also tipo_secrecao {ausente,hialina,espessa,grande_quantidade}; tipos_respiratoria multicheck.\n"
+    edge_cases: 'Value/label mismatch (ventilacao_ar_ambiente labeled "Espontanea"; ventilacao_suporte_o2 labeled
+      "VNI") - semantic drift but functional.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-VENTILACAO-019
+    cluster: ventilacao
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Value/label mismatch (ventilacao_ar_ambiente labeled "Espontanea"
+    disposition: ADAPT
+    justification: The physician form's conditional reveal of invasive-VM parameters vs supplemental-O2 flow is
+      sound UX logic sharing the same VM-parameter ranges as RULE-VENTILACAO-018 (agreeing) and the same 1-15 L/min
+      O2-flow bound as RULE-VENTILACAO-021 (agreeing), but its tipo_ventilacao value/label pairing (ventilacao_ar_ambiente
+      value labeled "Espontanea") is semantic drift; v2 keeps the PT-BR labels verbatim while reconciling the shared
+      parameter bounds per RULE-VENTILACAO-018's target.
+    evidence:
+    - RULE-VENTILACAO-019
+    - RULE-VENTILACAO-018
+    - RULE-VENTILACAO-021
+    target: design/screens/clinical-forms.md#ventilation-type-selector
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

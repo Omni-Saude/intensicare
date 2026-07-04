@@ -1,0 +1,67 @@
+{
+  "brief_id": "cluster-formularios-clinicos",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/formularios-clinicos.yaml",
+    "lines": 2206,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/formularios-clinicos.yaml", "line_ranges": "1-2206"}
+  ],
+  "facts": [
+    {"id": "CLU-FORMULARIOS-CLINICOS-01",
+     "claim": "45 rules cover the multidisciplinary discipline-form layer (Enfermagem/TecEnfermagem/Medico/Fisioterapeuta/Fonoaudiologo/Nutricionista/Farmaceutico/Psicologo/Musicoterapia + home-care Intercorrencia), BE ahlabs-trilhas (8166c07) + FE trilhas-frontend (f9656be); mostly controlled-vocabulary/enum capture, not computed scoring.",
+     "kind": "entity", "source_ref": "formularios-clinicos.yaml header + rules 001-045"},
+    {"id": "CLU-FORMULARIOS-CLINICOS-02",
+     "claim": "Only 3 rules are true scoring/scale entries (NPUAP staging RULE-001/002/003); only 2 alert-thresholds carry a published clinical anchor (CRT>5s RULE-005; peri-wound edema 4cm RULE-004); remaining 40 are enum catalogs (verify=false).",
+     "kind": "metric", "source_ref": "formularios-clinicos.yaml RULE-001..005"},
+    {"id": "CLU-FORMULARIOS-CLINICOS-03",
+     "claim": "Histogram - status: OK=36, DISCREPANCY=5 (002,003,004,021,038), AMBIGUOUS=4 (017,037,039,040). type: validation=28, decision-tree=7, scoring=3, workflow=3, threshold=2, eligibility=2. verdict: NOT_APPLICABLE=38, DISCREPANCY=4 (002,003,004,005), UNVERIFIABLE=2 (014,042), VERIFIED=1 (001).",
+     "kind": "metric", "source_ref": "formularios-clinicos.yaml all 45 rules"},
+    {"id": "CLU-FORMULARIOS-CLINICOS-04",
+     "claim": "Peri-wound-edema top-tier value for 'crepitation/pitting edema >=4cm' diverges by discipline: BE + TecEnfermagem store 'crepitacao_maior_4cm'; nursing/dietitian FE store 'crepitacao_edema_com_sulco_maior_4cm' - cross-discipline data-consistency bug.",
+     "kind": "entity", "source_ref": "formularios-clinicos.yaml RULE-002,003,004"},
+    {"id": "CLU-FORMULARIOS-CLINICOS-05",
+     "claim": "Vasoactive/sedative infusion doses (dobutamina 0-30, noradrenalina 0-200, sedativos 0-30) captured with NO unit (RULE-042); plausible bases differ per drug - unverifiable without a concentration table, same gap class as sedacao cluster.",
+     "kind": "threshold", "source_ref": "formularios-clinicos.yaml RULE-042"},
+    {"id": "CLU-FORMULARIOS-CLINICOS-06",
+     "claim": "16-code chronic diagnosis catalog (RULE-021) duplicated verbatim incl. typos ('corononariana','diabettes_mellitus_tipo2', cedilla in 'doença_de_alzheimer') between BE dict-index humanizer (KeyError, no default) and FE multicheck with trailing-comma sparse-array hole.",
+     "kind": "entity", "source_ref": "formularios-clinicos.yaml RULE-021"}
+  ],
+  "constraints": [],
+  "load_bearing_rules": [
+    {"id": "RULE-FORMULARIOS-CLINICOS-001", "what": "canonical NPUAP/EPUAP 6-cat LPP staging enum, BE source of truth", "verdict": "VERIFIED"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-002", "what": "nursing/dietitian FE wound-bed form; edema top-tier + exudate count diverge from BE", "verdict": "DISCREPANCY (low)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-003", "what": "TecEnfermagem LPP variant; edema value matches BE, not nursing/dietitian FE", "verdict": "DISCREPANCY (low)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-004", "what": "BE canonical peri-wound edema enum, 4cm boundary, BWAT-anchored", "verdict": "DISCREPANCY (low, top-tier drift)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-005", "what": "capillary-refill (TEC) >5s perfusion alert boolean", "verdict": "DISCREPANCY (published CRT cutoff >2-3s, not 5s)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-014", "what": "TecEnfermagem drug/antibiotic route+site vocabulary", "verdict": "UNVERIFIABLE (proprietary, no scale)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-021", "what": "16-code diagnosis catalog, BE KeyError-no-default / FE sparse-array hole", "verdict": "NOT_APPLICABLE (DISCREPANCY on bugs only)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-038", "what": "Terapeuta.jsx/Psicologo.jsx icons byte-identical SVG", "verdict": "NOT_APPLICABLE (DISCREPANCY, dead/dup asset)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-040", "what": "two DRF URL paths, one basename, same viewset - naming collision risk", "verdict": "NOT_APPLICABLE (AMBIGUOUS, migration artifact)"},
+    {"id": "RULE-FORMULARIOS-CLINICOS-042", "what": "vasopressor/sedative infusion dose capture, numeric bounds but no unit", "verdict": "UNVERIFIABLE (unit-less, no anchor)"}
+  ],
+  "systemic_issues": [
+    {"issue": "Cross-discipline enum-value drift for identical finding (edema top tier); nursing/dietitian FE drops 'pequeno' exudate option vs BE 5-option set", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-002", "RULE-FORMULARIOS-CLINICOS-003", "RULE-FORMULARIOS-CLINICOS-004"]},
+    {"issue": "Missing/ambiguous units: vasoactive/sedative infusion quantities have no unit; O2 flow uses implausible 0-1000 L/min bound (input validation, not clinical)", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-042", "RULE-FORMULARIOS-CLINICOS-012", "RULE-FORMULARIOS-CLINICOS-006"]},
+    {"issue": "Dead/duplicate code: Terapeuta/Psicologo SVGs byte-identical; two DRF routes to one viewset/basename; LPP/lesion form lists duplicated or commented-out across 3+ files", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-038", "RULE-FORMULARIOS-CLINICOS-040", "RULE-FORMULARIOS-CLINICOS-002", "RULE-FORMULARIOS-CLINICOS-019"]},
+    {"issue": "Fragile catalog duplication: diagnosis map dict-indexed with no default (KeyError) on BE, trailing-comma sparse-array hole on matching FE, despite exact code/typo match", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-021"]},
+    {"issue": "AMBIGUOUS signals w/ no attached logic: 'Intercorrencia' icon has zero logic; 10-discipline icon set not confirmed exhaustive; binary Masculino/Feminino iconography, no non-binary option seen", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-017", "RULE-FORMULARIOS-CLINICOS-037", "RULE-FORMULARIOS-CLINICOS-039"]},
+    {"issue": "Verbatim typos load-bearing in stored codes: 'toronozelo_lateral/medial' (tornozelo), 'inframaria_d/e' (inframamaria); diagnosis codes 'corononariana', 'diabettes_mellitus_tipo2', cedilla-only 'doença_de_alzheimer'", "rule_ids": ["RULE-FORMULARIOS-CLINICOS-020", "RULE-FORMULARIOS-CLINICOS-021"]}
+  ],
+  "feeds_v2_domains": ["governance", "experience", "platform", "pharmaco", "early-warning-scores", "hemodynamics", "retire-candidate"],
+  "pt_br_vocabulary": {
+    "estagio_lpp": ["suspeita_de_lesao", "estagio_i", "estagio_ii", "estagio_iii", "estagio_iv", "nao_graduavel"],
+    "edema_tecido_top_tier_variants": ["crepitacao_maior_4cm (BE/TecEnfermagem)", "crepitacao_edema_com_sulco_maior_4cm (nursing/dietitian FE)"],
+    "exsudato_backend": ["nada", "escasso", "pequeno", "moderado", "grande"],
+    "grau_urgencia": ["normal", "urgencia", "sem_urgencia", "emergencia"],
+    "itens_desfecho_sample": ["encaminhada_visita_medica", "encaminhado_hospital_prestador", "orientacao_telefonica", "obito_domiciliar"],
+    "abertura_ocular_gcs_labels": ["espontanea", "ao_comando", "a_dor", "nenhuma"],
+    "diagnostico_chronico_typos": ["corononariana", "diabettes_mellitus_tipo2", "doença_de_alzheimer (cedilla)"]
+  },
+  "open_questions": [
+    "Reconcile divergent peri-wound-edema/exsudato values (RULE-002/003/004) to one canonical set before v2 adopts wound forms?",
+    "Unit-less vasoactive/sedative dose fields (RULE-042): ADOPT-CORRECTED with explicit unit model, or RETIRE for a structured eMAR in v2?"
+  ]
+}

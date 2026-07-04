@@ -1,0 +1,96 @@
+barrier: 1
+swept:
+- docs/plan/clinical/units-registry.md
+- docs/plan/_work/units/registry.yaml
+- docs/plan/clinical/domains/aki.md
+- docs/plan/clinical/domains/correlation-engine.md
+- docs/plan/clinical/domains/early-warning-scores.md
+- docs/plan/clinical/domains/electrolyte.md
+- docs/plan/clinical/domains/hemodynamics.md
+- docs/plan/clinical/domains/neuro-sedation.md
+- docs/plan/clinical/domains/pharmaco-interaction.md
+- docs/plan/clinical/domains/respiratory.md
+- docs/plan/clinical/domains/sepsis.md
+- docs/plan/architecture/alert-engine.md (ingestion/normalization + build-time unit-check hook, §2.1)
+- docs/plan/architecture/api/api-design.md (unit-handling references, UNIT_MISMATCH 422, §on units-registry precedence)
+- docs/plan/_work/alerts/aki.yaml
+- docs/plan/_work/alerts/correlation-engine.yaml
+- docs/plan/_work/alerts/early-warning-scores.yaml
+- docs/plan/_work/alerts/electrolyte.yaml
+- docs/plan/_work/alerts/hemodynamics.yaml
+- docs/plan/_work/alerts/neuro-sedation.yaml
+- docs/plan/_work/alerts/pharmaco-interaction.yaml
+- docs/plan/_work/alerts/respiratory.yaml
+- docs/plan/_work/alerts/sepsis.yaml
+conflicts:
+- conflict_id: B1-001
+  barrier: 1
+  severity: blocking
+  description: 'registry.yaml v2''s own changelog (lines 25-27) states the parameter `clearance_creatinina` (quantity
+    `creatinine_clearance`, canonical `mL/min`, aliases including "CrCl") was added "per units-gate request for
+    the neuro-sedation + pharmaco-interaction domains" — i.e. it claims to resolve pharmaco-interaction.md''s open
+    question. But pharmaco-interaction.md was never updated to reflect this: it still declares, in five separate
+    places (line 70 domain preamble: "except `crcl` (mL/min), which is missing"; line 92 inputs table: "**`mL/min`**
+    *(missing from registry — §7)*"; line 195: "`crcl` unit is `mL/min` (missing from registry — §7)"; §7 OQ-PHARMACO-01
+    lines 254-259: "unit missing from `_work/units/registry.yaml`... Mission canonical assumed: `mL/min`... the
+    registry entry, when added, must distinguish..."; and the `domain-inputs` YAML block line 297: "UNIT MISSING
+    from registry — mission canonical mL/min (§7 OQ-PHARMACO-01)") that the CrCl unit is absent from the registry
+    and must be added later. It is not absent — it already exists, under the canonical parameter name `clearance_creatinina`,
+    not the domain''s chosen field name `crcl`. Grepping every domain doc and every `_work/alerts/*.yaml` file for
+    `clearance_creatinina` or `taxa_filtracao_glomerular` (the other v2-added renal parameter) returns zero hits:
+    the two parameters registry v2 says it added specifically to unblock this domain are referenced nowhere outside
+    registry.yaml itself. The units-registry.md contract (registry.yaml header, lines 9-10) states the `parameter`
+    field is "the ONLY name downstream specs use" — pharmaco-interaction.md''s `crcl` (used as the alert-schema
+    `name` field in both the domain doc and `_work/alerts/pharmaco-interaction.yaml` lines 9, 199, 211-214, 297)
+    is a different identifier than the registered `clearance_creatinina`, even though both share the same `quantity:
+    creatinine_clearance` token (pharmaco-interaction.md line 351 `interfaces.consumes` correctly cites `quantity:
+    creatinine_clearance`, so the *quantity* layer is aligned — only the *parameter/name* layer has drifted). The
+    mechanical units gate cannot catch this: `mL/min` is a bare canonical unit string that trivially resolves against
+    the registry''s allowed-unit set regardless of which parameter it is attached to, so `crcl: mL/min` passes `check_units.py`
+    even though it is not bound to any registered parameter identity. An implementer trusting pharmaco-interaction.md''s
+    stale narrative (rather than the current registry) would either (a) re-register a duplicate CrCl parameter under
+    `crcl` with its own aliases/edge-conversions, independently of the already- shipped `clearance_creatinina` entry,
+    or (b) never link the alert schema''s `crcl` input to the registry entry at all — both outcomes reintroduce
+    exactly the "same physiological quantity, two divergent identities" unit-chaos class (SYS-01/02/03 precedent)
+    that this registry exists to structurally prevent, and both are invisible to the mechanical gate.
+
+    '
+  artifacts:
+  - docs/plan/_work/units/registry.yaml (lines 25-27 changelog; lines 336-343 clearance_creatinina; lines 345-352
+    taxa_filtracao_glomerular)
+  - docs/plan/clinical/domains/pharmaco-interaction.md (lines 70, 92, 193, 195, 254-259, 297, 351)
+  - docs/plan/_work/alerts/pharmaco-interaction.yaml (lines 9, 199, 211-214, 297)
+  constraint_refs:
+  - CON-SEED-12
+  - registry.yaml contract line 10 (parameter = the ONLY name downstream specs use)
+  - CONTRACTS.md rule 3 (zero silent invention / provenance duty)
+  proposed_resolution: 'Rename the pharmaco-interaction.md and `_work/alerts/pharmaco-interaction.yaml` input from
+    `crcl` to the registered `clearance_creatinina` (keep `CrCl`/`crcl` only as a display/alias label, matching
+    the registry''s own `aliases: ["ml/min", "CrCl", "ClCr", "clearance"]` — note those are *unit* aliases, not
+    parameter-name aliases, so the parameter identifier itself must change). Delete OQ-PHARMACO-01 and the four
+    other "missing from registry" callouts in pharmaco-interaction.md, replacing them with a citation of the now-existing
+    `clearance_creatinina` entry (canonical `mL/min`, Cockcroft-Gault, dosing-only — explicitly distinct from the
+    BSA-normalized `taxa_filtracao_glomerular`/eGFR per the registry''s own note). Re-run the units-gate documentation
+    sync check (if one exists) or add one that verifies every `_work/alerts/*.yaml` / domain-doc `domain-inputs`
+    `name:` field that is of `type: quantity` resolves to a registered `parameter:` in registry.yaml, not merely
+    that its `unit:` string is a valid canonical/alias unit somewhere in the registry — this closes the class of
+    bug this conflict represents, not just this one instance.
+
+    '
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: 'Rename the pharmaco-interaction.md and `_work/alerts/pharmaco-interaction.yaml` input from `crcl`
+      to the registered `clearance_creatinina` (keep `CrCl`/`crcl` only as a display/alias label, matching the registry''s
+      own `aliases: ["ml/min", "CrCl", "ClCr", "clearance"]` — note those are *unit* aliases, not parameter-name
+      aliases, so the parameter identifier itself must change). Delete OQ-PHARMACO-01 and the four other "missing
+      from registry" callouts in pharmaco-interaction.md, replacing them with a citation of the now-existing `clearance_creatinina`
+      entry (canonical `mL/min`, Cockcroft-Gault, dosing-only — explicitly distinct from the BSA-normalized `taxa_filtracao_glomerular`/eGFR
+      per the registry''s own note). Re-run the units-gate documentation sync check (if one exists) or add one that
+      verifies every `_work/alerts/*.yaml` / domain-doc `domain-inputs` `name:` field that is of `type: quantity`
+      resolves to a registered `parameter:` in registry.yaml, not merely that its `unit:` string is a valid canonical/alias
+      unit somewhere in the registry — this closes the class of bug this conflict represents, not just this one
+      instance.
+
+      '
+    countersign: clinical-safety-officer pending (batched)

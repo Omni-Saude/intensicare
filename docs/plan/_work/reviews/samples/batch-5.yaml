@@ -1,0 +1,943 @@
+batch: 5
+clusters:
+- balanco-hidrico
+- equilibrio
+- nutricao
+- sepse
+n_items: 17
+items:
+- rule_id: RULE-BALANCO-HIDRICO-021
+  cluster: balanco-hidrico
+  catalog_rule:
+    id: RULE-BALANCO-HIDRICO-021
+    name: Default volume for spontaneous presence output
+    category: physiological-calculation
+    type: threshold
+    status: OK
+    description: 'When creating a fluid-balance "saida" (output) record whose presenca_espontanea equals "presente"
+      (spontaneous presence), the quantity is defaulted to 200.
+
+      '
+    logic: "if validated_data.presenca_espontanea == \"presente\":\n    validated_data.quantidade = 200\n"
+    edge_cases: 'Applied unconditionally on tipo; overwrites any client-supplied quantidade.
+
+      '
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: 'No authoritative published source. Internal business default: when a spontaneous output (presenca_espontanea==''presente'')
+        is recorded without measurement, volume is hard-coded to 200 mL. Arbitrary institutional estimate, not derived
+        from any clinical guideline or validated calculator.'
+      detail_file: balanco-hidrico-batch5.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-231
+      band: UNVERIFIABLE
+      title: Default volume for spontaneous presence output
+      excerpt: 'Internal default-volume business rule (saidas.py:94-95). Confirmed against legacy source: `if validated_data.get(''presenca_espontanea'')==''presente'':
+        validated_data[''quantidade'']=200`. It unconditionally overwrites any client-su…'
+  disposition_record:
+    rule_id: RULE-BALANCO-HIDRICO-021
+    cluster: balanco-hidrico
+    category: physiological-calculation
+    catalog_echo:
+      status: OK
+      verdict: UNVERIFIABLE
+    source_quote: spontaneous presence), the quantity is defaulted to 200
+    disposition: RATIFY
+    justification: 'Escalation band UNVERIFIABLE mandates ratification: this default-200-mL-on-presente rule unconditionally
+      overwrites any client-supplied quantidade whenever presenca_espontanea equals presente, which is a more aggressive
+      override than the enteral-diet default in RULE-020 and has no clinical guideline basis, so v2 needs a ruling
+      on whether overwriting user-entered volumes is acceptable at all.'
+    evidence:
+    - ESC-UNVERIFIABLE-231
+    - RULE-BALANCO-HIDRICO-021
+    target: RATIFICATION.md#rat-balanco-hidrico-13
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-231
+      band: UNVERIFIABLE
+    ratify_ref: RAT-BALANCO-HIDRICO-13
+- rule_id: RULE-BALANCO-HIDRICO-028
+  cluster: balanco-hidrico
+  catalog_rule:
+    id: RULE-BALANCO-HIDRICO-028
+    name: Medical-evolution 24h-indicator gate vs value source mismatch
+    category: physiological-calculation
+    type: decision-tree
+    status: AMBIGUOUS
+    description: 'On the medical-evolution PDF, each 24h indicator row (diurese, ganhos, balanco, temperatura max,
+      HGT) is CONDITIONED on the truthiness of formulario_data.sinais_vitais.<field> but then DISPLAYS the value
+      from formulario_data.indicadores_24h.<field>. If the sinais_vitais gating value is falsy while indicadores_24h
+      has data (or vice versa), the row is hidden or the wrong source shown.
+
+      '
+    logic: '# diurese, ganhos, temperatura_max, hgt rows (evacuacoes uses sinais_vitais for both gate+value):
+
+      if formulario_data.sinais_vitais.diurese_24h:          show indicadores_24h.diurese_24h
+
+      if formulario_data.sinais_vitais.ganhos_24h:           show indicadores_24h.ganhos_24h
+
+      if formulario_data.sinais_vitais.balanco_24h:          show indicadores_24h.balanco_24h
+
+      if formulario_data.sinais_vitais.temperatura_max_24h:  show indicadores_24h.temperatura_max_24h
+
+      if formulario_data.sinais_vitais.hgt_24h:              show indicadores_24h.hgt_24h
+
+      # PA row: show only if BOTH pas and pad present -> "{pas} por {pad}"
+
+      '
+    edge_cases: 'Row visibility keyed on sinais_vitais.* but printed value taken from indicadores_24h.*; the two
+      namespaces can disagree. evacuacoes_24h row (l.495-497) both gates and prints from sinais_vitais. PA row requires
+      both systolic (pas) and diastolic (pad) to render.
+
+      '
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: No authoritative published source. Pure PDF-template presentation/gating logic for the medical-evolution
+        report; the underlying 24h indicator VALUES trace to utils.py helpers (RULE-...-006..011) which are the
+        clinically-relevant computations, not this row-visibility rule.
+      detail_file: balanco-hidrico-batch5.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-234
+      band: UNVERIFIABLE
+      title: Medical-evolution 24h-indicator gate vs value source mismatch
+      excerpt: 'Extraction status AMBIGUOUS. Characterized: the gate/value namespace mismatch (gate on sinais_vitais.*,
+        value from indicadores_24h.*) is a real template defect that can hide a row when the gating field is falsy
+        while the indica…'
+  disposition_record:
+    rule_id: RULE-BALANCO-HIDRICO-028
+    cluster: balanco-hidrico
+    category: physiological-calculation
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: UNVERIFIABLE
+    source_quote: each 24h indicator row (diurese, ganhos, balanco, temperatura max, HGT) is CONDITIONED on the
+      truthiness
+    disposition: RATIFY
+    justification: 'Escalation band UNVERIFIABLE mandates ratification: the medical-evolution PDF gates each 24h
+      indicator row on formulario_data.sinais_vitais.<field> but prints the value from formulario_data.indicadores_24h.<field>,
+      a namespace mismatch that can hide a row with real data or show a stale one, and the serializer that builds
+      this context is out of partition, so v2 needs a ruling on the single source of truth before the report template
+      is rebuilt.'
+    evidence:
+    - ESC-UNVERIFIABLE-234
+    - RULE-BALANCO-HIDRICO-028
+    target: RATIFICATION.md#rat-balanco-hidrico-16
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-234
+      band: UNVERIFIABLE
+    ratify_ref: RAT-BALANCO-HIDRICO-16
+- rule_id: RULE-BALANCO-HIDRICO-055
+  cluster: balanco-hidrico
+  catalog_rule:
+    id: RULE-BALANCO-HIDRICO-055
+    name: IV hydration solution vocabulary
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'Controlled list of intravenous hydration solution types.
+
+      '
+    logic: "options = { Agua destilada, Solução Hipertônica, Soro Fisiológico, Soro Glicosado,\n            Soro\
+      \ Ringer, Solução hipotônica, Solução Polarizante }\n"
+    edge_cases: 'Free-text not allowed for this branch.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-BALANCO-HIDRICO-055
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Controlled list of intravenous hydration solution types.
+    disposition: ADOPT
+    justification: 'Status OK, verdict NOT_APPLICABLE, no escalation: the 7-item IV hydration solution list (Agua
+      destilada, Solucao Hipertonica, Soro Fisiologico, etc.) is a controlled PT-BR clinical vocabulary asset with
+      no free-text escape hatch, adopted verbatim with accents preserved per CLU-BALANCO-HIDRICO-C-08.'
+    evidence:
+    - RULE-BALANCO-HIDRICO-055
+    - CLU-BALANCO-HIDRICO-C-08
+    target: design/screens/clinical-forms.md#iv-hydration-solutions
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-BALANCO-HIDRICO-062
+  cluster: balanco-hidrico
+  catalog_rule:
+    id: RULE-BALANCO-HIDRICO-062
+    name: Balanco hidrico day filter (unused)
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    description: 'A FilterSet restricting BalancoHidrico queryset to an exact-match ''dia'' (day) field exists but
+      is not attached to any viewset (BalancoHidricoViewSet has its filter_class commented out).
+
+      '
+    logic: "class BalancoHidricoFilter(FilterSet):\n    class Meta:\n        model = BalancoHidrico\n        fields\
+      \ = (\"dia\",)\n"
+    edge_cases: Not referenced by any view in scope; dead code as of this commit.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-318
+      band: AMBIGUOUS
+      title: data-validation
+      excerpt: Balanco hidrico day filter (unused)
+  disposition_record:
+    rule_id: RULE-BALANCO-HIDRICO-062
+    cluster: balanco-hidrico
+    category: data-validation
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: Balanco hidrico day filter (unused)
+    disposition: RETIRE
+    justification: 'Status AMBIGUOUS with escalation band AMBIGUOUS: the BalancoHidricoFilter on ''dia'' is dead
+      code, never attached to any viewset since BalancoHidricoViewSet implements its own manual day-cutoff logic
+      (RULE-023) instead -- per policy, AMBIGUOUS rules not worth keeping are retired, and this unused filter class
+      has no unique behavior to preserve.'
+    evidence:
+    - ESC-AMBIGUOUS-318
+    - RULE-BALANCO-HIDRICO-062
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-318
+      band: AMBIGUOUS
+    ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-002
+  cluster: equilibrio
+  catalog_rule:
+    id: RULE-EQUILIBRIO-002
+    name: Renal-function drug substitution, morphine avoidance, and hypernatremia (Na>160) correction (criteria
+      5-8, 10)
+    category: drug-dosing
+    type: decision-tree
+    status: OK
+    description: 'Equilibrio trilha criteria 5-8 and 10: nephrotoxic drug substitution on worsening renal function,
+      morphine avoidance under impaired creatinine clearance, and hypernatremia correction protocol.
+
+      '
+    logic: "criterio_5  piora da funcao renal + uso de drogas nefrotoxicas ->\n  substituir Cefepime -> Tazocin;\
+      \ substituir Vancomicina -> Linezolida;\n  substituir losartan/captopril/enalapril -> bloqueador de canal\
+      \ de calcio (ou outra classe anti-HAS).\ncriterio_6  piora da funcao renal, reavaliar doses e substituicao\
+      \ de drogas nefrotoxicas\n  (alerta sem recomendacoes especificas na facade; recomendacoes = []).\ncriterio_7\
+      \  clearance de morfina prejudicado ->\n  alto risco de acumulo de metabolitos (manter estado de coma); suspender\
+      \ morfina;\n  substituir por fentanil, cetamina ou outros analgesicos.\ncriterio_8  funcao renal reduzida,\
+      \ reavaliar uso de morfina ->\n  monitorar nivel de consciencia; preferencialmente substituir por fentanil,\
+      \ cetamina,\n  metadona ou outros analgesicos.\ncriterio_10 hipernatremia com Na > 160 ->\n  agua filtrada\
+      \ 400 ml 6/6h VO/SNE;\n  Cloreto de sodio 0,22% a 84 ml/h;\n  Hidroclorotiazida 25 mg comprimido, 2 comprimidos\
+      \ 1x/dia (para hipernatremia refrataria).\n"
+    edge_cases: 'Hypernatremia cutoff strictly Na > 160. criterio_6 has an alert label but an empty recomendacoes
+      list (verbatim). Criteria are upstream boolean flags; facade holds only text. Note (surfacing): in live TrilhaEquilibrioModel.get_detalhe()
+      only [1,3,6,8,9] are surfaced, so criterio_5, criterio_7 and criterio_10 text exists in the payload but is
+      not surfaced by this model and does not affect alert color (criterio_6 and criterio_8 ARE surfaced).
+
+      '
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'Sterns RH. Treatment of hypernatremia (UpToDate); Adrogué HJ, Madias NE. Hypernatremia. N Engl
+        J Med 2000;342:1493-1499. Corroborated by AAFP "Diagnosis and Management of Sodium Disorders" (Am Fam Physician
+        2015;91(5):299-307) for the Na>160 mEq/L severe-symptom threshold and hypotonic free-water correction. Morphine-in-renal-impairment
+        substitution corroborated by pharmacology of active metabolites M3G/M6G accumulation (Dean M. J Pain Symptom
+        Manage 2004;28:497-504).
+
+        '
+      detail_file: equilibrio-batch1.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EQUILIBRIO-002
+    cluster: equilibrio
+    category: drug-dosing
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: hipernatremia com Na > 160
+    disposition: ADAPT
+    justification: Nephrotoxic drug substitution (Cefepime to Tazocin, Vancomicina to Linezolida), morphine avoidance
+      under impaired clearance, and Na>160 hypernatremia correction (NaCl 0.22% 84 ml/h, hydrochlorothiazide 25
+      mg) are VERIFIED against Sterns/Adrogue-Madias, but criterio_7 (morphine clearance) and criterio_10 (hypernatremia
+      protocol) are never surfaced by get_detalhe() -- v2 electrolyte/pharmaco domains must restore visibility of
+      the hypernatremia rescue path, a genuine patient-safety gap in the legacy UI.
+    evidence:
+    - Sterns RH. Treatment of hypernatremia (UpToDate)
+    - Adrogue HJ, Madias NE. N Engl J Med 2000;342:1493-1499
+    - RULE-EQUILIBRIO-002
+    target: clinical/domains/electrolyte.md#hypernatremia-na160-correction
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-003
+  cluster: equilibrio
+  catalog_rule:
+    id: RULE-EQUILIBRIO-003
+    name: Equilibrio trilha alert-color aggregation (v1, TrilhaEquilibrioModel.calcular_alerta)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: 'Persisted alert-color for the Equilibrio trilha, computed from which specific criteria flags are
+      set. Value is stored to self.alerta in save() and surfaced via get_payload()/get_detalhe().
+
+      '
+    logic: 'amarelo  = [criterio_3, criterio_6, criterio_8].count(True)
+
+      vermelho = [criterio_1, criterio_9].count(True)
+
+      if vermelho >= 1:   return "VERMELHO"
+
+      elif amarelo >= 1:  return "AMARELO"
+
+      else:               return "NEUTRO"
+
+      # criterios_mensagem (message-eligible criteria) = [criterio_1, criterio_9]
+
+      # get_detalhe() surfaces criteria in [1, 3, 6, 8, 9] only.
+
+      '
+    edge_cases: 'In save(), when alerta == "NEUTRO" the model also resets assistido=False. Only criteria 1,3,6,8,9
+      influence the color; criteria 2,4,5,7,10 never change it.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EQUILIBRIO-003
+    cluster: equilibrio
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: amarelo  = [criterio_3, criterio_6, criterio_8].count(True)
+    disposition: SUPERSEDE
+    justification: This trilha-specific VERMELHO/AMARELO/NEUTRO color aggregation (vermelho if criterio_1 or criterio_9,
+      amarelo if 3/6/8) is legacy Django-model alerting plumbing coexisting with a dead count-based path and an
+      unmerged TrilhaSeteSintetico variant using different thresholds; v2's unified Alert Engine severity scale
+      (normal/watch/urgent/critical) replaces it, restoring full 10-criteria surfacing instead of the legacy 1,3,6,8,9
+      subset.
+    evidence:
+    - RULE-EQUILIBRIO-003
+    - RULE-EQUILIBRIO-001
+    target: clinical/domains/aki.md#alert-severity-mapping
+    supersedes_note:
+      replaced_by: v2 Alert Engine unified severity scale (normal|watch|urgent|critical) applied uniformly across
+        all 10 equilibrio criteria
+      lost: legacy VERMELHO/AMARELO/NEUTRO enum and the restricted surfacing of criteria 1,3,6,8,9 only; the dead
+        count-based define_tipo_alerta path and the unmerged TrilhaSeteSintetico variant (amarelo:4/vermelho:5,
+        all 10 criteria) are also discarded
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EQUILIBRIO-004
+  cluster: equilibrio
+  catalog_rule:
+    id: RULE-EQUILIBRIO-004
+    name: Severe hyperkalemia (K>6) rescue protocol with 4h reassessment (criterio 9)
+    category: drug-dosing
+    type: workflow
+    status: OK
+    description: 'Emergency treatment protocol for severe hyperkalemia (equilibrio criterio_9), with a timed reassessment
+      and escalation branch at +4h.
+
+      '
+    logic: "IF K > 6 (hipercalemia grave):\n  Gluconato de Calcio 1 ampola EV;\n  Furosemida 20 mg, 3 ampolas EV\
+      \ em bolus;\n  solucao polarizante (insulina + soro glicofisiologico);\n  3 doses inalatorias de 10 gotas\
+      \ de fenoterol OU salbutamol, de 15 em 15 min.\nReavaliar potassio serico apos 4h:\n  IF K > 5.5 (source writes\
+      \ \"5,5mg/dl\") ->\n    repetir o esquema anterior\n    + Bicarbonato de sodio 8,4%, 1 ml/kg de peso\n   \
+      \ + Sorcal (via oral apenas), 1 envelope de 15 g, 8/8h.\n"
+    edge_cases: 'Initial trigger K > 6; reassessment/escalation threshold K > 5.5 at +4h. Source writes the potassium
+      unit as "mg/dl" (should be mEq/L or mmol/L) - reproduced verbatim, NOT corrected. Bicarbonate dose is 1 ml/kg
+      of 8.4% solution. Sorcal restricted to oral route.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: low
+      reference: 'KDIGO conference summary "Acute hyperkalemia in the emergency department" (Eur J Emerg Med 2020;27(5):329-337,
+        PMC7448835); Mount DB, Sterns RH. Treatment of hyperkalemia (UpToDate); Medscape Hyperkalemia Treatment
+        (emedicine.medscape.com/article/240903-treatment). Standard emergency bundle: calcium (membrane stabilization),
+        insulin+glucose and nebulized beta-agonist and bicarbonate (intracellular shift), loop diuretic + cation-exchange
+        resin (removal).
+
+        '
+      detail_file: equilibrio-batch1.yaml
+    escalations:
+    - item_id: ESC-P2-066
+      band: P2
+      title: Severe hyperkalemia (K>6) rescue protocol with 4h reassessment (criterio 9)
+      excerpt: 'Protocol content matches the reference emergency-hyperkalemia bundle on all dimensions: calcium
+        gluconate (membrane stabilization), insulin+glycophysiologic polarizing solution and nebulized fenoterol/salbutamol
+        and sodium bicarbonate 8.4% at 1 ml/kg (= 1 m…'
+  disposition_record:
+    rule_id: RULE-EQUILIBRIO-004
+    cluster: equilibrio
+    category: drug-dosing
+    catalog_echo:
+      status: OK
+      verdict: DISCREPANCY
+    source_quote: Initial trigger K > 6; reassessment/escalation threshold K > 5.5 at +4h.
+    disposition: ADOPT-CORRECTED
+    justification: Hyperkalemia (K>6) rescue bundle -- calcium gluconate, furosemide 20 mg x3 bolus, polarizing
+      solution, fenoterol/salbutamol q15min, +4h reassessment with bicarbonate 8.4% 1 ml/kg and Sorcal if K>5.5
+      -- matches the KDIGO/UpToDate reference bundle on clinical content (ESC-P2-066, clinical_impact low), but
+      the legacy code mislabels serum potassium as mg/dl instead of mEq/L; the reference-correct form must use mEq/L
+      (or mmol/L) throughout and never propagate the unit error.
+    evidence:
+    - KDIGO conference summary, Eur J Emerg Med 2020;27(5):329-337 (PMC7448835)
+    - Mount DB, Sterns RH. Treatment of hyperkalemia (UpToDate)
+    - RULE-EQUILIBRIO-004
+    target: clinical/domains/electrolyte.md#hyperkalemia-rescue-protocol
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P2-066
+      band: P2
+    ratify_ref: null
+- rule_id: RULE-NUTRICAO-002
+  cluster: nutricao
+  catalog_rule:
+    id: RULE-NUTRICAO-002
+    name: FOIS (Functional Oral Intake Scale) - enum of 7 levels
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: 'Functional Oral Intake Scale classifying oral intake in 7 ordinal levels from nil-per-oral (nivel1,
+      worst) to full oral without restriction (nivel7, best).
+
+      '
+    logic: 'nivel1: Nada por via oral
+
+      nivel2: Dependente de via alternativa e minima via oral de algum alimento ou liquido
+
+      nivel3: Dependente de via alternativa com consistente via oral de alimento ou liquido
+
+      nivel4: Via oral total de uma unica consistencia
+
+      nivel5: Via oral total com multiplas consistencias, porem com necessidade de preparo especial ou compensacoes
+
+      nivel6: Via oral total com multiplas consistencias, porem sem necessidade de preparo especial (sic "oucompensacoes"),
+      porem com restricoes alimentares
+
+      nivel7: Via oral total sem restricoes
+
+      '
+    edge_cases: 'Ordinal levels 1 (worst) to 7 (best). No computation; classification enum used in ConteudoFormulario.fois.
+      Source has a typo in the nivel6 label ("especial oucompensacoes") preserved verbatim.
+
+      '
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: Crary MA, Mann GD, Groher ME. Initial psychometric assessment of a Functional Oral Intake Scale
+        for dysphagia in stroke patients. Arch Phys Med Rehabil. 2005;86(8):1516-20.
+      detail_file: nutricao-batch1.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-NUTRICAO-002
+    cluster: nutricao
+    category: clinical-scoring
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: classifying oral intake in 7 ordinal levels
+    disposition: ADOPT
+    justification: FOIS is a 7-level ordinal oral-intake scale verified verbatim against the published Crary et
+      al. 2005 instrument with no discrepancy; the nivel1-7 PT-BR labels (including the source typo 'oucompensacoes'
+      at nivel6) are a controlled vocabulary asset preserved verbatim into the clinical-forms catalog.
+    evidence:
+    - RULE-NUTRICAO-002
+    - Crary MA, Mann GD, Groher ME. Arch Phys Med Rehabil. 2005;86(8):1516-20
+    target: design/screens/clinical-forms.md#fois
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-NUTRICAO-006
+  cluster: nutricao
+  catalog_rule:
+    id: RULE-NUTRICAO-006
+    name: Stress-ulcer / nutrition prophylaxis indication enum
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: 'Enumerated indications for stress-ulcer / nutritional prophylaxis on the terapia_nutricional model,
+      including a threshold-bearing option "mechanical ventilation for more than 72h".
+
+      '
+    logic: "indicacao_profilaxia (value, label):\n  dva              -> DVA (vasoactive drugs)\n  tce          \
+      \    -> TCE (traumatic brain injury)\n  avc              -> AVC (stroke)\n  queimado         -> Queimado (burn)\n\
+      \  jejum_prolongado -> Jejum Prolongado (prolonged fasting)\n  nao_indicado     -> Nao indicado (not indicated)\n\
+      \  terapeutico      -> Terapeutico (therapeutic)\n  vm_mais_72h      -> VM por mais de 72hs (mechanical ventilation\
+      \ > 72 hours)\n"
+    edge_cases: 'The value vm_mais_72h encodes a 72-hour ventilation threshold as an eligibility category (categorical
+      label, not a computed threshold).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: low
+      reference: 'ASHP Therapeutic Guidelines on Stress Ulcer Prophylaxis (1999): mechanical ventilation >48h and
+        coagulopathy are the two primary independent SUP indications; SCCM/ASHP 2024 update revises MV-alone recommendation.'
+      detail_file: nutricao-batch1.yaml
+    escalations:
+    - item_id: ESC-P2-086
+      band: P2
+      title: Stress-ulcer / nutrition prophylaxis indication enum
+      excerpt: Six of the eight enum categories (dva, tce, avc, queimado, jejum_prolongado, terapeutico, plus nao_indicado)
+        align with recognized stress-ulcer prophylaxis risk factors. The one threshold-bearing option vm_mais_72h
+        sets the ventilation trigger at >72h, wher…
+  disposition_record:
+    rule_id: RULE-NUTRICAO-006
+    cluster: nutricao
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: DISCREPANCY
+    source_quote: mechanical ventilation for more than 72h
+    disposition: RATIFY
+    justification: The vm_mais_72h stress-ulcer eligibility option sets a 72h ventilation threshold against ESC-P2-086,
+      but ASHP 1999 anchors the classic SUP indication at >48h while the SCCM/ASHP 2024 update de-emphasizes ventilation-alone
+      entirely; this is disputed clinical intent between two guideline eras, not a simple numeric fix, so it routes
+      to ratification rather than ADOPT-CORRECTED.
+    evidence:
+    - RULE-NUTRICAO-006
+    - ESC-P2-086
+    - ASHP Therapeutic Guidelines on Stress Ulcer Prophylaxis (1999)
+    target: RATIFICATION.md#rat-nutricao-02
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P2-086
+      band: P2
+    ratify_ref: RAT-NUTRICAO-02
+- rule_id: RULE-NUTRICAO-011
+  cluster: nutricao
+  catalog_rule:
+    id: RULE-NUTRICAO-011
+    name: Dietitian abdominal assessment enums (extended)
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'Dietitian abdominal exam adds colostomy, ascites, diuresis-route and stool-aspect fields beyond
+      the nursing version.
+
+      '
+    logic: 'geral (multicheck): plano | globoso | escavado | cirurgia_recente | colostomia
+
+      ruidos_hidroaereos (multicheck): presentes | diminuidos | ausentes
+
+      presenca_dor (multicheck): doloroso | indolor | ascitico
+
+      massas_palpaveis (boolean); peristalse (boolean)
+
+      evacuacoes (select): ausente | presente; aspecto_fezes (string)
+
+      diurese (multicheck): ausente | presente | svd | sva | fralda; aspecto_urina (string)
+
+      '
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-NUTRICAO-011
+    cluster: nutricao
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: adds colostomy, ascites, diuresis-route and stool-aspect fields
+    disposition: ADOPT
+    justification: The dietitian's extended abdominal-assessment enums (colostomy, ascites, diuresis route, stool
+      aspect) are unescalated, verify:false descriptive form fields with no cross-copy comparison available, so
+      they adopt as-is into the v2 clinical-forms abdominal assessment block.
+    evidence:
+    - RULE-NUTRICAO-011
+    target: design/screens/clinical-forms.md#avaliacao-abdominal
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SEPSE-006
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-006
+    name: SEPSE v3 assistencial info snapshot (diurese/BH aggregation)
+    category: physiological-calculation
+    type: formula
+    status: OK
+    description: 'Builds a clinical snapshot including 24h urine output and 24h fluid balance from summed balance
+      fields.
+
+      '
+    logic: 'diurese_24h = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-24h)
+
+      balanco_hidrico_24h = Sum(qt_vol_ganhos + qt_vol_perdas) over balancos(dt>=now-24h)
+
+      # delirium/noradrenalina rendered as "Presente"/"Ausente" via presenca map on bool(value)
+
+      '
+    edge_cases: 'balanco_hidrico_24h ADDS ganhos + perdas (does not subtract) - net balance would normally be ganhos
+      - perdas; here perdas is expected pre-signed or this yields a sum, not a net.
+
+      '
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: 'Fluid balance is definitionally net = intake (ganhos) - output (perdas); 24h urine output is the
+        sum of all urine sources. No proprietary published equation governs this internal snapshot aggregation.
+        General reference: standard ICU fluid-balance charting (intake minus output).'
+      detail_file: sepse-batch2.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-196
+      band: UNVERIFIABLE
+      title: SEPSE v3 assistencial info snapshot (diurese/BH aggregation)
+      excerpt: diurese_24h (urine output sum) is correct and matches the standard definition. balanco_hidrico_24h
+        ADDS ganhos + perdas rather than subtracting; correctness depends entirely on the internal data convention
+        for the sign of qt_vo…
+  disposition_record:
+    rule_id: RULE-SEPSE-006
+    cluster: sepse
+    category: physiological-calculation
+    catalog_echo:
+      status: OK
+      verdict: UNVERIFIABLE
+    source_quote: balanco_hidrico_24h ADDS ganhos + perdas (does not subtract)
+    disposition: RATIFY
+    justification: The 24h fluid-balance snapshot sums ganhos+perdas instead of net-subtracting them, a sign-convention
+      ambiguity that is UNVERIFIABLE without knowing the internal perdas-sign data convention, and the method is
+      not even wired into production output, so clinical intent must be ratified before porting to v2 fluid-balance
+      logic.
+    evidence:
+    - RULE-SEPSE-006
+    - ESC-UNVERIFIABLE-196
+    target: RATIFICATION.md#rat-sepse-05
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-196
+      band: UNVERIFIABLE
+    ratify_ref: RAT-SEPSE-05
+- rule_id: RULE-SEPSE-012
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-012
+    name: SEPSE v3 criterio_6 - thrombocytopenia without vasopressor
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: No noradrenaline (6h) AND platelets < 100000 in last 24h.
+    logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  evolucao_24h.filter(diurna_plaquetas__lt=100000).exists(),\n\
+      ]) if balanco_6h and evolucao_24h else False\n"
+    edge_cases: diurna_plaquetas is a CharField; DB __lt compares as text/number depending on backend - potential
+      lexical comparison risk.
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'Vincent JL et al. The SOFA (Sepsis-related Organ Failure Assessment) score. Intensive Care Med
+        1996;22:707-710 - coagulation subscore: platelets <100 x10^3/uL = 2 points. Sepsis-3 (Singer 2016) uses
+        SOFA increase >=2.'
+      detail_file: sepse-batch3.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEPSE-012
+    cluster: sepse
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: No noradrenaline (6h) AND platelets < 100000 in last 24h.
+    disposition: ADOPT
+    justification: Verified against the SOFA coagulation subscore threshold of platelets <100x10^3/uL with no discrepancy
+      or escalation, so the thrombocytopenia-without-vasopressor criterion carries forward into the v2 sepsis domain
+      unchanged, pending a fix to the underlying CharField DB-comparison risk noted in edge_cases.
+    evidence:
+    - RULE-SEPSE-012
+    - Vincent JL et al. SOFA score, Intensive Care Med 1996;22:707-710
+    target: clinical/domains/sepsis.md#criterio-thrombocytopenia
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SEPSE-014
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-014
+    name: SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis
+    category: physiological-calculation
+    type: formula
+    status: DISCREPANCY
+    description: 'No noradrenaline (12h) AND no hemodialysis AND "DRC em TRS" present in diagnosis AND hourly urine
+      output < 0.5 mL/kg/h computed over last 12h.
+
+      '
+    logic: "diurese_total = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-12h)\n\
+      peso = float(\"\".join(re.findall(r\"\\d+\", evolucao.peso.replace(\",\", \".\")))) if evolucao.peso else\
+      \ 0\nreturn all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  not get_number(evolucao.diurna_terapia_hemo),\n\
+      \  list(filter(lambda x: x == \"DRC em TRS\", vars(evolucao).fromkeys((\"diagnostico_1\"..\"diagnostico_4\"\
+      )))),  # always [] -> False\n  ((diurese_total / 12) / peso) < 0.5 if (peso and diurese_total is not None)\
+      \ else False,\n]) if balanco_12h and ultima_evolucao and diurese_balanco_12hrs else False\n"
+    edge_cases: 'peso parse strips decimal point (findall of \d+ then join) so "70.5"/"70,5" -> 705 kg (BUG - inflates
+      weight, understates mL/kg/h). Division guarded by peso truthiness. diurese/12 assumes exactly 12h regardless
+      of actual samples.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'KDIGO Clinical Practice Guideline for Acute Kidney Injury 2012 (Kidney Int Suppl 2012;2:1-138)
+        - AKI urine criterion: urine output <0.5 mL/kg/h for 6-12 h (Stage 1).'
+      detail_file: sepse-batch3.yaml
+    escalations:
+    - item_id: ESC-P0-008
+      band: P0
+      title: SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis
+      excerpt: DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em
+        TRS" diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE
+        of DRC, code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears
+        (commented) in trilha_profilaxia.py c8.
+  disposition_record:
+    rule_id: RULE-SEPSE-014
+    cluster: sepse
+    category: physiological-calculation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: weight-parse strips the decimal separator inflating peso ~10x
+    disposition: RATIFY
+    justification: 'This oliguria criterion is the single clinical_impact=high rule in the cluster: a weight-parsing
+      bug inflates body weight ~10x (understating mL/kg/h) and the DRC-em-TRS exclusion gate is both non-functional
+      and logically inverted, making the whole predicate effectively always False; the P0 escalation mandates clinical
+      ratification before any AKI-urine-output logic can be adopted for v2.'
+    evidence:
+    - RULE-SEPSE-014
+    - ESC-P0-008
+    - KDIGO Clinical Practice Guideline for AKI 2012, Kidney Int Suppl 2012;2:1-138
+    target: RATIFICATION.md#rat-sepse-08
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-008
+      band: P0
+    ratify_ref: RAT-SEPSE-08
+- rule_id: RULE-SEPSE-043
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-043
+    name: Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h)
+    category: triage-eligibility
+    type: threshold
+    status: DISCREPANCY
+    description: Major criterion - current PAS < 90 OR the most recent 24h diastolic (PAD) < 90.
+    logic: 'queryset = DadosProntuario.filter(pk__in=buscar_ultimos_dados).order_by(''-criado_em'')
+
+      pad_em_24hrs = queryset.filter(criado_em__gt=now-24h).values_list(''pad'').first()
+
+      any([ (pas < 90) if pas else False, (pad_em_24hrs < 90) if pad_em_24hrs else False ])
+
+      '
+    edge_cases: pas/pad falsy -> excluded. pad drawn from most recent record in the lookback chain within 24h.
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Sepsis-3 / SSC 2021 and prior severe-sepsis criteria (Dellinger/Levy ACCP-SCCM): sepsis-related
+        hypotension = systolic BP < 90 mmHg, MAP < 70 mmHg, or SBP decrease > 40 mmHg from baseline; qSOFA uses
+        SBP <= 100 mmHg. Diastolic BP is not a standard sepsis hypotension trigger; a low diastolic threshold, when
+        used, is ~ < 60 mmHg (physiologic normal diastolic ~ 60-80 mmHg).'
+      detail_file: sepse-batch9.yaml
+    escalations:
+    - item_id: ESC-P0-012
+      band: P0
+      title: Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h)
+      excerpt: 'DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS
+        also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).'
+  disposition_record:
+    rule_id: RULE-SEPSE-043
+    cluster: sepse
+    category: triage-eligibility
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90
+    disposition: RATIFY
+    justification: Escalation band P0 (highest severity in this shard) mandates ratification; the code diverges
+      from its own documented rule text (comparing PAD<90 instead of the specified PAD<60) with clinical_impact
+      high, so the committee must resolve the canonical hypotension logic for major criterion C6 before any v2 build.
+    evidence:
+    - Dellinger RP/Levy MM Sepsis-3/SSC hypotension criteria (SBP<90, MAP<70)
+    - RULE-SEPSE-043
+    target: RATIFICATION.md#rat-sepse-05
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-012
+      band: P0
+    ratify_ref: RAT-SEPSE-05
+- rule_id: RULE-SEPSE-055
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-055
+    name: Sepsis C18 (minor) - central line > 7 days
+    category: triage-eligibility
+    type: threshold
+    status: OK
+    description: Minor criterion - presence of CVC/CDL for more than 7 days (boolean flag).
+    logic: 'return dp.presenca_cvc_cdl_7_dias
+
+      '
+    edge_cases: Direct boolean passthrough (may return None if field null). Test False->False, True->True.
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: No authoritative published scoring reference. Central venous catheter dwell time >7 days is a CLABSI
+        infection-source RISK FACTOR (CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related
+        Infections, O'Grady NP et al. 2011), not a physiological sepsis-score criterion. The >7-day duration is
+        judged by the clinician at data entry and passed as a boolean.
+      detail_file: sepse-batch11.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-205
+      band: UNVERIFIABLE
+      title: Sepsis C18 (minor) - central line > 7 days
+      excerpt: Infection-source risk-factor business rule, not a published/computed sepsis scale - flagged for internal
+        review, NOT treated as wrong. Duration (>7d) is captured by the human at data entry rather than computed,
+        so there is no e…
+  disposition_record:
+    rule_id: RULE-SEPSE-055
+    cluster: sepse
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: UNVERIFIABLE
+    source_quote: presence of CVC/CDL for more than 7 days
+    disposition: RATIFY
+    justification: Escalation band UNVERIFIABLE mandates ratification; minor criterion C18's central-line dwell
+      >7 days is a recognized CLABSI infection-source risk factor with no published sepsis-scoring reference, and
+      the duration is a clinician-judged boolean rather than computed, so the committee must confirm its role in
+      v2.
+    evidence:
+    - O'Grady NP et al. CDC/HICPAC 2011 catheter-related infection guideline
+    - RULE-SEPSE-055
+    target: RATIFICATION.md#rat-sepse-08
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-205
+      band: UNVERIFIABLE
+    ratify_ref: RAT-SEPSE-08
+- rule_id: RULE-SEPSE-072
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-072
+    name: SEPSE protocol acceptance workflow and orange alert
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: 'Creating an interactive SEPSE trilha with aceito=true stamps the acceptance time, sets the parent
+      TrilhaSepseV3 alert to "LARANJA" (orange), generates the 7 bundle items, and posts an audit observation recording
+      protocol opening by the acting user.
+
+      '
+    logic: "if validated_data[\"aceito\"]:\n    validated_data[\"horario_registro_aceitacao\"] = now()\n    ti =\
+      \ create(validated_data)\n    TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa=\"\
+      LARANJA\")\n    criar_itens_trilha_interativa_sepse(ti.get_pk)   # 7 items (RULE-sepse-BE-02-008)\n    post_observation(\"\
+      Realizada a abertura do Protocolo de SEPSE as <ts> por <user>\")\n"
+    edge_cases: 'Timestamp formatted as %d/%m/%Y as %H:%M:%S in local tz (astimezone()).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEPSE-072
+    cluster: sepse
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: generates the 7 bundle items, and posts an audit observation
+    disposition: SUPERSEDE
+    justification: The accept-and-generate-bundle intent is sound, but the mechanism (legacy TrilhaInterativaSepse
+      Django model, color-string alert state 'LARANJA', synchronous item generation) is legacy-app plumbing tied
+      to the retired Tasy-era stack per the cluster note that workflow rules 069-098 are retire-candidates for a
+      rebuilt state machine.
+    evidence:
+    - RULE-SEPSE-072
+    - RULE-SEPSE-076
+    target: clinical/domains/sepsis.md#protocol-acceptance-lifecycle
+    supersedes_note:
+      replaced_by: v2 alert-lifecycle mechanism (severity taxonomy normal|watch|urgent|critical per _work/alerts/<domain>.yaml)
+        plus an audit-trail event on protocol acceptance
+      lost: the legacy color-string alert state 'LARANJA' and the synchronous Django TrilhaInterativaSepse accept
+        workflow; the 7-item hour-1 bundle generation concept itself is preserved via RULE-SEPSE-076
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SEPSE-075
+  cluster: sepse
+  catalog_rule:
+    id: RULE-SEPSE-075
+    name: SEPSE item check / uncheck and protocol completion state machine
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: 'Checking a SEPSE item (transition not-checado -> checado) stamps horario_checagem=now and posts
+      an item-specific documentation observation, appending a late-check flag when the item is overdue. Unchecking
+      (checado -> not-checado) clears checado_por and horario_checagem. When an update checks an item and no unchecked
+      items remain, the interactive trilha is concluded (finalizado=true, concluida=true, concluido_em=now, aceito=false)
+      and the parent TrilhaSepseV3 is set assistido=true with alert cleared to null.
+
+      '
+    logic: "agora = now()\nif not instance.checado and validated_data.get(\"checado\"):\n    instance.horario_checagem\
+      \ = agora\n    atraso_suffix = \"- !! Item checado em atraso\" if instance.atraso_item_interativa else \"\"\
+      \n    # message template selected by nome_item:\n    #   solicitacao_exames / inicio_escalonamento_antimicrobiano\
+      \ / realizacao_expansao_volemica\n    #        -> \"Intervencao realizada por <user @ ts><atraso>\"\n    #\
+      \   exames               -> \"Reavaliacao dos resultados de exames por <user @ ts>-<atraso>\"\n    #   status_hemodinamico\
+      \  -> \"Reavaliacao do status hemodinamico por <user @ ts>-<atraso>\"\n    #   dispositivos_invasivos -> \"\
+      Reavaliacao dos dispositivos invasivos por<user @ ts>-<atraso>\"\n    #   drogas_vasoativas    -> \"Reavaliacao\
+      \ das drogas vasoativas por <user @ ts>-<atraso>\"\n    post_observation(message, tipo_trilha=\"sepse\", responsavel=checado_por_id)\n\
+      elif instance.checado and not validated_data.get(\"checado\"):\n    instance.checado_por = None\n    instance.horario_checagem\
+      \ = None\ninstance = super().update(instance, validated_data)\nif validated_data.get(\"checado\") and not\
+      \ instance.trilha_interativa.itens_trilha_interativa.filter(checado=False):\n    ti = instance.trilha_interativa\n\
+      \    ti.finalizado = True; ti.concluida = True; ti.concluido_em = agora; ti.aceito = False; ti.save()\n  \
+      \  TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(assistido=True, alerta_trilha_interativa=None)\n\
+      \    post_observation(\"Trilha interativa concluida e finalizada por <user @ ts>\")\n"
+    edge_cases: 'Completion is evaluated AFTER super().update() persists the current item, so the just-checked item
+      counts toward "no remaining unchecked". On completion aceito is forced False. create() of an item calls checagem_envio_automatico(item)
+      (out of partition). checado_por_id is auto-set to the acting user upstream (RULE-sepse-BE-02-022).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEPSE-075
+    cluster: sepse
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: stamps horario_checagem=now and posts an item-specific documentation observation
+    disposition: ADAPT
+    justification: The bundle item check/uncheck-with-auto-completion logic (last unchecked item flips the pathway
+      to concluded, forcing aceito=false and clearing the parent alert) captures a genuine bundle-compliance-timing
+      KPI worth preserving, but the synchronous Django state mutation needs redesign for the v2 alert engine.
+    evidence:
+    - RULE-SEPSE-075
+    target: clinical/domains/sepsis.md#hour-1-bundle-completion
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

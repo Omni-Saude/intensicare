@@ -22,7 +22,7 @@ three, plus one efficiency correlation carried from the `eficiencia` cluster:
 | 1 | **Sepsis + AKI** — "sepse é #1 causa de AKI" | septic organ dysfunction / shock → renal hypoperfusion + inflammation → KDIGO ≥ 1 | `ALERT-CORR-SEPSIS-AKI-01` (critical) |
 | 2 | **Respiratory + Hemodynamic** — "SDRA + choque" | moderate/severe ARDS concurrent with shock → combined cardiopulmonary failure, RV strain | `ALERT-CORR-RESP-HEMO-02` (critical) |
 | 3 | **Drug + Electrolyte** — "QTc + K⁺/Mg²⁺" | QT-prolonging drug + QTc > 500 ms + hypoK/hypoMg → Torsades substrate | `ALERT-CORR-QTC-ELEC-03` (critical, by amplification) |
-| 4 | **Redundant diagnostic ordering** (efficiency) | repeat same-class exam order within its reassessment window | `ALERT-CORR-EXAM-REDUND-04` (normal) |
+| 4 | **Redundant diagnostic ordering** (efficiency/**stewardship** — **not** a deterioration correlation; excluded from the suppression-vs-amplification accounting, §5) | repeat same-class exam order within its reassessment window | `ALERT-CORR-EXAM-REDUND-04` (normal) |
 
 **Out of scope (explicit):** the correlation engine does **not** re-derive any physiological threshold — every
 member threshold is owned and cited by the member domain. It does **not** perform automatic diagnosis and does
@@ -142,8 +142,11 @@ Per-class window test: a new exam order fires if a prior **same-class** order/re
 reassessment window `W(class)` (hemograma 5 d, bioquímica 7 d, RX tórax rotina 14 d, marcadores tireoide 21 d,
 sorologias 30 d). **Corrected** from `RULE-EFICIENCIA-007`'s legacy defect, which summed positive window-hits
 **across unrelated classes** into one undifferentiated threshold (ADAPT — same cost/burden intent, fixed
-mechanism). Severity `normal` keeps it out of the deterioration-alarm budget. Evidence: RULE-EFICIENCIA-007
-(ADAPT) + Choosing Wisely critical-care policy (Halpern, *Crit Care Med* 2014).
+mechanism). This is an **efficiency/stewardship** alert (`category: efficiency-stewardship`), **not** a
+deterioration correlation: it is standalone and folds **no** member alert, so it is **excluded from the
+suppression-vs-amplification accounting** (§5, B3-004); severity `normal` additionally keeps it out of the
+deterioration-alarm attention budget. Evidence: RULE-EFICIENCIA-007 (ADAPT) + Choosing Wisely critical-care
+policy (Halpern, *Crit Care Med* 2014).
 
 ## 5. Suppression vs amplification (the alarm-fatigue mechanism)
 
@@ -163,9 +166,12 @@ correlation** to the clinician and **folds** the member alerts. Two invariants p
    silently overwrite an earlier VERMELHO — v2 uses an explicit severity-rank comparison, never alphabetical sort
    (`RULE-ALERTAS-010`) and never loop-order overwrite.
 
-Net effect on the alarm budget: the ~4 correlated deterioration alerts **replace ~9–10 member pushes/100
-beds/day** (each clinical correlation folds ≥ 2 members), lifting per-push PPV (correlations are ≥ as specific as
-their most-specific member) while cutting push count — both levers of VIS-7.1-02 / VIS-7.1-04.
+Net effect on the alarm budget: the **3 clinical deterioration correlations (1/2/3)** **replace ~9–10 member
+pushes/100 beds/day** (each folds ≥ 2 members), lifting per-push PPV (correlations are ≥ as specific as
+their most-specific member) while cutting push count — both levers of VIS-7.1-02 / VIS-7.1-04. **Chain 4
+(`ALERT-CORR-EXAM-REDUND-04`) is excluded from this suppression-vs-amplification accounting (B3-004):** it is an
+efficiency/stewardship alert that folds **no** member and is net-additive (+2 volume, still counted in the fleet
+total), so the fatigue math must not credit it with member suppression.
 
 ## 6. RATIFY-pending rules — designed-to-default
 
@@ -229,8 +235,10 @@ declares `latency_assumption_ms: 8000` as the compute+dispatch budget once both 
 (ADR001-F-02) rather than the vision < 30 s ingestion-to-alert SLO (VIS-C-09) — the batch path cannot meet 30 s
 today, and ADR-001 names a dedicated MSK streaming channel as the Fase-4 escape hatch — and (b) the **join window
 itself** (a correlation cannot fire before its slower member exists). Correlated-alert volume ≈ 6/100 beds/day
-(SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 + EXAM-REDUND 2), with a **net reduction** in total pushes because each
-clinical correlation folds ≥ 2 member alerts.
+(SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 + EXAM-REDUND 2), with a **net reduction** in total pushes driven by the
+**3 clinical correlations** (each folds ≥ 2 member alerts). The EXAM-REDUND 2 is an efficiency/stewardship
+addition (net-additive, folds no member) and is **excluded from the suppression accounting** (B3-004), though its
++2 volume stays in the fleet total.
 
 ## 10. Open questions
 

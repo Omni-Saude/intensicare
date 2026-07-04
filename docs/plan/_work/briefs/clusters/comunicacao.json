@@ -1,0 +1,46 @@
+{
+  "brief_id": "cluster-comunicacao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/comunicacao.yaml",
+    "lines": 2181,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/comunicacao.yaml",
+      "line_ranges": "1-2181"
+    }
+  ],
+  "facts": [
+    {"id": "CLU-COMUNICACAO-01", "claim": "Messaging: WebSocket+Firestore+Celery; Observacao auto-spawns Notificacao to all setor users. Counter at chats/{setor_id}/usuarios/{user_id}.qtd_mensagens: +1 new msg (sender excl.), -1 floor@0 when disengaged, ts-only on reaction.", "kind": "entity", "source_ref": "RULE-COMUNICACAO-004,017,019"},
+    {"id": "CLU-COMUNICACAO-02", "claim": "Chat retention 48h default (96h w/ leito filter); emoji enum (7); one reaction/user via unique_together.", "kind": "entity", "source_ref": "RULE-COMUNICACAO-008,036,037"},
+    {"id": "CLU-COMUNICACAO-03", "claim": "Video: Agora.io RTC+Firebase+mediaDevices gate; single-join guard; unconditional reload on leave; Firestore online_call roster flag.", "kind": "entity", "source_ref": "RULE-COMUNICACAO-016,028,030"},
+    {"id": "CLU-COMUNICACAO-04", "claim": "Server always forces usuario_id/setor_id/responsavel_id/checado_por_id from auth context, never client body.", "kind": "entity", "source_ref": "RULE-COMUNICACAO-033,038,042,043"},
+    {"id": "CLU-COMUNICACAO-05", "claim": "46 rules: data-validation 15, alert-threshold 9, care-pathway 12, scheduling-operational 9, triage-eligibility 1; OK 39, DISCREPANCY 5 (001,003,026,034,035), AMBIGUOUS 2 (041,045); NOT_APPLICABLE 43/UNVERIFIABLE 3 (001-003).", "kind": "metric", "source_ref": "comunicacao.yaml"},
+    {"id": "CLU-COMUNICACAO-06", "claim": "Unread-counter fanout hits every setor user, branching on is_reacao/reduzir_qtd/sender-exclusion; decrement fires only when the observation has 0 reactions, 0 checked checagens, 0 other replies.", "kind": "policy", "source_ref": "RULE-COMUNICACAO-004,046"},
+    {"id": "CLU-COMUNICACAO-07", "claim": "At most one reaction per user per observation (unique_together); every save/delete re-triggers the Firebase counter.", "kind": "policy", "source_ref": "RULE-COMUNICACAO-037"},
+    {"id": "CLU-COMUNICACAO-08", "claim": "A new Observacao auto-creates a Notificacao; tipo_mensagem='leito' if bed-bound else 'setor'.", "kind": "policy", "source_ref": "RULE-COMUNICACAO-019"},
+    {"id": "CLU-COMUNICACAO-09", "claim": "Notificacao.save() bulk-creates one UsuarioNotificacao per setor user + dispatches a websocket task, first save only.", "kind": "policy", "source_ref": "RULE-COMUNICACAO-017"},
+    {"id": "CLU-COMUNICACAO-10", "claim": "Chat retention is 48h default, 96h with a leito filter; boundary is exclusive (__lte excluded).", "kind": "threshold", "source_ref": "RULE-COMUNICACAO-008"},
+    {"id": "CLU-COMUNICACAO-11", "claim": "Reaction-count-by-emoji has two divergent impls: SQL GROUP BY (correct) vs Python groupby w/ no order_by (can undercount non-consecutive emoji).", "kind": "other", "source_ref": "RULE-COMUNICACAO-001"},
+    {"id": "CLU-COMUNICACAO-12", "claim": "Homecare bed-occupancy guard is entirely unenforced: validar_leito() is never called from save(); its inner !ocupado check is unreachable dead code anyway.", "kind": "other", "source_ref": "RULE-COMUNICACAO-034"},
+    {"id": "CLU-COMUNICACAO-13", "claim": "Other legacy/FE defects: acaoDict has 8 action keys (incl. 'editar') vs Feed.Acao TS union's 7, hidden by an 'as' cast (035); balanco_hidrico returns uncalled get_pk (003); feed hardcodes 4 NEUTRO mocks (026); video call-leave force-reloads, listener leaks (029/030).", "kind": "other", "source_ref": "RULE-COMUNICACAO-003,026,029,030,031,035"},
+    {"id": "CLU-COMUNICACAO-14", "claim": "Feeds v2 platform/experience/governance: chat+unread-badges, notification center, teleUTI video, activity feed, checklist audit.", "kind": "entity", "source_ref": "comunicacao.yaml"},
+    {"id": "CLU-COMUNICACAO-15", "claim": "PT-BR vocab (verbatim): emoji (7, BE=FE order) sorriso/choro/aprovacao/reprovacao/forca/gratidao/coracao; tipo_mensagem setor|leito; feed acao (FE, 8) criar/alterar/editar/inativar/assinar/liberar/administrar/nao_administrar.", "kind": "vocabulary", "source_ref": "RULE-COMUNICACAO-035,036,039"}
+  ],
+  "constraints": [
+    {"id": "CLU-COMUNICACAO-C-01", "text": "usuario_id/setor_id/responsavel_id/checado_por_id MUST be server-derived, never accepted from client body.", "type": "invariant", "source_ref": "RULE-COMUNICACAO-033,038,042,043"},
+    {"id": "CLU-COMUNICACAO-C-02", "text": "A user MUST have at most one reaction per observation (unique_together enforced).", "type": "invariant", "source_ref": "RULE-COMUNICACAO-037"},
+    {"id": "CLU-COMUNICACAO-C-03", "text": "Reaction deletion MUST be permitted only for the reacting user's own reaction.", "type": "invariant", "source_ref": "RULE-COMUNICACAO-015"},
+    {"id": "CLU-COMUNICACAO-C-04", "text": "Unread-message counters MUST floor at 0 on decrement, never negative.", "type": "invariant", "source_ref": "RULE-COMUNICACAO-004"},
+    {"id": "CLU-COMUNICACAO-C-05", "text": "Chat retention MUST default to 48h, extending to 96h only when the query is scoped by leito.", "type": "policy", "source_ref": "RULE-COMUNICACAO-008"},
+    {"id": "CLU-COMUNICACAO-C-06", "text": "A checagem checked by another user MUST NOT be re-toggled, nor toggled from a reply-preview.", "type": "invariant", "source_ref": "RULE-COMUNICACAO-014"}
+  ],
+  "open_questions": [
+    "Reactions hard-delete (force_delete=True) vs the platform's soft-delete convention (027) - intentional, or align in v2?",
+    "Should v2 fix the reaction-count divergence platform-wide (001), or is groupby's behavior acceptable at current scale?",
+    "Is 'editar' a live feed action Feed.Acao must gain, or dead code in acaoDict that should be dropped (035)?",
+    "Should v2 enforce the unoccupied-bed guard for homecare feed actions that legacy code never enforced (034)?"
+  ]
+}

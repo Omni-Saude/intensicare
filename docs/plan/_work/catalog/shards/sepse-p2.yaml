@@ -1,0 +1,1642 @@
+shard: sepse-p2
+cluster: sepse
+rule_count: 33
+rules_with_escalations: 20
+rules:
+- id: RULE-SEPSE-034
+  name: Sepse criterio_8 - Hipotermia
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 8 fires when temperature < 36 C on the latest reading within 24h.
+  inputs:
+  - sinais_vitais.temperatura (float, Celsius)
+  outputs:
+  - criterio_8 (boolean)
+  logic: "temperatura = sinais_vitais.temperatura if sinais_vitais else None\nif temperatura:\n    return temperatura\
+    \ < 36 if sinais_vitais.tempo_criacao() <= 24 else False\nreturn False\n"
+  edge_cases: Strict < 36. temperatura falsy (None/0.0) -> False. tempo_criacao <= 24 effectively always true.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 256-262
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: One of 4 "menores" criteria.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: SIRS criteria (ACCP/SCCM Consensus, Bone 1992; Sepsis-2) - hypothermia = core temperature < 36 C.
+    detail_file: sepse-batch7.yaml
+  escalations: []
+- id: RULE-SEPSE-035
+  name: Sepse criterio_9 - Taquicardia
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 9 fires when heart rate > 110 bpm on the latest reading within a 12-hour window.
+  inputs:
+  - sinais_vitais.frequencia_cardiaca (int, bpm)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_9 (boolean)
+  logic: "fc = sinais_vitais.frequencia_cardiaca if sinais_vitais else None\nif fc:\n    return fc > 110 if sinais_vitais.tempo_criacao()\
+    \ <= 12 else False\nreturn False\n"
+  edge_cases: 'Strict > 110. The 12-hour guard is a real filter here (unlike the 24h guards) because tempo_criacao()
+    returns 0..~24 via timedelta.seconds/3600; readings whose creation seconds-of-day/3600 exceed 12 fail. See RULE-balanco-BE-06-006
+    for the seconds-vs-total_seconds caveat.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 264-268
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Minor criterion. 12h threshold (vs 24h for others).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: SIRS criteria (ACCP/SCCM Consensus, Bone 1992; Sepsis-2) - tachycardia = heart rate > 90 bpm. (NEWS2
+      scores HR 111-130 as 2 points.)
+    detail_file: sepse-batch7.yaml
+  escalations:
+  - item_id: ESC-P2-065
+    band: P2
+    title: Sepse criterio_9 - Taquicardia
+    excerpt: 'Correct column (frequencia_cardiaca, bpm) - no fc/fr swap here, unlike the v3 counterpart RULE-SEPSE-019.
+      Threshold differs from SIRS: legacy fires only at HR>110, whereas the SIRS tachycardia cutoff is >90 bpm;
+      HR 91-110 (SIRS-positive) will not fire this …'
+- id: RULE-SEPSE-036
+  name: Sepse criterio_10 - Dispositivo invasivo com permanencia > 7 dias
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion 10 fires when a peripheral venous access in use has been inserted > 7 days ago, OR
+    a double-lumen dialysis catheter in use has been inserted > 7 days ago; uses the latest nursing evolution's
+    invasive-devices data.
+  inputs:
+  - dispositivos_invasivos.acesso_venoso_periferico {em_uso, data_insercao} (json)
+  - dispositivos_invasivos.cateter_duplo_lumen_hemodialise {em_uso, data_insercao} (json)
+  outputs:
+  - criterio_10 (boolean or None)
+  logic: "formulario = get_evolucao_enfermagem()   # latest Formulario tipo=\"enfermagem\" for nr_atendimento\n\
+    if formulario and formulario.dispositivos_invasivos:\n    avp_em_uso = acesso_venoso_periferico.get(\"em_uso\"\
+    ) if acesso_venoso_periferico else False\n    avp_data   = acesso_venoso_periferico.get(\"data_insercao\") if\
+    \ acesso_venoso_periferico else False\n    dl_em_uso  = cateter_duplo_lumen_hemodialise.get(\"em_uso\", None)\
+    \ if cateter_duplo_lumen_hemodialise else False\n    dl_data    = cateter_duplo_lumen_hemodialise.get(\"data_insercao\"\
+    ) if cateter_duplo_lumen_hemodialise else False\n    return any([\n        all([avp_em_uso, (diferenca_dias(strptime(avp_data,\"\
+    %Y-%m-%d\").date()) > 7) if avp_data else False]),\n        all([dl_em_uso,  (diferenca_dias(strptime(dl_data,\"\
+    %Y-%m-%d\").date())  > 7) if dl_data  else False]),\n    ])\n# implicit: returns None when no formulario or\
+    \ no dispositivos_invasivos\n"
+  edge_cases: 'Strict > 7 days. Returns None (falsy, counted as not-True) when there is no nursing evolution or
+    no invasive-devices record. data_insercao parsed with strptime "%Y-%m-%d"; malformed/absent date -> ValueError
+    or False sub-branch. diferenca_dias() lives in utils.handlers (OUTSIDE this partition) and defines the exact
+    day-difference semantics.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 270-330
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'get_evolucao_enfermagem() (lines 385-392) selects latest Formulario tipo="enfermagem" by leito__nr_atendimento,
+    order_by -criado_em. Verifier must inspect utils.handlers.diferenca_dias (out of partition) for exact >7-day
+    arithmetic. Minor criterion.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published equation defines a fixed catheter/venous-access dwell-time threshold as
+      a scored sepsis-screening criterion. Prolonged invasive-device dwell is a recognized CRBSI/HAI risk factor
+      (CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections, 2011; INICC), but
+      the >7-day cutoff and its use as a minor sepsis criterion are institutional. Internal business rule.
+    detail_file: sepse-batch8.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-195
+    band: UNVERIFIABLE
+    title: Sepse criterio_10 - Dispositivo invasivo com permanencia > 7 dias
+    excerpt: Internal infection-risk business rule; no authoritative sepsis-criterion source for the 7-day dwell
+      threshold. Logic hand-traces correctly and consistently. diferenca_dias (utils/handlers.py:63-65) confirmed
+      to use date-only su…
+- id: RULE-SEPSE-037
+  name: Sepse criterio_11 - Placeholder (sempre False)
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Minor criterion 11 is hard-coded to always return False (unimplemented placeholder).
+  inputs: []
+  outputs:
+  - criterio_11 (boolean)
+  logic: "def calcular_criterio_11(self):\n    return False\n"
+  edge_cases: Always False.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  divergence: 'DISCREPANCY/consequence: because criterio_11 is always False, the "menores" group (c8,c9,c10,c11)
+    can hold at most 3 True values, so the alert condition `menores == 4` in RULE-sepse-BE-06-013 is UNREACHABLE.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-06-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 332-333
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY/consequence: because criterio_11 is always False, the "menores" group (c8,c9,c10,c11) can
+    hold at most 3 True values, so the alert condition `menores == 4` in RULE-sepse-BE-06-013 is UNREACHABLE.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'No clinical reference: criterio_11 is an unimplemented placeholder (calcular_criterio_11 -> return
+      False, sepse.py:332-333). The intended minor criterion is unknown, so there is nothing to verify against a
+      guideline. Pre-existing DISCREPANCY carried from extraction.'
+    detail_file: sepse-batch8.yaml
+  escalations:
+  - item_id: ESC-P1-020
+    band: P1
+    title: Sepse criterio_11 - Placeholder (sempre False)
+    excerpt: '*`sepse` · `clinical-scoring` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Minor criterion 11 is hard-coded
+      to always return False (unimplemented placeholder). - **Deviation:** DISCREPANCY/consequence: because criterio_11
+      is always False, the "menores" group (c8,c9,c10,c11) can hold at most 3 True values, so the alert condition
+      `menores == 4` in RULE-sepse-BE-06-013 is UNREACHABLE. - **Clinical relev'
+- id: RULE-SEPSE-038
+  name: Sepsis C1 (major) - fever
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major sepsis criterion - temperature > 38.3 C.
+  inputs:
+  - temperatura (float, Celsius, 0 or 20-43)
+  outputs:
+  - criterio_1 (bool)
+  logic: '(temperatura > 38.3) if temperatura else False
+
+    '
+  edge_cases: temperatura 0/None -> False. Strict >38.3. Test 37->False, 38.5->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-026
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 225-230
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:66-71.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Levy MM, Fink MP, Marshall JC, et al. 2001 SCCM/ESICM/ACCP/ATS/SIS International Sepsis Definitions
+      Conference. Crit Care Med 2003;31(4):1250-1256 (also Intensive Care Med 2003). Diagnostic criteria for sepsis,
+      general variables: Fever = core temperature > 38.3 C.'
+    detail_file: sepse-batch8.yaml
+  escalations: []
+- id: RULE-SEPSE-039
+  name: Sepsis C2 (major) - spontaneous respiratory distress
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Major criterion - (FR>20 OR SatO2<96) AND no mechanical ventilation.
+  inputs:
+  - fr (int, ipm, 0-50)
+  - sato2 (int, percent)
+  - ventilacao_mecanica_exists (bool)
+  outputs:
+  - criterio_2 (bool)
+  logic: "all([\n  any([ (fr>20) if fr else False, (sato2<96) if sato2 else False ]),\n  not verificar_objeto_existe(dp,'ventilacao_mecanica')])\n"
+  edge_cases: fr/sato2 falsy -> that disjunct False. Presence of VM forces False. Test fr=22->True; add VM->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-027
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 232-249
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:73-88.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'SIRS/sepsis general variables (1992 ACCP/SCCM Consensus; retained in 2001 SCCM/ESICM/ACCP/ATS/SIS
+      conference, Levy et al. Crit Care Med 2003;31:1250-1256): tachypnea = respiratory rate > 20 breaths/min. SpO2
+      < 96% is an institutional oxygenation screen; exclusion of mechanically-ventilated patients is institutional
+      (spontaneous respiratory distress).'
+    detail_file: sepse-batch8.yaml
+  escalations: []
+- id: RULE-SEPSE-040
+  name: Sepsis C3 (major) - recent start of mechanical ventilation
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - mechanical ventilation started less than 1 day ago.
+  inputs:
+  - ventilacao_mecanica.horario_inicio (datetime)
+  outputs:
+  - criterio_3 (bool)
+  logic: '(vm.horario_inicio > now - 1day) if verificar_objeto_existe(dp,''ventilacao_mecanica'') else False
+
+    '
+  edge_cases: Strict > (exactly 24h ago -> False). Test 23h->True, 24h->False, 2d->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-028
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 251-257
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:90-101.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published equation defines a fixed <24h-from-ventilation-start window as a sepsis
+      criterion. New acute respiratory failure requiring mechanical ventilation is a recognized organ-dysfunction/sepsis
+      marker (Sepsis-3, Singer et al. JAMA 2016; SOFA respiratory component; Surviving Sepsis Campaign 2021), but
+      the specific '<1 day since ventilation start' cutoff is institutional. Internal business rule.
+    detail_file: sepse-batch8.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-202
+    band: UNVERIFIABLE
+    title: Sepsis C3 (major) - recent start of mechanical ventilation
+    excerpt: Internal business rule capturing recently-initiated mechanical ventilation as an acute organ-dysfunction
+      trigger. Logic hand-traces correctly against its documented strict-> boundary (contrast RULE-SEPSE-041 noradrenalina
+      which…
+- id: RULE-SEPSE-041
+  name: Sepsis C4 (major) - noradrenaline started in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - noradrenaline infusion started within the last 24h.
+  inputs:
+  - noradrenalina.horario_inicio (datetime)
+  outputs:
+  - criterio_4 (bool)
+  logic: '(noradrenalina.horario_inicio >= now - 1day) if verificar_objeto_existe(dp,''noradrenalina'') else False
+
+    '
+  edge_cases: Inclusive >= (contrast with C3 strict >). Test 23h->True, 20h->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-029
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 259-267
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:103-113.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Singer M et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3).
+      JAMA 2016;315(8):801-810. Septic shock = vasopressor requirement to maintain MAP>=65 mmHg + lactate >2 mmol/L.
+      No published calculator defines 'noradrenaline started within the last 24h' as a discrete weighted screening
+      item; this is an institutional Trilha-Sepse screening-tool design element.
+    detail_file: sepse-batch9.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-203
+    band: UNVERIFIABLE
+    title: Sepsis C4 (major) - noradrenaline started in last 24h
+    excerpt: Vasopressor use as a shock/organ-dysfunction marker is consistent with Sepsis-3, but the specific "noradrenaline
+      started within 24h counts as a MAJOR screening criterion" with an inclusive >= now-1day window is a proprietary
+      in…
+- id: RULE-SEPSE-042
+  name: Sepsis C5 (major) - slow capillary refill
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - capillary refill time > 5 s.
+  inputs:
+  - tec (int, seconds, 0 or 3-20)
+  outputs:
+  - criterio_5 (bool)
+  logic: '(tec > 5) if tec else False
+
+    '
+  edge_cases: tec 0 -> False. Strict >5. Test tec=5->False, 6->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-030
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 269-270
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:115-122.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: Hernandez G et al. (ANDROMEDA-SHOCK) Effect of a Resuscitation Strategy Targeting Peripheral Perfusion
+      Status vs Serum Lactate Levels on 28-Day Mortality Among Patients With Septic Shock. JAMA 2019;321(7):654-664.
+      Abnormal capillary refill time (CRT) defined as > 3 seconds (glass-slide technique, distal phalanx). SSC 2021
+      endorses CRT-guided resuscitation.
+    detail_file: sepse-batch9.yaml
+  escalations:
+  - item_id: ESC-P2-087
+    band: P2
+    title: Sepsis C5 (major) - slow capillary refill
+    excerpt: Legacy (line 270) fires only when CRT > 5 s; the published abnormal-perfusion threshold (ANDROMEDA-SHOCK,
+      SSC 2021) is > 3 s. The 5 s cut is stricter/more specific, so patients with CRT 3.1-5.0 s (established hypoperfusion
+      by the reference) are missed by th…
+- id: RULE-SEPSE-043
+  name: Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h)
+  category: triage-eligibility
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion - current PAS < 90 OR the most recent 24h diastolic (PAD) < 90.
+  inputs:
+  - pas (float, mmHg)
+  - pad_em_24hrs (float, mmHg)
+  outputs:
+  - criterio_6 (bool)
+  logic: 'queryset = DadosProntuario.filter(pk__in=buscar_ultimos_dados).order_by(''-criado_em'')
+
+    pad_em_24hrs = queryset.filter(criado_em__gt=now-24h).values_list(''pad'').first()
+
+    any([ (pas < 90) if pas else False, (pad_em_24hrs < 90) if pad_em_24hrs else False ])
+
+    '
+  edge_cases: pas/pad falsy -> excluded. pad drawn from most recent record in the lookback chain within 24h.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  divergence: 'DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS
+    also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).
+
+    '
+  merged_from:
+  - RULE-sepse-BE-10-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 272-286
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS
+    also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: high
+    reference: 'Sepsis-3 / SSC 2021 and prior severe-sepsis criteria (Dellinger/Levy ACCP-SCCM): sepsis-related
+      hypotension = systolic BP < 90 mmHg, MAP < 70 mmHg, or SBP decrease > 40 mmHg from baseline; qSOFA uses SBP
+      <= 100 mmHg. Diastolic BP is not a standard sepsis hypotension trigger; a low diastolic threshold, when used,
+      is ~ < 60 mmHg (physiologic normal diastolic ~ 60-80 mmHg).'
+    detail_file: sepse-batch9.yaml
+  escalations:
+  - item_id: ESC-P0-012
+    band: P0
+    title: Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h)
+    excerpt: 'DISCREPANCY: _REGRAS text says "PAS < 90 OU PAD < 60"; code compares PAD < 90 (not 60). _ANTIGAS_REGRAS
+      also mentioned PAM<65. Test test_trilha_sepse.py:124-137 (pas=89 dominates).'
+- id: RULE-SEPSE-044
+  name: Sepsis C7 (major) - oliguria or rising creatinine
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion - 24h urine output <= 1200 ml OR (creatinine > 2 AND not on hemodialysis).
+  inputs:
+  - debito_urinario_24h (float, mL/24h, 0-10000)
+  - creatinina (float, mg/dL, 0-20)
+  - hemodialise (bool)
+  outputs:
+  - criterio_7 (bool)
+  logic: "any([\n  (debito_urinario_24h <= 1200) if debito_urinario_24h else False,\n  all([(creatinina > 2) if\
+    \ creatinina else False, not hemodialise])])\n"
+  edge_cases: debito 0 -> falsy -> that disjunct False (so anuria recorded as 0 is NOT flagged). Inclusive <=1200.
+    Test debito 1200->True,1201->False; creat 3 with hemodialise True->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  divergence: 'DISCREPANCY: fixed 1200 mL/24h threshold rather than weight-based (<0.5 mL/kg/h). _ANTIGAS_REGRAS
+    used the weight-based version. Also debito==0 evaluates falsy so true anuria is excluded. Test test_trilha_sepse.py:140-151.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-10-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 288-303
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: fixed 1200 mL/24h threshold rather than weight-based (<0.5 mL/kg/h). _ANTIGAS_REGRAS used
+    the weight-based version. Also debito==0 evaluates falsy so true anuria is excluded. Test test_trilha_sepse.py:140-151.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'SOFA renal component (Vincent JL et al. Intensive Care Med 1996;22:707-710): creatinine 2.0-3.4
+      mg/dL = 2 pts; urine < 500 mL/day = 3 pts; < 200 mL/day = 4 pts. KDIGO 2012 AKI oliguria = urine output <
+      0.5 mL/kg/h (~840 mL/24h for a 70 kg adult).'
+    detail_file: sepse-batch9.yaml
+  escalations:
+  - item_id: ESC-P1-057
+    band: P1
+    title: Sepsis C7 (major) - oliguria or rising creatinine
+    excerpt: '*`sepse` · `triage-eligibility` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Major criterion - 24h urine
+      output <= 1200 ml OR (creatinine > 2 AND not on hemodialysis). - **Deviation:** DISCREPANCY: fixed 1200 mL/24h
+      threshold rather than weight-based (<0.5 mL/kg/h). _ANTIGAS_REGRAS used the weight-based version. Also debito==0
+      evaluates falsy so true anuria is excluded. Test test_trilha_sepse.py:140-'
+- id: RULE-SEPSE-045
+  name: Sepsis C8 (major) - Glasgow drop or delirium
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Major criterion - Glasgow decreased by >= 2 points vs the most-recent 24h value OR delirium present.
+  inputs:
+  - glasgow (current) (int)
+  - glasgow_em_24 (prior 24h) (int)
+  - delirium (bool)
+  outputs:
+  - criterio_8 (bool)
+  logic: "glasgow_em_24 = filter(pk__in lookback, criado_em>now-24h).order_by('-criado_em').values_list('glasgow').first()\n\
+    any([\n  (glasgow - glasgow_em_24 <= -2) if (glasgow_em_24 and glasgow) else False,\n  delirium if delirium\
+    \ else False])\n"
+  edge_cases: Needs both current and prior glasgow truthy. Drop of exactly 2 (delta -2) triggers. Test current=3
+    prior=5 -> -2 -> True; prior=4 -> -1 -> False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-033
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 305-323
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:153-166.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Sepsis-3 organ-dysfunction framework (Singer M et al, JAMA 2016): acute alteration in mental status
+      is a recognized sepsis organ-dysfunction sign; SOFA CNS is GCS-based and qSOFA scores altered mentation (GCS
+      < 15). Delirium (CAM-ICU) is the standard construct for sepsis-associated acute encephalopathy; an acute drop
+      in GCS reflects new neurologic dysfunction.'
+    detail_file: sepse-batch9.yaml
+  escalations: []
+- id: RULE-SEPSE-046
+  name: Sepsis C9 (major) - hyperbilirubinemia
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion - bilirubin > 2 mg/dL.
+  inputs:
+  - bilirrubinas (float, mg/dL, 0-30)
+  outputs:
+  - criterio_9 (bool)
+  logic: '(bilirrubinas > 2) if bilirrubinas else False
+
+    '
+  edge_cases: Strict >2 (2 -> False). Test 2->False, 3->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-034
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 325-330
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:168-173.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Vincent JL et al. The SOFA score. Intensive Care Med 1996;22:707-710 (hepatic component: bilirubin
+      2.0-5.9 mg/dL = 2 points, organ dysfunction). Also ACCP/SCCM severe-sepsis organ-dysfunction lists (hyperbilirubinemia
+      total bilirubin > 2 mg/dL / > 34 umol/L).'
+    detail_file: sepse-batch10.yaml
+  escalations: []
+- id: RULE-SEPSE-047
+  name: Sepsis C10 (minor) - hypothermia in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h temperature < 36 C.
+  inputs:
+  - temp_24hrs (float, Celsius)
+  outputs:
+  - criterio_10 (bool)
+  logic: 'temp_24hrs = filter(pk__in lookback, criado_em>now-24h).values_list(''temperatura'').first()
+
+    (temp_24hrs < 36) if temp_24hrs else False
+
+    '
+  edge_cases: Value pulled from lookback chain, not current record. Test prior temp=36->False, 35->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-035
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 332-341
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:175-187.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ACCP/SCCM Consensus Conference (Bone RC et al.), Chest 1992;101:1644-1655. SIRS temperature criterion:
+      < 36 C or > 38 C.'
+    detail_file: sepse-batch10.yaml
+  escalations: []
+- id: RULE-SEPSE-048
+  name: Sepsis C11 (minor) - tachycardia
+  category: triage-eligibility
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: Minor criterion - heart rate > 100 bpm using 24h value (falling back to 12h).
+  inputs:
+  - fc_24hrs (int, bpm)
+  - fc_12hrs (int, bpm)
+  outputs:
+  - criterio_11 (bool)
+  logic: 'fc_24hrs = filter(lookback, criado_em>now-24h).values_list(''frequencia_cardiaca'').first()
+
+    fc_12hrs = filter(lookback, criado_em>now-12h).values_list(''frequencia_cardiaca'').first()
+
+    return (fc_24hrs>100) if fc_24hrs else (False or fc_12hrs>100) if fc_12hrs else False
+
+    # parsed: if fc_24hrs: fc_24hrs>100 ; elif fc_12hrs: fc_12hrs>100 ; else False
+
+    '
+  edge_cases: Because 12h data is a subset of 24h, the 24h branch dominates; 12h branch only reached when no 24h
+    value. Strict >100.
+  confidence: medium
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-036
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 343-364
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: convoluted conditional-expression precedence; the intended OR of 24h/12h collapses to "use
+    24h if present else 12h". Test test_trilha_sepse.py:189-201 (fc=110->True).
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'ACCP/SCCM Consensus Conference (Bone RC et al.), Chest 1992;101:1644-1655. SIRS heart-rate criterion:
+      HR > 90 bpm.'
+    detail_file: sepse-batch10.yaml
+  escalations:
+  - item_id: ESC-P2-088
+    band: P2
+    title: Sepsis C11 (minor) - tachycardia
+    excerpt: 'Threshold discrepancy: legacy fires only at HR > 100, but the SIRS tachycardia criterion is HR > 90,
+      so HR 91-100 bpm is silently missed on this minor criterion (reduced sensitivity). The catalog AMBIGUOUS status
+      concerns conditional-expression precedence (…'
+- id: RULE-SEPSE-049
+  name: Sepsis C12 (minor) - hypocapnia or poor oxygenation
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Minor criterion - (PaCO2<32 AND no VM) OR P/F ratio < 300.
+  inputs:
+  - paco2 (float, mmHg, 0-150)
+  - ventilacao_mecanica_exists (bool)
+  - relacao_po2_fio2 (float)
+  outputs:
+  - criterio_12 (bool)
+  logic: "any([\n  all([(paco2 < 32) if paco2 else False, not verificar_objeto_existe(dp,'ventilacao_mecanica')]),\n\
+    \  (relacao_po2_fio2 < 300) if (po2 and fio2) else False])\n"
+  edge_cases: paco2 falsy excluded. Ratio path requires po2 and fio2 present. Strict <32 and <300. Test paco2=31->True;
+    ratio 300->False, 299->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-037
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 366-383
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:203-217.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: SIRS respiratory criterion PaCO2 < 32 mmHg (ACCP/SCCM 1992, Chest 1992;101:1644-1655); PaO2/FiO2
+      < 300 = arterial hypoxemia / mild ARDS organ dysfunction (Surviving Sepsis Campaign severe-sepsis criteria;
+      Berlin ARDS mild = P/F <= 300).
+    detail_file: sepse-batch10.yaml
+  escalations: []
+- id: RULE-SEPSE-050
+  name: Sepsis C13 (minor) - elevated arterial lactate
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - arterial lactate >= 2.5 mmol/L.
+  inputs:
+  - lactato_arterial (float, mmol/L, 0-20)
+  outputs:
+  - criterio_13 (bool)
+  logic: 'bool((lactato_arterial >= 2.5) if lactato_arterial else False)
+
+    '
+  edge_cases: Inclusive >=2.5. lactato 0 -> False. Test 2.4->False, 2.5->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-038
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 385-390
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:219-224.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49:e1063-e1143) and severe-sepsis
+      definitions: serum lactate > 2 mmol/L marks tissue hypoperfusion/organ dysfunction; > 4 mmol/L = high risk.'
+    detail_file: sepse-batch10.yaml
+  escalations:
+  - item_id: ESC-P2-089
+    band: P2
+    title: Sepsis C13 (minor) - elevated arterial lactate
+    excerpt: 'Threshold discrepancy: legacy fires at lactate >= 2.5 mmol/L vs the Surviving Sepsis Campaign hyperlactatemia
+      threshold of > 2 mmol/L, so lactate 2.0-2.49 mmol/L is missed on this minor criterion (reduced sensitivity).
+      Units are correctly mmol/L (the mmol/L…'
+- id: RULE-SEPSE-051
+  name: Sepsis C14 (minor) - leukocytosis in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h leukocytes > 12000/mm3.
+  inputs:
+  - leucocitos (float, /mm3, 0-40000)
+  outputs:
+  - criterio_14 (bool)
+  logic: 'leucocitos = filter(lookback, criado_em>now-24h).order_by(''-criado_em'').values_list(''leucocitos'').first()
+
+    (leucocitos > 12000) if leucocitos else False
+
+    '
+  edge_cases: Strict >12000. From lookback chain. Test 12000->False, 12001->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-039
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 392-402
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '_ANTIGAS_REGRAS C17 was ">15000 OR <4000"; current active version only checks >12000 (no leukopenia branch).
+    The leukopenia/delta variant is commented out (lines 427-456). Test test_trilha_sepse.py:226-238.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: low
+    reference: 'Bone RC et al. ACCP/SCCM Consensus Conference (1992) Chest 101:1644; Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS
+      International Sepsis Definitions Conference, Crit Care Med 2003;31:1250. SIRS WBC criterion: >12,000/mm3 OR
+      <4,000/mm3 OR >10% immature (band) forms.'
+    detail_file: sepse-batch11.yaml
+  escalations: []
+- id: RULE-SEPSE-052
+  name: Sepsis C15 (minor) - thrombocytopenia in last 24h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 24h platelets < 100000/mm3.
+  inputs:
+  - plaquetas (int, /mm3, 0-700000)
+  outputs:
+  - criterio_15 (bool)
+  logic: 'plaquetas = filter(lookback, criado_em>now-24h).values_list(''plaquetas'').first()
+
+    (plaquetas < 100000) if plaquetas else False
+
+    '
+  edge_cases: plaquetas falsy (0/None) -> False (so 0 platelets recorded as 0 not flagged). Strict <100000. Test
+    100000->False, 99999->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 404-413
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:240-252.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: low
+    reference: Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS International Sepsis Definitions Conference (Crit Care
+      Med 2003;31:1250) - thrombocytopenia (platelet <100,000/uL) listed as an organ-dysfunction variable; Vincent
+      JL et al. SOFA score (Intensive Care Med 1996;22:707) coagulation subscore = 2 points at platelets <100 x10^3/uL.
+    detail_file: sepse-batch11.yaml
+  escalations: []
+- id: RULE-SEPSE-053
+  name: Sepsis C16 (minor) - poor oral intake with preserved consciousness
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: Minor criterion - low oral diet acceptance AND Glasgow >= 13.
+  inputs:
+  - baixa_aceitacao_dieta_vo (bool)
+  - glasgow (int)
+  outputs:
+  - criterio_16 (bool)
+  logic: 'all([ baixa_aceitacao_dieta_vo, (glasgow >= 13) if glasgow else False ])
+
+    '
+  edge_cases: Both required. Inclusive glasgow>=13. Test baixa+glasgow13 -> True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-041
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 415-425
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:254-259.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published sepsis criterion. 'Baixa aceitacao de dieta VO' (reduced oral intake)
+      with preserved consciousness (Glasgow>=13) is an institutional early-warning/homecare screening observation,
+      not part of SIRS, Sepsis-3, SOFA or qSOFA.
+    detail_file: sepse-batch11.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-204
+    band: UNVERIFIABLE
+    title: Sepsis C16 (minor) - poor oral intake with preserved consciousness
+    excerpt: Internal/institutional business rule with no authoritative published source - flagged for internal
+      clinical review, NOT treated as wrong. Legacy logic (all([reduced_intake, GCS>=13])) is internally consistent
+      and matches its ow…
+- id: RULE-SEPSE-054
+  name: Sepsis C17 (minor) - depressed consciousness in last 12h
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - most-recent 12h Glasgow <= 13.
+  inputs:
+  - glasgow (int)
+  outputs:
+  - criterio_17 (bool)
+  logic: 'glasgow = filter(lookback, criado_em>now-12h).order_by(''-criado_em'').values_list(''glasgow'').first()
+
+    (glasgow <= 13) if glasgow else False
+
+    '
+  edge_cases: Inclusive <=13. 12h window (not 24h). glasgow falsy -> False. Test glasgow=14->False.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-042
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 458-468
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: There is an earlier commented-out leukocyte-based criterio_17 (lines 427-456); the active one is Glasgow-based.
+    Test test_trilha_sepse.py:261-272.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: Singer M et al. Sepsis-3 (JAMA 2016;315:801) qSOFA - altered mentation = any GCS <15; Vincent JL
+      et al. SOFA (Intensive Care Med 1996;22:707) neurological subscore = 1 point at GCS 13-14 (i.e. any GCS <15
+      is abnormal).
+    detail_file: sepse-batch11.yaml
+  escalations:
+  - item_id: ESC-P2-090
+    band: P2
+    title: Sepsis C17 (minor) - depressed consciousness in last 12h
+    excerpt: 'Exact difference: legacy fires only at GCS<=13, whereas both qSOFA (Sepsis-3) and the SOFA neuro subscore
+      treat any GCS<15 (i.e. GCS 14) as abnormal altered mentation. Legacy therefore misses an isolated GCS of 14
+      (mild confusion). Clinical impact low: this…'
+- id: RULE-SEPSE-055
+  name: Sepsis C18 (minor) - central line > 7 days
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - presence of CVC/CDL for more than 7 days (boolean flag).
+  inputs:
+  - presenca_cvc_cdl_7_dias (bool)
+  outputs:
+  - criterio_18 (bool)
+  logic: 'return dp.presenca_cvc_cdl_7_dias
+
+    '
+  edge_cases: Direct boolean passthrough (may return None if field null). Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-043
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 470-475
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Duration threshold (7 days) is captured by the human at data entry, not computed. Test test_trilha_sepse.py:274-277.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published scoring reference. Central venous catheter dwell time >7 days is a CLABSI
+      infection-source RISK FACTOR (CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections,
+      O'Grady NP et al. 2011), not a physiological sepsis-score criterion. The >7-day duration is judged by the
+      clinician at data entry and passed as a boolean.
+    detail_file: sepse-batch11.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-205
+    band: UNVERIFIABLE
+    title: Sepsis C18 (minor) - central line > 7 days
+    excerpt: Infection-source risk-factor business rule, not a published/computed sepsis scale - flagged for internal
+      review, NOT treated as wrong. Duration (>7d) is captured by the human at data entry rather than computed,
+      so there is no e…
+- id: RULE-SEPSE-056
+  name: Sepsis C19 (minor) - femoral central line > 5 days
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - CVC/CDL in femoral site for more than 5 days (boolean flag).
+  inputs:
+  - cvc_cdl_femoral_5_dias (bool)
+  outputs:
+  - criterio_19 (bool)
+  logic: 'return dp.cvc_cdl_femoral_5_dias
+
+    '
+  edge_cases: Direct boolean passthrough. Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-044
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 477-482
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:279-282.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No validated published equation/cutoff. Directional support: CDC/HICPAC Guidelines for the Prevention
+      of Intravascular Catheter-Related Infections (2011) — femoral CVC site carries higher colonization/CLABSI
+      risk; and Sepsis-3 (Singer et al., JAMA 2016) uses source identification but no femoral-dwell-time criterion.
+      The specific ''>5 days femoral CVC = minor sepsis screening criterion'' is an institutional (Albert Einstein
+      / trilhas) screening rule.'
+    detail_file: sepse-batch12.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-206
+    band: UNVERIFIABLE
+    title: Sepsis C19 (minor) - femoral central line > 5 days
+    excerpt: Legacy calcular_criterio_19 (trilha_sepse.py:477-482) is a pure boolean passthrough of dados_prontuario.cvc_cdl_femoral_5_dias;
+      the passthrough logic is trivially faithful to source. The clinical validity lies entirely in the u…
+- id: RULE-SEPSE-057
+  name: Sepsis C20 (minor) - recent abdominal surgery
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: true
+  description: Minor criterion - history of recent abdominal surgery (boolean flag).
+  inputs:
+  - historico_cirurgia_abdominal_recente (bool)
+  outputs:
+  - criterio_20 (bool)
+  logic: 'return dp.historico_cirurgia_abdominal_recente
+
+    '
+  edge_cases: Direct boolean passthrough. Test False->False, True->True.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-10-045
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 484-489
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Test test_trilha_sepse.py:284-287.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No validated published equation/cutoff. Directional support: recent abdominal/GI surgery is an established
+      intra-abdominal infection source (Surviving Sepsis Campaign 2021, source-control section) but no published
+      rule defines ''recent abdominal surgery'' as a discrete numeric sepsis-screening criterion. The RULE-SEPSE-058
+      label pins it at ''<20 dias'' — an institutional definition.'
+    detail_file: sepse-batch12.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-207
+    band: UNVERIFIABLE
+    title: Sepsis C20 (minor) - recent abdominal surgery
+    excerpt: Legacy calcular_criterio_20 (trilha_sepse.py:484-489) is a pure boolean passthrough of historico_cirurgia_abdominal_recente.
+      Passthrough faithful to source. The '<20 dias' recency window is institutional; no authoritative refer…
+- id: RULE-SEPSE-058
+  name: Sepse v3 automatica - trigger threshold table (20 criteria)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Sepsis screening pathway variant "v3" (payload_sepse_automatica_v3). Each of 20 criteria, when flagged
+    by the model layer, surfaces an alert whose label encodes the exact clinical threshold that defines that criterion.
+    This payload documents the full threshold set for the v3 sepsis trigger engine.
+
+    '
+  inputs:
+  - TAX (axillary temperature) (float, degC)
+  - FR (respiratory rate) (float, ipm)
+  - VMI onset time (float, hours)
+  - DVA (vasoactive) onset time (float, hours)
+  - PAS / PAM (float, mmHg)
+  - TEC (capillary refill) (float, s)
+  - arterial lactate (float, mmol/L)
+  - diurese (float, ml/Kg/h)
+  - creatinina (trend) (float, mg/dl)
+  - GCS (int, points, 3-15)
+  - bilirrubinas (float, mg/dl)
+  - FC (float, bpm)
+  - PCO2 / P/F ratio (float)
+  - plaquetas (int, /mm3)
+  - CVC dwell time (central / femoral) (float, days)
+  - abdominal surgery recency (float, days)
+  outputs:
+  - alerta text per criterion (string)
+  logic: 'criterio_1  Febre:                  TAX >= 38.2 degC
+
+    criterio_2  Taquipnea:              FR > 20 ipm
+
+    criterio_3  Falencia respiratoria:  VMI started < 24h ago
+
+    criterio_4  Hipotensao refrataria:  DVA started < 6h ago
+
+    criterio_5  Hipotensao:             PAS < 90  OR  PAM < 60
+
+    criterio_6  Ma perfusao:            TEC > 3 s
+
+    criterio_7  Hiperlactatemia:        lactato >= 3 mmol/L
+
+    criterio_8  Oliguria:               diurese <= 0.5 ml/Kg/h over last 12h
+
+    criterio_9  Piora funcao renal:     creatinina rising (no numeric cutoff given)
+
+    criterio_10 Alt. nivel consciencia: GCS < 14
+
+    criterio_11 Ictericia:              bilirrubinas > 2 mg/dl
+
+    criterio_12 Hipotermia:             TAX < 36 degC
+
+    criterio_13 Taquicardia:            FC > 100 bpm
+
+    criterio_14 Disturbio respiratorio: PCO2 < 32  OR  P/F < 300
+
+    criterio_15 Piora infecciosa:       Leucocitos & PCR altered (no numeric cutoff)
+
+    criterio_16 Plaquetopenia:          plaquetas < 150000
+
+    criterio_17 Necessidade de SNE:     low oral diet acceptance (qualitative)
+
+    criterio_18 CVC:                    central venous catheter >= 7 days
+
+    criterio_19 CVC femoral:            femoral central venous catheter >= 5 days
+
+    criterio_20 Cirurgia abdominal:     recent abdominal surgery (< 20 days)
+
+    '
+  edge_cases: 'recomendacoes list is empty for every criterion in v3 (only the alerta label carries content). Thresholds
+    use mixed inclusive/exclusive operators exactly as written (>=, >, <=, <). No null handling in this payload
+    (predicate lives out of scope).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-007
+  - RULE-SEPSE-008
+  - RULE-SEPSE-009
+  - RULE-SEPSE-010
+  - RULE-SEPSE-011
+  - RULE-SEPSE-012
+  - RULE-SEPSE-013
+  - RULE-SEPSE-014
+  - RULE-SEPSE-015
+  - RULE-SEPSE-016
+  - RULE-SEPSE-017
+  - RULE-SEPSE-018
+  - RULE-SEPSE-019
+  - RULE-SEPSE-020
+  - RULE-SEPSE-021
+  - RULE-SEPSE-022
+  - RULE-SEPSE-023
+  - RULE-SEPSE-024
+  - RULE-SEPSE-025
+  - RULE-SEPSE-026
+  divergence: 'Alert-label catalog (core/facade/trilha_sepse_v3.py, payload_sepse_automatica_v3) vs the v3 model
+    predicates (trilhas_v3/trilha_sepse.py, RULE-SEPSE-007..026): (a) the catalog uses a DIFFERENT criterion numbering
+    than the model (e.g. catalog criterio_6=''Ma perfusao TEC>3s'', criterio_16=''Plaquetopenia''; model criterio_6=thrombocytopenia,
+    criterio_16=capillary refill); (b) Plaquetopenia label ''<150.000'' but model predicate RULE-SEPSE-012 uses
+    <100000; (c) Febre label ''TAX >= 38,2'' but model RULE-SEPSE-007 uses temp > 38.2 (>= vs >); (d) Hipotensao
+    label ''PAS<90 ou PAM<60'' but model RULE-SEPSE-011 uses PAS<90 OR PAD<60 OR PAM<65; (e) Oliguria label ''diurese
+    <= 0,5'' but model RULE-SEPSE-014 uses <0.5; (f) ''Cateter venoso central >= 7 dias'' / ''femoral >= 5 dias''
+    labels vs model RULE-SEPSE-024/025 which use strictly > 7d / > 5d. Catalog carries display text only (all recomendacoes
+    lists empty).'
+  merged_from:
+  - RULE-sepse-BE-01-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sepse_v3.py
+    lines: 1-85
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Wired via trilha_automatica/facade/sepse_v3.py -> payload_sepse_automatica_v3. DISCREPANCY vs variant
+    B (RULE-sepse-BE-01-002): femoral CVC threshold is 5 days here vs "femoral >7 dias" text elsewhere; CVC threshold
+    >=7d here vs >10d in variant B criterio_22; hipotermia <36 here. Cross-ref RULE-sepse-BE-01-002/003.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Sepsis-3 (Singer et al., The Third International Consensus Definitions, JAMA 2016;315:801-810) for
+      SOFA/qSOFA cutoffs; ACCP/SCCM 1992 SIRS criteria (Bone et al., Chest 1992) for temp/RR/PaCO2; Vincent et al.
+      1996 SOFA (Intensive Care Med) for platelet & P/F organ-dysfunction bands. Cross-checked internally against
+      v3 model predicates RULE-SEPSE-007..026.
+    detail_file: sepse-batch12.yaml
+  escalations:
+  - item_id: ESC-P1-044
+    band: P1
+    title: Sepse v3 automatica - trigger threshold table (20 criteria)
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Sepsis screening pathway variant
+      "v3" (payload_sepse_automatica_v3). Each of 20 criteria, when flagged by the model layer, surfaces an alert
+      whose label encodes the exact clinical threshold that defines that criterion. This payload documents the full
+      threshold set for the v3 sepsis trigger engine. - **Deviation:** Alert-label c'
+- id: RULE-SEPSE-059
+  name: Sepse automatica variant B - 27-criterion alert catalog + global recommendation
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Sepsis pathway variant B (payload_sepse_automatica). 27 flagged-criterion alert labels plus one
+    shared "recomendacao" block prescribing the sepsis work-up and resuscitation.
+
+    '
+  inputs:
+  - criterio_1..criterio_27 (flags set by model layer) (bool)
+  outputs:
+  - alerta per criterion (string)
+  - shared recomendacao block (list[string])
+  logic: 'Flagged-criterion -> alert label mapping (qualitative unless noted):
+
+    1 taquipneico; 2 falencia respiratoria c/ necessidade de suporte ventilatorio;
+
+    3 hipotenso; 4 oligurico (disfuncao renal); 5 ictericia (disfuncao hepatica);
+
+    6 febre; 7 taquicardico; 8 hipocapnia/hiperventilacao; 9 P/F baixa (troca gasosa);
+
+    10 hiperlactatemia; 11 aumento TEC; 12 SOFA > 6; 13 piora do SOFA;
+
+    14 piora disfuncao respiratoria c/ aumento FiO2; 15 elevacao da pressao positiva;
+
+    16 conversao p/ modo ventilatorio controlado; 17 leucocitose OU leucopenia;
+
+    18 plaquetopenia; 19 prejuizo nivel consciencia; 20 piora nivel consciencia;
+
+    21 baixa aceitacao dieta VO; 22 dispositivo invasivo > 10 dias;
+
+    23 dispositivo vascular femoral > 7 dias; 24 inicio antibiotico nas ultimas 24h;
+
+    25 cirurgia abdominal recente; 26 instabilidade + uso de noradrenalina;
+
+    27 piora funcao renal nas ultimas 24h.
+
+    GLOBAL RECOMMENDATION when pathway opens: hemocultura x2 perifericas; cultura secrecao
+
+    traqueal; urocultura; hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA;
+
+    RX torax. Antibiotico amplo espectro; se necessidade de noradrenalina -> dupla cobertura
+
+    GRAM negativo. Se hipotensao + hipoperfusao (lactato > 2.5 mg/dl, oliguria, TEC aumentado,
+
+    alt. consciencia, livedo) -> ressuscitacao volemica 30 ml/kg Ringer Lactato. Trocar/retirar
+
+    cateter vascular se > 7 dias ou hiperemia/secrecao. USG p/ fluido-responsividade -> dobutamina.
+
+    Cuidados de fim de vida -> descontinuar protocolo.
+
+    '
+  edge_cases: All per-criterion recomendacoes lists are empty; content only in shared block.
+  confidence: high
+  related:
+  - RULE-SEPSE-058
+  - RULE-SEPSE-060
+  merged_from:
+  - RULE-sepse-BE-01-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_sepse.py
+    lines: 1-108
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '= sepse_automatica (facade/sepse.py). SOFA>6 (criterio_12) is the only explicit score threshold. Lactate
+    threshold here is 2.5 mg/dl (note unit mg/dl, unusual for lactate; v3 uses 3 mmol/L). Fluid bolus 30 ml/kg vs
+    variant A 1500ml fixed. Cross-ref -001, -003.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Surviving Sepsis Campaign: International Guidelines 2021 (Evans et al., Crit Care Med 2021;49:e1063-e1143)
+      — 30 mL/kg IV crystalloid within 3h, balanced crystalloid preferred, >=2 blood culture sets before empiric
+      broad-spectrum antibiotics, lactate-guided resuscitation, source control including removal of infected intravascular
+      devices. SOFA per Sepsis-3 (JAMA 2016).'
+    detail_file: sepse-batch12.yaml
+  escalations:
+  - item_id: ESC-P2-082
+    band: P2
+    title: Sepse automatica variant B - 27-criterion alert catalog + global recommendation
+    excerpt: 'Care-pathway text (trilha_sepse.py facade, payload_sepse_automatica). Core resuscitation content matches
+      SSC 2021 exactly: 30 mL/kg Ringer Lactato bolus, blood cultures x2, broad-spectrum antibiotics, gram-negative
+      double coverage with noradrenaline, cathet…'
+- id: RULE-SEPSE-060
+  name: Sepse pathway variant A - 11-criterion catalog + Meropenem/1500ml recommendation
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: 'Sepsis pathway variant A: nested {"criterios": {...}} structure with 11 qualitative alert flags
+    and a single global recommendation naming a specific empiric antibiotic and fixed fluid bolus. Structure differs
+    from variants B/C (criterios nested under a key).
+
+    '
+  inputs:
+  - criterio_1..criterio_11 flags (bool)
+  outputs:
+  - alerta per criterion (string)
+  - recomendacao block (list[string])
+  logic: 'Alerts: 1 Febre; 2 Taquipneia; 3 Falencia respiratoria; 4 Perfusao tecidual prejudicada;
+
+    5 Hipotensao; 6 Oliguria; 7 Alteracao do nivel de consciencia; 8 Hipotermia;
+
+    9 Taquicardia; 10 Cateter antigo; 11 Cateter femoral.
+
+    RECOMMENDATION: abrir protocolo SEPSE; solicitar hemocultura aerobica x2 perifericas;
+
+    cultura secrecao traqueal (se traqueostomia); urocultura (se diurese);
+
+    hemograma/bilirrubinas/ureia/creatinina/gasometria+lactato/TAP/TTPA; RX torax;
+
+    lactato arterial apos 3h. Considerar Meropenem 1 g EV. Se hipotensao OU oliguria OU
+
+    alt. consciencia -> ressuscitacao volemica 1500 ml Ringer Lactato em bolus. Se hipotensao
+
+    refrataria -> noradrenalina (mesmo em acesso periferico). Trocar/retirar cateter se > 7 dias
+
+    ou hiperemia/secrecao. Cuidados de fim de vida -> descontinuar.
+
+    '
+  edge_cases: Recommendation strings are concatenated without separators (implicit joins).
+  confidence: medium
+  related:
+  - RULE-SEPSE-058
+  - RULE-SEPSE-059
+  - RULE-SEPSE-061
+  merged_from:
+  - RULE-sepse-BE-01-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/sepse.py
+    lines: 1-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: this variant''s consumer is not evident within scope (facade/sepse.py aliases the 27-criterion
+    trilha_sepse instead). Appears to be an older/alternate sepsis payload. Distinct dosing: Meropenem 1g + fixed
+    1500ml bolus (vs 30ml/kg in variant B). Cross-ref -001, -002.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Surviving Sepsis Campaign 2021 (Evans et al., Crit Care Med 2021) — weight-based 30 mL/kg IV crystalloid
+      within 3h; remeasure lactate to guide resuscitation; empiric broad-spectrum antibiotics within 1h (agent not
+      specified by guideline). Fixed-volume bolus is not a guideline construct.
+    detail_file: sepse-batch12.yaml
+  escalations:
+  - item_id: ESC-P1-050
+    band: P1
+    title: Sepse pathway variant A - 11-criterion catalog + Meropenem/1500ml recommendation
+    excerpt: '*`sepse` · `care-pathway` · AMBIGUOUS/DISCREPANCY*  - **Legacy:** Sepsis pathway variant A: nested
+      {"criterios": {...}} structure with 11 qualitative alert flags and a single global recommendation naming a
+      specific empiric antibiotic and fixed fluid bolus. Structure differs from variants B/C (criterios nested under
+      a key). - **Clinical relevance:** Care-pathway text (core/facade/sepse.py:1-34, var'
+- id: RULE-SEPSE-061
+  name: SEPSE volume expansion (expansao volemica) decision and dosing
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Clinical decision-support text presented for the hour-1 "realizacao_expansao_volemica" item. Trigger
+    fluid resuscitation on persistent hypotension OR any hypoperfusion sign; dose by body weight with a reduced
+    dose for cardiac dysfunction / oligo-anuric renal injury; start vasopressor early and secure central access
+    within 6h.
+
+    '
+  inputs:
+  - hipotensao_persistente (boolean)
+  - lactato_arterial (number, mg/dl)
+  - tempo_enchimento_capilar (number, segundos)
+  - diurese (number, ml/kg/h)
+  - disfuncao_cardiaca_ou_lesao_renal_oligoanurica (boolean)
+  outputs:
+  - dose_ringer_lactato (number, ml/kg)
+  logic: "IF hipotensao_persistente\n   OR lactato_arterial > 30 mg/dl\n   OR tempo_enchimento_capilar > 3 s\n \
+    \  OR livedo_reticular presente\n   OR indice_de_escamoteamento(frialdade) positivo\n   OR (oliguria: diurese\
+    \ < 0.5 ml/kg/h nas ultimas 6h)\n   OR alteracao_do_nivel_basal_de_consciencia:\n       dose = 30 ml/kg de Ringer\
+    \ Lactato (preferencial), em bolus de 500 ml em 5 min (ideal)\n       IF disfuncao_cardiaca_conhecida OR lesao_renal_oligo_anurica:\n\
+    \           dose = 20 ml/kg\nSe necessario: iniciar norepinefrina em acesso venoso periferico calibroso;\ngarantir\
+    \ acesso venoso central em ate 6 h.\n"
+  edge_cases: 'Verbatim guidance text (no executable branching). Thresholds: lactate 30 mg/dl (~3.3 mmol/L), TEC
+    3 s, diuresis 0.5 ml/kg/h over 6h. Reduced-dose branch for cardiac dysfunction/oligo-anuric AKI.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-060
+  - RULE-SEPSE-063
+  - RULE-SEPSE-081
+  merged_from:
+  - RULE-sepse-BE-02-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 179-191
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Static descricao_item text surfaced to clinicians. Lactate threshold expressed in mg/dl (30) rather than
+    the Surviving-Sepsis mmol/L convention (2 or 4 mmol/L = 18 or 36 mg/dl); recorded verbatim, not corrected.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Evans L, et al. Surviving Sepsis Campaign: International Guidelines for Management of Sepsis and
+      Septic Shock 2021. Crit Care Med 2021;49(11):e1063-e1143 (>=30 mL/kg IV crystalloid, balanced/Ringer''s preferred,
+      within first 3h; hypoperfusion markers incl. lactate >2 mmol/L, prolonged capillary refill, mottling, oliguria,
+      altered mentation; early norepinephrine; secure central access).'
+    detail_file: sepse-batch13.yaml
+  escalations:
+  - item_id: ESC-P2-068
+    band: P2
+    title: SEPSE volume expansion (expansao volemica) decision and dosing
+    excerpt: 'Core dose (30 mL/kg Ringer Lactate; 20 mL/kg reduced for cardiac/renal), early norepinephrine and
+      6h central-access target all match SSC-2021. Sole discrepancy: lactate hypoperfusion trigger written as 30
+      mg/dl (~3.3 mmol/L), higher than the SSC marker of 2…'
+- id: RULE-SEPSE-062
+  name: SEPSE reassessment lab thresholds (bicarbonate, dobutamine, transfusion)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Clinical decision-support text for the "exames" (labs reassessment) item: do not routinely replace
+    bicarbonate in metabolic acidosis; consider dobutamine on rising lactate or poor perfusion signs; hemoglobin
+    transfusion target > 7 mg/dl (do not transfuse above).
+
+    '
+  inputs:
+  - lactato_arterial_tendencia (enum, {ascensao, estavel})
+  - TEC (number, segundos)
+  - SVcO2 (number, %)
+  - delta_PCO2 (number, mmHg)
+  - hemoglobina (number, mg/dl)
+  outputs:
+  - acao (text)
+  logic: "IF acidose_metabolica: NAO repor bicarbonato de rotina (consultar protocolo institucional)\nIF lactato\
+    \ em ascensao OR TEC > 3 s OR SVcO2 < 60 OR delta_PCO2 > 6:\n    considerar iniciar dobutamina (otimizar inotropismo)\n\
+    Alvo de hemoglobina > 7 mg/dl; NAO transfundir acima desse valor.\n"
+  edge_cases: 'Verbatim text. Units as written: SVcO2 "<60" (percent, no unit shown), delta PCO2 ">6" (mmHg implied),
+    hemoglobin target ">7 mg/dl" (note: Hb is conventionally g/dL, source says mg/dl).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-063
+  - RULE-SEPSE-064
+  - RULE-SEPSE-065
+  - RULE-SEPSE-075
+  merged_from:
+  - RULE-sepse-BE-02-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 192-199
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Hemoglobin unit written "mg/dl" (physiologically g/dL); recorded verbatim.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49:e1063): restrictive RBC transfusion,
+      Hb trigger 7 g/dL (strong rec); bicarbonate not recommended for lactic acidosis pH>=7.15; dobutamine for persistent
+      hypoperfusion/myocardial dysfunction. Perfusion-adequacy markers: ScvO2 and venoarterial PCO2 gap (Pcv-aCO2
+      >6 mmHg indicates inadequate flow; ScvO2 low <70%).'
+    detail_file: sepse-batch13.yaml
+  escalations: []
+- id: RULE-SEPSE-063
+  name: SEPSE hemodynamic-status decision (intubation RASS-2, fluid challenge)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Clinical decision-support text for the "status_hemodinamico" item: consider orotracheal intubation
+    with sedoanalgesia targeting RASS -2 when poor perfusion + tachydyspnea + confusion/somnolence, to reduce VO2
+    and optimize DO2; if ultrasound available assess fluid-responsiveness and consider a 250 ml Ringer Lactate volume
+    challenge.
+
+    '
+  inputs:
+  - sinais_mal_perfusao (boolean)
+  - taquidispneia (boolean)
+  - confusao_ou_sonolencia (boolean)
+  - usg_disponivel (boolean)
+  outputs:
+  - alvo_RASS (integer)
+  - desafio_volemico (number, ml)
+  logic: "IF sinais_mal_perfusao AND taquidispneia AND (confusao OR sonolencia):\n    considerar intubacao orotraqueal\
+    \ + sedoanalgesia com alvo RASS -2 (reduzir VO2, otimizar DO2)\nIF usg_disponivel:\n    checar fluido-responsividade;\
+    \ considerar desafio volemico com aliquotas de 250 ml de Ringer Lactato\n"
+  edge_cases: 'Verbatim text; RASS target is the sedation scale value -2. Volume-challenge aliquot 250 ml (vs 500
+    ml initial bolus in RULE-sepse-BE-02-013).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-061
+  - RULE-SEPSE-062
+  - RULE-SEPSE-064
+  - RULE-SEPSE-065
+  merged_from:
+  - RULE-sepse-BE-02-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 200-207
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: References RASS (Richmond Agitation-Sedation Scale) target -2.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: Surviving Sepsis Campaign 2021 (dynamic fluid-responsiveness assessment; fluid challenge technique)
+      + Sessler CN, et al. The Richmond Agitation-Sedation Scale (RASS). Am J Respir Crit Care Med 2002;166:1338
+      (RASS -2 = light sedation). Intubation to reduce work of breathing / VO2 in shock with respiratory distress
+      is standard ICU practice.
+    detail_file: sepse-batch13.yaml
+  escalations: []
+- id: RULE-SEPSE-064
+  name: SEPSE invasive-devices decision (early NE, central access, CVC replacement)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Clinical decision-support text for the "dispositivos_invasivos" item: prefer early noradrenaline
+    via calibrous peripheral access, secure central venous access within 6h with invasive BP monitoring (PAI) and
+    bladder-catheter diuresis (SVD); if a central venous catheter is older than 7 days consider replacement; check
+    chest X-ray after central puncture or intubation.
+
+    '
+  inputs:
+  - idade_cateter_venoso_central (number, dias)
+  outputs:
+  - acao (text)
+  logic: 'Preferir inicio precoce de noradrenalina em acesso venoso periferico calibroso;
+
+    garantir acesso venoso central em ate 6 h; monitorar PA invasiva (PAI) e diurese (SVD).
+
+    IF cateter_venoso_central > 7 dias: considerar a troca.
+
+    Checar RX de torax apos puncao venosa central e/ou intubacao orotraqueal.
+
+    '
+  edge_cases: 'Verbatim text. Threshold: CVC age > 7 days -> consider replacement; central access within 6h.'
+  confidence: high
+  related:
+  - RULE-SEPSE-062
+  - RULE-SEPSE-063
+  - RULE-SEPSE-065
+  merged_from:
+  - RULE-sepse-BE-02-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 208-217
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-065
+  name: SEPSE vasoactive-drug escalation thresholds and shock index
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Clinical decision-support text for the "drogas_vasoativas" item. Escalation by noradrenaline rate:
+    at NE > 0.3 mcg/kg/min add vasopressin + hydrocortisone (refractory shock), set diet ZERO or trophic (20 ml/h)
+    and reassess in 24h; suspend antihypertensives/beta-blockers/ diuretics; prefer epinephrine if NE > 1 mcg/kg/min
+    or shock index positive (HR/SBP > 0.7); start IV vasopressin continuous + hydrocortisone 50 mg IV q6h when NE
+    > 0.3 mcg/kg/min.
+
+    '
+  inputs:
+  - noradrenalina (number, mcg/kg/min)
+  - FC (number, bpm)
+  - PA_sistolica (number, mmHg)
+  outputs:
+  - indice_de_choque (number)
+  - conduta_vasopressor (text)
+  logic: "indice_de_choque = FC / PA_sistolica            # \"positivo\" se > 0.7\nIF noradrenalina > 0.3 mcg/kg/min:\n\
+    \    associar vasopressina + hidrocortisona (choque refratario)\n    dieta ZERO ou trofica (20 ml/h); reavaliar\
+    \ em 24 h\n    iniciar vasopressina EV continua + hidrocortisona 50 mg EV de 6/6h\n    (~20 ml/h para paciente\
+    \ de 80 kg)\nSuspender anti-hipertensivos, beta-bloqueadores e diureticos se presentes.\nIF noradrenalina >\
+    \ 1 mcg/kg/min OR indice_de_choque > 0.7:\n    preferir epinefrina\n"
+  edge_cases: 'Verbatim text. Two NE thresholds: 0.3 (add vasopressin/hydrocortisone) and 1.0 (switch to epinephrine).
+    Shock index HR/SBP threshold 0.7. Hydrocortisone 50 mg q6h. "~20 ml/h for 80 kg" is an illustrative infusion
+    rate.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-061
+  - RULE-SEPSE-062
+  - RULE-SEPSE-063
+  - RULE-SEPSE-064
+  merged_from:
+  - RULE-sepse-BE-02-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 218-229
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Shock index "positive" threshold coded as > 0.7 (normal shock index 0.5-0.7); recorded verbatim.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Surviving Sepsis Campaign 2021 (Evans L, et al. Crit Care Med 2021;49:e1063): norepinephrine first-line;
+      add vasopressin when NE ~0.25-0.5 mcg/kg/min; add epinephrine if inadequate MAP on NE+vasopressin; hydrocortisone
+      200 mg/d = 50 mg IV q6h (or infusion) with ongoing vasopressor requirement (NE/epi >=0.25 mcg/kg/min). Shock
+      index (HR/SBP) normal 0.5-0.7 (Allgower & Burri 1967; Rady 1994).'
+    detail_file: sepse-batch13.yaml
+  escalations: []
+- id: RULE-SEPSE-066
+  name: Sepsis pathway - disabled/legacy criteria (v-old 27 vs current 20)
+  category: triage-eligibility
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: Documents criteria that exist in code but are disabled, and the prior 27-criterion version, so a
+    rebuild does not reintroduce them silently.
+  inputs:
+  - various (mixed)
+  outputs:
+  - n/a
+  logic: 'Disabled (commented) calcular_criterio_21..27 covered: SNE with conscious patient (glasgow>=11 & no VM);
+
+    invasive vascular devices >10d; femoral central >7d; antibiotic in 24h; recent abdominal surgery;
+
+    noradrenaline started <24h (balanço hídrico); urea>50 & creatinina>2. Also a commented leukocyte
+
+    criterio_17 (leukocytes <4000 or >15000, or |delta|>5000 across measurements).
+
+    '
+  edge_cases: None active; save() only computes criterio_1..20.
+  confidence: medium
+  related:
+  - RULE-SEPSE-004
+  - RULE-SEPSE-038
+  - RULE-SEPSE-039
+  - RULE-SEPSE-040
+  - RULE-SEPSE-041
+  - RULE-SEPSE-042
+  - RULE-SEPSE-043
+  - RULE-SEPSE-044
+  - RULE-SEPSE-045
+  - RULE-SEPSE-046
+  - RULE-SEPSE-047
+  - RULE-SEPSE-048
+  - RULE-SEPSE-049
+  - RULE-SEPSE-050
+  - RULE-SEPSE-051
+  - RULE-SEPSE-052
+  - RULE-SEPSE-053
+  - RULE-SEPSE-054
+  - RULE-SEPSE-055
+  - RULE-SEPSE-056
+  - RULE-SEPSE-057
+  merged_from:
+  - RULE-sepse-BE-10-047
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 13-42,204-210,427-456,491-524
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '_ANTIGAS_REGRAS (27 criteria) is the prior version; _REGRAS (20) is current. Cross-ref sepse C1..C20 rules
+    above. Note descricao_criterio_8 default uses _REGRAS.get("criterio8") (missing underscore) -> stores None instead
+    of the C8 text (data-cosmetic bug, line 114).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-312
+    band: AMBIGUOUS
+    title: triage-eligibility
+    excerpt: Sepsis pathway - disabled/legacy criteria (v-old 27 vs current 20)

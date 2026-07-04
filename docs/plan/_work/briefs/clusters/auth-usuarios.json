@@ -1,0 +1,218 @@
+{
+  "brief_id": "cluster-auth-usuarios",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/auth-usuarios.yaml",
+    "lines": 3078,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/auth-usuarios.yaml",
+      "line_ranges": "1-3078"
+    }
+  ],
+  "facts": [
+    {
+      "id": "CLU-AUTH-USUARIOS-01",
+      "claim": "Hierarchical multi-tenant RBAC system: 3-level org hierarchy (Empresa > Estabelecimento > Setor) with downward permission cascade; user's effective permissions = union of group-assigned perms at requested level + inherited parent perms",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-008, RULE-AUTH-USUARIOS-010, RULE-AUTH-USUARIOS-011"
+    },
+    {
+      "id": "CLU-AUTH-USUARIOS-02",
+      "claim": "Django-based RBAC with 2-stage permission resolution: (1) PermissionsChoices catalog → codename→bool payload (RULE-001), (2) scope-dispatch via TrilhasPermissaoMixin resolving empresa/estabelecimento/setor scopes with per-HTTP-method permission gating (RULE-009)",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-001, RULE-AUTH-USUARIOS-009"
+    },
+    {
+      "id": "CLU-AUTH-USUARIOS-03",
+      "claim": "Frontend SSR guard (validateRoute) with critical auth defect: token variable initialized as {} (object) not '' (string), rendering token-presence check dead code; default call pattern validateRoute(ctx) with no permission argument bypasses authentication entirely on 19+ pages",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-020"
+    },
+    {
+      "id": "CLU-AUTH-USUARIOS-04",
+      "claim": "Permission payload filtering: GrupoAcesso.to_representation suppresses usuarios array on list/destroy (performance); UsuarioSerializer.to_representation filters setores to current empresa (multi-tenant scoping, absent if no request context)",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-012, RULE-AUTH-USUARIOS-013"
+    },
+    {
+      "id": "CLU-AUTH-USUARIOS-05",
+      "claim": "Multiple named permission predicates for different access patterns: super-admin (is_chatbot_superuser), partner-required (request.partner), owner-only (user.id == obj.owner), authenticated (non-anonymous), empresa read/write (identical implementation)",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-003, RULE-AUTH-USUARIOS-004, RULE-AUTH-USUARIOS-005, RULE-AUTH-USUARIOS-006, RULE-AUTH-USUARIOS-007"
+    },
+    {
+      "id": "CLU-AUTH-USUARIOS-06",
+      "claim": "Post-login routing: 0 empresas → error + logout; 1 empresa → auto-select + redirect to /empresa/{id}; >1 empresa → company selector screen; refreshToken called only for 1+ empresa branches",
+      "kind": "policy",
+      "source_ref": "RULE-AUTH-USUARIOS-024"
+    }
+  ],
+  "histogram": {
+    "total_rules": 63,
+    "by_status": {
+      "OK": 51,
+      "DISCREPANCY": 9,
+      "AMBIGUOUS": 3
+    },
+    "by_type": {
+      "validation": 19,
+      "workflow": 15,
+      "decision-tree": 12,
+      "eligibility": 10,
+      "threshold": 5,
+      "formula": 2
+    },
+    "by_verification_verdict": {
+      "NOT_APPLICABLE": 61,
+      "UNVERIFIABLE": 2
+    }
+  },
+  "load_bearing_rules": [
+    {
+      "id": "RULE-AUTH-USUARIOS-008",
+      "summary": "Hierarchical permission cascade: setor inherits estabelecimento, which inherits empresa; effective perms = union of group-assigned + inherited",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-009",
+      "summary": "Scope-based RBAC dispatch with per-method permission gating; resolves empresa/estabelecimento/setor scope and validates permission membership",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-020",
+      "summary": "CRITICAL DEFECT: validateRoute SSR guard token var = {} (always truthy); default call pattern validateRoute(ctx) skips auth on 19+ pages",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-001",
+      "summary": "GrupoAcesso permission catalog: PermissionsChoices → codename→bool payload, defaulting all False, flipping to True only if assigned AND in catalog",
+      "verdict": "UNVERIFIABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-002",
+      "summary": "User cargos lookup empresa-scoped: returns cargo values from GrupoAcesso records for user within empresa, null if no empresa in context",
+      "verdict": "UNVERIFIABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-007",
+      "summary": "DISCREPANCY: LeituraEmpresa and ReadAndWriteEmpresa classes identical (both check user.is_anonymous); no write-specific gating",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-024",
+      "summary": "Post-login dispatch: 0 empresas → logout; 1 → auto-select; >1 → selector screen",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-027",
+      "summary": "Admin sidebar menu gating: can_manage_empresa → 4 items (empresa, estab, setores, leitos); can_manage_grupo_acesso → grupos; can_manage_usuario → profissionais",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-010",
+      "summary": "GrupoAcesso queryset scope resolution: setor > estabelecimento > empresa priority; soft-deleted excluded via objects_without_deleted",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-044",
+      "summary": "AMBIGUOUS: cargo enumeration mismatch — backend model (select_related, 1-62) vs frontend cargosObject map (display, 64-87)",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-AUTH-USUARIOS-030",
+      "summary": "DISCREPANCY: External SSO fallback with auto-provisioning; TODO comment 'Adicionar verificação se tem acesso ao projeto Trilhas' not implemented",
+      "verdict": "NOT_APPLICABLE"
+    }
+  ],
+  "systemic_issues": [
+    {
+      "title": "SSR Authentication Gate Defect (CRITICAL)",
+      "rules": ["RULE-AUTH-USUARIOS-020"],
+      "description": "Front-end SSR guard validateRoute() initializes token as {} (object literal, always truthy) instead of '' or null. Default call pattern validateRoute(ctx) (no permission argument) renders 19+ pages with NO effective server-side authentication check. Rendering depends on downstream client-side API calls for actual auth enforcement, out of FE partition scope."
+    },
+    {
+      "title": "Permission Naming vs Implementation Mismatch",
+      "rules": ["RULE-AUTH-USUARIOS-007", "RULE-AUTH-USUARIOS-047"],
+      "description": "Read vs read-write empresa permissions (LeituraEmpresa, ReadAndWriteEmpresa) defined as distinct classes but implemented identically—both check only is_anonymous, no write-specific gating. Access-level enumeration (read/read-write) appears dormant (RULE-047)."
+    },
+    {
+      "title": "Permission Reuse Without Clear Semantics",
+      "rules": ["RULE-AUTH-USUARIOS-021"],
+      "description": "Bed-management (leitos) page gated by can_manage_grupo_acesso (access-group permission) rather than bed-specific or can_manage_empresa. May be intentional coarse-grained admin permission or copy-paste artifact."
+    },
+    {
+      "title": "UI-Only Restrictions Without Server-Side Enforcement",
+      "rules": ["RULE-AUTH-USUARIOS-022"],
+      "description": "Dashboard analítico and Inconsistências buttons shown only when empresa.tipo === 'automatica', but destination pages use default validateRoute(ctx) with no server-side tipo check. Restriction bypassable via direct URL navigation."
+    },
+    {
+      "title": "Enumeration Divergence (Backend Model vs Frontend Copy)",
+      "rules": ["RULE-AUTH-USUARIOS-044", "RULE-AUTH-USUARIOS-045"],
+      "description": "cargo enumeration (RULE-044): backend select_related list vs frontend cargosObject map. Role codes (RULE-045): backend model codes (proprietario/usuario/monitor) vs frontend type definitions diverge; recorded as AMBIGUOUS pending reconciliation."
+    },
+    {
+      "title": "Validation Gaps in Serializers",
+      "rules": ["RULE-AUTH-USUARIOS-052"],
+      "description": "LoginSerializer has required-field validation rules declared but enforcement never triggered: core/api/v1/views/login.py lines 29-34 use request.data.get() directly, bypassing serializer validation entirely."
+    },
+    {
+      "title": "Typo in Method-Exception Configuration",
+      "rules": ["RULE-AUTH-USUARIOS-056"],
+      "description": "exceto_metodo parameter misspells PATCH as PATH across multiple viewsets (UsuarioViewSet, GrupoAcessoViewSet, others), though actual method matching may be case-insensitive or corrected in framework layer."
+    },
+    {
+      "title": "Scope Membership Pre-Validation Defect",
+      "rules": ["RULE-AUTH-USUARIOS-051"],
+      "description": "GrupoAcesso creation accepts request.data['usuario_ids'] with no pre-check that users belong to the target scope. Code contains *kwargs typo (latent defect)."
+    }
+  ],
+  "domains_fed": [
+    "governance",
+    "platform"
+  ],
+  "pt_br_vocabulary": {
+    "core_terms": {
+      "cargo": "job/role title, assigned within a GrupoAcesso context",
+      "grupo": "access group, links users to permissions via Django Permission model",
+      "empresa": "company/organization, top level of hierarchy",
+      "estabelecimento": "establishment/facility, middle level, belongs to empresa",
+      "setor": "sector/ward, lowest level, belongs to estabelecimento",
+      "usuário": "user/professional account",
+      "permissão": "permission, codename-based (e.g., can_manage_usuario, can_recusar_protocolo_sepse)",
+      "escopo": "scope context for permission resolution (empresa, estabelecimento, setor)"
+    },
+    "enumerations_to_preserve": {
+      "cargo_observed_values": [
+        "proprietario",
+        "usuario",
+        "monitor"
+      ],
+      "empresa_tipo_observed_values": [
+        "manual",
+        "automatica",
+        "homecare"
+      ],
+      "core_permission_codenames_sample": [
+        "can_manage_empresa",
+        "can_manage_grupo_acesso",
+        "can_manage_usuario",
+        "can_view_ocupacoes",
+        "can_view_auditoria",
+        "can_recusar_protocolo_sepse",
+        "can_access_camera",
+        "can_access_relatorio_evolucao"
+      ]
+    }
+  },
+  "open_questions": [
+    "Reconciliation needed: cargo backend select list vs frontend cargosObject map (RULE-AUTH-USUARIOS-044)",
+    "Clarification: intentional coarse-grained admin permission reuse (bed-management on can_manage_grupo_acesso) vs copy-paste (RULE-AUTH-USUARIOS-021)",
+    "Root-cause: Why validateRoute token guard initialized as {} instead of empty string (RULE-AUTH-USUARIOS-020)",
+    "Verification: Is exceto_metodo PATCH/PATH misspelling corrected in framework layer (RULE-AUTH-USUARIOS-056)",
+    "Scope enforcement: Should GrupoAcesso user creation validate that users already belong to target scope (RULE-AUTH-USUARIOS-051)"
+  ],
+  "notes": "Non-clinical RBAC cluster (Django Permission-based) with 63 rules: 51 OK, 9 DISCREPANCY, 3 AMBIGUOUS. Two verdict categories: 61 NOT_APPLICABLE (non-clinical), 2 UNVERIFIABLE (proprietary internal rules). Highest-impact finding: SSR authentication gate defect in validateRoute enables 19+ pages to render without server-side auth check; real exposure depends on backend API enforcement. PT-BR vocabulary rich in organizational hierarchy and permission naming; all core terms preserved verbatim for v2 design."
+}

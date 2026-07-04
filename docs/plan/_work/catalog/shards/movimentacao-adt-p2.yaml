@@ -1,0 +1,1644 @@
+shard: movimentacao-adt-p2
+cluster: movimentacao-adt
+rule_count: 35
+rules_with_escalations: 6
+rules:
+- id: RULE-MOVIMENTACAO-ADT-036
+  name: Homecare bed 'trilhas' list is a static fixed template, not per-patient data
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: '_get_trilhas_homecare returns a fixed 3-item list built by calling get_payload() at the CLASS level
+    (PrescricaoContinua.get_payload(), BalancoHidrico.get_payload(), Formulario.get_payload()) rather than any instance/patient-specific
+    query. All code that would fetch the bed''s actual PioraClinica/Sepse records, or append ventilacao/eficiencia
+    entries, is commented out (dead). As a result every homecare bed''s ''trilhas'' list is currently identical
+    regardless of the patient''s real clinical state.
+
+    '
+  inputs:
+  - instance (Leito)
+  outputs:
+  - trilhas (array of object)
+  logic: "def _get_trilhas_homecare(instance):\n    # (dead) piora_clinica = PioraClinica.objects.filter(...).order_by(\"\
+    -criado_em\").first()\n    # (dead) sepse = Sepse.objects.filter(nr_atendimento=instance.nr_atendimento).order_by(\"\
+    -criado_em\").first()\n    trilhas = [\n        PrescricaoContinua.get_payload(),   # called on the class, not\
+    \ an instance\n        BalancoHidrico.get_payload(),\n        Formulario.get_payload(),\n    ]\n    # (dead)\
+    \ trilhas.append(piora_dict); trilhas.append(sepse_dict)\n    # (dead) trilhas.append(ventilacao_payload_fake);\
+    \ trilhas.append(eficiencia_payload_fake)\n    return trilhas\n"
+  edge_cases: 'Because get_payload() is invoked on the model class (not an instance), whatever it returns is necessarily
+    a generic/default template rather than data queried for this specific instance/nr_atendimento.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-018
+  - RULE-MOVIMENTACAO-ADT-037
+  divergence: 'Regression/incompleteness (single-implementation): the active code returns a class-level static template
+    while surrounding dead code shows a richer intended per-patient implementation (piora_clinica/sepse lookups
+    + ventilacao/eficiencia). Recorded verbatim, not corrected.
+
+    '
+  merged_from:
+  - RULE-leito-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 118-179
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'A verifier should check whether trilha_homecare/api or a newer version of this file supersedes this one.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-121
+    band: P3
+    title: care-pathway
+    excerpt: 'Regression/incompleteness (single-implementation): the active code returns a class-level static template
+      while surrounding dead code shows a richer intended per-patient implementation (piora_clinica/sepse lookups
+      + ventilacao/eficiencia)…'
+- id: RULE-MOVIMENTACAO-ADT-037
+  name: Automatic-pathway bed trilhas only populate when the bed is occupied
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: '_get_trilhas_automaticas returns an empty list unless instance.ocupado is True; when occupied, it
+    iterates the bed''s configured automatic pathway models and includes the latest record''s payload for each pathway
+    that has one.
+
+    '
+  inputs:
+  - instance.ocupado (boolean)
+  outputs:
+  - trilhas (array of object)
+  logic: "trilhas = []\nif instance.ocupado:\n    for Trilha in instance.get_trilhas_automaticas():\n        trilha\
+    \ = get_trilha(Trilha, instance, instance.tipo)   # latest record for this leito/pathway\n        if trilha:\n\
+    \            trilhas.append(trilha.get_payload())\nreturn trilhas\n"
+  edge_cases: 'An unoccupied bed always yields an empty trilhas list even if historical trilha records exist.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-018
+  - RULE-MOVIMENTACAO-ADT-036
+  merged_from:
+  - RULE-leito-BE-05-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 181-189
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'get_trilha/instance.get_trilhas_automaticas are defined outside this partition.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-038
+  name: Trilha recompute orchestration on prontuario data update
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Saving prontuario data re-saves all four pathways (each recomputes its criteria) then re-aggregates
+    the bed alert.
+
+    '
+  inputs:
+  - dados_prontuario (DadosProntuario)
+  outputs:
+  - recomputed trilhas + bed alert (side-effect)
+  logic: "atualizar_trilhas():\n  trilha_sedacao.save(); trilha_estabilidade.save(); trilha_ventilacao.save(); trilha_sepse.save()\n\
+    \  atualizar_alerta_movimentacao(str(movimentacao.pk))\n"
+  edge_cases: 'Ordering - sedacao, estabilidade, ventilacao, sepse, then aggregation. SOFA is NOT re-saved here
+    (recomputed only on its own save).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-012
+  - RULE-MOVIMENTACAO-ADT-040
+  merged_from:
+  - RULE-mov-BE-10-062
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/dados_prontuario.py
+    lines: 205-212
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Invoked by OcupacaoViewSet.retrieve (ocupacoes.py:103) before building the payload.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-039
+  name: Prontuario lookback chain (buscar_ultimos_dados)
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Builds the set of prontuario PKs to search for 12h/24h historical criteria by walking the ultima_movimentacao
+    chain.
+
+    '
+  inputs:
+  - movimentacao.ultima_movimentacao chain (linked list)
+  outputs:
+  - list of dados_prontuario PKs (as str) (list[str])
+  logic: "ultimos = [self.pk]\nobj = self\nwhile True:\n  if ultima_movimentacao lacks get_pk: break\n  if ultima_movimentacao\
+    \ has dados_prontuario:\n      append prev dados_prontuario.pk; obj = that prontuario\nreturn ultimos\n"
+  edge_cases: 'Potential infinite loop if a movimentacao has ultima_movimentacao.get_pk but no dados_prontuario
+    (obj is not advanced -> while True never breaks). Terminates only when the chain end lacks get_pk or the loop
+    advances.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-034
+  - RULE-MOVIMENTACAO-ADT-009
+  merged_from:
+  - RULE-mov-BE-10-063
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/dados_prontuario.py
+    lines: 163-175,299-311
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Two variants - buscar_ultimos_dados (pks) and buscar_ultimos_dados_objetos (objects). Underpins sepse
+    C6/C8/C10/C11/C14/C15/C17 and estabilidade C2. A sibling chain-walk (buscar_ultimas_movimentacoes) exists in
+    core/models/movimentacao.py:90-100.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-040
+  name: Batch recompute of current movimentacoes' trilhas (Celery task)
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Celery task recomputes all manual pathways for current (atual=True) movimentacoes and then all automatic/homecare
+    trilhas.
+
+    '
+  inputs:
+  - Movimentacao.filter(atual=True) (queryset)
+  outputs:
+  - side-effect (saved trilhas + alerts)
+  logic: "manuais: ids = current movimentacoes; for Trilha in [Sepse,Sedacao,Estabilidade,Ventilacao]:\n       \
+    \    for t in Trilha.filter(dados_prontuario__in=ids): t.save()\n         for id in ids: atualizar_alerta_movimentacao(id)\n\
+    automaticas: for Trilha in Leito.get_trilhas_automaticas_v2(): resave all; then resave leitos tipo in [automatica,homecare]\n"
+  edge_cases: 'Runs as shared_task with exchange ''trilhas''; routing key prefixed by ENVIRONMENT env var.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-038
+  - RULE-MOVIMENTACAO-ADT-012
+  merged_from:
+  - RULE-op-BE-10-066
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/tasks.py
+    lines: 18-61
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'SOFA is not resaved in the manual loop (only the 4 trilhas), so escore_sofa can lag unless the prontuario
+    is saved.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-041
+  name: Patient creation wrapper (CadastrarPaciente)
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'CadastrarPaciente validates and creates a Paciente, returning its pk; invalid input raises a domain
+    error.
+
+    '
+  inputs:
+  - paciente (dict)
+  outputs:
+  - paciente_pk (uuid string)
+  logic: 'try: create via PacienteSerializer
+
+    except ValidationError: raise {"paciente":"paciente deve ser um dicionario com os dados do paciente"}
+
+    return str(instance.pk)
+
+    '
+  edge_cases: 'Thin wrapper; validation delegated to PacienteSerializer.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-020
+  - RULE-MOVIMENTACAO-ADT-033
+  - RULE-MOVIMENTACAO-ADT-060
+  merged_from:
+  - RULE-paciente-BE-04-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/paciente/cadastrar_paciente.py
+    lines: 7-18
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-042
+  name: Patient-user-sector link diff-sync (vinculo bulk action)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The ''vinculo'' action on SetorPacienteViewSet syncs which patients a given user is linked to within
+    a sector: it computes the difference between the submitted pacientes_id list and the currently-linked patient
+    ids for that (usuario, setor) pair, bulk-deletes links for patients no longer listed, and bulk-creates links
+    for newly listed patients.
+
+    '
+  inputs:
+  - request.data.pacientes_id (array of uuid)
+  - kwargs.setor__pk (uuid)
+  - kwargs.usuario__pk (uuid)
+  outputs:
+  - UsuarioSetorPaciente links (set)
+  logic: "pacientes_enviados_id = request.data.pop(\"pacientes_id\")\npacientes_atuais_id = list(UsuarioSetorPaciente.objects.filter(usuario=usuario,\
+    \ setor=setor).values_list(\"paciente\", flat=True))\npacientes_adicionados = [p for p in pacientes_enviados_id\
+    \ if p not in pacientes_atuais_id]\npacientes_removidos = [p for p in pacientes_atuais_id if p not in pacientes_enviados_id]\n\
+    if pacientes_removidos:\n    UsuarioSetorPaciente.objects.filter(setor=setor, usuario=usuario, paciente__in=pacientes_removidos).delete()\n\
+    if pacientes_adicionados:\n    bulk_create UsuarioSetorPaciente(setor_id=setor, usuario_id=usuario, paciente_id=p)\
+    \ for p in pacientes_adicionados\nreturn Response(status=200)\n"
+  edge_cases: 'Sending an empty pacientes_id list removes ALL existing links for that (usuario, setor) pair (full-clear
+    operation), unlike the grupos_acessos empty-list edge case which is NOT clearable via empty array.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-043
+  - RULE-MOVIMENTACAO-ADT-008
+  - RULE-MOVIMENTACAO-ADT-045
+  merged_from:
+  - RULE-paciente-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/paciente.py
+    lines: 65-105
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Distinct route from the single-item SetorPacienteVinculoViewSet (RULE-043); this is the bulk-diff form.
+    The submitted pacientes_id comes from the frontend GestaoPaciente screen selection (RULE-045).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-043
+  name: SetorPacienteVinculoViewSet forces all link fields from the URL and hard-deletes
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'SetorPacienteVinculoViewSet.manage_data always overwrites ''paciente'', ''setor'', and ''usuario''
+    from the corresponding URL kwargs (a client cannot set these via the body); get_queryset triple-scopes to the
+    exact (setor, usuario, paciente) combination; deletion is a hard delete (force_delete=True), not soft-delete.
+
+    '
+  inputs:
+  - kwargs.paciente__pk (uuid)
+  - kwargs.setor__pk (uuid)
+  - kwargs.usuario__pk (uuid)
+  outputs:
+  - UsuarioSetorPaciente (object)
+  logic: "def get_queryset():\n    return UsuarioSetorPaciente.objects.filter(setor=kwargs[\"setor__pk\"], usuario=kwargs[\"\
+    usuario__pk\"], paciente=kwargs[\"paciente__pk\"])\ndef manage_data(request, *a, **kw):\n    data = super().manage_data(request,\
+    \ *a, **kw)\n    data[\"paciente\"] = kwargs[\"paciente__pk\"]\n    data[\"setor\"] = kwargs[\"setor__pk\"]\n\
+    \    data[\"usuario\"] = kwargs[\"usuario__pk\"]\n    return data\ndef perform_destroy(instance):\n    instance.delete(force_delete=True)\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-042
+  merged_from:
+  - RULE-vinculo-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario_setor_paciente.py
+    lines: 23-45
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Distinct viewset/route from the ''vinculo'' action on SetorPacienteViewSet (RULE-042) - both manage UsuarioSetorPaciente
+    rows but via different URL shapes and single-item vs bulk-diff semantics.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-044
+  name: Default active sector selection for patient management
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When the patient-linking screen mounts, if the current professional has one or more sectors assigned,
+    the first sector in their list is automatically selected as the active sector for which patients are loaded/managed.
+
+    '
+  inputs:
+  - currentUser.setores (array)
+  outputs:
+  - currentSetor (string, setor id)
+  logic: 'onMount: if (setores.length > 0) { currentSetor = setores[0].id }
+
+    '
+  edge_cases: 'If the professional has zero assigned sectors, no sector is auto-selected and no patient list is
+    loaded.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-045
+  - RULE-MOVIMENTACAO-ADT-030
+  merged_from:
+  - RULE-gestaopaciente-FE-06-026
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/GestaoPacienteContent/GestaoPacienteContent.tsx
+    lines: 177-181
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-045
+  name: Pre-selection of already-linked patients
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When loading the list of patients for a sector on the patient-linking screen, the checkbox rows
+    for patients that already have a vinculo (existing link to the current professional) are pre-checked by default.
+
+    '
+  inputs:
+  - paciente.vinculo (boolean)
+  outputs:
+  - initialPacientes / selectedRowKeys (array of patient ids)
+  logic: 'idsPacientes = pacientes.filter(p => p.vinculo).map(p => p.id)
+
+    initialPacientes = idsPacientes
+
+    selectedRowKeys = idsPacientes
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-042
+  - RULE-MOVIMENTACAO-ADT-044
+  - RULE-MOVIMENTACAO-ADT-066
+  merged_from:
+  - RULE-gestaopaciente-FE-06-027
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/GestaoPacienteContent/GestaoPacienteContent.tsx
+    lines: 58-86
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'The resulting selectedRowKeys are later submitted as pacientes_id when saving the professional-to-patient
+    vinculo (line 97), consumed by the backend bulk diff-sync (RULE-042).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-046
+  name: Assistido (attend-to) action on a bed's care pathway (frontend endpoint)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Marking a specific care-pathway (trilha) on a bed occupancy as attended-to ("assistido") is performed
+    via a dedicated POST endpoint accepting a partial Trilha payload; this action is gated elsewhere by the "can_assist_ocupacao"
+    permission flag.
+
+    '
+  inputs:
+  - idMovimentacao (string)
+  - body (Partial<Models.Ocupacao.Trilha>)
+  outputs:
+  - response (unknown, untyped POST response)
+  logic: "POST empresas/{idEmpresa}/estabelecimentos/{idEstabelecimento}/setores/{idSetor}\n     /ocupacoes/{idMovimentacao}/assistido/\n\
+    body: Partial<Ocupacao.Trilha>\n// gated by Permission \"can_assist_ocupacao\" (enforcement not present in this\
+    \ partition)\n"
+  edge_cases: 'No client-side check of the permission is performed before calling this endpoint in this partition
+    (enforcement presumed server-side and/or via conditional rendering elsewhere).
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-011
+  - RULE-MOVIMENTACAO-ADT-013
+  merged_from:
+  - RULE-ocupacao-FE-07-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/networking/ocupacao.ts
+    lines: 72-92
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Permission cross-reference at src/@types/models/Permissions.d.ts line 8 ("can_assist_ocupacao").
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-047
+  name: Cardiorespiratory arrest capture (nullable group)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Records whether a cardiac arrest occurred and its datetime, in a nullable group.
+
+    '
+  inputs:
+  - ocorreu_parada_cardiorespiratoria (boolean)
+  - horario_inicio (datetime)
+  outputs:
+  - PCR event (object)
+  logic: 'parada_cardiorrespiratoria (anulavel): ocorreu_parada_cardiorespiratoria(boolean) + horario_inicio(datetime,
+    showTime)
+
+    '
+  edge_cases: 'No conditional linking of datetime to boolean=true (both independently editable).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-034
+  merged_from:
+  - RULE-movimentacao-FE-01-029
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 263-288
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-048
+  name: Fixed 3-second minimum spinner on bed camera page
+  category: data-validation
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'The bed camera ("VideoUtiPage") view forces a loading spinner to display for exactly 3000ms after
+    mount via a hardcoded setTimeout, independent of whether the occupancy data fetch or the video stream itself
+    has actually finished loading.
+
+    '
+  inputs: []
+  outputs:
+  - loading (boolean)
+  logic: "useMountEffect(() => {\n  setTimeout(() => setLoading(false), 3000)\n})\n"
+  edge_cases: 'If the underlying data/video stream takes longer than 3s to load, the spinner disappears prematurely;
+    if it loads faster, the user waits an artificial 3s regardless. Best interpretation: an intentional UX delay
+    to mask stream negotiation time, not tied to any real readiness event.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-010
+  - RULE-MOVIMENTACAO-ADT-054
+  merged_from:
+  - RULE-ocupacao-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao].tsx
+    lines: 38-42
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Flagged ambiguous because intent (UX delay vs missing readiness-event wiring) cannot be confirmed from
+    this file alone.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-331
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Fixed 3-second minimum spinner on bed camera page
+- id: RULE-MOVIMENTACAO-ADT-049
+  name: Test/temporary bed exclusion filter (AND semantics)
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: 'Before classification, a base queryset excludes "test" beds. As implemented the exclusion only removes
+    a row when ALL THREE conditions hold together: patient name contains "teste" AND bed description contains "teste"
+    AND bed-type description contains "temp".
+
+    '
+  inputs:
+  - nm_paciente (string)
+  - ds_leito (string)
+  - ds_tipo_leito (string)
+  outputs:
+  - excluded (boolean)
+  logic: "base = EstabelecimentoSetorLeitoTasy.objects.using(\"oracle\").exclude(\n    nm_paciente__icontains=\"\
+    teste\",\n    ds_leito__icontains=\"teste\",\n    ds_tipo_leito__icontains=\"temp\",\n)\n# exclude(**kwargs)\
+    \ => NOT (nm_paciente ILIKE %teste% AND ds_leito ILIKE %teste% AND ds_tipo_leito ILIKE %temp%)\n"
+  edge_cases: 'Case-insensitive substring match. Because the three predicates are AND-combined inside a single exclude(),
+    a real test bed that matches only one or two of the three tokens is NOT excluded.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-021
+  merged_from:
+  - RULE-leito-BE-02-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/estabelecimento_setor_leito.py
+    lines: 118-122
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: naming ("teste"/"temp") strongly suggests intent was to drop any test/temporary row (OR semantics).
+    Implemented AND semantics make the filter far narrower than the apparent intent. Recorded verbatim.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-332
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Test/temporary bed exclusion filter (AND semantics)
+- id: RULE-MOVIMENTACAO-ADT-050
+  name: Bed occupancy and active-status mapping (Tasy indicators)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When upserting a Leito, occupancy and active flags are derived from Tasy single-character indicators:
+    a bed is occupied iff ie_ocupado == "S" (Sim/Yes), and active iff ie_situacao == "A" (Ativo). nr_atendimento
+    (encounter number) is copied through.
+
+    '
+  inputs:
+  - ie_ocupado (char(1), {S, N, null})
+  - ie_situacao (char(2), {A, ...})
+  outputs:
+  - ocupado (boolean)
+  - ativo (boolean)
+  logic: "Leito.update_or_create(\n    codigo=cd_unidade_compl, nome=ds_leito, setor=setor,\n    defaults={\n  \
+    \      \"tipo\": tipo,\n        \"ocupado\": (ie_ocupado == \"S\"),\n        \"nr_atendimento\": nr_atendimento,\n\
+    \        \"ativo\": (ie_situacao == \"A\"),\n    })\n"
+  edge_cases: 'Any value other than exactly "S"/"A" (including null) maps to False. Leito matched on the triple
+    (codigo, nome, setor); Leito.DoesNotExist / MultipleObjectsReturned are caught and logged as warnings (row skipped).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-021
+  merged_from:
+  - RULE-leito-BE-02-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/estabelecimento_setor_leito.py
+    lines: 64-90
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Estabelecimento and Setor are update_or_create''d on (codigo, parent) with nome+tipo defaults (lines 8-61).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-051
+  name: Manual occupied bed requires a movimentacao
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'For manual beds, an occupied bed with no movimentacao is an error; an empty bed returns only the
+    bed payload.
+
+    '
+  inputs:
+  - leito.tipo (str)
+  - leito.ocupado (bool)
+  - movimentacao (Movimentacao | None)
+  outputs:
+  - payload (dict)
+  logic: "if leito.tipo == 'manual':\n  if leito.ocupado:\n      if movimentacao: return movimentacao.get_payload()\n\
+    \      else: raise ParseError(\"...leito ocupado sem movimentacao\")\n  else: return {'id': leito.pk, 'leito':\
+    \ leito.get_payload()}\nreturn OcupacaoSerializer(leito).data\n"
+  edge_cases: 'Retrieve of a non-existent Movimentacao falls back to Leito lookup (automatica/homecare micro-indicators)
+    else ParseError "Movimentacao nao existe".
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-024
+  - RULE-MOVIMENTACAO-ADT-002
+  merged_from:
+  - RULE-op-BE-10-065
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/api/v1/views/ocupacoes.py
+    lines: 30-48,99-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'retrieve() also triggers dados_prontuario.atualizar_trilhas() and surfaces micro-indicadores (tempo_internacao,
+    vm, dva, sedacao).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-052
+  name: Bed/company monitoring-modality enumeration (manual|automatica|homecare)
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: 'Each bed (Ocupacao.Filter.tipo, Ocupacao.Leito.tipo) and each company (Usuario.Empresa.tipo) is
+    classified into exactly one of three care/monitoring modalities - manual data entry, automatic (device-integrated)
+    monitoring, or homecare.
+
+    '
+  inputs:
+  - 'tipo (string enum: manual | automatica | homecare)'
+  outputs:
+  - tipo (string enum)
+  logic: 'LeitoTipo = "manual" | "automatica" | "homecare"
+
+    '
+  edge_cases: 'None beyond the closed 3-value set.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-026
+  - RULE-MOVIMENTACAO-ADT-021
+  - RULE-MOVIMENTACAO-ADT-018
+  merged_from:
+  - RULE-ocupacao-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 107-107
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Identical literal union independently redeclared at Models.Usuario.Empresa.tipo (src/@types/models/User.d.ts
+    line 31, RULE-usuario-FE-07-002 out of cluster). Also referenced by the dedicated homecare feed endpoint.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-053
+  name: Invasive-procedure type enumeration (10 values)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Invasive procedures tracked per bed occupancy are restricted to a fixed catalog of 10 procedure
+    types spanning central-venous-catheter placements (mono/duplo/triplo lumen; by puncture or for hemodialysis;
+    or portocath), airway procedures (orotracheal intubation, tracheostomy), and indwelling urinary catheterization
+    (2-way or 3-way).
+
+    '
+  inputs:
+  - tipo (string enum, 10 literal values)
+  outputs:
+  - tipo (string enum)
+  logic: "ProcedimentoInvasivoTipo =\n  puncao_de_acesso_venoso_central_mono_lumen |\n  puncao_de_acesso_venoso_central_duplo_lumen\
+    \ |\n  puncao_de_acesso_venoso_central_triplo_lumen |\n  implante_de_cateter_venoso_central_por_puncao_cvc |\n\
+    \  implante_de_cateter_venoso_central_para_hemodialise |\n  colocacao_de_cateter_venoso_central_ou_portocath\
+    \ |\n  intubacao_orotraqueal |\n  traqueostomia |\n  passagem_de_sonda_vesical_de_demora_2_vias |\n  passagem_de_sonda_vesical_de_demora_3_vias\n"
+  edge_cases: 'None beyond the closed 10-value set; each ProcedimentoInvasivo also carries a free-text "nome" alongside
+    the constrained "tipo".
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-016
+  merged_from:
+  - RULE-ocupacao-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 35-45
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'One enum value ("colocacao_de_cateter_venoso_central_ou_portocath") contains diacritics (cedilla, tilde)
+    in the source while sibling literals use ASCII-only snake_case - an inconsistent naming convention recorded
+    verbatim.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-054
+  name: Patient gender icon mapping
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The occupied-bed patient''s gender code is mapped to a display icon: "M" maps to a male icon, "F"
+    maps to a female icon, and any other value (including null/undefined/unknown codes) falls back to a generic
+    "unknown person" icon.
+
+    '
+  inputs:
+  - 'ocupacao.paciente.genero (string: M | F | other)'
+  outputs:
+  - icon (icon reference)
+  logic: "switch (genero) {\n  case \"M\": return mdiGenderMale\n  case \"F\": return mdiGenderFemale\n  default:\
+    \  return mdiAccountQuestion\n}\n"
+  edge_cases: 'Any value other than exactly "M" or "F" (including undefined) falls to default.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-064
+  merged_from:
+  - RULE-ocupacao-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao].tsx
+    lines: 63-72
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/balanco/index.tsx
+    lines: 233-242
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: 'Identical switch duplicated in balanco/index.tsx lines 233-242 (same repo/commit) - both source locations
+    recorded under one rule.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-055
+  name: Discharge (baixa) requires BOTH exit date and reason
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Discharging a patient requires both data_saida (exit date) AND motivo_baixa (reason). Enforced identically
+    in the backend (MovimentacaoBaixaViewSet.create raises ValidationError under key ''baixa_leito'' if either is
+    missing) and in the frontend removal form (both fields marked required). The two implementations agree.
+
+    '
+  inputs:
+  - data_saida (date/datetime, required)
+  - motivo_baixa (string, required)
+  outputs:
+  - eligible_for_baixa / valid discharge (boolean)
+  logic: "# BACKEND (core/api/v1/views/movimentacao.py:88-111):\ndata_saida = request.data.get(\"data_saida\")\n\
+    motivo = request.data.get(\"motivo_baixa\")\nif not (data_saida and motivo):\n    raise ValidationError({\"\
+    baixa_leito\": \"obrigatorio o envio da data_saida e motivo\"})\nBaixaMovimentacao(movimentacao=kwargs[\"movimentacoes__pk\"\
+    ], data_saida=data_saida,\n                   movito_baixa=motivo, encerrado_por=request.user)\nreturn Response({\"\
+    success\": \"sucesso na baixa da movimentacao\"})\n\n# FRONTEND (src/utils/dataForms/dataFormRemovePaciente.ts:1-22):\n\
+    required: data_saida (type \"data\", showTime=true), motivo_baixa (string)\n"
+  edge_cases: 'Both fields required simultaneously (AND, not OR). The BaixaMovimentacao call uses a keyword argument
+    literally named ''movito_baixa'' (typo preserved verbatim). Frontend performs no validation of data_saida vs
+    admission date.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-031
+  merged_from:
+  - RULE-movimentacao-BE-05-003
+  - RULE-patient-FE-01-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/movimentacao.py
+    lines: 88-111
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormRemovePaciente.ts
+    lines: 1-22
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: 'BE/FE reconciled and VERIFIED to agree (both require data_saida + motivo_baixa) - no divergence. permission_trilhas=(''can_remove_paciente'',)
+    on the BE viewset. FE removal form''s exported const is confusingly named dataFormPaciente though it is the
+    removal form.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-056
+  name: Movimentacao requires patient unless it chains a prior movimentacao
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Creating an initial bed movimentacao (admission) requires a paciente payload; a follow-up movimentacao
+    created via the /nova/ endpoint against an ultima_movimentacao does not require paciente (it is inherited from
+    the chain).
+
+    '
+  inputs:
+  - paciente (object|absent; required for initial POST)
+  - ultima_movimentacao (id|empty; presence relaxes paciente requirement)
+  outputs:
+  - http_status (int)
+  logic: 'POST /leitos/{id}/movimentacoes/ without paciente            -> 400 (test_post_paciente_faltando)
+
+    POST /leitos/{id}/movimentacoes/ without paciente & no ultima -> 400 (test_post_sem_paciente_sem_ultima_movimentacao)
+
+    POST /leitos/{id}/movimentacoes/{ultima}/nova/ without paciente, with ultima -> 201 (test_post_sem_paciente_com_ultima_movimentacao)
+
+    '
+  edge_cases: 'Initial admission must carry paciente; chained (nova) movimentacao inherits patient identity.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-060
+  - RULE-MOVIMENTACAO-ADT-035
+  - RULE-MOVIMENTACAO-ADT-033
+  merged_from:
+  - RULE-VALIDATION-BE-12-025
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 386-467
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Test-asserted behavioral contract. The initial "paciente required" side is implemented by PacienteValidation
+    (RULE-060); the chained relaxation is a property of the /nova/ route (RULE-035, which forces paciente from the
+    previous record). Kept as its own rule since the chained-relaxation nuance is not captured elsewhere.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-057
+  name: Movimentacao data_entrada - absent OK, empty invalid, future rejected
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The admission timestamp data_entrada may be omitted (accepted, defaults applied) but must not be
+    an empty string and must not be in the future.
+
+    '
+  inputs:
+  - data_entrada (datetime|empty|absent; <= now)
+  outputs:
+  - http_status (int)
+  logic: 'data_entrada absent (key deleted)                 -> 201 (test_post_data_entrada_faltando; payload has
+    dados_prontuario)
+
+    data_entrada == "" (empty string)                 -> 400 (test_post_sem_dados_prontuario)
+
+    data_entrada = now + 1 day (future)               -> 400 (test_post_data_entrada_futura)
+
+    data_entrada = valid ISO timestamp / now          -> 201
+
+    '
+  edge_cases: 'Empty string is invalid but a missing key is tolerated; future dates rejected (admission cannot be
+    in the future). Format "%Y-%m-%dT%H:%M:%S" accepted.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-058
+  - RULE-MOVIMENTACAO-ADT-059
+  - RULE-MOVIMENTACAO-ADT-062
+  merged_from:
+  - RULE-VALIDATION-BE-12-026
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 61-78,395-414
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Test-asserted acceptance contract. The future-rejection half is implemented by DataValidation (RULE-059);
+    this rule additionally documents the absent-OK / empty-400 behavior tested at the API level.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-058
+  name: Automatic-type bed rejects movimentacao lacking data_entrada
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: 'Posting a movimentacao to a bed whose tipo is ''automatica'' with an empty data_entrada is rejected
+    (400).
+
+    '
+  inputs:
+  - leito.tipo (string, automatica)
+  - data_entrada (empty, "")
+  outputs:
+  - http_status (int)
+  logic: 'leito.tipo = "automatica"; POST with data_entrada="" , dados_prontuario={} -> 400
+
+    '
+  edge_cases: 'Test sets tipo=''automatica'' AND empty data_entrada simultaneously.
+
+    '
+  confidence: low
+  related:
+  - RULE-MOVIMENTACAO-ADT-057
+  - RULE-MOVIMENTACAO-ADT-025
+  merged_from:
+  - RULE-VALIDATION-BE-12-030
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 580-601
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS - the 400 is fully explained by the empty-string data_entrada rule (RULE-057), which returns
+    400 for a MANUAL bed too. Cannot confirm from tests alone whether ''automatica'' beds impose an additional data_entrada
+    requirement; the test name signals that intent but the confound (empty string) makes it unverifiable. Kept separate
+    (not merged into RULE-057) because the automatica-specific intent cannot be confirmed or ruled out.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-333
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Automatic-type bed rejects movimentacao lacking data_entrada
+- id: RULE-MOVIMENTACAO-ADT-059
+  name: Entry date must not be in the future (DataValidation)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Validates a datetime string against an expected format and rejects future dates.
+
+    '
+  inputs:
+  - data (string datetime; must parse with formato_esperado, default %Y-%m-%dT%H:%M:%S)
+  outputs:
+  - valid | ValidationError (bool)
+  logic: "data = datetime.strptime(self.data, formato_esperado).replace(tzinfo=pytz.utc)\n  on ValueError -> raise\
+    \ {\"data_entrada\": \"Favor enviar a data no formato <formato>\"}\nif data and data > timezone.now(): raise\
+    \ {\"data_entrada\": \"Data de entrada nao pode ser futura\"}\n"
+  edge_cases: 'Parsed as UTC regardless of source tz. Error key is always "data_entrada" even when validating other
+    dates. all([data, data>now]) - data is always truthy after parse.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-057
+  - RULE-MOVIMENTACAO-ADT-062
+  - RULE-MOVIMENTACAO-ADT-060
+  merged_from:
+  - RULE-validation-BE-04-041
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/validators/data.py
+    lines: 19-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-060
+  name: Birthdate must not be in the future + patient payload required
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Patient data is required and the birthdate (YYYY-MM-DD) cannot be a future date.
+
+    '
+  inputs:
+  - paciente.data_nascimento (string date, %Y-%m-%d)
+  outputs:
+  - valid | ValidationError (bool)
+  logic: "if not request.data.get(\"paciente\"): raise {\"paciente\":\"O envio dos dados do paciente e obrigatorio\"\
+    }\ndata_nascimento = datetime.strptime(paciente[\"data_nascimento\"], \"%Y-%m-%d\").replace(tzinfo=pytz.utc)\n\
+    if data_nascimento and data_nascimento > timezone.now():\n    raise {\"data_nascimento\":\"Data de nasicmento\
+    \ nao pode ser futura\"}\n"
+  edge_cases: 'Missing/malformed data_nascimento raises unhandled TypeError/ValueError (no explicit guard). Error
+    message typo "nasicmento".
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-056
+  - RULE-MOVIMENTACAO-ADT-062
+  - RULE-MOVIMENTACAO-ADT-064
+  merged_from:
+  - RULE-validation-BE-04-043
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/validators/paciente.py
+    lines: 12-27
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-061
+  name: dados_prontuario payload required
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The request must contain a dados_prontuario key.
+
+    '
+  inputs:
+  - request.data (dict)
+  outputs:
+  - valid | ValidationError (bool)
+  logic: "if \"dados_prontuario\" not in request.data:\n    raise {\"dados_prontuario\": \"O envio de dados_prontuario\
+    \ e obrigatorio\"}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-062
+  merged_from:
+  - RULE-validation-BE-04-044
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/validators/dados_prontuario.py
+    lines: 9-13
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-062
+  name: Movimentacao creation composite validation
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Movimentacao creation runs bed, prontuario, patient, and (conditionally) entry-date validations
+    together.
+
+    '
+  inputs:
+  - request, kwargs (leitos__pk) (mixed)
+  outputs:
+  - aggregated validation (side-effect)
+  logic: "validations = [\n  LeitoValidation(kwargs[\"leitos__pk\"]),          # RULE-025\n  DadosProntuarioValidation(request),\
+    \             # RULE-061\n  PacienteValidation(request),                    # RULE-060\n]\nif \"data_entrada\"\
+    \ in request.data:\n  validations.append(DataValidation(request.data[\"data_entrada\"], \"%Y-%m-%dT%H:%M:%S\"\
+    ))  # RULE-059\nValidationComposite(validations).validate()\n"
+  edge_cases: 'DataValidation only added when data_entrada present (else defaults to timezone.now on the model).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-025
+  - RULE-MOVIMENTACAO-ADT-059
+  - RULE-MOVIMENTACAO-ADT-060
+  - RULE-MOVIMENTACAO-ADT-061
+  - RULE-MOVIMENTACAO-ADT-033
+  merged_from:
+  - RULE-validation-BE-04-045
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/validators/movimentacao.py
+    lines: 10-33
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Composite pattern via utils.composite (out of partition).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-063
+  name: Movimentacao chronic-condition / pathway flags
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: 'Boolean diagnosis flags recorded on the movimentacao (transfer/round) form that drive downstream
+    care pathways.
+
+    '
+  inputs:
+  - covid_19 / dpoc / eme / shic / historico_cirurgia_abdominal_recente / baixa_aceitacao_dieta_vo (boolean)
+  outputs:
+  - pathway flags (boolean set)
+  logic: 'dados_prontuario booleans: covid_19, dpoc (Doenca Pulmonar Obstrutiva Cronica),
+
+    eme (Estado de Mal Epileptico), shic (Sindrome de Hipertensao Intra Craniana),
+
+    historico_cirurgia_abdominal_recente, baixa_aceitacao_dieta_vo.
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-047
+  merged_from:
+  - RULE-movimentacao-FE-01-018
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 1-37
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'EME/SHIC are Portuguese acronyms for status epilepticus / intracranial hypertension syndrome.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-064
+  name: Patient registration required fields and identifiers
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Patient record requires attendance number, name, birth date and CPF; CPF is masked to Brazilian
+    format; gender constrained to M/F/O.
+
+    '
+  inputs:
+  - numero_atendimento (number)
+  - paciente.nome (string)
+  - paciente.data_nascimento (date, no time)
+  - paciente.cpf (masked string)
+  - paciente.genero (enum M|F|O)
+  outputs:
+  - valid patient record (boolean)
+  logic: 'required: numero_atendimento(number), paciente.nome(string), paciente.data_nascimento(date, showTime=false),
+    paciente.cpf
+
+    cpf.mask = "000.000.000-00"
+
+    genero.options = { Masculino:"M", Feminino:"F", Outro:"O" }
+
+    paciente.codigo(number) and paciente.observacao(string) optional
+
+    '
+  edge_cases: 'CPF mask enforces 11 digits in NNN.NNN.NNN-NN layout but no check-digit validation. Birth date has
+    no time component.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-060
+  - RULE-MOVIMENTACAO-ADT-054
+  - RULE-MOVIMENTACAO-ADT-041
+  merged_from:
+  - RULE-patient-FE-01-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormPaciente.ts
+    lines: 1-55
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Frontend gender enum here is M/F/O; the gender icon mapping (RULE-054) handles only M/F with a default
+    fallback.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-065
+  name: InfoPaciente listing scoped by encounter
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Patient-info records are restricted to those matching the leito''s encounter number (NR_ATENDIMENTO).
+
+    '
+  inputs:
+  - ocupacoes__pk (URL kwarg, uuid)
+  outputs:
+  - queryset
+  logic: 'leito = Leito.objects.get(pk=kwargs["ocupacoes__pk"])
+
+    InfoPaciente.objects.filter(NR_ATENDIMENTO=leito.nr_atendimento)
+
+    '
+  edge_cases: 'List-only viewset (no create/update/destroy exposed here).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-020
+  merged_from:
+  - RULE-paciente-BE-08-034
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/info_paciente.py
+    lines: 21-23
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-066
+  name: Update-patient-list button disabled check uses array reference equality
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'The "Atualizar Lista de Pacientes" button''s disabled prop compares the current row-selection array
+    to the initial-selection array using strict reference equality (===) rather than a value/content comparison.
+
+    '
+  inputs:
+  - selectedRowKeys (array of ids, React state)
+  - initialPacientes (array of ids, React state)
+  outputs:
+  - disabled (boolean)
+  logic: 'disabled = (selectedRowKeys === initialPacientes)   // reference (identity) comparison, not deep-equality
+
+    '
+  edge_cases: 'Because both selectedRowKeys and initialPacientes are set via setState calls that always produce
+    new array instances, the two variables are essentially never the same object reference once any state update
+    has occurred - meaning the button is, in practice, almost always enabled, even when the user has not changed
+    the selection from the initial linked-patient set. This looks like a bug: the evident intent (disable until
+    the selection differs from initial) is not what === implements. Recorded verbatim, not corrected.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-045
+  - RULE-MOVIMENTACAO-ADT-042
+  divergence: 'Intent-vs-implementation discrepancy (single-implementation defect): reference equality (===) used
+    where deep/value equality was evidently intended, so the disable-guard is effectively inert. Recorded verbatim.
+
+    '
+  merged_from:
+  - RULE-gestaopaciente-FE-06-028
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/GestaoPacienteContent/GestaoPacienteContent.tsx
+    lines: 266-279
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'State declarations for both arrays are at lines 45-51 of the same file.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-168
+    band: P3
+    title: data-validation
+    excerpt: 'Intent-vs-implementation discrepancy (single-implementation defect): reference equality (===) used
+      where deep/value equality was evidently intended, so the disable-guard is effectively inert. Recorded verbatim.'
+- id: RULE-MOVIMENTACAO-ADT-067
+  name: Bed-movement prontuário field annulment and date formatting
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When submitting a bed occupancy change (add patient / new movimentação / remove patient), the sub-records
+    noradrenalina, parada cardiorrespiratória, and ventilação mecânica are included only if truthy AND not "empty"
+    (per utils/isEmpty), otherwise sent as undefined (explicit annulment/clear); their horario_inicio (and, for
+    ventilação mecânica, horario_fim) datetime fields are reformatted to "YYYY-MM-DD HH:mm". Sedativos is included
+    as a {nome_sedativo, quantidade} array only if non-empty, else undefined. Patient sub-record reformats data_nascimento
+    to "YYYY-MM-DD" and strips CPF mask formatting via unformat().
+
+    '
+  inputs:
+  - name: values.dados_prontuario.noradrenalina
+    type: object | undefined
+  - name: values.dados_prontuario.parada_cardiorrespiratoria
+    type: object | undefined
+  - name: values.dados_prontuario.ventilacao_mecanica
+    type: object | undefined
+  - name: values.dados_prontuario.sedativos
+    type: array | undefined
+  - name: values.paciente.data_nascimento
+    type: date
+  - name: values.paciente.cpf
+    type: string (masked)
+  outputs:
+  - name: valuesToSubmit.dados_prontuario
+    type: object
+  - name: valuesToSubmit.paciente
+    type: object
+  logic: "isPresent(field) = field && !isEmpty(field)\nnoradrenalina_out = isPresent(nora) ? { ...nora, horario_inicio:\
+    \ nora.horario_inicio && moment(nora.horario_inicio).format(\"YYYY-MM-DD HH:mm\") } : undefined\nparada_out\
+    \        = isPresent(pcr)  ? { ...pcr,  horario_inicio: pcr.horario_inicio  && moment(pcr.horario_inicio).format(\"\
+    YYYY-MM-DD HH:mm\") } : undefined\nventilacao_out     = isPresent(vm)   ? { ...vm, horario_inicio: vm.horario_inicio\
+    \ && moment(vm.horario_inicio).format(\"YYYY-MM-DD HH:mm\"),\n                                             \
+    \    horario_fim:    vm.horario_fim    && moment(vm.horario_fim).format(\"YYYY-MM-DD HH:mm\") } : undefined\n\
+    sedativos_out = (sedativos && sedativos.length > 0) ? sedativos.map(s => ({ nome_sedativo: s.nome_sedativo,\
+    \ quantidade: s.quantidade })) : undefined\npaciente_out = paciente ? { ...paciente,\n                     \
+    \        data_nascimento: paciente.data_nascimento && moment(paciente.data_nascimento).format(\"YYYY-MM-DD\"\
+    ),\n                             cpf: paciente.cpf && unformat(paciente.cpf) } : undefined\n// then dispatched\
+    \ by `type`:\nswitch(type) { case \"add\": postAddPaciente(...); case \"mov\": postNovaMovimentacao(...); case\
+    \ \"remove\": postRemoverPaciente(...) }\n"
+  edge_cases: 'A field object that is truthy but considered "empty" by utils/isEmpty (out of partition) is annulled
+    (sent as undefined) exactly like an absent field — the API cannot distinguish "user cleared this section" from
+    "user never touched it".
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-prontuario-FE-06-013
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/ListOcupacoes.tsx
+    lines: 172-245
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Complements RULE-prontuario-FE-06-014, which performs the inverse (string -> moment) transform for read/display
+    of a past prontuário. utils/isEmpty and utils/formatter (unformat) are out of this partition''s scope.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-068
+  name: Past-prontuário date field hydration
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When re-displaying a previously recorded prontuário (occupation record) in read/edit-in-page mode,
+    the noradrenalina, parada cardiorrespiratória, and ventilação mecânica horario_inicio string values are parsed
+    into moment objects so the form fields can render them as date/time pickers.
+
+    '
+  inputs:
+  - name: values.noradrenalina.horario_inicio
+    type: string (date)
+  - name: values.parada_cardiorrespiratoria.horario_inicio
+    type: string (date)
+  - name: values.ventilacao_mecanica.horario_inicio
+    type: string (date)
+  outputs:
+  - name: dados_prontuario.noradrenalina.horario_inicio
+    type: moment object | undefined
+  - name: dados_prontuario.parada_cardiorrespiratoria.horario_inicio
+    type: moment object | undefined
+  - name: dados_prontuario.ventilacao_mecanica.horario_inicio
+    type: moment object | undefined
+  logic: "initialValues(values) = {\n  dados_prontuario: {\n    ...values,\n    noradrenalina: values.noradrenalina\
+    \ && { ...values.noradrenalina, horario_inicio: values.noradrenalina.horario_inicio && moment(values.noradrenalina.horario_inicio)\
+    \ },\n    parada_cardiorrespiratoria: values.parada_cardiorrespiratoria && { ...values.parada_cardiorrespiratoria,\
+    \ horario_inicio: values.parada_cardiorrespiratoria.horario_inicio && moment(...) },\n    ventilacao_mecanica:\
+    \ values.ventilacao_mecanica && { ...values.ventilacao_mecanica, horario_inicio: values.ventilacao_mecanica.horario_inicio\
+    \ && moment(...) }\n  }\n}\n"
+  edge_cases: 'horario_fim of ventilacao_mecanica is NOT re-hydrated here (unlike the submit-side transform in RULE-prontuario-FE-06-013),
+    so it is passed through as a raw string.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-prontuario-FE-06-014
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProntuarioPassado/ProntuarioPassado.tsx
+    lines: 31-55
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Cross-reference RULE-prontuario-FE-06-013 (inverse transform, submit side).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-069
+  name: FormProntuario fields have no bound input controls
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'Every Form.Item in the patient-record (Prontuário) creation form is declared with a `name` and `label`
+    but no child input component, meaning none of the listed fields (paciente.nome, paciente.codigo, paciente.data_nascimento,
+    paciente.genero, leito, data_entrada, and the final "Dados Prontuário" item) actually render an editable control
+    or capture any value.
+
+    '
+  inputs: []
+  outputs:
+  - name: form values on submit
+    type: effectively {} for the fields listed
+  logic: '<Form.Item label="Nome do paciente" name={["paciente","nome"]}></Form.Item>
+
+    <Form.Item label="Código" name={["paciente","codigo"]}></Form.Item>
+
+    <Form.Item label="Data de nascimento" name={["paciente","data_nascimento"]}></Form.Item>
+
+    <Form.Item label="Gênero" name={["paciente","genero"]}></Form.Item>
+
+    <Form.Item label="leito" name="leito"></Form.Item>
+
+    <Form.Item label="Data de entrada" name="data_entrada"></Form.Item>
+
+    ... (all rendered only when !pacienteCodigo)
+
+    <Form.Item></Form.Item>   // final, unnamed and childless
+
+    '
+  edge_cases: 'Since Form.Item has no child, antd renders just the label with no input control at all; calling form.submit()
+    would produce an onFinish payload missing these fields entirely (or with whatever stale values Form state happens
+    to hold from elsewhere), regardless of what the user does on screen.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-prontuario-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormProntuario/FormProntuario.tsx
+    lines: 13-47
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Recorded verbatim per audit ground rules even though it looks like an incomplete/broken implementation
+    (a stub) rather than an intentional rule; a verifier should check whether a newer FormProntuario variant elsewhere
+    in the app actually binds these fields, since as written this component captures no patient/admission data.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-169
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-MOVIMENTACAO-ADT-070
+  name: FilterOcupacoes "todos" sentinel and occupancy creation-type filter
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'The Ocupações list filter defaults "Leitos" (ocupado) to "todos" and explicitly converts that sentinel
+    to undefined (no filter) before calling onFilter, while "true"/"false" pass through unchanged; it also exposes
+    a "Tipo" filter distinguishing manually-created vs automatically-created occupancy records.
+
+    '
+  inputs:
+  - name: ocupado
+    type: '''todos'' (default) | ''true'' | ''false'''
+  - name: tipo
+    type: '''manual'' | ''automatica'''
+  outputs:
+  - name: onFilter({ ocupado, tipo, nome, ... })
+    type: Models.Ocupacao.Filter
+  logic: "Form initialValues: { ocupado: \"todos\" }\nonFinish(value):\n  onFilter({ ...value, ocupado: value.ocupado\
+    \ === \"todos\" ? undefined : value.ocupado })\nSelect(\"ocupado\"): Option(\"todos\")->Todos, Option(\"true\"\
+    )->Ocupados, Option(\"false\")->Vazios\nSelect(\"tipo\"): Option(\"manual\")->Manual, Option(\"automatica\"\
+    )->Automático\n"
+  edge_cases: 'Only the "todos" value is special-cased to undefined; "tipo" has no default/no-filter option exposed
+    in the UI (no "todos" equivalent for tipo), so a tipo filter, once touched, cannot be cleared back to "no filter"
+    other than via the form''s external onClear/reset.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-filtro-FE-05-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilterOcupacoes/FilterOcupacoes.tsx
+    lines: 13-46
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Cross-reference RULE-filtro-FE-05-003 for the inconsistent sentinel handling between the two filters.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

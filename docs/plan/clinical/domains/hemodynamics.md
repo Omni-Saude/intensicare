@@ -234,8 +234,8 @@ manual C6 (implausible for a continuous infusion — RULE-ESTABILIDADE-022, UNVE
 RAT-ESTABILIDADE-06 / RAT-ESTABILIDADE-10** (CON-0164). The recommended default is the **full drug-class list** and a
 **threshold (not equality)** comparison.
 
-### 3.7 Shock-alert tiering — `shock-alert-tiering` {#shock-alert-tiering}
-
+<a id="shock-alert-tiering"></a>
+### 3.7 Shock-alert tiering — `shock-alert-tiering`
 The three-tier VERMELHO/AMARELO/NEUTRO aggregation shell (RULE-ESTABILIDADE-014, ADOPT — byte-identical
 `calcular_alerta`/`_v2`, code-verified) is the canonical mechanism that maps the v3 criteria to a severity. In v2 it
 is re-expressed on the `normal|watch|urgent|critical` scale and driven only by the resolved feeder alerts above (the
@@ -247,20 +247,20 @@ dead criteria 1-6/8/9/11 are **not** wired in, CON-0162). VERMELHO→`critical`/
 being invisible in `get_payload`'s `1..5` iteration, letting an unseen criterion silently drive the color. v2 renders
 every counted criterion (no hidden driver).
 
-### 3.8 Vasopressor initiation window — `vasopressor-initiation-window` {#vasopressor-initiation-window}
-
+<a id="vasopressor-initiation-window"></a>
+### 3.8 Vasopressor initiation window — `vasopressor-initiation-window`
 The "noradrenaline started in the last 24h" temporal lookback (RULE-ESTABILIDADE-018, ADOPT — purely structural,
 no clinical anchor) is the initiation-window check feeding VASO-ESCALATION-03 and the manual pathway.
 
-### 3.9 Vasopressor start-time default — `vasopressor-start-time-default` {#vasopressor-start-time-default}
-
+<a id="vasopressor-start-time-default"></a>
+### 3.9 Vasopressor start-time default — `vasopressor-start-time-default`
 Defaulting an unset noradrenaline/cardiac-arrest `horario_inicio` to save-time (RULE-ESTABILIDADE-026, ADOPT) underpins
 the "started in last 24h" temporal criteria; adopted as the timing model's default.
 
 ---
 
-## 4. Vasopressor unit-conversion service {#vasopressor-unit-conversion-service}
-
+<a id="vasopressor-unit-conversion-service"></a>
+## 4. Vasopressor unit-conversion service
 > **This section is the definitive resolution of the audit's #1 finding (SYS-02 / CON-0060 / SYS-C-04 / CON-0163).**
 > The legacy encoded the *same* vasopressor cutoff four incompatible ways — raw mL volume, mL/h rate, mcg/kg/min, and
 > mcg/kg/h — a 60× drift (RULE-ESTABILIDADE-016 `mcg/kg/min` vs -024 `mcg/kg/h`) and an unconvertible mL/h-vs-rate

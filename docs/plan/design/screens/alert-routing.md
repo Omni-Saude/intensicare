@@ -40,7 +40,7 @@ Routing is a **four-rung ladder** every alert occupies and can only **ascend**. 
 | `urgent` | **LARANJA** | `clinical.severity.urgent` | exclamation | triangle | R2 |
 | `watch` | **AMARELO** | `clinical.severity.watch` | eye | rounded-square | R1 |
 | `normal` | **NEUTRO** | `clinical.severity.normal` | check-circle | circle | R0 |
-| *attended* | **ASSISTIDO** | `clinical.assisted` | ring + check | ring | (climb stilled) |
+| *attended* | **ASSISTIDO** | `clinical.status.attended` | person-check | additive corner badge — composited **alongside** the true severity color+icon+shape, **never replacing** it | (additive; climb stilled, severity unchanged) |
 
 **Climb law (the four invariants of the spine):**
 
@@ -54,7 +54,7 @@ Routing is a **four-rung ladder** every alert occupies and can only **ascend**. 
 ### 1.1 The three surfaces (one event, three views, one channel)
 
 - **R0 — Dashboard chip.** A Radix HoverCard/Popover count-badge (canonical count-badge primitive, `ADR-C-06`; fixes the legacy dual implementation `DES-3-01`/`DES-5-02`) showing per-band counts (`crítico N · urgente N · alerta N`) and the single nearest-to-breach countdown for the signed-in clinician's patients. `normal`/INFO advisories live and quietly coalesce here (§4). Opening it drops the Escalation Rail scoped to **"Meus pacientes"**.
-- **R1/R2 — Unit board.** Each bed tile carries its **worst active severity** as border + glow + status ball (preserved `CollapseCard`/`Ball`, `DES-3-05`/`DES-8-01`) plus a mini countdown ring when an alert on that bed is climbing. `watch`/`urgent` live here ambiently; on ack the tile flips to **ASSISTIDO** (desaturated, ring stopped, `DES-2-03`). Same channel as chip and rail (`CON-0053`).
+- **R1/R2 — Unit board.** Each bed tile carries its **worst active severity** as border + glow + status ball (preserved `CollapseCard`/`Ball`, `DES-3-05`/`DES-8-01`) plus a mini countdown ring when an alert on that bed is climbing. `watch`/`urgent` live here ambiently; on ack the tile gains the **ASSISTIDO** state — an **additive `clinical.status.attended` corner badge (`person-check` icon) composited *alongside* the unchanged severity color+icon+shape**, ring stopped (`DES-2-03`); the live severity is **never desaturated or masked** (a `critical` under response still reads `critical` — design-language.md §4, design-tokens.md §6.5). Same channel as chip and rail (`CON-0053`).
 - **R3 — RRT web push.** `critical` (and aged-out `urgent`) pages the RRT physician's corporate smartphone in **< 5 s** (`CON-0092`/`PER-C-06`; deliver stage p95 2 s < 5 s, `budgets/latency.yaml` L69/L79). One tap opens the **en-route responder view**: `Estabelecimento ▸ Setor ▸ Leito`, latest vitals each with its own staleness timestamp, scores + 24 h trend (`PER-RAFAEL-02`), the *why* panel (`alert-triage §4`), and two 1-tap actions **Aceitar** / **A caminho**. Desfecho documentation < 1 min runs off this surface via the form engine (`alert-triage §3`; `PER-RAFAEL-03`).
 
 ### 1.2 The ladder faithfully amplifies upstream mis-tiering — gated on RATIFY *(must_fix MF-09)*
@@ -261,7 +261,7 @@ Timer-driven promotion can fire **many R2→R3 climbs at once** when a cohort of
 - **Lifecycle** (`severity-model` L109; alert-triage §2): `raised · acknowledged · acting · resolved · expired · escalated`.
 - **Timer states (per row):** `contando` · `próximo do limite` (breach-imminent, color shifts to next band) · `estourado → escalonado` · `pausado` (acked/ASSISTIDO).
 - **Rung/channel states:** on-rung R0–R3 · `suprimido` (cooldown, `×N` count) · `agrupado no orçamento` (budget-coalesced digest, normal/watch only) · `silenciado (manutenção)` / `silenciado (horário noturno)` (muted, still logged) · `escalonado` · `re-paginado (reserva)` (backup tier after R3 breach).
-- **Recipient states** *(graft: B):* `entregue/não reconhecido` · `escalando (↑)` · **ASSISTIDO** (blue override, timers stopped, lower-tier same-key demoted) · `dono indisponível` (presence widened) · `push não entregue → escalado`.
+- **Recipient states** *(graft: B):* `entregue/não reconhecido` · `escalando (↑)` · **ASSISTIDO** (additive `clinical.status.attended` badge rendered alongside the unchanged severity — **never** a severity override or desaturation; timers stopped, lower-tier same-key demoted) · `dono indisponível` (presence widened) · `push não entregue → escalado`.
 - **Realtime (whole surface):** `ao vivo` · `reconectando` (shared backoff, `ADR-C-12`) · `defasado` (last-updated stamp + freshness veil, fixing silent staleness `ADR-0017`) · `offline`. All from the ONE channel.
 - **Loading:** content-shaped skeleton rail (`ADR-0016`), never a full-viewport blocking loader (`DES-5-07`); staff keep triaging other rows.
 - **Partial failure:** an un-hydrated row shows inline error + retry, not a screen-wide `Modal.error` (`ADR-C-11`).

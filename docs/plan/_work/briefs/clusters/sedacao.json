@@ -1,0 +1,74 @@
+{
+  "brief_id": "cluster-sedacao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/sedacao.yaml",
+    "lines": 1154,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/sedacao.yaml", "line_ranges": "1-1154"}
+  ],
+  "facts": [
+    {"id": "CLU-SEDACAO-01",
+     "claim": "27 rules total, three coexisting analgosedation pathway implementations (v3 automatico=wired production, v1 automatico=legacy/superseded, manual=nurse-entered) each with its own 12/4/6-criterion set and its own VERMELHO/AMARELO/NEUTRO alert aggregator (RULE-SEDACAO-014, -023, -021 respectively) — no single canonical scoring model.",
+     "kind": "entity", "source_ref": "sedacao.yaml RULE-SEDACAO-014,021,023"},
+    {"id": "CLU-SEDACAO-02",
+     "claim": "Only 4 of the 12 v3 predicates (criterio_1, 5, 7, 8) are actually wired into calcular_criterios/calcular_alerta_v2; criterio_3,4,6,9,10,11,12 are defined-but-unwired dead code, several containing latent logic bugs that are inert only because nothing calls them.",
+     "kind": "entity", "source_ref": "sedacao.yaml RULE-SEDACAO-003,004,006,007,010,011,012,014"},
+    {"id": "CLU-SEDACAO-03",
+     "claim": "Continuous-sedative overdose/weaning thresholds are expressed in ml/h infusion volume (e.g. midazolam>=15, propofol>=20, fentanil>=15, cetamina>=15, dexmedetomidina>=15 ml/h) with no published clinical anchor — guideline dosing is weight-based (mcg/kg/min or mg/kg/h) and conversion depends on institution-specific drug concentration, so these numbers cannot be ported as clinical thresholds without a concentration table.",
+     "kind": "threshold", "source_ref": "sedacao.yaml RULE-SEDACAO-005,010"},
+    {"id": "CLU-SEDACAO-04",
+     "claim": "Pain assessment uses a dual-scale model: VISUAL analog 0-10 with moderate=4-6/severe=7-10, or COMPORTAMENTAL (Behavioral Pain Scale) 3-12 with moderate=7-9/severe=10-12; both require the condition true on two consecutive fluid-balance records to fire (RULE-SEDACAO-001/002), matching SCCM PADIS 2018 pain bands and BPS (Payen 2001).",
+     "kind": "threshold", "source_ref": "sedacao.yaml RULE-SEDACAO-001,002"},
+    {"id": "CLU-SEDACAO-05",
+     "claim": "RASS (Richmond Agitation-Sedation Scale) is used throughout as both an int field (-5..+4, evolucao.rass) and a str-enum field (manual model, values like '-2'..'-5'); deep sedation is RASS -3 to -5, light-sedation target is RASS 0 to -2 per PADIS 2018.",
+     "kind": "vocabulary", "source_ref": "sedacao.yaml RULE-SEDACAO-003,016,017,019,020"},
+    {"id": "CLU-SEDACAO-06",
+     "claim": "Sedation criteria are entangled with respiratory/ARDS severity via P/F (PaO2/FiO2) ratio cutoffs of 150 (severe ARDS / NMBA-benefit boundary, ACURASYS/ROSE), 200 (Berlin moderate-ARDS boundary), and FiO2/PEEP bands, plus a tachypnea FR>22 weaning-readiness cutoff shared conceptually with qSOFA respiratory scoring.",
+     "kind": "threshold", "source_ref": "sedacao.yaml RULE-SEDACAO-004,006,007,008,017,018,019,020,024"},
+    {"id": "CLU-SEDACAO-07",
+     "claim": "Rule-count histogram by status: OK=19, DISCREPANCY=4, AMBIGUOUS=4 (total 27). By type: threshold=15, decision-tree=10, validation=2. By verification verdict: VERIFIED=7, DISCREPANCY=6, UNVERIFIABLE=8, NOT_APPLICABLE=6 (verify:false rules, mostly alert-aggregation and DB-constraint rules with no published clinical anchor).",
+     "kind": "metric", "source_ref": "sedacao.yaml all 27 rule verification blocks"}
+  ],
+  "constraints": [],
+  "load_bearing_rules": [
+    {"id": "RULE-SEDACAO-001", "what": "wired AMARELO pain criterion: VISUAL 4-6 or BPS 7-9 on two consecutive balances", "verdict": "VERIFIED"},
+    {"id": "RULE-SEDACAO-002", "what": "wired VERMELHO pain criterion: VISUAL 7-10 or BPS 10-12 on two consecutive balances", "verdict": "VERIFIED"},
+    {"id": "RULE-SEDACAO-005", "what": "wired VERMELHO criterion: any continuous sedative infusion >= drug-specific ml/h cutoff in last 4h; also sets active-drug label", "verdict": "UNVERIFIABLE (ml/h thresholds, no published anchor)"},
+    {"id": "RULE-SEDACAO-009", "what": "wired AMARELO criterion: no >=50% morning sedation reduction 06:00-10:00, but operator-precedence bug means exactly-half reduction is NOT flagged as failure", "verdict": "DISCREPANCY (moderate clinical impact)"},
+    {"id": "RULE-SEDACAO-013", "what": "picks first non-zero continuous sedative in fixed priority order (midazolam>propofol>fentanil>cetamina>dexmedetomidina) to label the active drug", "verdict": "UNVERIFIABLE (internal labeling rule, not clinical)"},
+    {"id": "RULE-SEDACAO-014", "what": "production v3 alert aggregator: any VERMELHO criterion (c1,c8) trumps any AMARELO (c5,c7); a legacy alternate aggregator exists in code but is dead/unused", "verdict": "NOT_APPLICABLE (verify:false, aggregation logic)"},
+    {"id": "RULE-SEDACAO-016", "what": "manual-pathway deep-sedation-with-low-ventilatory-support criterion; code allows PEEP==10 though its own descriptive rule text says PEEP<10", "verdict": "DISCREPANCY (boundary drift vs self-documentation)"},
+    {"id": "RULE-SEDACAO-021", "what": "manual-pathway alert: >=3 of 6 criteria true -> VERMELHO, 1-2 -> AMARELO, 0 -> NEUTRO", "verdict": "NOT_APPLICABLE (verify:false)"},
+    {"id": "RULE-SEDACAO-023", "what": "v1 (superseded) alert aggregator using a different 4-criterion subset than v3", "verdict": "NOT_APPLICABLE (verify:false, legacy/superseded)"},
+    {"id": "RULE-SEDACAO-024", "what": "clinician-facing recommendation-text catalog spanning all 12 v3 criteria: RASS targets, NMBA/BNM stop criteria, PRIS lab surveillance cadence, and an opioid/analgesia drug ladder", "verdict": "VERIFIED (numeric anchors map to ACURASYS/ROSE/PADIS/Sepsis-3)"}
+  ],
+  "systemic_issues": [
+    {"issue": "Bound-order bug makes an unsatisfiable range (deep-sedation RASS check reversed to -3<=x<=-5, impossible)", "rule_ids": ["RULE-SEDACAO-003"]},
+    {"issue": "Field-name bugs read nonexistent bare attributes (pins/peep/pf/fio2 instead of diurna_pins/diurna_peep/diurna_pf/diurna_fio2), silently defaulting to 0; plus impossible numeric comparisons (fio2>250, fr>250) that invert the documented intent", "rule_ids": ["RULE-SEDACAO-004"]},
+    {"issue": "Absence-vs-presence inversion: code checks presence where docstring/intent requires absence (twice, in different rules)", "rule_ids": ["RULE-SEDACAO-004", "RULE-SEDACAO-011"]},
+    {"issue": "Operator-precedence bug on 'reduce by at least half' check makes exact-half reduction pass as compliant instead of failing", "rule_ids": ["RULE-SEDACAO-009"]},
+    {"issue": "Typo in a lab-order field name ('trigliceres' vs actual 'triglicerides') makes one leg of a PRIS-surveillance check permanently inert", "rule_ids": ["RULE-SEDACAO-012"]},
+    {"issue": "Threshold drift between code and the model's own embedded _REGRAS description text (PEEP<10 documented vs PEEP<=10 implemented)", "rule_ids": ["RULE-SEDACAO-016"]},
+    {"issue": "Three non-identical, never-reconciled alert-aggregation schemes (v3 wired, v1 legacy, manual) coexist for the same clinical concept with different criteria subsets and different vote thresholds — classic scoring drift across pathway versions", "rule_ids": ["RULE-SEDACAO-014", "RULE-SEDACAO-021", "RULE-SEDACAO-023"]},
+    {"issue": "8 of 12 v3 predicate criteria are dead code (defined, never wired) — a large unused-logic surface carrying real bugs that never execute", "rule_ids": ["RULE-SEDACAO-003", "RULE-SEDACAO-004", "RULE-SEDACAO-006", "RULE-SEDACAO-007", "RULE-SEDACAO-010", "RULE-SEDACAO-011", "RULE-SEDACAO-012", "RULE-SEDACAO-018"]},
+    {"issue": "Unit/anchor mismatch: institutional ml/h infusion-volume cutoffs have no clinical citation path (weight-based mcg/kg/min is the guideline unit); porting requires a drug-concentration table not present in this catalog", "rule_ids": ["RULE-SEDACAO-005", "RULE-SEDACAO-010"]},
+    {"issue": "Display-label typo in a stored choice enum ('Midazolan' for key 'midazolam') and tests that assert against display labels rather than stored keys, meaning choice enforcement is effectively unverified at write time", "rule_ids": ["RULE-SEDACAO-026"]}
+  ],
+  "feeds_v2_domains": ["neuro-sedation", "pharmaco", "respiratory", "early-warning-scores", "correlation", "governance"],
+  "pt_br_vocabulary": {
+    "escala_dor": ["VISUAL", "COMPORTAMENTAL"],
+    "alerta": ["VERMELHO", "AMARELO", "NEUTRO"],
+    "diurna_sedoanalgesia_justificativas": ["Outros", "Fase aguda de choque septico", "SDRA moderada ou grave", "Sedacao paliativa"],
+    "diurna_ventilacao": ["PSV", "VM invasiva"],
+    "nome_sedativo_choices": {"fentanil": "Fentanil", "midazolam": "Midazolan (label typo)", "propofol": "Propofol", "cetamina": "Cetamina", "": "Nao informado"},
+    "sedativo_ativo_labels": ["Midazolam", "Propofol", "Fentanil", "Cetamina", "Precedex"],
+    "rass_str_enum": ["-2", "-3", "-4", "-5", "-1", "0", "+1", "+2", "+3", "+4"]
+  },
+  "open_questions": [
+    "Which of the three alert-aggregation schemes (v3/v1/manual) should the v2 canonical sedation score inherit — none has a published anchor, so RATIFY is required per CONTRACTS.md.",
+    "Are ml/h infusion thresholds (RULE-SEDACAO-005, -010) worth ADOPT-CORRECTED with a drug-concentration table, or RETIRE in favor of a weight-based (mcg/kg/min) threshold model?"
+  ]
+}

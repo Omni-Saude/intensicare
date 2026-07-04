@@ -1,0 +1,183 @@
+{
+  "brief_id": "cluster-eficiencia",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/eficiencia.yaml",
+    "lines": 624,
+    "read_complete": true
+  },
+  "facts": [
+    {
+      "id": "CLU-EFICIENCIA-01",
+      "claim": "Cluster governs transfusion appropriateness (RBC, platelets) with restrictive evidence-based thresholds and mechanical restraint avoidance; feeds blood-product governance & neuro-sedation domains",
+      "kind": "entity",
+      "source_ref": "eficiencia.yaml RULE-EFICIENCIA-002,003,004,006,012"
+    },
+    {
+      "id": "CLU-EFICIENCIA-02",
+      "claim": "Rule count: 12 total; status: 3 OK / 8 DISCREPANCY / 1 AMBIGUOUS; verdicts: 2 NOT_APPLICABLE / 1 VERIFIED / 1 UNVERIFIABLE / 8 DISCREPANCY",
+      "kind": "metric",
+      "source_ref": "eficiencia.yaml rules summary"
+    },
+    {
+      "id": "CLU-EFICIENCIA-03",
+      "claim": "12 rules span 5 categories: alert-threshold (4), triage-eligibility (4), scheduling-operational (1), clinical-scoring (1), alert-threshold facade (1), decision-tree variants (multiple); only 3 wired (001, 004 via 005, 012); 9 unwired or inert",
+      "kind": "metric",
+      "source_ref": "eficiencia.yaml type, category, status fields"
+    },
+    {
+      "id": "CLU-EFICIENCIA-04",
+      "claim": "Systemic defect: fromkeys-None-values bug renders antecedent/diagnosis-exclusion checks vacuous across RULES-002,003,004,006,009,010 (SCA/AVC/dementia filters non-functional); window copy-paste bug (RULE-004 cpoe_4hrs set to 6h); field-mismatch bug (RULE-004 reads diurna_plaquetas from cpoe model -> always 0); operator-precedence bug (RULE-002 Hb>=7 threshold defeated)",
+      "kind": "policy",
+      "source_ref": "eficiencia.yaml edge_cases + divergence fields"
+    },
+    {
+      "id": "CLU-EFICIENCIA-05",
+      "claim": "Facade/implementation divergence: RULE-EFICIENCIA-012 (VERIFIED payload) documents clinically sound intent (restrictive transfusion, discharge gates, delirium prevention); core wired predicates (RULES-002,004,006,008,010,011) are broken—operator precedence, wrong fields, inverted logic, range subscripting crash—making clinical intent unreachable",
+      "kind": "policy",
+      "source_ref": "eficiencia.yaml RULE-EFICIENCIA-012 vs RULES-002..011 divergence blocks"
+    },
+    {
+      "id": "CLU-EFICIENCIA-06",
+      "claim": "PT-BR clinical vocabulary (preserve verbatim): 'Concentrado de hemacias com filtro' (RBC concentrate), 'Concentrado de plaquetas com filtro' (platelet concentrate), 'SCA - Sindrome coronariana aguda' (ACS), 'Melena'/'Enterorragia' (GI bleeding), 'Suspeita de ME' (suspected brain death), 'Contencao mecanica' (mechanical restraint), 'Reavaliar indicacao'; window units in dias/horas",
+      "kind": "vocabulary",
+      "source_ref": "eficiencia.yaml inputs, descriptions, logic fields (preserved from ahlabs-trilhas)"
+    }
+  ],
+  "load_bearing_rules": [
+    {
+      "id": "RULE-EFICIENCIA-002",
+      "what": "RBC transfusion at Hb>=7 (AMARELO trigger). Wired via calcular_alerta_v2(). Intended: restricts to Hb<7 absent active bleeding/SCA/AVC.",
+      "verdict": "DISCREPANCY (moderate clinical impact)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-004",
+      "what": "Platelet transfusion at Plt>25000 (VERMELHO trigger). Wired via calcular_alerta_v2() but permanently False (reads diurna_plaquetas from cpoe model—nonexistent field—defaults to 0).",
+      "verdict": "DISCREPANCY (moderate clinical impact)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-001",
+      "what": "Alert aggregation (calcular_alerta_v2). Multiplexes 3 criteria (c3, c5, c10) → AMARELO/VERMELHO/NEUTRO enum. Orchestrates wired alert signal.",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-EFICIENCIA-012",
+      "what": "Facade display payload (get_payload_trilha_eficiencia). 10 alert labels + recommendation text. References AABB transfusion thresholds verbatim (Carson et al. JAMA 2023, TRICC). Wired as eficiencia_automatica.",
+      "verdict": "VERIFIED"
+    },
+    {
+      "id": "RULE-EFICIENCIA-006",
+      "what": "Mechanical restraint without agitation (AMARELO). Intended: restraint + GCS>12 + ABSENCE of delirium/RASS>1. Code checks PRESENCE of delirium (inverted).",
+      "verdict": "DISCREPANCY (moderate clinical impact, AMBIGUOUS intent)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-008",
+      "what": "ICU discharge readiness (unwired). Intended: >24h admission + good GCS/temp/vitals + room-air O2 + no VM/pressors. Permanently False due to wrong aggregate key ('temp' vs 'max_temp').",
+      "verdict": "DISCREPANCY (none)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-003",
+      "what": "RBC 6-7 gate with >=2 units (unwired). Hb thresholds correctly parenthesized; SCA/AVC exclusions inert (fromkeys). Facade RULE-EFICIENCIA-012 labels it 'Hb>6 / 2u'.",
+      "verdict": "DISCREPANCY (low clinical impact)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-005",
+      "what": "Coma without sedation (unwired). Intended: GCS<6 + no sedatives in 6h → brain-death flag. Code uses GCS<13; sedative absence uses AND-combined filter (requires all drugs present simultaneously, nearly always False).",
+      "verdict": "DISCREPANCY (moderate clinical impact)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-010",
+      "what": "Delirium risk bundle (unwired). OR of 11+ risk factors (SOFA>=5, age>75, antibiotic, Na dysrange, etc.). Contains runtime crash: `int(rass) in range[1,5]` (subscripting range object) instead of `in range(1,5)`.",
+      "verdict": "DISCREPANCY (none)"
+    },
+    {
+      "id": "RULE-EFICIENCIA-007",
+      "what": "Repeated exams within minimum-repeat windows (unwired). Flags >1 exam re-order inside its class window (5d endoscopy/CT, 7d labs, 14d angio, 21d ECG/ultrasound, 30d EEG/MRI). Threshold >1 positive sum across ALL windows combined.",
+      "verdict": "NOT_APPLICABLE"
+    }
+  ],
+  "systemic_issues": [
+    {
+      "category": "operator-precedence-bug",
+      "rules": ["RULE-EFICIENCIA-002"],
+      "description": "Hb>=7 threshold: `diurna_hemoglobina or 0 >= 7` parses as `diurna_hemoglobina or (0>=7)`, testing truthiness of Hb, not threshold. Fires on any non-empty Hb + RBC order, defeating intended >=7 gate."
+    },
+    {
+      "category": "field-mismatch-bug",
+      "rules": ["RULE-EFICIENCIA-004"],
+      "description": "Platelet value reads ultima_cpoe.diurna_plaquetas (nonexistent on cpoe model; diurna_plaquetas lives on evolucao). getattr default 0 → '>25000' always False → sole VERMELHO criterion permanently False."
+    },
+    {
+      "category": "window-copy-paste-bug",
+      "rules": ["RULE-EFICIENCIA-004"],
+      "description": "cpoe_4hrs for CVC/CDL catheter exclusion defined with timedelta(hours=6) (copy of cpoe_6hrs). Intended 4h window actually 6h."
+    },
+    {
+      "category": "fromkeys-none-values-bug",
+      "rules": ["RULE-EFICIENCIA-002", "RULE-EFICIENCIA-003", "RULE-EFICIENCIA-004", "RULE-EFICIENCIA-006", "RULE-EFICIENCIA-009", "RULE-EFICIENCIA-010"],
+      "description": "Antecedent/diagnosis membership checks use vars(objeto).fromkeys(field_names).values() → all None → vacuously True. SCA/AVC/dementia exclusions non-functional across multiple rules."
+    },
+    {
+      "category": "range-subscripting-crash",
+      "rules": ["RULE-EFICIENCIA-010"],
+      "description": "`int(rass) in range[1, 5]` attempts subscript on range object (range is not subscriptable). Correct: `in range(1, 5)`. Criterion crashes if rass is truthy and wired."
+    },
+    {
+      "category": "logic-inversion-bugs",
+      "rules": ["RULE-EFICIENCIA-006", "RULE-EFICIENCIA-008", "RULE-EFICIENCIA-011"],
+      "description": "RULE-006: delirium check reads PRESENCE (truthy) instead of absence. RULE-008: max_temp key mismatch + GCS/TEC/lactate thresholds inverted. RULE-011: all([...]) requires FiO2>45, PEEP>10, GCS<13, RASS<-2 (HIGH-support) instead of step-down readiness."
+    },
+    {
+      "category": "dead-code-unwired",
+      "rules": ["RULE-EFICIENCIA-003", "RULE-EFICIENCIA-005", "RULE-EFICIENCIA-007", "RULE-EFICIENCIA-008", "RULE-EFICIENCIA-009", "RULE-EFICIENCIA-010", "RULE-EFICIENCIA-011"],
+      "description": "Criteria 1-11 defined but most not computed (commented out in calcular_criterios); only c3, c5, c10 are computed; criteria used in alternative legacy calcular_alerta() function but never called."
+    },
+    {
+      "category": "facade-implementation-divergence",
+      "rules": ["RULE-EFICIENCIA-012", "RULE-EFICIENCIA-002", "RULE-EFICIENCIA-003", "RULE-EFICIENCIA-004", "RULE-EFICIENCIA-006", "RULE-EFICIENCIA-008"],
+      "description": "RULE-012 (VERIFIED, facades) documents correct clinical intent (AABB transfusion thresholds, discharge gates, delirium prevention). Core wired rules (002, 004, 006, 008) broken via operator-precedence, field-mismatch, inverted logic—intent unreachable."
+    }
+  ],
+  "feeds_domains": [
+    "early-warning-scores (discharge readiness, step-down gates; transfusion appropriateness)",
+    "neuro-sedation (delirium/restraint avoidance, coma detection)",
+    "governance (operational efficiency: exam-repetition scheduling)",
+    "platform (alert aggregation, render/display payload)"
+  ],
+  "pt_br_vocabularies": [
+    "Concentrado de hemacias com filtro",
+    "Concentrado de plaquetas com filtro",
+    "SCA - Sindrome coronariana aguda",
+    "Melena",
+    "Enterorragia",
+    "AVC isquemico",
+    "AVC hemorragico",
+    "TCE",
+    "Suspeita de ME",
+    "Contencao mecanica",
+    "Reavaliar",
+    "Delirium",
+    "Sedacao",
+    "Cuidados paliativos",
+    "Mobilizacao, deambular, sentar em poltrona",
+    "Tempo de enchimento capilar",
+    "Diurna hemoglobina",
+    "Diurna plaquetas",
+    "Diurna glasgow",
+    "Diurna estado geral",
+    "Diurna ventilacao",
+    "Diurna fluxo O2",
+    "Diurna lactato",
+    "Diurna delirium",
+    "Diurna RASS",
+    "Diurna bicarbonato",
+    "Diurna sodio",
+    "Diurna SOFA",
+    "Balanco",
+    "CPOE",
+    "Evolucao",
+    "ADEP",
+    "Exames repetidos"
+  ],
+  "notes": "All 12 rules extracted from ahlabs-trilhas commit 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f (eficiencia v3 model). Facade source: core/facade/trilha_eficiencia.py. RULE-EFICIENCIA-012 sources alert-text payload from get_payload_trilha_eficiencia(); it is the verified active payload. Core predicates (RULES-001..011) are systematically broken via precedence, field, window, and logic bugs. CRITICAL for IntensiCare v2: facade intent (RULE-012, VERIFIED) is clinically sound and AABB-aligned; implementation must be entirely rewritten to fix operator precedence, field lookups, temporal windows, diagnosis exclusions, and logic flow."
+}

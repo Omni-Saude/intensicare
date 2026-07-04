@@ -1,0 +1,1706 @@
+shard: evolucoes-p1
+cluster: evolucoes
+rule_count: 39
+rules_with_escalations: 13
+rules:
+- id: RULE-EVOLUCOES-001
+  name: Medical-record clinical parameter panel with pre-computed SOFA score
+  category: clinical-scoring
+  type: scoring
+  status: AMBIGUOUS
+  verify: true
+  description: The full patient-record clinical dataset (DadosProntuario) includes a single numeric "escore_sofa"
+    (SOFA score) field alongside its likely component labs/vitals (creatinine, bilirubin, platelets, MAP-adjacent
+    fields via pas/pad, Glasgow, temperature, heart rate, PaO2/FiO2-adjacent fields), implying the SOFA score itself
+    is computed server-side; no computation formula is present in this frontend partition.
+  inputs:
+  - creatinina, bilirrubinas, plaquetas, glasgow, pas, pad, po2, paco2, fio2, temperatura, frequencia_cardiaca
+  outputs:
+  - escore_sofa [clinically 0-24 (not enforced in this file)]
+  logic: 'DadosProntuario.escore_sofa: number   // opaque pre-computed value; component inputs present
+
+    // in the same object but no SOFA sub-score formula (respiratory/coagulation/liver/
+
+    // cardiovascular/CNS/renal) is implemented in this frontend partition.
+
+    '
+  edge_cases: Unknown rounding/derivation; not computed client-side.
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-002
+  merged_from:
+  - RULE-prontuario-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Prontuario.d.ts
+    lines: 19-63
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: A verifier should check the backend partition for the actual SOFA sub-score computation. DadosProntuario
+    additionally tracks eme, shic, tec, vasopressina, hidrocortisona, anti_hipertensivo, covid_19, volume_corrente,
+    dpoc, baixa_aceitacao_dieta_vo, historico_cirurgia_abdominal_recente, antibiotico_em_24hrs, presenca_cvc_cdl_7_dias,
+    cvc_cdl_femoral_5_dias as boolean/numeric risk-factor flags whose exact clinical abbreviation is not spelled
+    out in code and is therefore not asserted here.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Vincent JL, Moreno R, Takala J, Willatts S, De Mendonca A, Bruining H, et al. The SOFA (Sepsis-related
+      Organ Failure Assessment) score to describe organ dysfunction/failure. On behalf of the Working Group on Sepsis-Related
+      Problems of the ESICM. Intensive Care Med. 1996;22(7):707-710. Six organ systems (respiratory, coagulation,
+      hepatic, cardiovascular, CNS, renal), each 0-4, total 0-24.
+    detail_file: evolucoes-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-262
+    band: UNVERIFIABLE
+    title: Medical-record clinical parameter panel with pre-computed SOFA score
+    excerpt: escore_sofa is a pre-computed opaque value; the actual SOFA sub-score algorithm (respiratory/coagulation/liver/cardiovascular/CNS/renal,
+      each 0-4) lives server-side and is NOT in this partition, so there is nothing here to hand…
+- id: RULE-EVOLUCOES-002
+  name: SOFA score display threshold
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: 'When a prontuario record carries a SOFA score (escore_sofa) that is >= 0, a badge "Escore sofa:
+    {value}" is displayed at the top of the form.'
+  inputs:
+  - dados_prontuario.escore_sofa [0-24 (SOFA scale; code only checks >= 0)]
+  outputs:
+  - showSofaTag
+  logic: "if (initialValues.dados_prontuario && initialValues.dados_prontuario.escore_sofa >= 0):\n  render Tag\
+    \ \"Escore sofa: {escore_sofa}\"\n"
+  edge_cases: 'undefined/null escore_sofa: `undefined >= 0` is false -> hidden. A value of exactly 0 is shown. Negative
+    values (not expected clinically) would be hidden. SOFA itself is computed server-side; this partition only displays
+    it.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-001
+  merged_from:
+  - RULE-prontuario-FE-04-016
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormDadosProntuario/FormDadosProntuario.tsx
+    lines: 85-94
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: SOFA computation logic is not in this partition (backend / other FE partition).
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Vincent JL et al. The SOFA score to describe organ dysfunction/failure. Intensive Care Med. 1996;22(7):707-710.
+      SOFA total range 0-24 (integer).
+    detail_file: evolucoes-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-263
+    band: UNVERIFIABLE
+    title: SOFA score display threshold
+    excerpt: 'This is a UI display-gating rule (render a badge when a SOFA value is present), not a scored clinical
+      calculation with a published anchor. The >= 0 threshold is internally consistent with the SOFA scale: it displays
+      the full va…'
+- id: RULE-EVOLUCOES-003
+  name: RASS field type mismatch across models
+  category: clinical-scoring
+  type: validation
+  status: DISCREPANCY
+  verify: true
+  description: The RASS (Richmond Agitation-Sedation Scale) value is typed as `number` in Models.Ocupacao.InformacoesAssistenciais.rass
+    but as `string` in Models.DadosProntuario.rass — two different representations for what appears to be the same
+    clinical measure.
+  inputs:
+  - rass (Ocupacao.InformacoesAssistenciais) [clinically -5 to +4]
+  - rass (Prontuario.DadosProntuario)
+  outputs:
+  - rass
+  logic: 'Ocupacao.InformacoesAssistenciais.rass: number
+
+    Prontuario.DadosProntuario.rass: string
+
+    '
+  edge_cases: Recorded verbatim; not reconciled. A consumer merging data from both sources would need an explicit
+    cast/parse step that is not present in this partition.
+  confidence: medium
+  related: []
+  merged_from:
+  - RULE-prontuario-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Prontuario.d.ts
+    lines: 22-22
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Cross-reference src/@types/models/Ocupacao.d.ts line 115 (rass typed as number there).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Sessler CN, Gosnell MS, Grap MJ, Brophy GM, O''Neal PV, Keane KA, et al. The Richmond Agitation-Sedation
+      Scale: validity and reliability in adult intensive care unit patients. Am J Respir Crit Care Med. 2002;166(10):1338-1344.
+      10-level integer ordinal scale, -5 (unarousable) to +4 (combative).'
+    detail_file: evolucoes-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-059
+    band: P2
+    title: RASS field type mismatch across models
+    excerpt: Confirmed representational inconsistency (carried DISCREPANCY from extraction). Per Sessler 2002, RASS
+      is a single 10-level integer ordinal scale (-5 unarousable .. 0 alert-and-calm .. +4 combative); `number`
+      (Ocupacao) is the faithful representation while …
+- id: RULE-EVOLUCOES-004
+  name: Cardiac-arrest occurrence tracking shape
+  category: clinical-scoring
+  type: validation
+  status: OK
+  verify: true
+  description: DadosProntuario tracks whether a cardiorespiratory arrest occurred (ocorreu_parada_cardiorespiratoria,
+    a string field despite its yes/no semantics) and, if so, its start time.
+  inputs:
+  - ocorreu_parada_cardiorespiratoria [presumed yes/no or free text, not constrained to a literal union in this
+    file]
+  - horario_inicio
+  outputs:
+  - ParadaCardiorrespiratoria
+  logic: 'ParadaCardiorrespiratoria = { ocorreu_parada_cardiorespiratoria: string, horario_inicio: string }
+
+    '
+  edge_cases: Unlike other boolean clinical flags in the same DadosProntuario object (e.g. delirium and dpoc, both
+    typed boolean), this occurrence flag is typed as a free-form string rather than boolean — inconsistent typing
+    convention recorded verbatim.
+  confidence: low
+  related: []
+  merged_from:
+  - RULE-prontuario-FE-07-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Prontuario.d.ts
+    lines: 68-71
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Exact expected string values (e.g. "sim"/"nao") are not present in this partition.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference governs the storage data-type of a cardiorespiratory-arrest
+      occurrence flag. Utstein-style in-hospital cardiac arrest reporting (Jacobs I, Nadkarni V, et al. Circulation.
+      2004;110:3385-3397) specifies WHICH variables to record (occurrence, time of arrest) but not their software
+      field type.
+    detail_file: evolucoes-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-264
+    band: UNVERIFIABLE
+    title: Cardiac-arrest occurrence tracking shape
+    excerpt: 'Internal data-shape / typing-convention observation: a yes/no occurrence flag is typed as free-form
+      `string` while sibling clinical flags in the same DadosProntuario object are typed boolean. This is a code
+      consistency note wit…'
+- id: RULE-EVOLUCOES-005
+  name: Company evolutions - patient name resolved by attendance number
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: EvolucoesEmpresaSerializer.get_nome_paciente looks up a Paciente by nr_atendimento matching the Formulario's
+    own nr_atendimento, returning the patient's 'nome' attribute or None if no matching patient exists.
+  inputs:
+  - instance.nr_atendimento
+  outputs:
+  - nome_paciente
+  logic: 'return getattr(Paciente.objects.filter(nr_atendimento=instance.nr_atendimento).first(), "nome", None)
+
+    '
+  edge_cases: getattr with a default handles both 'no matching patient' (first() is None) and, defensively, a missing
+    'nome' attribute - both resolve to None rather than raising.
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-evolucao-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/evolucoes_empresa.py
+    lines: 18-23
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ' verify=true is set mechanically (Phase-1 type=''formula''); in substance this is a trivial ORM name lookup
+    (getattr on Paciente...), NOT a clinical calculation with a published anchor.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical/standard reference - this is an internal ORM name-resolution
+      business rule (look up Paciente by nr_atendimento, return .nome or None). Confirmed by the rule's own note
+      that it is a trivial name lookup, not a clinical calculation.
+    detail_file: evolucoes-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-265
+    band: UNVERIFIABLE
+    title: Company evolutions - patient name resolved by attendance number
+    excerpt: Pure ORM lookup with a defensive getattr default; behaves exactly as described and handles both 'no
+      matching patient' and 'missing nome attribute' by returning None. No clinical formula, no published anchor
+      - verify=true was se…
+- id: RULE-EVOLUCOES-006
+  name: Leito resolution precedence for form endpoints
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When resolving which leito (bed/patient-stay) a form request applies to, the nested-route kwarg 'ocupacoes__pk'
+    takes precedence over the 'nr_atendimento' query parameter; if neither is present, a validation error is raised.
+  inputs:
+  - ocupacoes__pk (URL kwarg)
+  - nr_atendimento (query param)
+  outputs:
+  - leito
+  logic: "if ocupacoes__pk:\n    return Leito.objects.get(pk=ocupacoes__pk)\nelif nr_atendimento:\n    return Leito.objects.get(nr_atendimento=nr_atendimento)\n\
+    else:\n    raise ValidationError(\"Não foi possível identificar o leito\")\n"
+  edge_cases: Raises Leito.DoesNotExist (uncaught) if a pk/nr_atendimento is supplied but does not match any Leito.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-007
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_base.py
+    lines: 48-59
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This get_leito() helper is only used by get_queryset(); manage_data() (write path) instead unconditionally
+    does `Leito.objects.get(pk=kwargs.get("ocupacoes__pk"))`, so the nr_atendimento fallback works for reads but
+    not for writes. See RULE-formulario-BE-08-015.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-007
+  name: Form visibility rule - own draft or released
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: A Formulario (clinical form/evolution) of a given type is only visible to a user if it belongs to
+    the same encounter (nr_atendimento) and matches the requested tipo_formulario, AND (it was authored/filled by
+    the requesting user OR its status is "liberado" i.e. released). Draft forms authored by other users are excluded.
+  inputs:
+  - leito.nr_atendimento
+  - tipo_formulario
+  - request.user
+  - status [e.g. 'liberado', other statuses (e.g. draft, inativo)]
+  outputs:
+  - queryset
+  logic: "Formulario.objects.filter(\n    Q(nr_atendimento=leito.nr_atendimento, tipo=tipo_formulario),\n    Q(preenchido_por=request.user)\
+    \ | Q(status=\"liberado\"),\n).order_by(\"-modificado_em\")\n"
+  edge_cases: 'Forms with any status other than "liberado" (e.g. draft/rascunho) are only visible to their original
+    author; there is no explicit handling for a null/unset preenchido_por.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-029
+  - RULE-EVOLUCOES-006
+  merged_from:
+  - RULE-formulario-BE-08-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_base.py
+    lines: 61-66
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Contrast with RULE-formulario-BE-08-016 (anterior_indicadores), whose "previous form" lookup does NOT
+    apply this visibility restriction.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-008
+  name: Signed PDF takes precedence over draft PDF
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When exposing the downloadable PDF URL for a clinical evolution document, the signed version (pdf_assinado)
+    is returned if it exists; otherwise the unsigned draft (pdf) is returned.
+  inputs:
+  - instance.pdf_assinado
+  - instance.pdf
+  outputs:
+  - pdf
+  logic: "if instance.pdf_assinado or instance.pdf:\n    pdf = instance.pdf_assinado or instance.pdf\n    return\
+    \ pdf.url\nreturn None\n"
+  edge_cases: Returns None (falls through implicitly) if neither PDF exists.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-025
+  merged_from:
+  - RULE-evolucao-BE-07-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 117-125
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-009
+  name: Evolution release (liberar) gated by registered evolution type
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Releasing ("liberar") an evolution document to the external Tasy system only actually triggers the
+    release if (a) the caller requested it AND (b) the evolution's "tipo" is one of a fixed set of registered professional
+    types; for any other tipo, the release flag is accepted but the Tasy call is silently skipped.
+  inputs:
+  - liberar (flag)
+  - formulario.tipo [must be a key of get_evolucoes_para_liberar()]
+  - formulario.preenchido_por.cpf
+  outputs:
+  - formulario.dt_liberacao
+  logic: "def liberar(formulario, liberar):\n    if liberar and checar_tipo_evolucao_cadastrada(formulario.tipo):\n\
+    \        validar_cpf(formulario.preenchido_por)   # raises if no cpf\n        formulario.dt_liberacao = timezone.now()\n\
+    \        liberar_evolucao.apply_async(args=[\n            formulario.preenchido_por.cpf,\n            formulario.nr_atendimento,\n\
+    \            get_codigo_evolucao(formulario.tipo),\n        ])\n        acoes.append(\"liberar\")\n"
+  edge_cases: 'If tipo is not registered (e.g. "tecnico_enfermagem" — see RULE-evolucao-BE-07-006), calling this
+    with liberar=True does nothing at all: no cpf validation, no dt_liberacao stamp, no async task, and no "liberar"
+    action logged — yet the caller (create()/update()) may still have set formulario.status == "liberado" believing
+    the release actually happened.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-010
+  - RULE-EVOLUCOES-011
+  - RULE-EVOLUCOES-053
+  merged_from:
+  - RULE-evolucao-BE-07-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 212-224
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-010
+  name: Registered evolution types eligible for Tasy release, and their integration codes
+  category: billing-administrative
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Only a fixed subset of professional evolution types are recognized as eligible for release into the
+    external Tasy system, each mapped to a numeric integration code; "tecnico_enfermagem" (nursing technician) evolutions
+    are explicitly excluded (commented out) from this set.
+  inputs:
+  - tipo [medico | enfermagem | fisioterapeuta | terapeuta | nutricionista | psicologo | musicoterapeuta | fonoaudiologo
+    | intercorrencia]
+  outputs:
+  - codigo_evolucao
+  logic: "def get_evolucoes_para_liberar():\n    return {\n        \"medico\": 1151,\n        # \"tecnico_enfermagem\"\
+    : 1203,   # excluded\n        \"enfermagem\": 1203,\n        \"fisioterapeuta\": 1251,\n        \"terapeuta\"\
+    : 5,\n        \"nutricionista\": 1133,\n        \"psicologo\": 1131,\n        \"musicoterapeuta\": 2332,\n \
+    \       \"fonoaudiologo\": 1121,\n        \"intercorrencia\": 2584,\n    }\ndef checar_tipo_evolucao_cadastrada(tipo):\n\
+    \    return tipo in get_evolucoes_para_liberar().keys()\ndef get_codigo_evolucao(tipo):\n    return get_evolucoes_para_liberar().get(tipo)\n"
+  edge_cases: '"tecnico_enfermagem" shares the same numeric code (1203) as "enfermagem" in the comment, but is entirely
+    absent from the live dict — meaning technician evolutions can never be released to Tasy through this path (consistent
+    with RULE-evolucao-BE-07-004''s silent-skip behavior).
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-009
+  - RULE-EVOLUCOES-011
+  - RULE-EVOLUCOES-012
+  merged_from:
+  - RULE-evolucao-BE-07-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 351-377
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMBIGUOUS whether tecnico_enfermagem's exclusion is intentional (per-role Tasy config) or an oversight;
+    recorded as implemented.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-011
+  name: Evolution release eligibility composite check (can_liberar)
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: A helper predicate that determines whether an evolution can be released, requiring simultaneously
+    that the tipo is registered, the liberar flag is set, the user has a cpf, and an nr_atendimento (encounter number)
+    is present.
+  inputs:
+  - liberar
+  - tipo
+  - cpf
+  - nr_atendimento
+  outputs:
+  - can_liberar
+  logic: "def can_liberar(liberar, tipo, cpf, nr_atendimento):\n    return all([\n        tipo in get_evolucoes_para_liberar().keys(),\n\
+    \        liberar,\n        cpf,\n        nr_atendimento,\n    ])\n"
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-009
+  - RULE-EVOLUCOES-010
+  merged_from:
+  - RULE-evolucao-BE-07-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 379-387
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This method is not invoked anywhere else within this partition''s files; it may be consumed by a view/serializer
+    outside the serializers/ directory (out of scope). Marked AMBIGUOUS only regarding call-site usage, not the
+    logic itself.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-298
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Evolution release eligibility composite check (can_liberar)
+- id: RULE-EVOLUCOES-012
+  name: AMH Docs category-code mapping per evolution type
+  category: billing-administrative
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When exporting a signed evolution document to the external AMH Docs system, the professional-type
+    "tipo" of the evolution is mapped to a fixed category code; unrecognized types fall back to a generic "EI" code.
+  inputs:
+  - tipo [medico | tecnico_enfermagem | enfermagem | fisioterapeuta | terapeuta | musicoterapeuta | nutricionista
+    | psicologo | fonoaudiologo | farmaceutico | intercorrencia]
+  outputs:
+  - categoria
+  logic: "switcher = {\n  \"medico\": \"EHCMED\", \"tecnico_enfermagem\": \"EHCTEC\", \"enfermagem\": \"EHCENF\"\
+    ,\n  \"fisioterapeuta\": \"EHCFIS\", \"terapeuta\": \"EHCTER\", \"musicoterapeuta\": \"EHCMUS\",\n  \"nutricionista\"\
+    : \"EHCNUT\", \"psicologo\": \"EHCPSI\", \"fonoaudiologo\": \"EHCFON\",\n  \"farmaceutico\": \"EHCFCT\", \"\
+    intercorrencia\": \"EHCINT\",\n}\ncategoria = switcher.get(tipo, \"EI\")\n"
+  edge_cases: Default "EI" for any tipo not in the switcher.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-010
+  merged_from:
+  - RULE-evolucao-BE-07-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 154-191
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'pdf_base64 is prefixed "data:application/pdf;base64," and built from pdf_assinado.read() — i.e. always
+    the SIGNED pdf at this call site (see RULE-evolucao-BE-07-003).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-013
+  name: Conditional PDF rendering of assessment sections based on filled fields
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When building the print/PDF context for a nursing evolution, each assessment section (abdominal,
+    cardiologic, genital, global, neurological, ventilation, invasive devices) is flagged as "present" for rendering
+    only if at least one of its non-metadata fields is non-null; for invasive devices, each device sub-panel is
+    additionally checked/flagged individually.
+  inputs:
+  - formulario.<avaliacao>.__dict__ (per assessment section)
+  outputs:
+  - context[<avaliacao>]
+  - context["lista_dispositivos_existentes"]
+  logic: "avaliacoes = [\"avaliacao_abdominal\",\"avaliacao_cardiologica\",\"avaliacao_genital\",\n            \
+    \  \"avaliacao_global\",\"avaliacao_neurologica\",\"avaliacao_ventilacao\",\n              \"dispositivos_invasivos\"\
+    ]\ndispositivos_invasivos = [\"acesso_venoso_periferico\",\"cateter_duplo_lumen_hemodialise\",\n           \
+    \   \"cateter_venoso_central\",\"fistula_arteriovenosa\",\"hipodermoclise\",\n              \"pressao_arterial_invasiva\"\
+    ,\"port_a_cath\",\"picc\"]\nfor avaliacao in avaliacoes:\n    if avaliacao == \"dispositivos_invasivos\":\n\
+    \        for sub_campo in dispositivos_invasivos:\n            dispositivo = getattr(getattr(formulario, avaliacao),\
+    \ sub_campo)\n            if not isinstance(dispositivo, dict):\n                continue\n            lista_auxiliar\
+    \ = [v for k, v in dispositivo.items()\n                               if k not in (\"formulario_id\",\"id\"\
+    ,\"criado_em\",\"modificado_em\",\"_state\")\n                               and v is not None]\n          \
+    \  if bool(lista_auxiliar):\n                lista_dispositivos_existentes.append(sub_campo)\n            lista.extend(lista_auxiliar)\n\
+    \    else:\n        lista = [v for k, v in vars(getattr(formulario, avaliacao)).items()\n                 if\
+    \ k not in (\"formulario_id\",\"id\",\"criado_em\",\"modificado_em\",\"_state\")\n                 and v is\
+    \ not None]\n    context[avaliacao] = bool(lista)\ncontext[\"lista_dispositivos_existentes\"] = lista_dispositivos_existentes\n"
+  edge_cases: 'A section renders as "present" (True) if ANY single field is non-None, even if that field is e.g.
+    an empty string or a False boolean (only None is excluded, not falsy values in general) — meaning a section
+    with just one explicitly-False checkbox field will still show as "filled".
+
+    '
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-evolucao-BE-07-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_enfermagem.py
+    lines: 226-323
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-014
+  name: Medical evolution displays most recent vital signs at/before its own creation time
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When rendering a medical evolution document, the associated vital-signs snapshot shown alongside
+    it is the single most recent SinaisVitais record for the same encounter whose creation time is at or before
+    the medical evolution's own creation time (not necessarily the globally-latest vital signs for the patient).
+  inputs:
+  - instance.nr_atendimento
+  - instance.criado_em
+  outputs:
+  - sinais_vitais
+  logic: "qs = SinaisVitais.objects.filter(\n    balanco__nr_atendimento=instance.nr_atendimento,\n    criado_em__lte=instance.criado_em,\n\
+    ).order_by(\"-criado_em\").first()\nreturn SinaisVitaisSimpleSerializer(qs).data if qs else None\n"
+  edge_cases: 'Returns None if no vital-signs record exists at or before the evolution''s creation time — even if
+    later vital signs exist for the same encounter.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-024
+  merged_from:
+  - RULE-evolucao-BE-07-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_medico.py
+    lines: 300-309
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Duplicated (using SinaisVitaisPdfSerializer instead of SinaisVitaisSimpleSerializer) in FormularioMedicoPdfSerializer.get_sinais_vitais,
+    lines 393-402 of the same file — identical filter/order/first() logic.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-015
+  name: Nutritionist PDF displays pressure-injury (LPP) records from the latest nursing evolution
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: The nutritionist evolution's printed report does not track its own LPP (pressure injury) data; instead
+    it looks up the most recently registered nursing ("enfermagem") evolution for the same bed and encounter and
+    displays that evolution's LPP list.
+  inputs:
+  - instance.leito
+  - instance.nr_atendimento
+  outputs:
+  - lpps
+  logic: "ultima_evolucao_enfermagem = Formulario.objects.filter(\n    tipo=\"enfermagem\",\n    leito=instance.leito,\n\
+    \    nr_atendimento=instance.nr_atendimento,\n).order_by(\"-dt_registro\").first()\nif ultima_evolucao_enfermagem\
+    \ and ultima_evolucao_enfermagem.avaliacao_global:\n    return LPPSerializer(ultima_evolucao_enfermagem.avaliacao_global.lpps,\
+    \ many=True).data\nelse:\n    return {}\n"
+  edge_cases: 'Returns an empty dict `{}` (not a list) when no qualifying nursing evolution exists — an inconsistent
+    "empty" representation for what is otherwise a list field.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-056
+  - RULE-EVOLUCOES-038
+  merged_from:
+  - RULE-evolucao-BE-07-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_nutricionista.py
+    lines: 225-246
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Duplicated (using LPPPDFSerializer and returning list(...) instead of {} on the empty branch — same {}
+    inconsistency) in FormularioNutricionistaPdfSerializer.get_lpps, lines 335-358 of the same file.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-016
+  name: get_base_evolucao_context — admission date included only if Tasy micro-indicators exist for the encounter
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: When building the template context for rendering an evolution PDF, the patient's admission date (dt_entrada)
+    is looked up from the Tasy-sourced MicroIndicadores table by the form's nr_atendimento; it is included only
+    if such a record exists, otherwise dt_entrada is None in the context.
+  inputs:
+  - formulario
+  outputs:
+  - context.dt_entrada
+  logic: "IF MicroIndicadores.objects.filter(NR_ATENDIMENTO=formulario.nr_atendimento).exists():\n  dt_entrada =\
+    \ MicroIndicadores.objects.filter(NR_ATENDIMENTO=formulario.nr_atendimento).first().DT_ENTRADA\nELSE:\n  dt_entrada\
+    \ = None\n"
+  edge_cases: Runs the filter().exists() check and then a SEPARATE filter().first() query (two DB round-trips instead
+    of one), but behaviorally equivalent to a single first()-with-None-fallback.
+  confidence: medium
+  related: []
+  merged_from:
+  - RULE-evo-BE-11-072
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/pdfs.py
+    lines: 52-77
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-017
+  name: Medico form bundles vital-signs creation tied to daily balanco hidrico
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: If the physician-form payload includes a 'sinais_vitais' block, the system derives the day from 'dt_registro'
+    (format 'YYYY-MM-DD HH:MM'), looks up (or auto-creates) that leito's BalancoHidrico for that day, attaches its
+    id to the vitals payload, and creates the SinaisVitais record directly via the serializer (bypassing the SinaisVitais
+    viewset).
+  inputs:
+  - dt_registro ['YYYY-MM-DD HH:MM']
+  - sinais_vitais (payload block)
+  outputs:
+  - SinaisVitais record
+  - BalancoHidrico record (existing or newly created)
+  logic: "sinais_data = data.get(\"sinais_vitais\")\nif sinais_data:\n    dia_form = datetime.strptime(data[\"dt_registro\"\
+    ], \"%Y-%m-%d %H:%M\").date()\n    try:\n        balanco_dia = leito.balancohidrico_set.get(dia=dia_form).get_pk\
+    \   # see edge_cases\n    except BalancoHidrico.DoesNotExist:\n        try:\n            balanco_dia = BalancoHidrico.objects.create(\n\
+    \                nr_atendimento=leito.nr_atendimento, leito=leito, dia=dia_form).pk\n        except Exception\
+    \ as e:\n            print(e)\n            raise ValidationError({\"sinais_vitais\": f\"Não foi possível criar\
+    \ o balanço hídrico para o dia {dia_form}: {e}\"})\n    sinais_data[\"balanco\"] = balanco_dia\n    sinais_serializer\
+    \ = SinaisVitaisSerializer(data=sinais_data, context={\"request\": request})\n    sinais_serializer.is_valid(raise_exception=True)\n\
+    \    sinais_serializer.create(sinais_serializer.validated_data)\n"
+  edge_cases: '`.get_pk` is called on the BalancoHidrico instance returned by `leito.balancohidrico_set.get(...)`;
+    Django model instances normally expose `.pk`, not `.get_pk`. Whether BalancoHidrico defines a custom `get_pk`
+    property/method cannot be confirmed from this partition (models.py is out of scope), so this may raise AttributeError
+    instead of proceeding — which would NOT be caught by the surrounding `except BalancoHidrico.DoesNotExist` clause
+    and would propagate as a 500 error rather than falling back to record creation. Any other exception during BalancoHidrico.create()
+    is logged via print() (not proper logging) and surfaced as a ValidationError under key "sinais_vitais".
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-031
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-030
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_medico.py
+    lines: 40-61
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Flagged AMBIGUOUS rather than DISCREPANCY because BalancoHidrico''s model definition (which would confirm/deny
+    a get_pk property) is outside partition BE-08''s scope.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-299
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Medico form bundles vital-signs creation tied to daily balanco hidrico
+- id: RULE-EVOLUCOES-018
+  name: Company-wide evolutions queryset filter with possible instance-vs-id type mismatch
+  category: data-validation
+  type: threshold
+  status: AMBIGUOUS
+  verify: false
+  description: 'EvolucoesEmpresaViewSet.get_queryset filters Formulario by leito__setor__estabelecimento__empresa_id=empresa_pk,
+    where empresa_pk is assigned directly from self.request.empresa - based on the pattern used throughout the rest
+    of this partition (e.g. dados_offline.py: setattr(request, ''empresa'', Empresa.objects.get(...))), request.empresa
+    is an Empresa MODEL INSTANCE, not a raw id/pk value. Filtering an ''_id''-suffixed field against a full model
+    instance rather than its .pk is untested from this partition alone and may either work (if Django''s ORM coerces
+    it) or fail/misbehave depending on the primary key field type.'
+  inputs:
+  - request.empresa
+  outputs:
+  - queryset
+  logic: 'empresa_pk = request.empresa           # NOTE: likely an Empresa instance, not a raw pk, despite the variable
+    name
+
+    queryset = Formulario.objects.filter(leito__setor__estabelecimento__empresa_id=empresa_pk)
+
+    return queryset
+
+    '
+  edge_cases: If Empresa's primary key is a UUIDField, Django's ORM query-value adaptation for an '_id' exact-lookup
+    typically expects a UUID/str/int, not a model instance - passing an instance here could raise a database adaptation
+    error, or Django could resolve it transparently by extracting .pk (behavior depends on Django/psycopg version,
+    not confirmable from this partition alone).
+  confidence: low
+  related: []
+  merged_from:
+  - RULE-evolucao-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/evolucoes_empresa.py
+    lines: 19-24
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Best interpretation: the variable name ''empresa_pk'' suggests the author intended a raw pk value, but
+    assigns request.empresa (an instance per the convention seen in dados_offline.py) without calling .pk - flagged
+    AMBIGUOUS/DISCREPANCY-adjacent for a verifier with access to core/models/empresa.py (to confirm the pk field
+    type) and to actual runtime behavior. permission_trilhas=(''can_access_relatorio_evolucao'',) gates this viewset.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-326
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Company-wide evolutions queryset filter with possible instance-vs-id type mismatch
+- id: RULE-EVOLUCOES-019
+  name: Author-only edit / inactivate / re-sign eligibility
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: Edit / inactivate / liberar-assinar controls on a past evolution are shown only when the viewer has
+    add permission, is the original author (preenchido_por.id == user.usuario.id), and the form is not already inativo.
+    Liberado forms expose Inativar + re-sign; non-liberado forms expose an Edit/Cancel toggle.
+  inputs:
+  - permission (canAdd)
+  - formulario.preenchido_por.id
+  - user.usuario.id
+  - formulario.status [salvo | liberado | inativo]
+  outputs:
+  - availableActions
+  logic: "showActions = permission && (formulario.preenchido_por.id === user.usuario.id) && (status !== \"inativo\"\
+    )\nif (showActions):\n  if (status === \"liberado\"):\n    show \"Inativar\" (confirm -> deleteEvolucao) and\
+    \ \"Liberar/assinar novamente\"\n  else:\n    show Edit/Cancel toggle (setEditing)\n# Editing enables the past-evolution\
+    \ form in \"modal\" mode; otherwise \"in_page\" (read-only).\n"
+  edge_cases: 'Non-authors and inativo forms see no action buttons (view only). The drawer OK button is hidden unless
+    editing (hideOk = !editing).
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-043
+  - RULE-EVOLUCOES-044
+  - RULE-EVOLUCOES-052
+  merged_from:
+  - RULE-evolucao-FE-04-034
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/HistoricoEvolucao/HistoricoEvolucao.tsx
+    lines: 230-296
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-020
+  name: Evolução drawer OK-button gating
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: The Save/OK button on the evolução-type drawer is hidden whenever a component type is selected and
+    that type does not both allow adding (canAdd) and represent the "add" variant (isAddKey); i.e., only evolução
+    types flagged canAdd && isAddKey expose the generic save-and-release workflow via this drawer's OK button.
+  inputs:
+  - currentEvolucaoComponent.component
+  - evolucaoComponents[component].canAdd
+  - evolucaoComponents[component].isAddKey
+  outputs:
+  - hideOk
+  logic: "hideOk = currentEvolucaoComponent.component &&\n         (!evolucaoComponents[component].canAdd || !evolucaoComponents[component].isAddKey)\n"
+  edge_cases: 'If no component is currently selected, `hideOk` evaluates to a falsy value (undefined), so the OK
+    button is shown by default before any evolução type has been chosen.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-045
+  merged_from:
+  - RULE-evolucao-FE-06-012
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/CollapseCard/CollapseCard.tsx
+    lines: 195-199
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: canAdd/isAddKey are defined in the out-of-partition hooks/useEvolucaoMenu hook; only the gating expression
+    itself is in scope here.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-021
+  name: Conditional sub-fields driven by selected option (conditions map)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: For select, boolean, checkbox and multicheck fields, choosing an option value renders the additional
+    fields listed under campo.conditions[value]. This is the schema-driven "show-if / required-if" branching of
+    the clinical form (e.g. select a symptom -> reveal follow-up questions).
+  inputs:
+  - selectedValue
+  - campo.conditions
+  outputs:
+  - extraFields
+  logic: "select/boolean/checkbox:\n  currentCondition = (campo.conditions && currentOption) ? campo.conditions[currentOption]\
+    \ : undefined\n  render each conditional campo via SelectCampoType (name prefixed with listName when inside\
+    \ a list)\nmulticheck:\n  currentConditions = checkedOptions.flatMap(o => campo.conditions[o] || [])\n# Conditional\
+    \ child fields carry their own required/min/max rules (recursive).\n"
+  edge_cases: 'Boolean uses the true/false radio value as the conditions key. Initial condition state is seeded
+    from form.getFieldValue(campo.nome). Nested list conditions prefix names with listName.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-073
+  - RULE-EVOLUCOES-022
+  merged_from:
+  - RULE-prontuario-FE-04-025
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormDadosProntuario/SubFormsDadosProntuario/SubFormSelect/SubFormSelect.tsx
+    lines: 29-96
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Same pattern in SubFormBoolean.tsx (29-96), SubFormCheckbox.tsx (29-88), SubFormMultiCheck.tsx (36-119,
+    flattened). SubFormCheckbox reads e.target.value as the conditions key (see notes/discrepancy in RULE-prontuario-FE-04-030).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-022
+  name: Single-checkbox conditions key mismatch
+  category: data-validation
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: SubFormCheckbox drives its conditional sub-fields from e.target.value on change, but an antd Checkbox
+    onChange event carries e.target.checked (boolean), not a value. The conditions lookup key is therefore likely
+    always undefined/incorrect.
+  inputs:
+  - checkbox change event
+  - campo.conditions
+  outputs:
+  - currentCondition
+  logic: 'onChange(e): setCurrentOptionCondition(e.target.value as string)   # antd checkbox: value is the prop,
+    checked is state
+
+    currentCondition = (campo.conditions && currentOption) ? campo.conditions[currentOption] : undefined
+
+    '
+  edge_cases: 'e.target.value is the Checkbox''s `value` prop (undefined here since none is set), so currentOptionCondition
+    is likely undefined and conditional fields never render. Best interpretation: intended to key conditions off
+    checked state (true/false) as SubFormBoolean does.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-021
+  merged_from:
+  - RULE-prontuario-FE-04-039
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FormDadosProntuario/SubFormsDadosProntuario/SubFormCheckbox/SubFormCheckbox.tsx
+    lines: 55-88
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Recorded verbatim. Compare SubFormBoolean (RULE-prontuario-FE-04-025) which correctly uses e.target.value
+    from a Radio.Group. Marked AMBIGUOUS because intended conditions key is unclear.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-327
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Single-checkbox conditions key mismatch
+- id: RULE-EVOLUCOES-023
+  name: Dynamic clinical-form field-type vocabulary (declared union vs render dispatch)
+  category: data-validation
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: The set of input types the dynamic clinical-form engine supports is declared as the CampoType TypeScript
+    union (11 members) but consumed by the SelectCampoType render dispatch, which maps only 10 of them to widgets.
+    The 'time' member is declared as a valid field type but has no render branch, so a 'time' field silently renders
+    no control.
+  inputs:
+  - campo.type
+  outputs:
+  - widget (SubForm* React component) or nothing
+  logic: "CampoType (src/@types/models/DadosFormDinamico.d.ts) =\n  select | interval | number | boolean | data\
+    \ | list | string | masked | time | multicheck | checkbox   # 11 declared\nSelectCampoType render dispatch (SubForm*\
+    \ widgets):\n  \"string\"     -> SubFormString\n  \"select\"     -> SubFormSelect\n  \"interval\"   -> SubFormInterval\n\
+    \  \"number\"     -> SubFormNumber\n  \"boolean\"    -> SubFormBoolean\n  \"checkbox\"   -> SubFormCheckbox\n\
+    \  \"data\"       -> SubFormData\n  \"list\"       -> SubFormList\n  \"masked\"     -> SubFormMaskedInput\n\
+    \  \"multicheck\" -> SubFormMultiCheck\n  # NO branch for \"time\"  -> unknown/unhandled type renders nothing\n"
+  edge_cases: A 'time'-typed field is valid per the CampoType union but matches no dispatch branch and renders no
+    input at all. Any unhandled type renders nothing. campo.mainKey injects a hidden [mainKey,'id'] field.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-072
+  - RULE-EVOLUCOES-073
+  - RULE-EVOLUCOES-066
+  - RULE-EVOLUCOES-067
+  - RULE-EVOLUCOES-068
+  - RULE-EVOLUCOES-069
+  - RULE-EVOLUCOES-070
+  divergence: CampoType union declares 11 types INCLUDING 'time' (DadosFormDinamico.d.ts:53-64); SelectCampoType
+    dispatch implements only 10 and has NO case for 'time' (SelectCampoType.tsx:74-160), so a 'time' field renders
+    nothing. The other 10 types match on both sides. Declaration side = formdinamico enum; consumer side = prontuario
+    dispatch.
+  merged_from:
+  - RULE-formdinamico-FE-07-003
+  - RULE-prontuario-FE-04-019
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/DadosFormDinamico.d.ts
+    lines: 53-64
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/components/FormDadosProntuario/SubFormsDadosProntuario/SelectCampoType/SelectCampoType.tsx
+    lines: 61-171
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: Phase-1 captured these as two separate OK rules (RULE-formdinamico-FE-07-003 field-type enumeration + RULE-prontuario-FE-04-019
+    dispatch vocabulary). Reconciliation compared them against the legacy source at commit f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    and found the 'time' gap — a NEW divergence not flagged in Phase 1. Merged; status upgraded to DISCREPANCY.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-160
+    band: P3
+    title: data-validation
+    excerpt: CampoType union declares 11 types INCLUDING 'time' (DadosFormDinamico.d.ts:53-64); SelectCampoType
+      dispatch implements only 10 and has NO case for 'time' (SelectCampoType.tsx:74-160), so a 'time' field renders
+      nothing. The other 10 types…
+- id: RULE-EVOLUCOES-024
+  name: criar_sepse_evolucao / get_ultimos_sinais_vitais — sepsis note auto-linked to most recent vitals
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: When a Sepse evolution record is created for a formulario, it is automatically linked to the most
+    recently created SinaisVitais (vital signs) record whose balanco (fluid-balance record) shares the same nr_atendimento
+    as the formulario; if no such vitals record exists, sinais_vitais is left null.
+  inputs:
+  - formulario
+  outputs:
+  - Sepse
+  logic: "get_ultimos_sinais_vitais(formulario):\n  RETURN SinaisVitais.objects.select_related(\"balanco\")\n  \
+    \         .filter(balanco__nr_atendimento=formulario.nr_atendimento)\n           .order_by(\"-criado_em\").first()\n\
+    criar_sepse_evolucao(formulario):\n  sinais_vitais = get_ultimos_sinais_vitais(formulario)\n  Sepse.objects.create(sinais_vitais=sinais_vitais\
+    \ OR None, nr_atendimento=formulario.nr_atendimento, evolucao=formulario)\n"
+  edge_cases: Chooses the single most recent SinaisVitais by criado_em (creation timestamp), not by any clinical
+    timestamp field on the vitals themselves — if vitals were entered out of chronological order (e.g. backdated),
+    the 'most recent' one is not necessarily the clinically-latest one.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-014
+  merged_from:
+  - RULE-evo-BE-11-073
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/evolucoes.py
+    lines: 106-129
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-025
+  name: Evolution signing workflow and signature-date assignment
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: When an evolution document is signed, the system validates the signer has a registered CPF+PIN, generates
+    the signed PDF via the Cryptocubo integration, and stamps the document's "dt_assinatura" (signature date) —
+    but with the record's dt_registro (registration timestamp) rather than the actual signature timestamp produced
+    by the signing service.
+  inputs:
+  - formulario.preenchido_por (cpf, pin)
+  - formulario.pdf
+  - formulario.dt_registro
+  outputs:
+  - formulario.pdf_assinado
+  - formulario.dt_assinatura
+  logic: "def assinar(formulario, assinar):\n    if assinar:\n        validar_assinatura(formulario.preenchido_por)\
+    \  # requires cpf AND pin\n        assinatura = assinar_pdf_cryptocubo(formulario.pdf, formulario.preenchido_por)\n\
+    \        dt_registro = formulario.dt_registro\n        pdf_assinado = assinatura.get_pdf_assinado()\n      \
+    \  formulario.pdf_assinado = pdf_assinado\n        if formulario.pdf_assinado:\n            formulario.dt_assinatura\
+    \ = dt_registro   # <-- uses dt_registro, not the signature's own timestamp\n            acoes.append(\"assinar\"\
+    )\n            enviar_arquivo_amhdocs.apply_async(args=[formulario.nr_atendimento, get_amhdocs_data(...)])\n"
+  edge_cases: 'The `assinatura` object returned by assinar_pdf_cryptocubo presumably carries its own true signing
+    timestamp (used elsewhere, e.g. EntradaSerializer.get_data_assinatura reads instance.assinatura.data_assinatura),
+    but this method discards it in favor of dt_registro. If dt_registro is set at document-creation time and signing
+    happens later (e.g. on update()), dt_assinatura will misrepresent the actual signing moment.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-026
+  - RULE-EVOLUCOES-027
+  - RULE-EVOLUCOES-054
+  merged_from:
+  - RULE-evolucao-BE-07-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 193-210
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Flagged DISCREPANCY because within the same codebase (entradas.py/saidas.py/ sinais_vitais.py) the true
+    "data_assinatura" is clearly available on the assinatura object and used directly elsewhere, suggesting this
+    dt_registro substitution is unintentional rather than a deliberate design choice.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-116
+    band: P3
+    title: care-pathway
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-EVOLUCOES-026
+  name: Auto sign-and-release on create when status is "liberado"
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: When a new evolution document is created with status == "liberado", the system automatically generates
+    the PDF and attempts both signing and release in the same request (rather than requiring separate explicit sign/release
+    actions).
+  inputs:
+  - validated_data.status [rascunho | liberado | inativo (inferred)]
+  outputs:
+  - formulario.pdf, pdf_assinado, dt_assinatura, dt_liberacao
+  logic: "def create(validated_data):\n    ...\n    formulario = super().create(validated_data)\n    criar_campos_evolucao(formulario,\
+    \ campos_formulario)\n    liberar = validated_data.get(\"status\", False) == \"liberado\"\n    evolucao = gerar_pdf_assinar_liberar(formulario,\
+    \ assinar=liberar, liberar=liberar)\n    criar_acao_homecare()\n    return evolucao\n"
+  edge_cases: 'assinar and liberar are always passed the SAME boolean (derived only from status=="liberado") — there
+    is no way via this code path to sign without also attempting release, or vice versa, at creation time.
+
+    '
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-027
+  - RULE-EVOLUCOES-025
+  merged_from:
+  - RULE-evolucao-BE-07-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 238-255
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same status=="liberado" gate reused identically in update() (RULE-evolucao-BE-07-011). RECONCILED with
+    backend model: Formulario.status field default=''salvo'', choices=(''salvo'',''liberado'',''inativo'') (models/choices/formulario.py:46-51;
+    models/formularios/formulario.py:26-29). This confirms the frontend status enum; the Phase-1 draft-state guess
+    ''rascunho'' is incorrect — the draft value is ''salvo''.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-027
+  name: Auto sign-and-release on update when status is "liberado", gated by edit-eligibility
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Updating an evolution document first validates that it is editable at all (not inactive, and edited
+    only by its original author), then — if the submitted status is "liberado" — re-runs the same sign+release logic
+    as on create.
+  inputs:
+  - instance.status
+  - instance.preenchido_por
+  - requesting user
+  - validated_data.status
+  outputs:
+  - formulario.pdf, pdf_assinado, dt_assinatura, dt_liberacao
+  logic: "def update(instance, validated_data):\n    validar_atualizacao(instance, usuario)  # validar_status +\
+    \ validar_usuario\n    formulario = super().update(instance, validated_data)\n    atualizar_campos_evolucao(campos_formulario)\n\
+    \    liberado = validated_data.get(\"status\", False) == \"liberado\"\n    evolucao = gerar_pdf_assinar_liberar(formulario,\
+    \ assinar=liberado, liberar=liberado)\n    criar_acao_homecare()\n    return evolucao\n"
+  edge_cases: If validar_atualizacao raises, the update never proceeds to the sign/release step.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-026
+  - RULE-EVOLUCOES-051
+  - RULE-EVOLUCOES-052
+  merged_from:
+  - RULE-evolucao-BE-07-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/formulario_base.py
+    lines: 257-274
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Composes RULE-evolucao-BE-07-007 (validar_status) and RULE-evolucao-BE-07-008 (validar_usuario).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-028
+  name: Form manage_data - required identifiers and content wrapping
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'On write, every form payload is stamped with tipo (the form''s tipo_formulario), leito id, and nr_atendimento
+    derived strictly from the ''ocupacoes__pk'' URL kwarg (no nr_atendimento fallback, unlike the read path). Each
+    named "conteudo" content block (here just "impressao_geral" at the base level; subclasses add more, see RULE-formulario-BE-08-019..029)
+    is moved into a "<conteudo>_data" key and tagged with "tipo_conteudo": "<conteudo>".'
+  inputs:
+  - ocupacoes__pk (URL kwarg)
+  - impressao_geral (payload field)
+  outputs:
+  - data["tipo"]
+  - data["leito"]
+  - data["nr_atendimento"]
+  - data["impressao_geral_data"]
+  logic: "leito = Leito.objects.get(pk=kwargs[\"ocupacoes__pk\"])   # raises if kwarg missing/invalid\ndata[\"tipo\"\
+    ] = tipo_formulario\ndata[\"leito\"] = str(leito.id)\ndata[\"nr_atendimento\"] = leito.nr_atendimento\nfor conteudo\
+    \ in [\"impressao_geral\"]:\n    data[f\"{conteudo}_data\"] = {**data.pop(conteudo, {}), \"tipo_conteudo\":\
+    \ conteudo}\n"
+  edge_cases: 'Unlike get_queryset()/get_leito(), this write path has no nr_atendimento-query-param fallback: a
+    write request lacking ''ocupacoes__pk'' in the URL will raise (Leito.DoesNotExist or similar) rather than the
+    friendly "Não foi possível identificar o leito" ValidationError from get_leito().
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-006
+  - RULE-EVOLUCOES-017
+  merged_from:
+  - RULE-formulario-BE-08-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_base.py
+    lines: 68-90
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Each conteudo block missing from the incoming payload defaults to an empty dict ({}) via data.pop(conteudo,
+    {}).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-029
+  name: anterior_indicadores aggregation (previous form/vitals/24h indicators)
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: The 'anterior_indicadores' GET action assembles a payload combining the patient, the most recent
+    vital-signs record not in the future, the most recent Formulario of the same tipo for the encounter (WITHOUT
+    the author/status visibility restriction used by the main list queryset), and six 24h rolling clinical indicators.
+    On merge, keys from the freshly computed payload (paciente/indicadores_24h/sinais_vitais) override any same-named
+    keys carried over from the previous form's serialized data.
+  inputs:
+  - request.leito.nr_atendimento
+  - now
+  outputs:
+  - payload.paciente
+  - payload.indicadores_24h
+  - payload.sinais_vitais
+  logic: "now = datetime.now().astimezone()\nqs = SinaisVitais.objects_without_deleted.filter(\n       balanco__nr_atendimento=nr_atendimento,\
+    \ modificado_em__lte=now\n     ).order_by(\"-modificado_em\").first()\nformulario_anterior = Formulario.objects.filter(\n\
+    \       tipo=tipo_formulario, nr_atendimento=nr_atendimento\n     ).order_by(\"-modificado_em\").first()   \
+    \       # NOTE: no preenchido_por/status filter here\nif formulario_anterior:\n    formulario_anterior = serializer_class(instance=formulario_anterior).data\n\
+    \    formulario_anterior.pop(\"sinais_vitais\", None)\n    formulario_anterior.pop(\"indicadores_24\", None)\n\
+    sinais = SinaisVitaisSimpleSerializer(qs).data if qs else None\nindicadores_24h = {\n  \"evacuacoes_24h\": evacuacoes_24h_evo(now,\
+    \ nr_atendimento),\n  \"diurese_24h\": diureses_24h_evo(now, nr_atendimento),\n  \"ganhos_24h\": ganhos_24h_evo(now,\
+    \ nr_atendimento),\n  \"temperatura_max_24h\": temperatura_24h_evo(now, nr_atendimento),\n  \"hgt_24h\": hgt_24h_evo(now,\
+    \ nr_atendimento),\n  \"balanco_24h\": balanco_24h_evo(now, nr_atendimento),\n}\npayload = {\"paciente\": PacienteSerializer(request.leito.paciente).data,\n\
+    \           \"indicadores_24h\": indicadores_24h, \"sinais_vitais\": sinais}\nif formulario_anterior:\n    payload\
+    \ = {**formulario_anterior, **payload}\nreturn Response(payload)\n"
+  edge_cases: 'formulario_anterior lookup can surface another user''s still-unreleased (non-"liberado") draft form
+    as "the previous form", which is inconsistent with the stricter visibility enforced by BaseFormViewSet.get_queryset()
+    (RULE-formulario-BE-08-014). Requires `request.leito` / `request.setor` populated by out-of-partition mixins.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EVOLUCOES-007
+  - RULE-EVOLUCOES-047
+  merged_from:
+  - RULE-formulario-BE-08-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_base.py
+    lines: 92-140
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'The six *_24h_evo() functions and get_visao_geral-style helpers live in trilha_homecare/utils.py, outside
+    this partition''s scope; only their names/call-signature and the assembly logic above are captured here.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-117
+    band: P3
+    title: care-pathway
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-EVOLUCOES-030
+  name: Form destroy() does not call validar_inativacao (dead validation)
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: destroy() marks a Formulario as inactive (status="inativo") and logs an AcaoHomecare audit entry,
+    but never calls self.validar_inativacao(instance) (RULE-formulario-BE-08-017). As written, a form with status
+    "liberado" CAN be inactivated through this endpoint, contradicting the intent expressed by validar_inativacao's
+    docstring/message.
+  inputs:
+  - instance.status
+  outputs:
+  - instance.status [set to 'inativo']
+  - AcaoHomecare audit record
+  logic: "def destroy(request):\n    instance = self.get_object()\n    # NOTE: self.validar_inativacao(instance)\
+    \ is NOT called here\n    instance.status = \"inativo\"\n    instance.save()\n    criar_acao_homecare(tipo=\"\
+    evolucao\", acoes=[\"inativar\"], leito=request.leito,\n                         setor=request.setor, evolucao=instance,\
+    \ realizado_por=request.user)\n    return Response(status=204)\n"
+  edge_cases: No exception is raised even if instance.status == "liberado" prior to this call.
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-055
+  merged_from:
+  - RULE-formulario-BE-08-018
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_base.py
+    lines: 151-169
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Recorded verbatim per ground rules; validar_inativacao (lines 142-149) appears unused/dead in this file.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-118
+    band: P3
+    title: care-pathway
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-EVOLUCOES-031
+  name: Medico form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Physician evolution form content blocks.
+  inputs:
+  - tipo_formulario ['medico']
+  outputs:
+  - content blocks
+  logic: 'content_blocks(medico) = ["impressao_geral", "impressao_medica", "plano_terapeutico", "conduta_medica"]
+
+    permission_trilhas = ("can_preencher_formulario_medico",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-017
+  - RULE-EVOLUCOES-028
+  - RULE-EVOLUCOES-014
+  merged_from:
+  - RULE-formulario-BE-08-024
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_medico.py
+    lines: 12-39
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: See RULE-formulario-BE-08-030 for the bundled vital-signs/balanco-hidrico side effect implemented in the
+    same manage_data() override.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-032
+  name: Enfermagem form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Nursing evolution form (tipo_formulario='enfermagem') has no extra content blocks beyond the base
+    'impressao_geral'.
+  inputs:
+  - tipo_formulario ['enfermagem']
+  outputs:
+  - content blocks
+  logic: 'content_blocks(enfermagem) = ["impressao_geral"]   # inherited from BaseFormViewSet only
+
+    permission_trilhas = ("can_preencher_formulario_enfermeiro",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-033
+  - RULE-EVOLUCOES-040
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_enfermagem.py
+    lines: 9-15
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Same content composition (impressao_geral only) also applies to tecnico_enfermagem (RULE-formulario-BE-08-028)
+    and terapeuta (RULE-formulario-BE-08-029), each gated by a distinct permission.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-033
+  name: Tecnico de enfermagem form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Nursing-technician form has no extra content blocks beyond base 'impressao_geral'.
+  inputs:
+  - tipo_formulario ['tecnico_enfermagem']
+  outputs:
+  - content blocks
+  logic: 'content_blocks(tecnico_enfermagem) = ["impressao_geral"]
+
+    permission_trilhas = ("can_preencher_formulario_tec_enfermagem",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-032
+  - RULE-EVOLUCOES-040
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-028
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_tecnico_enfermagem.py
+    lines: 5-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-034
+  name: Fisioterapeuta form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Physiotherapist form content blocks.
+  inputs:
+  - tipo_formulario ['fisioterapeuta']
+  outputs:
+  - content blocks
+  logic: 'content_blocks(fisioterapeuta) = ["impressao_geral", "meta_terapeutica"]
+
+    permission_trilhas = ("can_preencher_formulario_fisioterapeuta",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-021
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_fisioterapeuta.py
+    lines: 10-31
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-035
+  name: Farmaceutico clinico form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Clinical pharmacist form content blocks.
+  inputs:
+  - tipo_formulario ['farmaceutico']
+  outputs:
+  - content blocks
+  logic: "content_blocks(farmaceutico) = [\"impressao_geral\", \"conciliacao_medicamentosa\",\n                \
+    \                \"conduta_farmaceutica\", \"profilaxias\", \"meta_terapeutica\"]\npermission_trilhas = (\"\
+    can_preencher_formulario_farmaceutico\",)\nexceto_metodo = \"GET\"\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  - RULE-EVOLUCOES-062
+  merged_from:
+  - RULE-formulario-BE-08-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_farmaceutico.py
+    lines: 7-31
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-036
+  name: Fonoaudiologo form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Speech-language therapist form content blocks.
+  inputs:
+  - tipo_formulario ['fonoaudiologo']
+  outputs:
+  - content blocks
+  logic: "content_blocks(fonoaudiologo) = [\"impressao_geral\", \"avaliacao_fonoaudiologica\",\n               \
+    \                  \"conduta_fonoaudiologica\", \"meta_terapeutica\"]\npermission_trilhas = (\"can_preencher_formulario_fonoaudiologo\"\
+    ,)\nexceto_metodo = \"GET\"\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_fonoaudiologo.py
+    lines: 9-32
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-037
+  name: Musicoterapeuta form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Music-therapy form content blocks.
+  inputs:
+  - tipo_formulario ['musicoterapeuta']
+  outputs:
+  - content blocks
+  logic: 'content_blocks(musicoterapeuta) = ["impressao_geral", "conduta_realizada", "meta_terapeutica"]
+
+    permission_trilhas = ("can_preencher_formulario_musicoterapeuta",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-025
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_musicoterapeuta.py
+    lines: 7-29
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-038
+  name: Nutricionista form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Nutritionist form content blocks.
+  inputs:
+  - tipo_formulario ['nutricionista']
+  outputs:
+  - content blocks
+  logic: "content_blocks(nutricionista) = [\"impressao_geral\", \"avaliacao_diaria_nutricionista\",\n          \
+    \                       \"meta_terapeutica\", \"objetivos_diarios_pendencias\"]\npermission_trilhas = (\"can_preencher_formulario_nutricionista\"\
+    ,)\nexceto_metodo = \"GET\"\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  - RULE-EVOLUCOES-056
+  - RULE-EVOLUCOES-015
+  merged_from:
+  - RULE-formulario-BE-08-026
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_nutricionista.py
+    lines: 7-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EVOLUCOES-039
+  name: Psicologo form content composition
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Psychologist form content blocks.
+  inputs:
+  - tipo_formulario ['psicologo']
+  outputs:
+  - content blocks
+  logic: "content_blocks(psicologo) = [\"impressao_geral\", \"avaliacao_psicologica\",\n                       \
+    \      \"conduta_psicologica\", \"meta_terapeutica\"]\npermission_trilhas = (\"can_preencher_formulario_psicologo\"\
+    ,)\nexceto_metodo = \"GET\"\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-EVOLUCOES-028
+  merged_from:
+  - RULE-formulario-BE-08-027
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/formulario_psicologo.py
+    lines: 14-37
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: File imports FormularioFisioterapeutaSerializer/FormularioTerapeutaSerializer/FormularioNutricionistaSerializer
+    but never uses them (dead imports, not a rule).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

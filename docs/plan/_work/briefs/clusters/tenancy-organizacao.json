@@ -1,0 +1,305 @@
+{
+  "brief_id": "cluster-tenancy-organizacao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/tenancy-organizacao.yaml",
+    "lines": 2033,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/tenancy-organizacao.yaml",
+      "line_ranges": "1-2033"
+    }
+  ],
+  "facts": [
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-01",
+      "claim": "Multi-tenant hierarchy: Empresa (company) → Estabelecimento (establishment) → Setor (sector) → Leito (bed); scoped by middleware chain (EmpresaMiddleware → EstabelecimentoMiddleware → SetorMiddleware → LeitoMiddleware) resolving tenant context into request.empresa/estabelecimento/setor/leito",
+      "kind": "entity",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-017,018,019,020"
+    },
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-02",
+      "claim": "Processing mode (tipo) enumeration gates pathway selection: tipo='manual' routes to Movimentacao trilhas; tipo='automatica' to Leito.get_total_alertas_automaticos; tipo='homecare' to Leito.get_total_assistidos_homecare; branching implemented across occupancy, gender, alert, and assisted-patient counts",
+      "kind": "policy",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-016"
+    },
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-03",
+      "claim": "Occupancy formula at establishment and sector scopes: (occupied/total)×100; sector-level has ativo/ocupado asymmetry (denominator filtered by ativo=True, numerator by ocupado=True only), allowing occupancy >100% if inactive beds marked ocupado=True, violating WHO BOR definition",
+      "kind": "metric",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-003,004"
+    },
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-04",
+      "claim": "Alert/gender/assisted aggregation merges two sources: (1) manual Movimentacao records, (2) automatic-pathway Leito aggregates; summed per alert level (VERMELHO/AMARELO/NEUTRO) and gender (M/F/N='não informado'/O)",
+      "kind": "metric",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-011,013,029,034,035,036"
+    },
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-05",
+      "claim": "Macro-indicator aggregation divergence: EstabelecimentoStatusSerializer uses Sum/Avg aggregate with Round(precision=2); SetorStatusSerializer uses single-record .get() with no rounding—materially different implementations of identical metric (vidas_salvas, obitos, tempo_permanencia, tx_mortalidade, tx_ocupacao, admissao)",
+      "kind": "metric",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-005,006"
+    },
+    {
+      "id": "CLU-TENANCY-ORGANIZACAO-06",
+      "claim": "Sector indicadores aggregates VERMELHO/AMARELO/NEUTRO counts across every care-pathway type (trilha_homecare, trilha_automatica); homecare uses DISTINCT ON max(criado_em) per patient/atendimento; automatica assumes trilha pk==nr_atendimento; risk of TypeError if Sum() returns None on empty queryset",
+      "kind": "metric",
+      "source_ref": "RULE-TENANCY-ORGANIZACAO-038"
+    }
+  ],
+  "histogram": {
+    "total_rules": 52,
+    "by_status": {
+      "OK": 44,
+      "DISCREPANCY": 5,
+      "AMBIGUOUS": 3
+    },
+    "by_verdict": {
+      "VERIFIED": 2,
+      "UNVERIFIABLE": 33,
+      "DISCREPANCY": 5,
+      "NOT_APPLICABLE": 12
+    }
+  },
+  "load_bearing_rules": [
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-016",
+      "summary": "Processing-mode (tipo) enumeration gates pathway: manual/automatica/homecare select distinct alert/gender/assisted calculation branches",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-017",
+      "summary": "EmpresaMiddleware path-based tenant resolution: scans URL segments, resolves empresa FK, silently swallows all exceptions via bare except",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-018",
+      "summary": "EstabelecimentoMiddleware adds cross-check: if request.empresa already set, must match resolved estabelecimento.empresa, else HTTP 400",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-019",
+      "summary": "SetorMiddleware validates setor's estabelecimento against both request.empresa and request.estabelecimento; dual cross-check rejects mismatches with HTTP 400",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-003",
+      "summary": "Establishment occupancy ativo/ocupado asymmetry: total_leitos filtered ativo=True, total_leitos_ocupados filtered ocupado=True only (no ativo), can exceed 100%",
+      "verdict": "DISCREPANCY"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-004",
+      "summary": "Sector occupancy ativo/ocupado asymmetry: denominator filters ativo=True, numerator filters ocupado=True only, can exceed 100%",
+      "verdict": "DISCREPANCY"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-038",
+      "summary": "Sector indicadores aggregates VERMELHO/AMARELO/NEUTRO across trilha models; homecare picks DISTINCT ON max(criado_em) per atendimento; assumes automatica pk==nr_atendimento",
+      "verdict": "UNVERIFIABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-041",
+      "summary": "Company-wide indicadores scopes to user's establishments/sectors: filters movimentacoes by atual=True, leito__ocupado=True, setor__usuarios=user",
+      "verdict": "UNVERIFIABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-042",
+      "summary": "Establishment indicadores scopes setores to user-membership; returns SetorStatusSerializer data ordered by sector name",
+      "verdict": "UNVERIFIABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-021",
+      "summary": "SetorViewSet.get_queryset applies dual independent scoping (AND): filters by both request.empresa and request.estabelecimento if present",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-045",
+      "summary": "GrupoAcesso exactly-one-scope constraint (three_xor): must attach to exactly one of empresa/estabelecimento/setor, not zero or 2+",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-TENANCY-ORGANIZACAO-020",
+      "summary": "LeitoMiddleware path-based bed resolution without cross-tenant check; no validation that resolved bed belongs to expected empresa/estabelecimento/setor context",
+      "verdict": "NOT_APPLICABLE"
+    }
+  ],
+  "systemic_issues": [
+    {
+      "id": "TENANCY-SYSTEMIC-01",
+      "title": "ativo/ocupado scoping asymmetry across occupancy formulas",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-003",
+        "RULE-TENANCY-ORGANIZACAO-004"
+      ],
+      "detail": "Both establishment and sector (occupied/total)×100 formulas: total_leitos filters ativo=True but total_leitos_ocupados filters ocupado=True without ativo guard. If any bed has ocupado=True but ativo=False, numerator exceeds denominator, pushing occupancy >100%. Violates WHO BOR definition (occupied is strict subset of available)."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-02",
+      "title": "Code duplication across establishment/sector serializers",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-005",
+        "RULE-TENANCY-ORGANIZACAO-006",
+        "RULE-TENANCY-ORGANIZACAO-013",
+        "RULE-TENANCY-ORGANIZACAO-029",
+        "RULE-TENANCY-ORGANIZACAO-030",
+        "RULE-TENANCY-ORGANIZACAO-034",
+        "RULE-TENANCY-ORGANIZACAO-035",
+        "RULE-TENANCY-ORGANIZACAO-036"
+      ],
+      "detail": "Establishment/sector gender/alert/assisted totals implement structurally identical tipo-branching (manual vs automatica/homecare) separately in EstabelecimentoStatusSerializer and SetorStatusSerializer. Macro-indicator fetch uses different implementations (aggregate with Round vs single-record .get()). No shared helper; code copy-pasted."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-03",
+      "title": "Silent exception handling in tenant resolution and data fetches",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-006",
+        "RULE-TENANCY-ORGANIZACAO-017",
+        "RULE-TENANCY-ORGANIZACAO-018",
+        "RULE-TENANCY-ORGANIZACAO-019",
+        "RULE-TENANCY-ORGANIZACAO-020"
+      ],
+      "detail": "Bare except: / except Exception: pass used in macro-indicator fetch (SetorStatusSerializer) and all 4 tenant-resolution middlewares; swallows DoesNotExist, IndexError, UUID errors, MultipleObjectsReturned with no logging. Middleware bare except leaves request.setor/leito unset; macro-indicator returns empty dict silently."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-04",
+      "title": "Commented-out ocupado filters in aggregation queries",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-034",
+        "RULE-TENANCY-ORGANIZACAO-035",
+        "RULE-TENANCY-ORGANIZACAO-041"
+      ],
+      "detail": "SetorStatusSerializer.get_total_generos/get_total_alertas and EmpresaViewSet.indicadores have 'ocupado=True' filters commented out; all active beds (occupied or not) count toward gender/alert totals. Inconsistent vs manual branch which counts only current occupants via Movimentacao.atual=True."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-05",
+      "title": "Missing cross-tenant validation in LeitoMiddleware",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-020"
+      ],
+      "detail": "EmpresaMiddleware, EstabelecimentoMiddleware, SetorMiddleware all perform cross-checks (HTTP 400 on mismatch); LeitoMiddleware has no cross-check against request.setor/estabelecimento/empresa. No prefetch_related, no validation that resolved bed belongs to expected tenant context."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-06",
+      "title": "Implicit field-ordering dependency in serializer",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-013"
+      ],
+      "detail": "SetorSerializer.get_generos relies on self.generos_automaticos populated by get_alertas (must run first). No explicit safeguard; depends on DRF field declaration order (alertas before generos). If order changes, AttributeError."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-07",
+      "title": "TypeError risk in null-handling for aggregate queries",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-038"
+      ],
+      "detail": "SetorViewSet.indicadores: Sum() over empty queryset returns None (not 0). Code uses .get(key, 0) as default only for MISSING dict key, not for None value present. If trilha has zero matching rows, '+= None' raises TypeError. Manifests when care pathway has no records for occupied beds."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-08",
+      "title": "Error message wording mismatch (entity name confusion)",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-037"
+      ],
+      "detail": "SetorViewSet.destroy() raises ValidationError 'Você não pode apagar um leito com ocupações!' (cannot delete a bed with occupations) when deleting setor. Message incorrectly names 'leito' instead of 'setor'. Copied from LeitoViewSet.destroy() without adaptation; EstabelecimentoViewSet.destroy() correctly says 'estabelecimento'."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-09",
+      "title": "Silent logo data loss on type mismatch",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-049"
+      ],
+      "detail": "EmpresaViewSet.manage_data: if 'logo' field present but not a string (e.g. dict, file object), it is silently popped and discarded with no logo_b64 set and no error. Non-string logo values lost without client feedback."
+    },
+    {
+      "id": "TENANCY-SYSTEMIC-10",
+      "title": "Uncorroborated pk==nr_atendimento assumption in automatica pathway",
+      "rules": [
+        "RULE-TENANCY-ORGANIZACAO-038"
+      ],
+      "detail": "SetorViewSet.indicadores assumes for automatica pathways that trilha model's primary key IS the nr_atendimento value itself. Cannot be independently confirmed from this partition; direct reading of code but comment/documentation missing."
+    }
+  ],
+  "v2_domains": [
+    "platform",
+    "governance",
+    "experience"
+  ],
+  "v2_domain_detail": {
+    "platform": "Multi-tenant data isolation via path-based middleware chain; request context population (empresa/estabelecimento/setor/leito); queryset filtering by tenant scope; cross-tenant validation guards",
+    "governance": "Permission/access control: GrupoAcesso tenant scoping (exactly-one constraint), can_manage_empresa permission gating (GET exempted), proprietario lifecycle management, visibility gating by company tipo (homecare-only buttons)",
+    "experience": "Dashboard auto-refresh polling (empresa.tempo_atualizacao in seconds); chat preview last-message selection; sector picker cascading enable/disable; field-level exposure gating (EstabelecimentoSerializer camera credentials only on retrieve/partial_update)"
+  },
+  "pt_br_vocabularies": {
+    "tipo": {
+      "description": "Processing mode enumeration; controls which pathway engine and alert logic apply",
+      "values": [
+        "manual",
+        "automatica",
+        "homecare",
+        ""
+      ],
+      "notes": "Empty string = 'Não informado'; Empresa defaults to ''; Estabelecimento/Setor/Leito default to 'manual'"
+    },
+    "alerta": {
+      "description": "Alert severity level; used in Movimentacao and trilha records",
+      "values": [
+        "VERMELHO",
+        "AMARELO",
+        "NEUTRO"
+      ],
+      "notes": "Aggregated as counts in occupancy views and indicadores"
+    },
+    "genero": {
+      "description": "Patient gender; aggregated per sector/establishment",
+      "values": [
+        "M",
+        "F",
+        "N",
+        "O"
+      ],
+      "notes": "N = 'não informado'; O likely 'outro'; enumerations not HL7/FHIR conformant"
+    },
+    "assistido": {
+      "description": "Flag indicating patient has been attended/assisted; aggregated per sector",
+      "type": "boolean"
+    },
+    "whitelabel": {
+      "description": "Company brand identifier, unique across all companies",
+      "values": [
+        "americashealth",
+        "ficticia",
+        "homecare",
+        "outras"
+      ],
+      "notes": "Enforced unique=True at DB level; supports multiple white-labeled deployments"
+    },
+    "proprietario": {
+      "description": "Company owner (Usuario FK); save() ensures owner has 'p' access code, revokes from previous owner if they own no other company",
+      "notes": "Lifecycle-managed via SetUpModel.original_object pre-save snapshot"
+    },
+    "tempo_atualizacao": {
+      "description": "Dashboard auto-refresh interval in seconds; default 300; multiplied by 1000 for JS setInterval milliseconds",
+      "unit": "seconds",
+      "notes": "PositiveIntegerField; drives polling in empresa and estabelecimento dashboards"
+    },
+    "cor_primaria": {
+      "description": "Company primary color; must be exactly 6 characters (hex without #)",
+      "constraint": "MinLengthValidator(6), max_length=6"
+    },
+    "error_messages_pt_br": {
+      "examples": [
+        "Você não pode apagar um estabelecimento com leitos ocupados! (correct entity name)",
+        "Você não pode apagar um leito com ocupações! (DISCREPANCY: wrong entity name used for setor deletion)"
+      ]
+    }
+  },
+  "open_questions": [
+    "Is the ativo/ocupado asymmetry in occupancy formulas (003, 004) intentional, or a drift from WHO BOR standard?",
+    "Should commented-out ocupado=True filters in aggregation queries (034, 035, 041) be removed or restored?",
+    "Can SetorSerializer.get_generos dependency on alertas field ordering (013) be made explicit or refactored?",
+    "Is the pk==nr_atendimento assumption for automatica trilha models (038) documented/enforced anywhere?"
+  ]
+}

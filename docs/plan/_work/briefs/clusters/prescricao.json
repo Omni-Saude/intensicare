@@ -1,0 +1,61 @@
+{
+  "brief_id": "cluster-prescricao",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/prescricao.yaml",
+    "lines": 1826,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/prescricao.yaml", "line_ranges": "1-1826"}
+  ],
+  "facts": [
+    {"id": "CLU-PRESCRICAO-01", "claim": "41 rules: dose suspension state machine, admin check/cancel/revert, fluid-balance ml export, 07:00 day-boundary, permission-gated controls, pharmacist forms.", "kind": "entity", "source_ref": "overview"},
+    {"id": "CLU-PRESCRICAO-02", "claim": "Zero scoring rules; operational/UI/workflow logic for a home-care MAR, not ICU vitals/scoring.", "kind": "entity", "source_ref": "category histogram"},
+    {"id": "CLU-PRESCRICAO-03", "claim": "Dominant theme: dose state (administrado/suspenso/motivo/can_delete) via strict branch-order trees + permission checks, duplicated across offline/online serializers and v1/v2 PDFs.", "kind": "policy", "source_ref": "RULE-002/003/008/009/011/023"},
+    {"id": "CLU-PRESCRICAO-04", "claim": "07:00 server-local-time day-boundary defines home-care 'day' for fluid-balance export (RULE-004) and dose display sort (RULE-005); not encounter/bed timezone aware.", "kind": "policy", "source_ref": "RULE-004,005"},
+    {"id": "CLU-PRESCRICAO-05", "claim": "qtd_exportada (ml) at dose-check feeds fluid-balance Entrada ledger; summation outside this partition.", "kind": "entity", "source_ref": "RULE-001,004"},
+    {"id": "CLU-PRESCRICAO-06", "claim": "Pharmacist sub-theme (RULE-019,027,037-040): reconciliation, antibiotic tracking, risk assessment, prophylaxis, 33-option intervention vocab; free-text, no thresholds.", "kind": "entity", "source_ref": "RULE-019/027/037-040"},
+    {"id": "CLU-PRESCRICAO-07", "claim": "Type: validation=14, workflow=9, decision-tree=8, threshold=5, eligibility=5. Category: care-pathway=17, data-validation=9, scheduling-operational=8, triage-eligibility=3, alert-threshold=2, billing-administrative=1, physiological-calculation=1.", "kind": "metric", "source_ref": "histogram"},
+    {"id": "CLU-PRESCRICAO-08", "claim": "Status: OK=30, DISCREPANCY=9, AMBIGUOUS=2 (n=41).", "kind": "metric", "source_ref": "histogram"},
+    {"id": "CLU-PRESCRICAO-09", "claim": "Verdict: NOT_APPLICABLE=40, UNVERIFIABLE=1. No VERIFIED/clinical-DISCREPANCY verdicts — operational/UI rules, not clinical calculators.", "kind": "metric", "source_ref": "histogram"}
+  ],
+  "constraints": [
+    {"id": "CLU-PRESCRICAO-C-01", "text": "PT-BR reason-for-non-administration vocabulary MUST be preserved verbatim: recusa_paciente/'Paciente recusou a administração', medicacao_suspensa/'Medicação suspensa pelo médico', nao_tem_farmacia/'Em falta na farmácia', outros/'Outros' (FE-only, unsupported by legacy BE enum).", "type": "naming", "source_ref": "RULE-029,030"},
+    {"id": "CLU-PRESCRICAO-C-02", "text": "v2 fluid-balance/dose-export design MUST replace server-wall-clock 07:00 boundary with explicit encounter/bed-timezone-aware policy (ADAPT), not port datetime.now().astimezone() as-is.", "type": "unit", "source_ref": "RULE-004,005"},
+    {"id": "CLU-PRESCRICAO-C-03", "text": "Checador-only cancel/revert authorization and can_manage_prescricao gating are load-bearing invariants, MUST be preserved.", "type": "policy", "source_ref": "RULE-017,034,018"}
+  ],
+  "load_bearing_rules": [
+    {"id": "RULE-PRESCRICAO-002", "what": "Per-dose suspension vs DT_SUSPENSAO; dead inverted-logic shadow methods", "verdict": "N/A (DISCREPANCY)"},
+    {"id": "RULE-PRESCRICAO-003", "what": "Order-level now()-based suspension disagrees in scope with dose-level check", "verdict": "N/A (DISCREPANCY)"},
+    {"id": "RULE-PRESCRICAO-004", "what": "07:00 boundary decides which day a dose's ml export books into fluid balance", "verdict": "N/A (OK)"},
+    {"id": "RULE-PRESCRICAO-008", "what": "4-branch state machine for administer/cancel/reschedule; drives signature+AMH Docs resend", "verdict": "N/A (OK)"},
+    {"id": "RULE-PRESCRICAO-010", "what": "Daily eligibility materializing today's continuous prescriptions from Tasy data", "verdict": "N/A (OK)"},
+    {"id": "RULE-PRESCRICAO-014", "what": "Delete authorization diverges: online returns None on missing context, offline reads precomputed flag", "verdict": "N/A (DISCREPANCY)"},
+    {"id": "RULE-PRESCRICAO-021", "what": "Bulk checkoff forces administrado=True, no txn wrapper, mutates shared dict in loop", "verdict": "N/A (OK)"},
+    {"id": "RULE-PRESCRICAO-029", "what": "Non-admin reason enum diverges FE(4)/BE(3); BE keyless lookup can raise KeyError", "verdict": "N/A (DISCREPANCY)"},
+    {"id": "RULE-PRESCRICAO-034", "what": "Only the checking user may cancel a scheduled dose (server-enforced)", "verdict": "N/A (OK)"}
+  ],
+  "systemic_issues": [
+    {"issue": "Dead/shadowed code: duplicate get_suspenso methods, inverted logic, unreachable via method-shadowing", "rule_ids": ["RULE-PRESCRICAO-002"]},
+    {"issue": "Cross-scope disagreement: header (now-based) vs dose-level (scheduled-day) suspension flags can contradict", "rule_ids": ["RULE-PRESCRICAO-002", "RULE-PRESCRICAO-003"]},
+    {"issue": "Timezone/window bug: 07:00 boundary uses server wall-clock; unguarded .id access if no BalancoHidrico row exists", "rule_ids": ["RULE-PRESCRICAO-004", "RULE-PRESCRICAO-005"]},
+    {"issue": "Cross-stack enum drift causing a live KeyError crash path in legacy v1 PDF rendering", "rule_ids": ["RULE-PRESCRICAO-029"]},
+    {"issue": "Dead validation: validar_motivo guard pre-satisfied by its own call site; validar_alteracao_dado never invoked in-partition", "rule_ids": ["RULE-PRESCRICAO-035", "RULE-PRESCRICAO-036"]},
+    {"issue": "Persisted enum typos incl. likely allergy/'alegria' mistranslation in 33-option vocabulary", "rule_ids": ["RULE-PRESCRICAO-039"]}
+  ],
+  "feeds_domains": ["pharmaco", "early-warning-scores", "platform", "governance", "retire-candidate"],
+  "pt_br_vocabularies": {
+    "motivo_nao_administrado": {
+      "recusa_paciente": "Paciente recusou a administração",
+      "medicacao_suspensa": "Medicação suspensa pelo médico",
+      "nao_tem_farmacia": "Em falta na farmácia",
+      "outros": "Outros (FE-only; unsupported by legacy BE enum)"
+    },
+    "riscos_assistenciais": ["queda", "alergia", "sangramento", "trombose_venosa", "delirium", "broncoaspiracao", "flebite", "alteracao_glicemica", "lpp", "outras_lesoes"]
+  },
+  "open_questions": [
+    "RULE-PRESCRICAO-036 (checagem lock) call-site outside this partition unconfirmed.",
+    "Whether v2 keeps a 07:00 home-care day-boundary or normalizes to encounter-timezone day (ADR-001 precedence)."
+  ]
+}

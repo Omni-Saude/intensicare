@@ -1,0 +1,1567 @@
+shard: balanco-hidrico-p2
+cluster: balanco-hidrico
+rule_count: 31
+rules_with_escalations: 10
+rules:
+- id: RULE-BALANCO-HIDRICO-032
+  name: Fluid-balance vital-sign ventilation conditional
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'In the fluid-balance vital-signs sub-form, ventilation mode conditionally requires supplemental
+    O2 flow or FiO2.
+
+    '
+  inputs:
+  - ventilacao
+  outputs:
+  - fluxo_o2_sup / fio2
+  logic: "ventilacao options { ambiente:\"Ar ambiente\", suporte_o2:\"Suporte de O2\", mecanica:\"Ventilação mecânica\"\
+    \ }\n  suporte_o2 -> fluxo_o2_sup (number) required\n  mecanica   -> fio2 (number) required\n"
+  edge_cases: 'Ar ambiente reveals nothing; no numeric bounds on flow/FiO2 here.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-053
+  merged_from:
+  - RULE-fluidbalance-FE-01-014
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 509-545
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Other vital fields (FC, FR, PAS, PAD, temperatura, saturacao_o2, HGT) captured as unbounded numbers in
+    this sub-form (470-508).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-033
+  name: Balanco-hidrico sub-record digital-signature eligibility (can_assinar) - Entrada/Saida/SinaisVitais
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A fluid-intake record can be digitally signed by the current user only if that user has both a registered
+    CPF and PIN, the record is not already signed, and the user is the original author of the record.
+
+    '
+  inputs:
+  - user.cpf
+  - user.pin
+  - instance.assinatura.data_assinatura
+  - instance.preenchido_por
+  outputs:
+  - can_assinar
+  logic: "if not user:\n    return False\ndata_assinatura = bool(instance.assinatura.data_assinatura) if instance.assinatura\
+    \ else False\nreturn bool(\n    user.cpf AND user.pin AND (not data_assinatura) AND (user == instance.preenchido_por)\n\
+    )\n"
+  edge_cases: 'instance.assinatura may be null (no signature attempted yet) — handled via the ternary.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-026
+  - RULE-BALANCO-HIDRICO-042
+  - RULE-BALANCO-HIDRICO-045
+  merged_from:
+  - RULE-balanco-BE-07-007
+  - RULE-balanco-BE-07-013b
+  - RULE-balanco-BE-07-015b
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 159-173
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 160-174
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/sinais_vitais.py
+    lines: 189-203
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Byte-identical logic duplicated in saidas.py (RULE-balanco-BE-07-013b/get_can_assinar) and sinais_vitais.py
+    (RULE-balanco-BE-07-015b).
+
+    Byte-identical logic across entradas.py:159-173, saidas.py:160-174, sinais_vitais.py:189-203: returns bool(user.cpf
+    AND user.pin AND not data_assinatura AND user == instance.preenchido_por), or False if no user; data_assinatura
+    derived via ternary on instance.assinatura. No divergence between the three copies -> status OK. Exposed to
+    the frontend as item.can_assinar (RULE-BALANCO-HIDRICO-042).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-034
+  name: Fluid-balance action authorization (manage / delete permissions)
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Fluid-balance actions are gated by role permissions. Adding a new record and the Salvar/Salvar-e-Assinar
+    and sign flows require can_manage_balanco_hidrico. Removing a record requires can_delete_balanco_hidrico. Absent
+    the permission the corresponding control is not rendered.
+
+    '
+  inputs:
+  - can_manage_balanco_hidrico
+  - can_delete_balanco_hidrico
+  - record.can_delete
+  outputs:
+  - control visibility/enabled
+  logic: 'showAddButton         = can_manage_balanco_hidrico
+
+    showSignButton        = can_manage_balanco_hidrico AND (sign eligibility, RULE-...-005)
+
+    showDeleteButton      = can_delete_balanco_hidrico
+
+    deleteButton.disabled = NOT record.can_delete
+
+    // Popconfirm for sign is also disabled when NOT record.can_delete
+
+    //   (BalancoHidricoContent.tsx line 276), coupling sign-confirm to can_delete.
+
+    '
+  edge_cases: 'In the desktop action column the sign Popconfirm''s `disabled` prop is bound to `!can_delete` (line
+    276) even though it is a SIGN action, so a record the user cannot delete also cannot be signed from that column.
+    record.can_delete is a per-record backend flag distinct from the can_delete_balanco_hidrico permission.
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-026
+  - RULE-BALANCO-HIDRICO-033
+  - RULE-BALANCO-HIDRICO-042
+  merged_from:
+  - RULE-balanco-FE-03-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoContent/BalancoHidricoContent.tsx
+    lines: 259-342
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Permissions come from useEffectivePermissions(). The coupling of the sign Popconfirm''s disabled state
+    to !can_delete (line 276) is arguably unintended (a sign gated by a delete flag); flagged for verifier. Add
+    button gate at lines 472-486; delete gate at lines 291-311.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-035
+  name: List endpoint required-day + auto-create with mismatched day value
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: 'The list() action requires the ''dia'' query parameter (raises ValidationError if absent). It then
+    recomputes a *separate* dia_param using the 07:00-cutoff rule, but assigns it as `dia_param if now.hour >= 7
+    else now.date() - timedelta(days=1)` — meaning when the current hour is before 07:00, the caller-supplied ''dia''
+    string is discarded and replaced with "yesterday" (a date object) for the purposes of auto-creating a new BalancoHidrico
+    record, even though the actual filter used to look up an existing record (get_queryset()) parses and uses the
+    caller-supplied ''dia'' string correctly. Only when no matching record is found does the record get created
+    with this second, inconsistent dia_param value.
+
+    '
+  inputs:
+  - dia (query param)
+  - now.hour (hour)
+  outputs:
+  - BalancoHidrico record (existing or newly created)
+  logic: "dia_param = query_params[\"dia\"]              # required, string\nif not dia_param: raise ValidationError(\"\
+    É necessário enviar um dia no parametro\")\nnow = datetime.now().astimezone()\ndia_param = dia_param if now.hour\
+    \ >= 7 else now.date() - timedelta(days=1)\n# NOTE: when now.hour < 7, dia_param becomes `now.date() - 1 day`\
+    \ (a date object),\n# NOT the parsed value of the caller-supplied string.\nleito = Leito.objects.get(pk=kwargs[\"\
+    ocupacoes__pk\"])\nobj = filter_queryset(get_queryset()).first()   # get_queryset() independently re-parses\
+    \ query_params[\"dia\"]\nif not obj:\n    obj = BalancoHidrico.objects.create(leito=leito, nr_atendimento=leito.nr_atendimento,\
+    \ dia=dia_param)\nreturn Response(BalancoHidricoSerializer(obj).data)\n"
+  edge_cases: 'If invoked before 07:00 local time for a day other than "yesterday" (e.g. requesting an explicit
+    historical date), and no BalancoHidrico exists yet for that date, the system silently creates the new record
+    dated "yesterday" instead of the requested date. This does not affect lookups of already-existing records (those
+    use get_queryset(), which correctly parses the requested ''dia'').
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-023
+  - RULE-BALANCO-HIDRICO-036
+  divergence: 'list() requires the ''dia'' query param (raises ValidationError if absent), then reassigns dia_param
+    = dia (the caller string) if now.hour >= 7 else now.date() - timedelta(days=1) (a date object). When invoked
+    before 07:00 local time for an explicit historical date with no existing record, the auto-created BalancoHidrico
+    is dated ''yesterday'' instead of the requested date. Lookups of already-existing records use get_queryset(),
+    which re-parses the caller ''dia'' correctly, so only first-time creation is mis-dated.
+
+    '
+  merged_from:
+  - RULE-balanco-BE-08-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/balanco_hidrico.py
+    lines: 48-64
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Recorded verbatim per ground rules; this looks like an unintended bug (dia_param reassignment appears
+    to have been meant to mirror get_queryset()''s cutoff-default logic for the *no dia supplied* case, but list()
+    requires dia and then overwrites it anyway).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-113
+    band: P3
+    title: care-pathway
+    excerpt: list() requires the 'dia' query param (raises ValidationError if absent), then reassigns dia_param
+      = dia (the caller string) if now.hour >= 7 else now.date() - timedelta(days=1) (a date object). When invoked
+      before 07:00 local time for a…
+- id: RULE-BALANCO-HIDRICO-036
+  name: Balanco hidrico auto-provisioning, no direct write endpoints
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'BalancoHidricoViewSet only exposes list/retrieve (Create/Update/Destroy mixins are commented out).
+    The list() action auto-creates the day''s BalancoHidrico record on first GET if none exists yet for the leito+day
+    (see RULE-balanco-BE-08-007 for the exact date used).
+
+    '
+  inputs:
+  - leito
+  outputs:
+  - BalancoHidrico record
+  logic: "class BalancoHidricoViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):\n    # CreateModelMixin,\
+    \ UpdateModelMixin, DestroyModelMixin intentionally NOT included\n# record creation only happens as a side-effect\
+    \ of list()\n"
+  edge_cases: 'No API path exists in this viewset to explicitly create/update/delete a BalancoHidrico record.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-035
+  - RULE-BALANCO-HIDRICO-037
+  merged_from:
+  - RULE-balanco-BE-08-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/balanco_hidrico.py
+    lines: 18-30
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-037
+  name: Daily fluid-balance auto-creation for occupied homecare beds
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Scheduled task that creates one BalancoHidrico per day for every occupied homecare bed that has
+    an attendance number, unless one already exists for that attendance and day.
+
+    '
+  inputs:
+  - (none - reads current date and Leito table)
+  outputs:
+  - BalancoHidrico records created
+  logic: "data = now(localtime).date()\nleitos = Leito where nr_atendimento IS NOT NULL AND ocupado == True AND\
+    \ tipo == \"homecare\"\nfor leito in leitos:\n    if not BalancoHidrico.exists(nr_atendimento == leito.nr_atendimento,\
+    \ dia == data):\n        BalancoHidrico.create(nr_atendimento=leito.nr_atendimento, leito=leito, dia=data)\n"
+  edge_cases: 'Only beds with tipo == "homecare", ocupado == True, and non-null nr_atendimento qualify. Any creation
+    error is re-raised wrapped as Exception (aborts the loop). Idempotent per (attendance, day).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-036
+  merged_from:
+  - RULE-balancohidrico-BE-09-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/tasks.py
+    lines: 51-71
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Celery shared_task criar_balancos_diario, routing key <ENV>.trilhas.prescricoes.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-038
+  name: Entrada soft-delete adjusts 24h fluid balance and logs audit action
+  category: physiological-calculation
+  type: workflow
+  status: OK
+  verify: true
+  description: 'Deleting (destroying) an Entrada (fluid intake) record does not hard-delete it; it marks it as deleted
+    by the current user, logs an AcaoHomecare audit entry ("inativar" on "entrada"), and subtracts the entrada''s
+    quantity from the parent BalancoHidrico''s running 24h balance (balanco_24h), reflecting that intake entries
+    were originally added positively to that total.
+
+    '
+  inputs:
+  - instance.quantidade (mL (implied))
+  outputs:
+  - balanco.balanco_24h (mL (implied))
+  logic: "@transaction.atomic\ndef destroy(request):\n    instance.deletado_por = user\n    instance.save()\n  \
+    \  criar_acao_homecare(tipo=\"entrada\", acoes=[\"inativar\"], leito=request.leito,\n                      \
+    \   setor=request.setor, entrada=instance, realizado_por=user)\n    instance.balanco.balanco_24h -= instance.quantidade\n\
+    \    instance.balanco.save()\n    return super().destroy(request)   # underlying mixin destroy behavior (out\
+    \ of partition)\n"
+  edge_cases: 'Runs inside a DB transaction (transaction.atomic). Relies on `self.request.leito` and `self.request.setor`
+    being populated by out-of-partition middleware/mixins. No guard against double-deletion (deleting an already-deleted
+    entrada would double-subtract balanco_24h if the underlying `super().destroy()` doesn''t prevent it - not verifiable
+    from this partition).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-014
+  - RULE-BALANCO-HIDRICO-039
+  merged_from:
+  - RULE-entrada-BE-08-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/entradas.py
+    lines: 48-67
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Mirror rule for Saida is RULE-saida-BE-08-046 (adds instead of subtracts).
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Cumulative/net fluid balance = total intake − total output (standard critical-care convention).
+      Malbrain MLNG et al., ''Fluid overload, de-resuscitation, and outcomes in critically ill or injured patients:
+      an updated view,'' Anaesthesiol Intensive Ther 2014;46(5):361-380 (ADQI fluid-balance framework); Bouchard
+      J et al., Kidney Int 2009;76:422-427.'
+    detail_file: balanco-hidrico-batch6.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-039
+  name: Saida soft-delete adjusts 24h fluid balance and logs audit action
+  category: physiological-calculation
+  type: workflow
+  status: OK
+  verify: true
+  description: 'Deleting (destroying) a Saida (fluid output) record marks it as deleted by the current user, logs
+    an AcaoHomecare audit entry ("inativar" on "saida"), and ADDS the saida''s quantity back to the parent BalancoHidrico''s
+    running 24h balance (balanco_24h) - the mirror operation of Entrada''s destroy (RULE-entrada-BE-08-011), confirming
+    saida quantities are subtracted from balanco_24h when originally recorded.
+
+    '
+  inputs:
+  - instance.quantidade (mL (implied))
+  outputs:
+  - balanco.balanco_24h (mL (implied))
+  logic: "@transaction.atomic\ndef destroy(request):\n    instance.deletado_por = user\n    instance.save()\n  \
+    \  criar_acao_homecare(tipo=\"saida\", acoes=[\"inativar\"], leito=request.leito,\n                        \
+    \ setor=request.setor, saida=instance, realizado_por=user)\n    instance.balanco.balanco_24h += instance.quantidade\n\
+    \    instance.balanco.save()\n    return super().destroy(request)\n"
+  edge_cases: 'Same double-deletion caveat as RULE-entrada-BE-08-011.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-015
+  - RULE-BALANCO-HIDRICO-038
+  merged_from:
+  - RULE-saida-BE-08-046
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/saidas.py
+    lines: 35-54
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Mirror of RULE-entrada-BE-08-011.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: Net fluid balance = total intake − total output (mirror of RULE-038). ADQI/KDIGO fluid-management
+      convention; Malbrain MLNG et al., Anaesthesiol Intensive Ther 2014;46(5):361-380; Bouchard J et al., Kidney
+      Int 2009;76:422-427.
+    detail_file: balanco-hidrico-batch6.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-040
+  name: Entrada/Saida write manage_data payload injection (balanco id + assinar passthrough)
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When writing an Entrada, the parent balanco id is injected from the nested route kwarg, and an ''assinar''
+    (sign) flag is passed through into the write payload only if present/truthy.
+
+    '
+  inputs:
+  - balancos__pk (URL kwarg)
+  - assinar (payload field)
+  outputs:
+  - data["balanco"]
+  - data["assinar"]
+  logic: 'if isinstance(balanco, str): data["balanco"] = balanco
+
+    assinar = data.pop("assinar", None)
+
+    if assinar: data["assinar"] = assinar
+
+    '
+  edge_cases: 'If balanco kwarg is not a str (e.g. already a model instance), it is not overwritten.
+
+    '
+  confidence: medium
+  related: []
+  merged_from:
+  - RULE-entrada-BE-08-012
+  - RULE-saida-BE-08-047
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/entradas.py
+    lines: 69-82
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/saidas.py
+    lines: 56-67
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: '''assinar'' semantics (electronic signature) are implemented in the serializer (out of partition, BE-07).
+
+    Identical logic in entradas.py view (69-82) and saidas.py view (56-67): if isinstance(balanco,str): data[''balanco'']=balanco;
+    assinar=data.pop(''assinar'',None); if assinar: data[''assinar'']=assinar. ''assinar'' semantics implemented
+    in the serializers (RULE-BALANCO-HIDRICO-033 / signature flow).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-041
+  name: Fluid-balance (balanco hidrico) row type-label resolution and signature-date format
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Prepares fluid-balance rows for display. For intake ("entrada") and output ("saida") rows, the displayed
+    type is the humanized type label UNLESS the type is the free-text sentinel ("outra_entrada" for intake, "outra_saida"
+    for output), in which case the user-entered custom name is shown. For all three route types (entrada, saida,
+    sinais-vitais) the signature timestamp is formatted DD/MM/YYYY HH:mm when present.
+
+    '
+  inputs:
+  - route
+  - values
+  outputs:
+  - displayRows
+  logic: "switch (route):\n  case \"entrada\":\n    for each entrada:\n      tipo = (entrada.tipo != \"outra_entrada\"\
+    ) ? entrada.tipo_humanizado : entrada.nome\n      data_assinatura = entrada.data_assinatura && moment(entrada.data_assinatura).format(\"\
+    DD/MM/YYYY HH:mm\")\n  case \"saida\":\n    for each saida:\n      tipo = (saida.tipo != \"outra_saida\") ?\
+    \ saida.tipo_humanizado : saida.nome\n      data_assinatura = saida.data_assinatura && moment(saida.data_assinatura).format(\"\
+    DD/MM/YYYY HH:mm\")\n  case \"sinais-vitais\":\n    for each sinalVital:\n      data_assinatura = sinalVital.data_assinatura\
+    \ && moment(...).format(\"DD/MM/YYYY HH:mm\")\n"
+  edge_cases: 'If data_assinatura is falsy it is left falsy (short-circuit, no format applied). sinais-vitais rows
+    keep their original tipo (no relabeling). No default branch: an unrecognized route returns undefined.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-042
+  - RULE-BALANCO-HIDRICO-053
+  merged_from:
+  - RULE-balanco-FE-02-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/convertBalancoData.ts
+    lines: 3-42
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Sentinel values "outra_entrada"/"outra_saida" are the domain-meaningful "Other" intake/output categories
+    that carry a free-text name. Route enum values also meaningful (entrada=intake, saida=output, sinais-vitais=vital
+    signs).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-042
+  name: Fluid-balance record signature eligibility
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'A fluid-balance record (entrada, saida, or sinais vitais) may be signed only when it is active,
+    not yet signed, and the current user is permitted. Signing issues a PATCH with { assinar: true }. Once signed
+    (data_assinatura present) the sign action disappears and "Assinado em: <data_assinatura>" is shown.
+
+    '
+  inputs:
+  - item.ativo
+  - item.data_assinatura
+  - item.can_assinar
+  - can_manage_balanco_hidrico
+  outputs:
+  - sign action available?
+  logic: "showSignButton =\n  item.ativo\n  AND (item.data_assinatura is falsy)     // not yet signed\n  AND item.can_assinar\n\
+    \  AND can_manage_balanco_hidrico           // (enforced in ItemSinaisVitais and\n                         \
+    \                  //  in BalancoHidricoContent action col)\nonConfirmSign -> onSign(route, item.id)\n// Backend\
+    \ call: PATCH .../<route>/<id_registro> with body { assinar: true }\n"
+  edge_cases: 'A record already signed (data_assinatura truthy) never shows the sign button. An inactive/removed
+    record (ativo=false) shows neither sign nor delete, and instead shows "Removido por: <deletado_por.nome>". In
+    ItemEntrada and ItemSaida the button gate omits the explicit can_manage check (only !data_assinatura && can_assinar),
+    whereas ItemSinaisVitais and the table action column additionally require can_manage_balanco_hidrico.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-033
+  - RULE-BALANCO-HIDRICO-034
+  - RULE-BALANCO-HIDRICO-043
+  - RULE-BALANCO-HIDRICO-045
+  merged_from:
+  - RULE-balanco-FE-03-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoItens/ItemSinaisVitais/ItemSinaisVitais.tsx
+    lines: 128-150
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Sign body { assinar: true } comes from BalancoHidricoContent.tsx _patchBalancoHidricoRegistro (lines 194-209).
+    The same signature gate is duplicated across ItemEntrada (lines 79-99), ItemSaida (lines 87-107), and the desktop
+    table action column ButtonShowRequest (BalancoHidricoContent.tsx lines 259-342, which also requires can_manage_balanco_hidrico
+    at line 271).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-043
+  name: Saida record sign posts to the "entrada" route (bug)
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: 'When signing a fluid OUTPUT (saida) record from its card, the sign handler is invoked with the route
+    argument "entrada" instead of "saida". The remove handler on the same card correctly uses "saida".
+
+    '
+  inputs:
+  - item.id
+  outputs:
+  - onSign call
+  logic: '// ItemSaida sign confirm:
+
+    onConfirm = () => onSign("entrada", item.id)   // BUG: should be "saida"
+
+    // ItemSaida remove confirm (correct):
+
+    onConfirm = () => onRemove("saida", item.id)
+
+    '
+  edge_cases: 'onSign ultimately calls PATCH .../<route>/<id_registro>. With route="entrada" the PATCH targets the
+    entrada endpoint using a saida record id, which will either 404/error or, worst case, mis-route the signature.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-042
+  divergence: 'ItemSaida card sign confirm calls onSign(''entrada'', item.id) instead of onSign(''saida'', item.id);
+    onSign issues PATCH .../<route>/<id_registro>, so the signature PATCH targets the entrada endpoint using a saida
+    record id (404/error or mis-routed signature). The remove handler on the same card correctly uses onRemove(''saida'',
+    item.id). Manifests on the mobile/card render path (ItemSaida.tsx:93); the desktop table action column signs
+    with the correct outer `route` variable. Likely copy-paste bug from ItemEntrada; recorded verbatim.
+
+    '
+  merged_from:
+  - RULE-balanco-FE-03-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoItens/ItemSaida/ItemSaida.tsx
+    lines: 93-93
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'DISCREPANCY / likely copy-paste bug from ItemEntrada. Recorded verbatim, not corrected. Note the mobile-card
+    sign path is only reached for entrada/saida via ItemMobileRender in BalancoHidricoContent (which passes onSign
+    = _patchBalancoHidricoRegistro); the desktop table action column signs with the correct outer `route` variable,
+    so the bug manifests on the mobile/card render.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-114
+    band: P3
+    title: care-pathway
+    excerpt: ItemSaida card sign confirm calls onSign('entrada', item.id) instead of onSign('saida', item.id); onSign
+      issues PATCH .../<route>/<id_registro>, so the signature PATCH targets the entrada endpoint using a saida
+      record id (404/error or mi…
+- id: RULE-BALANCO-HIDRICO-044
+  name: Fluid-balance module navigation/state routes
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The fluid-balance (balanço hídrico) module for a given bed occupation is organized into exactly
+    four navigable sub-routes/states, each backed by a distinct record type (intake, output, vital signs, and an
+    aggregate overview).
+
+    '
+  inputs:
+  - route
+  outputs:
+  - SendValues
+  logic: 'ItemRoute = "entrada" | "saida" | "sinais-vitais" | "visao-geral"
+
+    SendValues = Entrada | Saida | SinaisVitais   // one payload shape per route (excl. visao-geral which is read-only
+    aggregate)
+
+    '
+  edge_cases: 'visao-geral has no corresponding SendValues member — it is read-only (VisaoGeral interface with entradas/saidas/horarios
+    arrays), consistent with useGetBalancoHidricoVisaoGeral being a GET-only endpoint.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-013
+  - RULE-BALANCO-HIDRICO-045
+  merged_from:
+  - RULE-balanco-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/BalancoHidrico.d.ts
+    lines: 97-103
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Endpoint plumbing implementing these routes is in src/hooks/networking/balancoHidrico.ts (generic parametrized
+    CRUD, marked rule_bearing:no there — the domain rule lives in the type model).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-045
+  name: Fluid-balance record signing/deletion lifecycle
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'Every fluid-balance record (Entrada/Saida/SinaisVitais) carries an "ativo" (active) flag, a per-item
+    "can_delete" eligibility flag, an optional "data_assinatura" (signed-at timestamp) and "can_assinar" (can-sign)
+    flag, and — when removed — a "deletado_por" (deleted-by) actor. This implies records move through the following
+    states — created (ativo=true), then optionally signed (data_assinatura set), then optionally soft-deleted (ativo=false,
+    deletado_por populated) — with deletion/signing eligibility computed server-side and merely exposed as booleans
+    to the frontend.
+
+    '
+  inputs:
+  - ativo
+  - can_delete
+  - can_assinar
+  - data_assinatura
+  outputs:
+  - record lifecycle state
+  logic: '// shape-only inference, no explicit state-transition code in this partition:
+
+    state = ativo ? (data_assinatura ? "signed" : "active/unsigned") : "deleted"
+
+    can_delete and can_assinar are opaque server-computed eligibility flags (exact business
+
+    rule behind their computation is not present in this frontend partition).
+
+    '
+  edge_cases: 'can_delete/can_assinar are per-record booleans, not derived client-side from any visible rule (e.g.
+    time-since-creation) — the frontend only consumes them as already-resolved permissions.
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-026
+  - RULE-BALANCO-HIDRICO-033
+  - RULE-BALANCO-HIDRICO-042
+  merged_from:
+  - RULE-balanco-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/BalancoHidrico.d.ts
+    lines: 17-85
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Best interpretation only; the actual eligibility computation (e.g. "can only delete within N minutes of
+    creation and before signing") lives server-side and is out of scope for this frontend partition. Same can_delete/can_assinar
+    pattern recurs on Prescricao.Horario (see RULE-prescricao-FE-07-001) and BalancoHidrico signing — a recurring
+    medical-legal "sign to finalize" theme across the app.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-297
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Fluid-balance record signing/deletion lifecycle
+- id: RULE-BALANCO-HIDRICO-046
+  name: Fluid-balance PDF export with optional signatures
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Generating a fluid-balance PDF report presents a confirmation modal asking whether to include signatures
+    ("assinaturas"). The chosen boolean is sent to the report endpoint and the resulting file is downloaded with
+    a name that embeds the report date.
+
+    '
+  inputs:
+  - assinatura
+  - dia
+  outputs:
+  - downloaded file
+  logic: "onClick \"Gerar PDF\":\n  Modal.confirm(\"Deseja gerar o relatório das prescrições do paciente com assinaturas?\"\
+    )\n    Sim -> _getRelatorioVisaoGeral(assinatura=true)\n    Não -> _getRelatorioVisaoGeral(assinatura=false)\n\
+    \n_getRelatorioVisaoGeral(assinatura):\n  dia = date.format(\"YYYY-MM-DD\")\n  data = getRelatorioVisaoGeral(...,\
+    \ balanco.id, { dia, assinatura })\n  download(data, `Relatorio_balanco_hidrico_${dia}.pdf`)\n"
+  edge_cases: 'If balanco is undefined (not yet loaded), balanco!.id would throw at runtime (non-null assertion,
+    no guard).
+
+    '
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-balanco-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/balanco/index.tsx
+    lines: 152-227
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'The modal''s own button labels ("Sim"/"Não") are wired to the opposite of what a reader might assume from
+    the okButtonProps being hidden and cancelButtonProps styled danger; confirmed by reading the onClick handlers
+    directly, not by button styling.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-047
+  name: Entrada always marked checado on creation
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Every Entrada created through this serializer is forced to checado=True regardless of client input,
+    and preenchido_por is always set to the requesting user.
+
+    '
+  inputs:
+  - checado
+  outputs:
+  - checado
+  logic: 'validated_data.checado = True
+
+    validated_data.preenchido_por = request.user
+
+    '
+  edge_cases: 'No client-supplied checado value can override this; there is no equivalent forced-True in SinaisVitais.
+
+    '
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-balanco-BE-07-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 92-93
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-048
+  name: Entrada/Saida quantidade fallback to zero before persist
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'If, after the dieta_enteral default is applied, quantidade is still falsy, it is forced to 0 before
+    persisting (so the field is never null/blank in storage).
+
+    '
+  inputs:
+  - quantidade (mL (assumed))
+  outputs:
+  - quantidade (mL (assumed))
+  logic: "if not validated_data.quantidade:\n    validated_data.quantidade = 0\n"
+  edge_cases: 'Runs after the dieta_enteral-specific default, so it only affects other tipos.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-020
+  merged_from:
+  - RULE-balanco-BE-07-002
+  - RULE-balanco-BE-07-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 98-99
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 109-110
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Same pattern duplicated in saidas.py (RULE-balanco-BE-07-010).
+
+    Identical validation in entradas.py:98-99 and saidas.py:109-110: `if not validated_data.quantidade: validated_data.quantidade
+    = 0`. Runs AFTER the type-specific volume defaults (dieta_enteral=200 for Entrada; presenca_espontanea/presenca
+    mappings for Saida), so it only affects tipos without a specific default. No divergence -> OK.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-049
+  name: Entrada/Saida default display name from tipo
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'If no "nome" is supplied when creating an Entrada, the record''s display name is set to the humanized
+    value of its "tipo" choice field.
+
+    '
+  inputs:
+  - nome
+  - tipo
+  outputs:
+  - nome
+  logic: "if not validated_data.nome:\n    entrada.nome = entrada.get_tipo_display()\n"
+  edge_cases: 'Assignment happens on the in-memory `self.entrada` object AFTER super().create() already persisted
+    the row without nome; entrada.save() is called later in the same create() (line ~116) so the default is still
+    persisted, but only because of that trailing save — if that save call were ever removed the default would be
+    silently lost.
+
+    '
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-balanco-BE-07-004
+  - RULE-balanco-BE-07-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 108-109
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 117-118
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Same pattern duplicated in saidas.py (RULE-balanco-BE-07-013).
+
+    Identical in entradas.py:108-109 and saidas.py:117-118: `if not nome: obj.nome = obj.get_tipo_display()`. Assignment
+    is on the in-memory object after super().create(); the value is persisted only by the trailing obj.save() later
+    in create(). No divergence -> OK.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-050
+  name: Explicit 'dia' parameter parsing/validation for balanco hidrico
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When a ''dia'' query parameter is supplied, it must parse as ''YYYY-MM-DD''; otherwise a 400 validation
+    error with a Portuguese message is raised.
+
+    '
+  inputs:
+  - dia (query param)
+  outputs:
+  - dia_param
+  logic: "try:\n    dia_param = datetime.strptime(dia_param, \"%Y-%m-%d\").date()\nexcept ValueError:\n    raise\
+    \ ValidationError(\"Formato de data inválido para o parâmetro 'dia'. Use o formato 'YYYY-MM-DD'.\")\n"
+  edge_cases: 'Only ValueError is caught; any other parsing exception would propagate uncaught.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-023
+  merged_from:
+  - RULE-balanco-BE-08-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/balanco_hidrico.py
+    lines: 38-42
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-051
+  name: Entrada/Saida listing includes soft-deleted records
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'EntradasViewSet.get_queryset() uses the default `Entrada.objects` manager (not `objects_without_deleted`),
+    so soft-deleted entrada records (deletado_por/deletado_em set) remain visible in list/retrieve responses, ordered
+    with deleted-state first.
+
+    '
+  inputs:
+  - balancos__pk (URL kwarg)
+  outputs:
+  - queryset
+  logic: "Entrada.objects.select_related(\"balanco\")\n  .filter(balanco_id=kwargs[\"balancos__pk\"])\n  .order_by(\"\
+    -deletado_em\", \"criado_em\")\n"
+  edge_cases: 'No exclusion of soft-deleted rows; ordering by "-deletado_em" descending relies on the database''s
+    NULL ordering behavior (Postgres default: NULLS come first in DESC), so active (non-deleted, NULL deletado_em)
+    records are typically listed before deleted ones, then by ascending creation time.
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-026
+  divergence: 'EntradasViewSet.get_queryset() (entradas.py:29-35) and SaidasViewSet.get_queryset() (saidas.py:27-33)
+    both use the DEFAULT .objects manager (not objects_without_deleted), so soft-deleted records (deletado_em/deletado_por
+    set) remain visible in list/retrieve, ordered .order_by(''-deletado_em'',''criado_em'') (relies on Postgres
+    NULLS-first in DESC to list active rows before deleted). Contrasts with BalancoHidricoViewSet and HorarioPrescricaoViewSet
+    which use objects_without_deleted. Both viewsets diverge identically from that convention.
+
+    '
+  merged_from:
+  - RULE-entrada-BE-08-010
+  - RULE-saida-BE-08-045
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/entradas.py
+    lines: 29-35
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/saidas.py
+    lines: 27-33
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Contrasts with BalancoHidricoViewSet and HorarioPrescricaoViewSet, which both use `objects_without_deleted`.
+    Same pattern repeats identically in saidas.py (RULE-saida-BE-08-045) and sinais_vitais.py (RULE-sinal-BE-08-048).
+
+
+    Phase-1 notes also referenced a parallel sinais_vitais.py capture (RULE-sinal-BE-08-048) with the same pattern,
+    but no such entry exists in this cluster''s input set; only the entrada and saida captures were present and
+    are merged here.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-151
+    band: P3
+    title: data-validation
+    excerpt: EntradasViewSet.get_queryset() (entradas.py:29-35) and SaidasViewSet.get_queryset() (saidas.py:27-33)
+      both use the DEFAULT .objects manager (not objects_without_deleted), so soft-deleted records (deletado_em/deletado_por
+      set) remain visi…
+- id: RULE-BALANCO-HIDRICO-052
+  name: Vital-signs field set and units (sinais vitais)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Enumerates the vital-sign fields captured/displayed for a fluid-balance vital signs record, with
+    their clinical units. Each field row is rendered only when its value is truthy (present/non-empty; 0 is falsy
+    and thus hidden).
+
+    '
+  inputs:
+  - frequencia_cardiaca (bpm)
+  - frequencia_respiratoria (FR/m (breaths per minute))
+  - pas / pad (mmHg)
+  - temperatura (°C)
+  - saturacao_o2 (%)
+  - hgt
+  - ventilacao_humanizado
+  - fluxo_o2_sup (% (Fluxo O2 Suplementar))
+  - fio2 (%)
+  - nv_consciencia_humanizado
+  - dor_humanizado
+  - escala_dor
+  - sinais_dor
+  - motivo_queixa
+  outputs:
+  - rendered vital-sign rows
+  logic: "For each field option: render row only if option.value is truthy.\nField -> label(unit) mapping:\n  frequencia_cardiaca\
+    \      -> \"Freq. Cardiaca (bpm)\"\n  frequencia_respiratoria  -> \"Freq. Respiratoria (FR/m)\"\n  (pas,pad)\
+    \                -> \"Pressao Arterial (mmHg)\" (see RULE-balanco-FE-03-001)\n  temperatura              ->\
+    \ \"Temperatura (°C)\"\n  saturacao_o2             -> \"Saturacao O2 (%)\"\n  hgt                      -> \"\
+    HGT\"\n  ventilacao_humanizado    -> \"Ventilacao\"\n  fluxo_o2_sup             -> \"Fluxo O2 Suplementar (%)\"\
+    \n  fio2                     -> \"FiO2 (%)\"\n  nv_consciencia_humanizado-> \"Nv. Consciencia\"\n  dor_humanizado\
+    \           -> \"Dor\"\n  escala_dor               -> \"Escala de Dor\"\n  sinais_dor               -> \"Sinais\
+    \ de Dor\"\n  motivo_queixa            -> \"Queixa\"\n"
+  edge_cases: 'Any field whose value is 0, null, undefined, or empty string is not rendered (truthiness filter at
+    line 122). This means a genuine reading of 0 (e.g. escala_dor 0, saturacao 0) would be suppressed.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-018
+  - RULE-BALANCO-HIDRICO-053
+  merged_from:
+  - RULE-balanco-FE-03-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoItens/ItemSinaisVitais/ItemSinaisVitais.tsx
+    lines: 35-127
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Units are the clinical contract for a vitals capture form. No range validation is enforced client-side
+    here; validation (if any) lives in the form/backend (out of partition). "HGT" = capillary blood glucose (hemoglucoteste);
+    no unit label shown.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-053
+  name: Fluid intake/output field set and volume unit (entrada/saida)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Defines the field set for fluid intake (entrada) and output (saida) records and fixes the volume
+    unit as milliliters (ml). Entrada records carry tipo, aceitacao, quantidade(ml), observacao. Saida records carry
+    tipo, aspecto, presenca, presenca_espontanea, quantidade(ml), observacao. Each row renders only when its value
+    is truthy.
+
+    '
+  inputs:
+  - entrada.tipo
+  - entrada.aceitacao_humanizado
+  - entrada.quantidade (ml)
+  - saida.tipo
+  - saida.aspecto_humanizado
+  - saida.presenca_humanizado
+  - saida.presenca_espontanea_humanizado
+  - saida.quantidade (ml)
+  outputs:
+  - rendered intake/output rows
+  logic: "Entrada rows (rendered if value truthy):\n  \"Tipo de entrada\"  <- tipo\n  \"Status\"           <- aceitacao_humanizado\n\
+    \  \"Quantidade (ml)\"  <- quantidade\n  \"Observacao\"       <- observacao\nSaida rows (rendered if value truthy):\n\
+    \  \"Tipo de saida\"                 <- tipo\n  \"Aspecto\"                       <- aspecto_humanizado\n  \"\
+    Presenca\"                      <- presenca_humanizado\n  \"Houve presenca espontanea?\"    <- presenca_espontanea_humanizado\n\
+    \  \"Quantidade (ml)\"               <- quantidade\n  \"Observacao\"                    <- observacao\nTable\
+    \ columns (ColumnsEntrada/ColumnsSaida) mirror these with header\n\"Quantidade (ml)\" and additionally Horario,\
+    \ Preenchido por, Data assinatura.\n"
+  edge_cases: 'quantidade rendered via ?.toString(); a quantidade of 0 stringifies to "0" (truthy string) so it
+    WOULD render in the card, but in the overview grid a 0 is suppressed (see RULE-balanco-FE-03-004). observacao
+    longer than 50 chars is truncated with resizeString(...,50) and shown under a click-triggered tooltip.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-052
+  - RULE-BALANCO-HIDRICO-041
+  merged_from:
+  - RULE-balanco-FE-03-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoItens/ItemEntrada/ItemEntrada.tsx
+    lines: 20-48
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Also defined in ItemSaida/ItemSaida.tsx lines 20-56 and in ColumnsBalancoHidrico/ColumnsEntrada.tsx (lines
+    21-98) and ColumnsSaida.tsx (lines 21-112). Enum members (tipo, aceitacao, aspecto, presenca) come from the
+    backend as *_humanizado strings; the raw choice enums are not defined in this partition.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-054
+  name: Empty-state for fluid-balance overview tab
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The "Visão Geral" tab of the fluid-balance page shows an empty-state message only when both the
+    entradas (inputs) and saidas (outputs) arrays are empty; otherwise it renders whichever of the two non-empty
+    sections exist (they render independently/simultaneously, not mutually exclusively).
+
+    '
+  inputs:
+  - balancoVisaoGeral.entradas
+  - balancoVisaoGeral.saidas
+  outputs:
+  - rendered-section
+  logic: 'if (entradas.length > 0) render entradas section
+
+    if (saidas.length > 0) render saidas section
+
+    if (entradas.length === 0 && saidas.length === 0) render Empty("Não há registros cadastrados")
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-013
+  - RULE-BALANCO-HIDRICO-025
+  merged_from:
+  - RULE-balanco-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/balanco/index.tsx
+    lines: 356-380
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-055
+  name: IV hydration solution vocabulary
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Controlled list of intravenous hydration solution types.
+
+    '
+  inputs:
+  - nome
+  outputs:
+  - valid solution
+  logic: "options = { Agua destilada, Solução Hipertônica, Soro Fisiológico, Soro Glicosado,\n            Soro Ringer,\
+    \ Solução hipotônica, Solução Polarizante }\n"
+  edge_cases: 'Free-text not allowed for this branch.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-029
+  merged_from:
+  - RULE-fluidbalance-FE-01-009
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 123-145
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-056
+  name: Drugs/hydration-in-BI vocabulary
+  category: drug-dosing
+  type: validation
+  status: OK
+  verify: true
+  description: 'Controlled list of continuous-infusion (BI/bomba de infusao) drugs and hydration selectable for
+    an intake record.
+
+    '
+  inputs:
+  - nome
+  outputs:
+  - valid drug
+  logic: 'options include: Sedação, Thiopental, Adrenalina, Heparina, Clanidina, Octeotride, Lidocaina,
+
+    Dimorf, Hidrocortizona, Propofol, Cisatracúrio, Insulina, Noradrenalina, Dobutamina, Amiodarona,
+
+    Milrinona, Dopamina, Nipride, Cetamina, Dormonid, Fentanil, Precedex, Ketamin, Encrise, Tridil,
+
+    Hidratação Venosa, Rocurônio, Sulfentanila, Remifentanila (32 options).
+
+    '
+  edge_cases: 'Includes some spelling variants/brand names (Clanidina, Hidrocortizona, Ketamin vs Cetamina).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-029
+  - RULE-BALANCO-HIDRICO-057
+  - RULE-BALANCO-HIDRICO-058
+  merged_from:
+  - RULE-fluidbalance-FE-01-010
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 146-190
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Only volume (ml) captured, no dose/rate.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published reference — facility-specific formulary pick-list of continuous-infusion
+      (BI/bomba de infusão) drugs + hydration for the intake form. No guideline dictates which agents appear on
+      a given ICU's continuous-infusion menu.
+    detail_file: balanco-hidrico-batch6.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-223
+    band: UNVERIFIABLE
+    title: Drugs/hydration-in-BI vocabulary
+    excerpt: 'Proprietary facility formulary vocabulary (dataFormBalancoHidrico.ts:146-190) — do NOT treat as wrong.
+      Data-quality observations for internal review (not reference discrepancies): (1) Legacy source array has 29
+      options, but the…'
+- id: RULE-BALANCO-HIDRICO-057
+  name: Antibiotic vocabulary (fluid balance)
+  category: drug-dosing
+  type: validation
+  status: OK
+  verify: true
+  description: 'Controlled list of antibiotics/antifungals/antivirals selectable as an intake.
+
+    '
+  inputs:
+  - nome
+  outputs:
+  - valid antibiotic
+  logic: 'options include Daptomicina, Zitromax, Ceftazidina, Torgena, Ambisome, Amplacilina, Anforicin B,
+
+    Bactrim, Cancidas, Cipro, Dalacin, Ecalta, Flagyl, Garamicina, Invanz, Kefazol, Keflin, Klaricid,
+
+    Levaquin, Meronem, Mycamine, Staficilin N, Targocid, Tazocin, Tygacil, Unasyn, Vancocina, Zoltec,
+
+    Zovirax, Zyvox, Rocefin, Maxcef, Avalox, Linezolida, Aciclovir, Metronidazol, Fluconazol, Zerbaxa,
+
+    Cefuroxima Sódica, Novamin, Bedfordpoly B.
+
+    '
+  edge_cases: 'Several entries carry trailing whitespace in value strings (e.g. "Bedfordpoly B ", "Vancocina ").
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-056
+  - RULE-BALANCO-HIDRICO-058
+  merged_from:
+  - RULE-fluidbalance-FE-01-011
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 191-247
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published reference — facility-specific antimicrobial pick-list (antibiotics + antifungals
+      + antivirals) for the intake form.
+    detail_file: balanco-hidrico-batch6.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-224
+    band: UNVERIFIABLE
+    title: Antibiotic vocabulary (fluid balance)
+    excerpt: 'Proprietary formulary vocabulary (dataFormBalancoHidrico.ts:191-247), 40 options — do NOT treat as
+      wrong. Data-quality observations for internal review: (1) Trailing-whitespace values: ''Bedfordpoly B '',
+      ''Novamin '', ''Staficilin …'
+- id: RULE-BALANCO-HIDRICO-058
+  name: Electrolyte replacement vocabulary
+  category: drug-dosing
+  type: validation
+  status: OK
+  verify: true
+  description: 'Controlled list of electrolytes for a replacement intake.
+
+    '
+  inputs:
+  - nome
+  outputs:
+  - valid electrolyte
+  logic: "options = { Sódio (Na+), Potássio (K+), Cloreto (Cl-), Cálcio (Ca2+), Magnésio (Mg2+),\n            Bicarbonato\
+    \ (HCO3-), Fosfato (PO42-), Sulfato (SO42-) }\n"
+  edge_cases: 'Volume in ml only.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-056
+  - RULE-BALANCO-HIDRICO-057
+  merged_from:
+  - RULE-fluidbalance-FE-01-012
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 248-271
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: none
+    reference: 'Ion valence/charge notation is chemically verifiable. Standard inorganic chemistry: orthophosphate
+      PO4^3− (charge 3−); hydrogen phosphate HPO4^2−; sulfate SO4^2−; bicarbonate HCO3−; Na+, K+, Cl−, Ca2+, Mg2+.'
+    detail_file: balanco-hidrico-batch6.yaml
+  escalations:
+  - item_id: ESC-P3-098
+    band: P3
+    title: drug-dosing
+    excerpt: 'Proprietary electrolyte pick-list (dataFormBalancoHidrico.ts:248-271), 8 options, volume-only capture
+      — do NOT treat as wrong. One chemically-verifiable observation: the phosphate label ''Fosfato (PO42-)'' renders
+      the charge as 2− whereas …'
+- id: RULE-BALANCO-HIDRICO-059
+  name: Fluid-balance consciousness level enum (AVDI-like)
+  category: clinical-scoring
+  type: validation
+  status: OK
+  verify: true
+  description: 'Level-of-consciousness captured as an ordered enum of alertness states.
+
+    '
+  inputs:
+  - nv_consciencia
+  outputs:
+  - consciousness level
+  logic: 'options: acordado(Mantido ou acordado), sonolencia(Sonolência), agitacao(Agitação ou confusão),
+
+    reage_verbal(Reage/responde ao estímulo verbal), reage_tatil(Reage/responde ao estímulo tátil),
+
+    coma(Não reage/responde (coma)), convulsao(Convulsão (pós ictal))
+
+    '
+  edge_cases: 'Not a numeric score; ordinal severity implied by ordering.
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-019
+  - RULE-BALANCO-HIDRICO-032
+  merged_from:
+  - RULE-fluidbalance-FE-01-016
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 547-581
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Resembles AVPU/AVDI reactivity ladder; not explicitly named.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'AVPU scale (Alert, Voice, Pain, Unresponsive) — closest standard reactivity ladder; see McNarry
+      AF, Goldhill DR. Simple bedside assessment of level of consciousness: comparison of two simple assessment
+      scales with the Glasgow Coma Scale. Anaesthesia. 2004;59(1):34-37. AVPU/AVDI defines only 4 ordinal states.'
+    detail_file: balanco-hidrico-batch7.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-222
+    band: UNVERIFIABLE
+    title: Fluid-balance consciousness level enum (AVDI-like)
+    excerpt: RULE-BALANCO-HIDRICO-059 is a categorical UI select enum (nv_consciencia) with 7 discrete alertness
+      states, NOT a numeric score, calculator, or weighted scale. Source confirmed at trilhas-frontend src/utils/dataForms/dataFormBa…
+- id: RULE-BALANCO-HIDRICO-060
+  name: Fluid-balance complaint conditional
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'If a complaint is flagged, a free-text description becomes required.
+
+    '
+  inputs:
+  - queixa
+  outputs:
+  - motivo_queixa
+  logic: 'queixa == true -> motivo_queixa (string) required
+
+    '
+  edge_cases: 'false reveals nothing.
+
+    '
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-fluidbalance-FE-01-017
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 623-637
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-061
+  name: Required HH:MM 24h event-time (fluid balance)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Fluid-balance "Horario" field masked 00:00 and validated as strict 24h HH:MM; unlike RULE-003 the
+    regex does NOT permit an empty value.
+  inputs:
+  - name: horario
+    type: string (masked)
+    unit: HH:MM
+    range: 00:00-23:59
+  outputs:
+  - name: valid
+    type: boolean
+    unit: null
+  logic: 'mask = "00:00"
+
+    regex = /^([01][0-9]|2[0-3]):([0-5][0-9])$/   // no empty-string alternative
+
+    '
+  edge_cases: Empty value FAILS here (no `|` empty branch), whereas the discipline-form exit-time regex (RULE-003)
+    allows empty.
+  confidence: high
+  related: []
+  merged_from:
+  - RULE-time-FE-01-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 293-299
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Same regex repeated at dataFormBalancoHidrico.ts:459-465 (saida) and 638-644 (sinais vitais). DISCREPANCY
+    = two divergent time regexes coexist in the codebase (empty allowed vs not). Referenced as "RULE-004" by the
+    intake/output decision-tree rules RULE-BALANCO-HIDRICO-029 and RULE-BALANCO-HIDRICO-031, which span these source
+    lines but do not themselves capture this time-mask validation.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-152
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-BALANCO-HIDRICO-062
+  name: Balanco hidrico day filter (unused)
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: 'A FilterSet restricting BalancoHidrico queryset to an exact-match ''dia'' (day) field exists but
+    is not attached to any viewset (BalancoHidricoViewSet has its filter_class commented out).
+
+    '
+  inputs:
+  - name: dia
+    type: date
+    unit: null
+    range: null
+  outputs:
+  - name: filtered queryset
+    type: queryset
+    unit: null
+  logic: "class BalancoHidricoFilter(FilterSet):\n    class Meta:\n        model = BalancoHidrico\n        fields\
+    \ = (\"dia\",)\n"
+  edge_cases: Not referenced by any view in scope; dead code as of this commit.
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-023
+  merged_from:
+  - RULE-filtro-BE-08-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/filters/balanco_hidrico.py
+    lines: 6-9
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'BalancoHidricoViewSet.get_queryset() implements its own day-cutoff logic manually (see RULE-BALANCO-HIDRICO-023,
+    the 07:00 clinical-day default from RULE-balanco-BE-08-005) instead of using this filter. Routed here from cadastros-ui:
+    fluid-balance domain logic (and dead/unwired code), not a registration/CRUD concern.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-318
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Balanco hidrico day filter (unused)

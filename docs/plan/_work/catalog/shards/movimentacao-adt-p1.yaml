@@ -1,0 +1,1739 @@
+shard: movimentacao-adt-p1
+cluster: movimentacao-adt
+rule_count: 35
+rules_with_escalations: 10
+rules:
+- id: RULE-MOVIMENTACAO-ADT-001
+  name: Length-of-stay (tempo de permanencia / dias de internacao)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Days elapsed since admission (data_entrada) used as tempo_permanencia and dias de internacao.
+
+    '
+  inputs:
+  - data_entrada (datetime)
+  outputs:
+  - dias (integer, days)
+  logic: "tempo_permanencia = diferenca_dias(self.data_entrada.date())\n  where diferenca_dias(entrada) = (timezone.now().date()\
+    \ - entrada).days\nbuscar_dias_internacao = diferenca_dias(data_entrada.date()) if data_entrada else 0\n"
+  edge_cases: 'Uses .date() so partial days are truncated (whole-day difference). No data_entrada => tempo_permanencia
+    raises AttributeError (only buscar_dias_internacao guards None with 0).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-002
+  merged_from:
+  - RULE-movimentacao-BE-04-024
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/movimentacao.py
+    lines: 73-103
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'diferenca_dias in utils/handlers.py:63 (out of partition). Feeds micro_indicadores.tempo_internacao (RULE-002).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Length-of-stay is an operational ADT metric, not a published clinical formula. No single authoritative
+      equation exists; conventions vary (elapsed-calendar-days vs midnight-census/inclusive-day count). Legacy computes
+      elapsed whole days: (timezone.now().date() - data_entrada.date()).days.'
+    detail_file: movimentacao-adt-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-247
+    band: UNVERIFIABLE
+    title: Length-of-stay (tempo de permanencia / dias de internacao)
+    excerpt: 'Pure operational date arithmetic; no canonical published LOS formula to check against. Internally
+      consistent (elapsed whole-day count via .date() truncation). Only definitional caveat: elapsed-days yields
+      one fewer day than the…'
+- id: RULE-MOVIMENTACAO-ADT-002
+  name: Bed/movimentacao micro-indicators payload (VM / noradrenalina / sedacao / LOS)
+  category: clinical-scoring
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'The bed/movimentacao payload surfaces a micro_indicadores object of ICU markers. Backend (manual
+    movimentacao get_payload) emits four: length of stay, mechanical ventilation, noradrenaline (vasopressor), and
+    sedation presence. The frontend MicroIndicadores TypeScript type declares SIX fields (adds hemodialise and mortalidade_esperada),
+    so the two implementations do not agree on the object shape.
+
+    '
+  inputs:
+  - dados_prontuario (DadosProntuario)
+  outputs:
+  - micro_indicadores (dict)
+  logic: "# BACKEND (core/models/movimentacao.py, manual movimentacao get_payload):\nvm       = dados_prontuario.verificar_uso_ventilacao_mecanica\n\
+    dva      = dados_prontuario.verificar_uso_noradrenalina\nsedacao  = dados_prontuario.verificar_existencia_sedativos\n\
+    payload.micro_indicadores = {\n  \"tempo_internacao\": tempo_permanencia,\n  \"ventilacao_mecanica\": vm,\n\
+    \  \"noradrenalina\": dva,\n  \"sedacao\": sedacao,\n}\nalerta_movimentacao default \"NEUTRO\" (max_length 8);\
+    \ atual default True.\n\n# FRONTEND (src/@types/models/Ocupacao.d.ts:47-54):\ninterface MicroIndicadores {\n\
+    \  noradrenalina: boolean;\n  sedacao: boolean;\n  tempo_internacao: number;\n  ventilacao_mecanica: boolean;\n\
+    \  hemodialise: boolean;          # NOT emitted by backend manual payload\n  mortalidade_esperada: number; \
+    \ # NOT emitted by backend manual payload (see RULE-003)\n}\n"
+  edge_cases: 'The verificar_* implementations live in trilha_manual.models.DadosProntuario (out of partition).
+    dva = droga vasoativa (noradrenaline as vasopressor marker).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-001
+  - RULE-MOVIMENTACAO-ADT-003
+  - RULE-MOVIMENTACAO-ADT-004
+  - RULE-MOVIMENTACAO-ADT-005
+  divergence: 'Object-shape divergence between backend and frontend copies of micro_indicadores. Backend manual
+    movimentacao get_payload() (core/models/movimentacao.py:127-133, verified) emits exactly {tempo_internacao,
+    ventilacao_mecanica, noradrenalina, sedacao}. Frontend Models.Ocupacao.MicroIndicadores (Ocupacao.d.ts:47-54,
+    verified) additionally declares hemodialise:boolean and mortalidade_esperada:number, which the backend manual
+    path never populates. Likely source: the automatica/homecare micro_indicadores path (utils.micro_indicadores
+    via RULE-005 lookup, out of partition) may supply the extra fields; the frontend uses one union type for all
+    bed types. Recorded as a real BE/FE field-set mismatch, not corrected.
+
+    '
+  merged_from:
+  - RULE-movimentacao-BE-04-026
+  - RULE-ocupacao-FE-07-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/movimentacao.py
+    lines: 77-143
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 47-54
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: 'Both individual captures were status OK in Phase 1; the DISCREPANCY (and new divergence) was found during
+    BE/FE reconciliation. mortalidade_esperada is split into RULE-003.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Backend/frontend object-shape contract for the micro_indicadores payload - an internal API data-contract,
+      not a clinical calculation with a published reference. Its markers (VM, noradrenaline, sedation, LOS) are
+      presence flags / scalars, not scored against a guideline.
+    detail_file: movimentacao-adt-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-245
+    band: UNVERIFIABLE
+    title: Bed/movimentacao micro-indicators payload (VM / noradrenalina / sedacao / LOS)
+    excerpt: 'Extraction status DISCREPANCY is a backend/frontend field-set mismatch, not a clinical-formula error
+      - no authoritative reference governs the API object shape. Confirmed real: manual get_payload emits 4 keys;
+      FE union type decl…'
+- id: RULE-MOVIMENTACAO-ADT-003
+  name: Expected-mortality score (mortalidade_esperada) surfaced without formula
+  category: clinical-scoring
+  type: scoring
+  status: AMBIGUOUS
+  verify: true
+  description: 'Each bed occupancy carries a numeric mortalidade_esperada (expected mortality) micro-indicator,
+    presumably a backend-computed severity/mortality-prediction score (e.g. APACHE-like), but no computation formula,
+    inputs, or units are present anywhere in the frontend partition.
+
+    '
+  inputs:
+  - (unknown - computed server-side)
+  outputs:
+  - mortalidade_esperada (number; unit unknown - presumed percentage 0-100 or probability 0-1)
+  logic: 'mortalidade_esperada: number   // opaque value, no frontend computation found
+
+    '
+  edge_cases: 'Unknown; not computed, only displayed.
+
+    '
+  confidence: low
+  related:
+  - RULE-MOVIMENTACAO-ADT-002
+  merged_from:
+  - RULE-ocupacao-FE-07-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 47-54
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Flagged AMBIGUOUS per ground rules rather than silently assumed. A verifier should check the backend partition
+    for the actual scoring formula (likely APACHE II / SAPS-family) feeding this field.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Expected ICU mortality is conventionally derived from APACHE II (Knaus et al., Crit Care Med 1985;13:818-29)
+      or SAPS 3 (Moreno et al., Intensive Care Med 2005); both output a predicted death probability 0-1 / 0-100%.
+      The legacy field mortalidade_esperada is opaque: no formula, inputs, units, or coefficients exist in the captured
+      partition (server-computed, out of scope).'
+    detail_file: movimentacao-adt-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-246
+    band: UNVERIFIABLE
+    title: Expected-mortality score (mortalidade_esperada) surfaced without formula
+    excerpt: 'Cannot verify: the scoring formula feeding mortalidade_esperada is not present in this partition (extraction
+      AMBIGUOUS, confidence low). Presumed APACHE II / SAPS-family. The unresolved unit (probability 0-1 vs percentage
+      0-100…'
+- id: RULE-MOVIMENTACAO-ADT-004
+  name: Bed-level assistencial information clinical panel (vitals / neuro scores / labs)
+  category: clinical-scoring
+  type: validation
+  status: OK
+  verify: true
+  description: 'Each bed''s Trilha exposes an assistencial-data panel combining vitals (BP systolic/diastolic/mean,
+    temperature), neuro scores (RASS, Glasgow), delirium status, fluid balance (24h diuresis, 24h fluid balance),
+    vasopressor/hemodialysis-catheter status, and a laboratory panel (WBC, platelets, CRP, lactate, pH, bicarbonate,
+    pO2, pCO2, P/F ratio, creatinine, urea, bilirubin).
+
+    '
+  inputs:
+  - pressao_arterial.sistolica/diastolica/media (string, mmHg presumed)
+  - rass (number; clinically -5..+4, not enforced)
+  - glasgow (number; clinically 3..15, not enforced)
+  - delirium (enum Ausente|Presente)
+  - noradrenalina (enum Ausente|Presente)
+  - diurese_24h / balanco_hidrico_24h (number, mL presumed)
+  - leucocitos/plaquetas/pcr/lactato/ph/bicarbonato/po2/pco2/pf/creatinina/ureia/bilirrubinas (number)
+  outputs:
+  - InformacoesAssistenciais (object)
+  logic: "InformacoesAssistenciais = {\n  pressao_arterial: { sistolica: string, diastolica: string, media: string\
+    \ },\n  rass: number, glasgow: number,\n  delirium: \"Ausente\" | \"Presente\",\n  diurese_24h: number, balanco_hidrico_24h:\
+    \ number, temperatura: number,\n  noradrenalina: \"Ausente\" | \"Presente\",\n  cateter_de_hemodialise: string,\n\
+    \  leucocitos: number, plaquetas: number, pcr: number, lactato: number,\n  ph: number, bicarbonato: number,\
+    \ po2: number, pco2: number, pf: number,\n  creatinina: number, ureia: number, bilirrubinas: number\n}\n"
+  edge_cases: 'Blood-pressure sub-fields are typed as string (not number) unlike every other numeric lab value in
+    this panel - an internal type inconsistency recorded verbatim. No numeric range validation present in this partition
+    for any field.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-002
+  merged_from:
+  - RULE-ocupacao-FE-07-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 109-135
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Cross-model note (other side out of this cluster): RASS here is number while Models.DadosProntuario.rass
+    is string (RULE-prontuario-FE-07-002) - a cross-model type discrepancy not reconcilable within this cluster.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Composite assistencial panel. The two range-bearing scales it declares are verifiable: RASS (Sessler
+      et al., Am J Respir Crit Care Med 2002;166:1338-44) spans +4 (combative) to -5 (unarousable); GCS total (Teasdale
+      & Jennett, Lancet 1974) spans 3-15. All other fields (BP, temp, diuresis, labs: WBC, platelets, CRP, lactate,
+      pH, HCO3, pO2, pCO2, P/F, creatinine, urea, bilirubin) are raw measured values, not scored - no formula/coefficients
+      apply.'
+    detail_file: movimentacao-adt-batch1.yaml
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-005
+  name: 'Bed micro-indicator lookup key: nr_atendimento + bed name as CD_UNIDADE'
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'OcupacaoSerializer.get_micro_indicadores and get_procedimentos both resolve a MicroIndicadores row
+    using the combination of the bed''s current nr_atendimento AND the bed''s own name (instance.nome) matched against
+    the external system''s CD_UNIDADE code - i.e. Leito.nome is assumed to equal the legacy hospital system''s unit
+    code.
+
+    '
+  inputs:
+  - instance.nr_atendimento (string)
+  - instance.nome (string)
+  outputs:
+  - micro_indicadores (object)
+  - procedimentos_invasivos (object)
+  logic: "micro_indicador = MicroIndicadores.objects.filter(\n    NR_ATENDIMENTO=instance.nr_atendimento, CD_UNIDADE=instance.nome\n\
+    ).first()\nreturn get_microindicadores(micro_indicador)          # or get_procedimentos_invasivos(...)\n"
+  edge_cases: 'Uses .first() (not .get()), so if multiple MicroIndicadores rows match the same (NR_ATENDIMENTO,
+    CD_UNIDADE) pair, an arbitrary one (per default ordering) is used silently. Returns whatever get_microindicadores/get_procedimentos_invasivos
+    do with a None argument if no match is found.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-002
+  - RULE-MOVIMENTACAO-ADT-016
+  merged_from:
+  - RULE-leito-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 81-99
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'get_microindicadores/get_procedimentos_invasivos are in utils.micro_indicadores, out of this partition
+    - only the lookup-key rule is captured.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Internal data-model lookup key: MicroIndicadores row resolved by (NR_ATENDIMENTO = bed.nr_atendimento,
+      CD_UNIDADE = bed.nome) via .first(). Proprietary integration/business rule mapping Leito.nome to the external
+      Tasy/Oracle unit code CD_UNIDADE. No published clinical reference applies.'
+    detail_file: movimentacao-adt-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-248
+    band: UNVERIFIABLE
+    title: 'Bed micro-indicator lookup key: nr_atendimento + bed name as CD_UNIDADE'
+    excerpt: 'Proprietary integration mapping (Leito.nome assumed equal to legacy CD_UNIDADE) with no authoritative
+      external reference. Behavioral risks noted by extraction are real but non-clinical: .first() silently picks
+      an arbitrary row …'
+- id: RULE-MOVIMENTACAO-ADT-006
+  name: Bed patient snapshot defaults to empty dict when unassigned
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: 'OcupacaoSerializer.get_paciente returns a flattened patient info dict (id, nome, nome_extendido,
+    idade, genero) when instance.paciente is set, or an empty dict {} (not null) when no patient is assigned to
+    the bed.
+
+    '
+  inputs:
+  - instance.paciente (object | null)
+  outputs:
+  - paciente (object)
+  logic: "return ({\n    \"id\": instance.paciente.get_pk, \"nome\": instance.paciente.nome_fracionado,\n    \"\
+    nome_extendido\": instance.paciente.nome_abreviado, \"idade\": instance.paciente.idade_paciente,\n    \"genero\"\
+    : instance.paciente.genero,\n} if instance.paciente else {})\n"
+  edge_cases: 'Returns {} rather than None when unassigned - contrast with ObservacaoSerializer.get_paciente which
+    implicitly returns None when there is no leito.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-007
+  merged_from:
+  - RULE-leito-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 101-116
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference exists. Internal serializer contract (OcupacaoSerializer.get_paciente
+      returns flattened patient dict, or {} when bed unassigned). Verified against legacy source only.
+    detail_file: movimentacao-adt-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-250
+    band: UNVERIFIABLE
+    title: Bed patient snapshot defaults to empty dict when unassigned
+    excerpt: Software/data-plumbing rule, not a clinical calculation - no published reference (paper/guideline/calculator)
+      applies. Legacy logic at core/api/v1/serializers/leito.py:101-116 confirmed byte-for-byte against catalog
+      (empty-dict…
+- id: RULE-MOVIMENTACAO-ADT-007
+  name: Patient basic name/age computed fields
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: 'PacienteSimplesSerializer.get_nome and get_idade delegate to model properties nome_fracionado and
+    idade_paciente respectively; nome_extendido maps directly to the model''s nome_abreviado field.
+
+    '
+  inputs:
+  - instance.nome_fracionado (string)
+  - instance.idade_paciente (integer)
+  outputs:
+  - nome (string)
+  - idade (integer)
+  - nome_extendido (string)
+  logic: 'def get_nome(instance): return instance.nome_fracionado
+
+    def get_idade(instance): return instance.idade_paciente
+
+    nome_extendido = CharField(source="nome_abreviado", read_only=True)
+
+    '
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-006
+  - RULE-MOVIMENTACAO-ADT-020
+  merged_from:
+  - RULE-paciente-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/paciente.py
+    lines: 7-26
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'nome_fracionado/idade_paciente/nome_abreviado are model properties in core/models, out of partition -
+    only the field-mapping rule is captured.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference exists. Internal field mapping (PacienteSimplesSerializer:
+      get_nome->nome_fracionado, get_idade->idade_paciente, nome_extendido<-nome_abreviado). Verified against legacy
+      source only.'
+    detail_file: movimentacao-adt-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-251
+    band: UNVERIFIABLE
+    title: Patient basic name/age computed fields
+    excerpt: Pure serializer field-delegation rule; no clinical formula, unit, or cutoff to verify against any authority.
+      Legacy at core/api/v1/serializers/paciente.py:7-26 confirmed against catalog. idade_paciente age computation
+      lives in …
+- id: RULE-MOVIMENTACAO-ADT-008
+  name: Precomputed vinculo lookup dict is built but never consumed by the serializer
+  category: data-validation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'SetorPacienteViewSet.get_serializer_context precomputes a dict of existing UsuarioSetorPaciente
+    link objects keyed by generate_key_access_vinculo_paciente_leito(paciente_pk, setor_pk, usuario_pk) and stores
+    it in context[''vinculos_paciente_leito''] - but SetorPacienteSerializer.get_vinculo (the only consumer) instead
+    issues its OWN direct DB query per patient instance, never reading context[''vinculos_paciente_leito'']. The
+    precomputed dict is dead/unused, and the serializer performs one query per row (N+1).
+
+    '
+  inputs:
+  - kwargs.usuario__pk (uuid)
+  - kwargs.setor__pk (uuid)
+  outputs:
+  - context.vinculos_paciente_leito (object, dead/unused)
+  logic: "# view (builds dict, never read):\nqs = get_queryset().values_list(\"pk\", flat=True)\npayload_vinculos\
+    \ = {}\nfor vinculo in UsuarioSetorPaciente.objects.filter(pk__in=qs, usuario=usuario_pk, setor=setor_pk):\n\
+    \    payload_vinculos[generate_key_access_vinculo_paciente_leito(vinculo.paciente.get_pk, setor_pk, usuario_pk)]\
+    \ = vinculo\ncontext[\"vinculos_paciente_leito\"] = payload_vinculos\n\n# serializer (actual behavior, ignores\
+    \ the above):\ndef get_vinculo(instance):\n    kwargs = self.context[\"view\"].kwargs\n    vinculo = UsuarioSetorPaciente.objects.filter(\n\
+    \        usuario=kwargs.get(\"usuario__pk\"), paciente=instance, setor=kwargs.get(\"setor__pk\")\n    ).first()\n\
+    \    return vinculo.get_pk if vinculo else None\n"
+  edge_cases: 'For N patients in the list, this results in N additional DB queries (one per get_vinculo call) rather
+    than a single upfront query - a performance discrepancy relative to the apparent intent of the precomputed context
+    dict.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-042
+  - RULE-MOVIMENTACAO-ADT-045
+  divergence: 'Intent-vs-implementation discrepancy (single-implementation dead code). The view precomputes context[''vinculos_paciente_leito'']
+    but the serializer''s get_vinculo never reads it, doing a per-row query instead. Recorded verbatim; not corrected.
+
+    '
+  merged_from:
+  - RULE-paciente-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/paciente.py
+    lines: 44-63
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Consumer side: core/api/v1/serializers/paciente.py lines 63-76 (SetorPacienteSerializer.get_vinculo).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference exists. Software correctness finding (dead precomputed
+      context dict + N+1 per-row query in SetorPacienteViewSet.get_serializer_context vs SetorPacienteSerializer.get_vinculo).
+      Verified against legacy source only.
+    detail_file: movimentacao-adt-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-252
+    band: UNVERIFIABLE
+    title: Precomputed vinculo lookup dict is built but never consumed by the serializer
+    excerpt: Carries DISCREPANCY status from extraction; characterized here as a confirmed intent-vs-implementation
+      software defect (dead context['vinculos_paciente_leito'] dict + N+1 query), NOT dismissed. Confirmed against
+      core/api/v1/vie…
+- id: RULE-MOVIMENTACAO-ADT-009
+  name: Fixed -3h display offset for prontuario timestamps
+  category: scheduling-operational
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Historical prontuario data timestamps are shifted by -3 hours before formatting for display.
+
+    '
+  inputs:
+  - dados.criado_em (datetime)
+  outputs:
+  - data label (string, "%Y-%m-%d %H:%M")
+  logic: 'for each prior prontuario record: label = strftime(dados.criado_em - timedelta(hours=3), "%Y-%m-%d %H:%M")
+
+    '
+  edge_cases: 'Hardcoded 3-hour subtraction (Brazil UTC-3) rather than a timezone conversion; would be wrong during
+    daylight-saving periods or in other regions.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-039
+  divergence: 'Naive fixed -3h offset vs proper tz-aware conversion (single-implementation defect). Recorded verbatim.
+
+    '
+  merged_from:
+  - RULE-movimentacao-BE-04-025
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/movimentacao.py
+    lines: 105-119
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Verified at core/models/movimentacao.py montar_list_ultimos_dados (criado_em - timedelta(hours=3)).
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'IANA tz database (America/Sao_Paulo) and Brazil DST law: DST permanently abolished 2019 (Decreto
+      9.772/2019, eff. Apr 2019); Brasilia Time = UTC-3 year-round since 2019, previously UTC-2 during summer DST
+      (mid-Oct to mid-Feb).'
+    detail_file: movimentacao-adt-batch2.yaml
+  escalations:
+  - item_id: ESC-P2-091
+    band: P2
+    title: Fixed -3h display offset for prontuario timestamps
+    excerpt: Naive fixed -3h offset vs proper tz-aware conversion (single-implementation defect). Recorded verbatim.
+- id: RULE-MOVIMENTACAO-ADT-010
+  name: Live camera RTSP URL construction
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: 'LiveCameraViewSet.list builds an RTSP stream URL from the establishment''s camera credentials and
+    the target bed''s IP address.
+
+    '
+  inputs:
+  - estabelecimento.login_camera (string)
+  - estabelecimento.senha_camera (string)
+  - leito.ip_camera (string)
+  outputs:
+  - url (string, rtsp URI)
+  logic: 'senha = estabelecimento.senha_camera
+
+    usuario = estabelecimento.login_camera
+
+    ip = Leito.objects.get(pk=kwargs["leitos__pk"]).ip_camera
+
+    url = f"rtsp://{usuario}:{senha}@{ip}"
+
+    '
+  edge_cases: 'Credentials are embedded directly in the URL string (standard RTSP basic-auth-in-URL pattern); no
+    escaping/encoding of special characters in usuario/senha is applied.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-027
+  - RULE-MOVIMENTACAO-ADT-028
+  merged_from:
+  - RULE-leito-BE-05-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/camera.py
+    lines: 18-27
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Endpoint is protected by HasAPIKey rather than user JWT auth - a distinct authentication mechanism from
+    the rest of the API surface in this partition.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference exists. RTSP basic-auth-in-URL is the standard rtsp://user:pass@host
+      convention (RFC 7826/2326 userinfo); a networking pattern, not a clinical rule. Verified against legacy source
+      only.
+    detail_file: movimentacao-adt-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-253
+    band: UNVERIFIABLE
+    title: Live camera RTSP URL construction
+    excerpt: Software URL-construction rule, no clinical calculation. Confirmed at core/api/v1/views/camera.py:18-27
+      (rtsp://{usuario}:{senha}@{ip}). Only external touchpoint is the RTSP URI convention (RFC 7826), against which
+      the legacy i…
+- id: RULE-MOVIMENTACAO-ADT-011
+  name: Bed 'assistido' flag delegated to a model property (leito serializer)
+  category: care-pathway
+  type: formula
+  status: AMBIGUOUS
+  verify: true
+  description: 'OcupacaoSerializer.get_assistido returns instance.get_assistido - a model-level property/method
+    defined in core/models (out of partition). The docstring and a large block of commented-out dead code in the
+    same file describe the intended algorithm: for ''automatica'' beds, iterate all non-NEUTRO trilhas and require
+    ALL to be assistido=True (short-circuiting to False), but if every trilha is NEUTRO the overall result is forced
+    False; for ''homecare'' beds, collect assistido flags of only non-NEUTRO trilhas and return True only if that
+    list is non-empty and contains no False.
+
+    '
+  inputs:
+  - instance.tipo (string enum)
+  outputs:
+  - assistido (boolean)
+  logic: "# ACTIVE code:\ndef get_assistido(instance):\n    return instance.get_assistido\n# Commented-out (dead)\
+    \ code in the same file suggests the underlying algorithm:\n# if tipo == \"automatica\":\n#     assistido, neutro\
+    \ = True, True\n#     if instance.ocupado:\n#         for Trilha in instance.get_trilhas_automaticas():\n# \
+    \            trilha = get_trilha(Trilha, instance, instance.tipo)\n#             if trilha and trilha.alerta\
+    \ != \"NEUTRO\":\n#                 neutro = False\n#                 if not trilha.assistido:\n#          \
+    \           assistido = False; break\n#                 assistido = assistido and trilha.assistido\n#     return\
+    \ assistido if not neutro else False\n# elif tipo == \"homecare\":\n#     assistidos = [trilha.assistido for\
+    \ Trilha in instance.get_trilhas_homecare()\n#                   if (trilha := get_trilha(Trilha, instance,\
+    \ instance.tipo)) and trilha.alerta != \"NEUTRO\"]\n#     return bool(assistidos and not assistidos.count(False))\n"
+  edge_cases: 'If ALL of a bed''s non-manual trilhas are NEUTRO, the commented algorithm returns False (not True)
+    for ''assistido'' - an all-neutral bed is reported as NOT attended, which may be counter-intuitive (this all-neutral->False
+    behavior IS confirmed for the manual/movimentacao path in RULE-013).
+
+    '
+  confidence: low
+  related:
+  - RULE-MOVIMENTACAO-ADT-013
+  - RULE-MOVIMENTACAO-ADT-046
+  merged_from:
+  - RULE-leito-BE-05-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 191-200, 365-395 (commented, dead)
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Kept SEPARATE from RULE-013 (the confirmed active manual-path assistido resolution) because this is the
+    Leito-serializer variant for automatica/homecare beds delegating to an unread Leito.get_assistido model property;
+    only dead-code evidence is available here. NOT merged (different bed-type family, unconfirmed). A verifier with
+    access to core/models/leito.py must confirm whether the live property matches the commented algorithm and RULE-013.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference exists. This is a proprietary internal business rule:
+      an aggregation of IntensiCare care-pathway (trilha) alert states into a per-bed boolean ''assistido'' (attended-by-care-team)
+      flag. It is not a validated clinical score, equation, or standard calculator (not APACHE/SAPS/SOFA/etc.),
+      and no clinical guideline governs how a bed-management UI derives an ''attended'' boolean from internal traffic-light
+      alert levels.'
+    detail_file: movimentacao-adt-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-249
+    band: UNVERIFIABLE
+    title: Bed 'assistido' flag delegated to a model property (leito serializer)
+    excerpt: 'Confirmed at core/api/v1/serializers/leito.py:191-200: the ACTIVE get_assistido simply returns instance.get_assistido,
+      a Leito model property defined in core/models/leito.py (OUT OF PARTITION and not present in this verificatio…'
+- id: RULE-MOVIMENTACAO-ADT-012
+  name: Bed/movimentacao alert aggregation + new-alert notification
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Rolls the 4 pathway alerts into a single bed alert and fires a notification when a bed newly turns
+    red or its red content changed.
+
+    '
+  inputs:
+  - trilha alertas (sepse, ventilacao, sedacao, estabilidade) (list[str])
+  - alerta_antigo (str)
+  outputs:
+  - movimentacao.alerta_movimentacao (str enum {VERMELHO,AMARELO,NEUTRO})
+  logic: "trilhas = [sepse.alerta, ventilacao.alerta, sedacao.alerta, estabilidade.alerta]\nif 'VERMELHO' in trilhas:\n\
+    \    alerta = 'VERMELHO'\n    if alerta_antigo != 'VERMELHO': send observacao (Mensageiro)\n    else:\n    \
+    \    conteudo_atual = conteudo_trilha_criterios(mov)\n        conteudo_anterior = last Observacao(leito, texto\
+    \ is null, conteudo != []) by -criado_em\n        if conteudo_anterior and conteudo_anterior.conteudo != conteudo_atual:\
+    \ send observacao\nelif 'AMARELO' in trilhas: alerta = 'AMARELO'\nelse: alerta = 'NEUTRO'\nmovimentacao.save()\n"
+  edge_cases: 'Priority VERMELHO > AMARELO > NEUTRO. Notification only on red transition or changed red content.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-014
+  - RULE-MOVIMENTACAO-ADT-038
+  - RULE-MOVIMENTACAO-ADT-040
+  merged_from:
+  - RULE-mov-BE-10-060
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/facade/atualizar_alerta_movimentacao.py
+    lines: 9-79
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Called by DadosProntuario.atualizar_trilhas and by the batch task. Mensageiro/Observacao live in core
+    (out of partition).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-013
+  name: Patient 'assisted' resolution across pathways (movimentacao)
+  category: scheduling-operational
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Determines whether a patient is fully ''assisted'' - every non-neutral pathway must be marked assisted;
+    all-neutral returns False.
+
+    '
+  inputs:
+  - 4 trilhas (alerta, assistido) (objects)
+  outputs:
+  - assistido (bool)
+  logic: 'get_assistido_por_trilha(t) = t.assistido if t.alerta != ''NEUTRO'' else True
+
+    if all 4 alertas == ''NEUTRO'': return False
+
+    return all(get_assistido_por_trilha(t) for t in [sedacao, estabilidade, ventilacao, sepse])
+
+    '
+  edge_cases: 'All-neutral -> False (nothing to assist). A neutral pathway counts as assisted(True) so it does not
+    block. Any non-neutral, non-assisted pathway -> False.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-011
+  - RULE-MOVIMENTACAO-ADT-046
+  merged_from:
+  - RULE-mov-BE-10-061
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/dados_prontuario.py
+    lines: 214-234
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Active code verified at dados_prontuario.py:218-234 (get_assistido / get_assistido_por_trilha). get_trilhas/get_detalhe
+    assemble per-pathway alert & payload for the API. This is the confirmed manual/movimentacao variant; RULE-011
+    is the (unconfirmed) leito-serializer variant for automatica/homecare.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-014
+  name: Bed/trilha alert severity levels (AMARELO|NEUTRO|VERMELHO)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: 'A bed occupancy, its care-pathway (trilha), and any chat/feed message reference exactly three alert-severity
+    levels - yellow (AMARELO), neutral/none (NEUTRO), and red (VERMELHO) - used as a traffic-light severity indicator
+    throughout the UI.
+
+    '
+  inputs:
+  - 'alerta (string enum: AMARELO | NEUTRO | VERMELHO)'
+  outputs:
+  - alerta (string enum)
+  logic: 'Alerta = "AMARELO" | "NEUTRO" | "VERMELHO"
+
+    // used by: Models.Ocupacao.alerta, Models.Ocupacao.Trilha.alerta (typed as plain string there),
+
+    // Models.Feed.alerta, Models.Chat.Mensagem.alerta (all typed as Ocupacao.Alerta)
+
+    '
+  edge_cases: 'Ocupacao.Trilha.alerta and Models.Criterio.alerta are typed as plain string, not the Alerta union
+    - so at the type level a Trilha/Criterio could carry a value outside {AMARELO,NEUTRO,VERMELHO}, unlike Ocupacao.alerta
+    itself.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-012
+  merged_from:
+  - RULE-ocupacao-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Ocupacao.d.ts
+    lines: 106-106
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'A 4th level ("LARANJA") appears only in the dashboard aggregate type (RULE-dashboard-FE-07-001, out of
+    this cluster), contradicting this 3-level definition.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-015
+  name: Overdue-protocol-item indicator on trilha chip
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: 'A trilha chip on a bed card shows a clock-alert icon with the tooltip "Ha itens do protocolo em
+    atraso." whenever the trilha''s has_item_em_atraso flag is true, signalling overdue protocol items to the care
+    team.
+
+    '
+  inputs:
+  - trilha.has_item_em_atraso (boolean)
+  outputs:
+  - showOverdueIcon (boolean)
+  logic: 'showOverdueIcon = !!trilha.has_item_em_atraso
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-017
+  merged_from:
+  - RULE-leito-FE-06-030
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/CollapseCard/CollapseCard.tsx
+    lines: 570-578
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-016
+  name: Invasive-procedures alert indicator
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: 'A bed card shows an amber alert-box icon (with a popover listing each procedure) whenever the occupation
+    has one or more recorded invasive procedures.
+
+    '
+  inputs:
+  - ocupacao.procedimentos_invasivos (array)
+  outputs:
+  - showInvasiveIcon (boolean)
+  logic: 'showInvasiveIcon = ocupacao.procedimentos_invasivos?.length > 0
+
+    '
+  edge_cases: 'Uses optional chaining; if procedimentos_invasivos is undefined, the comparison is undefined > 0
+    which is false, so the icon is safely hidden rather than throwing.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-005
+  - RULE-MOVIMENTACAO-ADT-053
+  merged_from:
+  - RULE-leito-FE-06-031
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/CollapseCard/CollapseCard.tsx
+    lines: 423-454
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-017
+  name: Trilha (care-pathway) click routing
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Clicking a trilha chip on a bed card routes to a different destination depending on the trilha''s
+    tipo: prescription and fluid-balance trilhas navigate to dedicated pages; the evolucao trilha opens an in-drawer
+    type-selection menu; any other trilha type opens the generic recommendations drawer at that trilha''s index.
+
+    '
+  inputs:
+  - trilha.tipo (enum prescricao|balanco_hidrico|evolucao|other)
+  - trilhaIndex i (integer)
+  outputs:
+  - navigationAction (enum route_prescricao|route_balanco|open_evolucao_menu|open_recomendacoes_drawer)
+  logic: "switch (trilha.tipo) {\n  case \"prescricao\":\n    router.push(`${pathname}/leito/[id_leito]/ocupacao/[id_ocupacao]/prescricao/`)\n\
+    \    break\n  case \"balanco_hidrico\":\n    router.push(`${pathname}/leito/[id_leito]/ocupacao/[id_ocupacao]/balanco/`)\n\
+    \    break\n  case \"evolucao\":\n    setShowMenuEvolucao(true)\n    break\n  default:\n    onTrilhaClick(ocupacao.id,\
+    \ ocupacao.leito.nome, i)   // opens recommendations drawer\n}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-018
+  merged_from:
+  - RULE-leito-FE-06-010
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/CollapseCard/CollapseCard.tsx
+    lines: 104-134
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'The prescricao/balanco routes are consumed by out-of-partition pages/components (Prescricao*, BalancoHidrico*).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-018
+  name: Bed trilhas selection branches by tipo (automatica/homecare only)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'get_trilhas dispatches to _get_trilhas_automaticas for tipo==''automatica'', to _get_trilhas_homecare
+    for tipo==''homecare'', and returns None (falls through) for any other tipo (i.e. ''manual'').
+
+    '
+  inputs:
+  - instance.tipo (string enum manual|automatica|homecare)
+  outputs:
+  - trilhas (array of object | null)
+  logic: "if instance.tipo == \"automatica\":\n    return self._get_trilhas_automaticas(instance)\nelif instance.tipo\
+    \ == \"homecare\":\n    return self._get_trilhas_homecare(instance)\n# else: implicit return None\n"
+  edge_cases: '''manual''-type beds get trilhas=None in the OcupacaoSerializer payload (not an empty list).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-036
+  - RULE-MOVIMENTACAO-ADT-037
+  - RULE-MOVIMENTACAO-ADT-052
+  merged_from:
+  - RULE-leito-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 202-210
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-019
+  name: Bed queryset hierarchical scope resolution (setor > empresa > all)
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'LeitoViewSet.get_queryset resolves scope in priority order: setor (if setor__pk present) > empresa
+    (if empresa__pk present, via setor__estabelecimento__empresa) > all beds.
+
+    '
+  inputs:
+  - kwargs.setor__pk (uuid | null)
+  - kwargs.empresa__pk (uuid | null)
+  outputs:
+  - queryset (queryset of Leito)
+  logic: "queryset = Leito.objects.all()\nif setor_pk:\n    return queryset.filter(setor=setor_pk)\nelif empresa_pk:\n\
+    \    return queryset.filter(setor__estabelecimento__empresa=empresa_pk)\nreturn queryset\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-029
+  merged_from:
+  - RULE-leito-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/leito.py
+    lines: 27-35
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-020
+  name: Bed patient resolution and auto-creation
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Resolves the Paciente for a bed by attendance number, falling back to an external Oracle patient
+    record, then to pathway-embedded demographics, creating a Paciente row when found.
+
+    '
+  inputs:
+  - nr_atendimento (string)
+  - ocupado (bool)
+  outputs:
+  - Paciente (or {}) (Paciente|dict)
+  logic: "paciente = Paciente.objects.filter(nr_atendimento__isnull=False, nr_atendimento=self.nr_atendimento).first()\n\
+    if not paciente:\n  paciente = {}\n  if self.ocupado:\n    oracle = InfoPaciente.objects.using(\"oracle\").filter(NR_ATENDIMENTO=self.nr_atendimento).first()\n\
+    \    if oracle:\n      create Paciente(nome=NM_PESSOA_FISICA, nr_atendimento=NR_ATENDIMENTO,\n             \
+    \         data_nascimento=DT_NASCIMENTO, genero=IE_SEXO, nome_mae=NM_MAE)\n    else:\n      for Trilha in get_trilhas_automaticas()\
+    \ (v3+v2, in order):\n        trilha = get_trilha(Trilha, self, \"automatica\")\n        if trilha:\n      \
+    \    if trilha NOT in v3 set: fields from trilha.ds_paciente/nr_atendimento/dt_nascimento/ie_sexo\n        \
+    \  else: fields from trilha.paciente.{nome,nr_atendimento,data_nascimento,genero,nome_mae}\n          create\
+    \ Paciente(**fields); break   # first matching pathway wins\nreturn paciente\n"
+  edge_cases: 'Cross-database read on the "oracle" connection. v2 pathways expose flat ds_paciente/ie_sexo; v3 pathways
+    expose a nested .paciente. Returns {} if bed empty and no source found.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-041
+  - RULE-MOVIMENTACAO-ADT-007
+  merged_from:
+  - RULE-paciente-BE-04-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 189-244
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Called in Leito.save() to set self.paciente. v3 vs v2 pathways are handled as distinct sources (variant
+    handling), not merged.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-021
+  name: Homecare vs automatica bed classification and tenant routing
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Beds sourced from the Tasy occupancy view are split into two care streams. A bed is HOME CARE only
+    when cd_tipo_leito == 3 AND ds_tipo_leito == "HOME CARE"; those rows are routed to the "homecare" tenant (whitelabel="homecare",
+    tipo="homecare"). All other beds are the "automatica" (ICU/hospital) stream, routed to whitelabel "americashealth",
+    tipo="automatica".
+
+    '
+  inputs:
+  - cd_tipo_leito (integer)
+  - ds_tipo_leito (string)
+  outputs:
+  - stream (enum {homecare, automatica})
+  logic: 'homecare_qs   = base.filter(cd_tipo_leito == 3 AND ds_tipo_leito == "HOME CARE")
+
+    automatica_qs = base.exclude(cd_tipo_leito == 3 AND ds_tipo_leito == "HOME CARE")
+
+    create_empresa_setor_leito(automatica_qs, whitelabel="americashealth", tipo="automatica")
+
+    create_empresa_setor_leito(homecare_qs,  whitelabel="homecare",       tipo="homecare")
+
+    # Django filter(a, b) == a AND b ; exclude(a, b) == NOT (a AND b)
+
+    '
+  edge_cases: 'Both conditions must be true simultaneously for HOME CARE; a bed with cd_tipo_leito==3 but ds_tipo_leito
+    != "HOME CARE" falls into the automatica stream. String comparison is exact/case-sensitive equality (not icontains).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-052
+  - RULE-MOVIMENTACAO-ADT-024
+  merged_from:
+  - RULE-leito-BE-02-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/estabelecimento_setor_leito.py
+    lines: 117-130
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Whitelabel strings ("americashealth", "homecare") are hardcoded tenant identifiers.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-022
+  name: Bed destroy() blocked while it has an active occupation
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'LeitoViewSet.destroy() prevents deletion of a bed that has a Movimentacao with atual=True.
+
+    '
+  inputs:
+  - leito.movimentacoes.atual (boolean)
+  outputs:
+  - eligible_for_deletion (boolean)
+  logic: "leito = Leito.objects.prefetch_related(\"movimentacoes\").get(pk=kwargs[\"pk\"])\nif leito.movimentacoes.filter(atual=True):\n\
+    \    raise ValidationError({\"erro\": \"Voce nao pode apagr um leito com ocupacoes!\"})\nreturn super().destroy(request,\
+    \ *args, **kwargs)\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-031
+  merged_from:
+  - RULE-leito-BE-05-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/leito.py
+    lines: 37-47
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Error message contains a verbatim typo (''apagr'' instead of ''apagar''), reproduced exactly as implemented.
+    This message text is reused (copy-pasted) for the SetorViewSet.destroy() guard where it incorrectly refers to
+    a leito while deleting a setor.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-023
+  name: Bed action-button eligibility by bed type and permission
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The action buttons available on an occupied/empty bed card are gated jointly by leito.tipo ("manual"
+    vs "homecare") and role-based permission flags. Manual beds expose Movimentacao/Remover-paciente/Adicionar-paciente
+    buttons subject to permission; homecare beds expose only a "Gerenciar arquivos" button (no permission check)
+    and only while occupied.
+
+    '
+  inputs:
+  - ocupacao.leito.tipo (enum manual|homecare)
+  - ocupacao.leito.ocupado (boolean)
+  - can_add_movimentacao / can_remove_paciente / can_create_paciente (permission booleans)
+  outputs:
+  - showMovimentacaoButton / showRemoverPacienteButton / showGerenciarArquivosButton / showAdicionarPacienteButton
+    (boolean)
+  logic: "if (leito.ocupado) {\n  showMovimentacaoButton    = (leito.tipo === \"manual\") && can_add_movimentacao\n\
+    \  showRemoverPacienteButton = (leito.tipo === \"manual\") && can_remove_paciente\n  showGerenciarArquivosButton\
+    \ = (leito.tipo === \"homecare\")   // no permission gate\n} else {\n  showAdicionarPacienteButton = (leito.tipo\
+    \ === \"manual\") && can_create_paciente\n  // note: no button of any kind is rendered for an empty \"homecare\"\
+    \ bed\n}\n// camera button (always rendered when leito.ocupado) is separately disabled via:\ncameraButtonDisabled\
+    \ = !ocupacao.leito.has_camera\n"
+  edge_cases: 'An unoccupied ("vazio") homecare bed exposes no action button at all - as implemented, patients cannot
+    be added to an empty homecare bed from this card.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-025
+  - RULE-MOVIMENTACAO-ADT-027
+  - RULE-MOVIMENTACAO-ADT-052
+  merged_from:
+  - RULE-leito-FE-06-009
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListOcupacoes/CollapseCard/CollapseCard.tsx
+    lines: 605-681
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-024
+  name: Homecare occupancy access filtering
+  category: scheduling-operational
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'For homecare establishments, an occupancy list only returns occupied beds whose patient is assigned
+    to the requesting user; automatic type returns only occupied beds; others return all sector beds.
+
+    '
+  inputs:
+  - estabelecimento.empresa.tipo (enum {homecare, automatica, manual, ...})
+  - UsuarioSetorPaciente (setor, usuario) (relation)
+  outputs:
+  - queryset of Leito
+  logic: "tipo = setor.estabelecimento.empresa.tipo\nif tipo == 'homecare':\n    ids_pacientes = UsuarioSetorPaciente.filter(setor=setor,\
+    \ usuario=request.user).values_list('paciente_id')\n    return qs.filter(setor=setor, paciente_id__in=ids_pacientes,\
+    \ ocupado=True).order_by('codigo')\nqs = qs.filter(setor=setor)\nreturn qs.filter(ocupado=True).order_by('codigo')\
+    \ if tipo in ['homecare','automatica'] else qs\n"
+  edge_cases: 'setor missing -> raises "Setor deve ser enviado na rota". homecare additionally scopes to the user''s
+    assigned patients.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-021
+  - RULE-MOVIMENTACAO-ADT-051
+  merged_from:
+  - RULE-op-BE-10-064
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/api/v1/views/ocupacoes.py
+    lines: 50-75
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '''homecare'' branch handled before the final ternary (which also lists homecare) so the ternary''s homecare
+    arm is unreachable.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-025
+  name: Bed eligibility for manual movimentacao (admission)
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'A manual admission is blocked on automatic-type beds and on already-occupied beds.
+
+    '
+  inputs:
+  - leito (pk, uuid)
+  outputs:
+  - valid | ValidationError (bool)
+  logic: 'leito = get_object_or_404(Leito, pk)
+
+    if leito.tipo == "automatica": raise ValidationError("Nao e possivel alterar um leito automatico!")
+
+    if leito.ocupado: raise ValidationError("Leito ja se encontra ocupado!")
+
+    '
+  edge_cases: '404 if bed not found. Only "automatica" blocked (homecare/manual allowed).
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-032
+  - RULE-MOVIMENTACAO-ADT-062
+  - RULE-MOVIMENTACAO-ADT-052
+  merged_from:
+  - RULE-validation-BE-04-042
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/validators/leito.py
+    lines: 13-27
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-026
+  name: Bed (leito) default type is manual
+  category: billing-administrative
+  type: threshold
+  status: OK
+  verify: false
+  description: 'A newly created Leito defaults to tipo ''manual''; tipo may be set to ''automatica'' (also ''homecare''
+    referenced elsewhere).
+
+    '
+  inputs: []
+  outputs:
+  - leito.tipo (string)
+  logic: 'Leito.objects.create(setor=...).tipo == "manual"   # default
+
+    leito.tipo = "automatica"; leito.save() -> "automatica"
+
+    '
+  edge_cases: 'Default applied when tipo not provided at creation.
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-052
+  - RULE-MOVIMENTACAO-ADT-021
+  merged_from:
+  - RULE-ADMIN-BE-12-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/tests/test_leito.py
+    lines: 51-55
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'tipo values in play across partition - ''manual'', ''automatica'', ''homecare'' (enviar_observacao_leito
+    branches on automatica/homecare, core/utils.py:165-168). Model definition outside partition.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-027
+  name: Bed action_fields expose has_camera only on retrieve
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'LeitoSerializer''s base field set (used for list/create/update) does not include has_camera; the
+    ''retrieve'' action adds it.
+
+    '
+  inputs:
+  - view.action (string)
+  outputs:
+  - fields exposed (array of string)
+  logic: 'Meta.fields = ("id","setor","setor_id","nome","ip_camera","codigo","ocupado")
+
+    action_fields = {"retrieve": {"fields": ("id","nome","codigo","setor","ip_camera","has_camera","ocupado")}}
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-010
+  - RULE-MOVIMENTACAO-ADT-028
+  merged_from:
+  - RULE-leito-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/leito.py
+    lines: 37-53
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-028
+  name: Camera-enabled bed list requires a non-empty configured IP
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'CameraViewSet.get_queryset only lists beds in the current sector that have a non-null AND non-empty-string
+    ip_camera configured.
+
+    '
+  inputs:
+  - leito.ip_camera (string | null)
+  - request.setor (object)
+  outputs:
+  - queryset (queryset of Leito)
+  logic: 'return Leito.objects.exclude(ip_camera="").filter(ip_camera__isnull=False, setor=request.setor)
+
+    '
+  edge_cases: 'Both conditions are required: excludes empty string AND filters not-null - a bed with ip_camera=None
+    or ip_camera='''' is excluded either way.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-010
+  - RULE-MOVIMENTACAO-ADT-027
+  merged_from:
+  - RULE-leito-BE-05-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/camera.py
+    lines: 42-45
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'permission_trilhas = (''can_access_camera'',) gates this viewset (enforcement out of scope).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-029
+  name: Movimentacao queryset optionally scoped by setor, ordered by most recent update
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'MovimentacaoViewSet, MovimentacaoBaixaViewSet, and MovimentacaoNovaViewSet all share the same get_queryset
+    pattern: if a setor__pk URL kwarg is present, filter to that sector''s beds and order by data_atualizacao descending;
+    otherwise return all Movimentacao records unfiltered.
+
+    '
+  inputs:
+  - kwargs.setor__pk (uuid | null)
+  outputs:
+  - queryset (queryset of Movimentacao)
+  logic: "queryset = Movimentacao.objects.all()\nif setor_pk:\n    return queryset.filter(leito__setor=setor_pk).order_by(\"\
+    -data_atualizacao\")\nreturn queryset\n"
+  edge_cases: 'When setor_pk is absent, NO ordering is applied at all (falls back to default model ordering), unlike
+    the setor-scoped branch which explicitly orders by -data_atualizacao.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-019
+  merged_from:
+  - RULE-movimentacao-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/movimentacao.py
+    lines: 36-41, 81-86, 126-131
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Identical code duplicated verbatim across all three Movimentacao viewsets (single rule, three call sites).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-030
+  name: Sector patient list restricted to currently-occupied beds
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'SetorPacienteViewSet.get_queryset only returns patients whose leito matches the given setor__pk
+    AND whose leito is currently occupied (ocupado=True).
+
+    '
+  inputs:
+  - kwargs.setor__pk (uuid)
+  outputs:
+  - queryset (queryset of Paciente)
+  logic: 'return Paciente.objects.filter(leito__setor__pk=setor, leito__ocupado=True)
+
+    '
+  edge_cases: 'A patient linked to a bed that has since been vacated (ocupado=False) disappears from this list even
+    if a UsuarioSetorPaciente link still exists for them.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-042
+  - RULE-MOVIMENTACAO-ADT-044
+  merged_from:
+  - RULE-paciente-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/paciente.py
+    lines: 40-42
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-031
+  name: Discharge (baixa) - only the current movimentacao can be closed; frees the bed
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Closing a movimentacao is permitted only if it is the current one; it records discharge fields (motivo_baixa,
+    data_saida, encerrado_por), deactivates the movimentacao (atual=False), and frees the bed (leito.ocupado=False).
+    Test-asserted: POST baixa returns 200 and sets data_saida; also the create-side of the occupancy lifecycle (creating
+    a movimentacao marks the bed ocupado=True) is asserted by the same test.
+
+    '
+  inputs:
+  - movimentacao (pk, uuid)
+  - motivo_baixa (string)
+  - data_saida (date)
+  - encerrado_por (Usuario)
+  outputs:
+  - closed movimentacao + freed bed (side-effect)
+  logic: "movimentacao = get_object_or_404(Movimentacao, pk)\nif movimentacao.atual:\n    set motivo_baixa, data_saida,\
+    \ encerrado_por; atual=False; save\nelse:\n    raise ValidationError({\"ultima_movimentacao\":\"a movimentacao\
+    \ enviada nao e a ultima movimentacao\"})\nleito = movimentacao.leito; leito.ocupado=False; leito.save()\n\n\
+    # test-asserted lifecycle (test_movimentacao.py:537-558):\n# before create: leito.ocupado == False\n# after\
+    \ POST /movimentacoes/: mov.leito.ocupado == True\n# after POST /movimentacoes/{id}/baixa/ {data_saida, motivo_baixa}:\
+    \ leito.ocupado == False, data_saida set, status 200\n"
+  edge_cases: '404 if movimentacao not found. Freeing the bed re-triggers Leito.save alert recomputation (alerta
+    set to None when not ocupado). Discharge endpoint returns 200 (not 201); data_saida becomes non-null after baixa.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-032
+  - RULE-MOVIMENTACAO-ADT-055
+  - RULE-MOVIMENTACAO-ADT-022
+  merged_from:
+  - RULE-movimentacao-BE-04-035
+  - RULE-CAREPATH-BE-12-027
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/movimentacao/baixa_movimentacao.py
+    lines: 23-48
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 537-558
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Constructor param misspelled "movito_baixa"; behavior unaffected. Test source (test_movimentacao.py:537-558)
+    is a duplicate capture that asserts BOTH the free-on-discharge half (this rule) AND the occupy-on-admission
+    half (implemented by RULE-032); its occupy half is documented here in the logic block and cross-referenced to
+    RULE-032.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-032
+  name: First movimentacao - admission occupies the bed
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'First admission creates the prontuario and optional clinical sub-records, assembles the SOFA score
+    inputs, marks the bed occupied, then creates pathways and updates the alert.
+
+    '
+  inputs:
+  - dados_prontuario (dict, may include noradrenalina/parada/sedativos/ventilacao)
+  outputs:
+  - DadosProntuario + SOFA + occupied bed + trilhas (side-effect)
+  logic: "order: get_atributos -> create DadosProntuario (serializer)\n  -> if noradrenalina: create; if parada:\
+    \ create; for each sedativo: create; if ventilacao: create\n  -> __criar_escore_sofa\n  -> alterar_status_leito:\
+    \ leito.ocupado=True; save   (triggers Leito.save alert recompute)\n  -> CriarTrilhas(prontuario) -> atualizar_alerta_movimentacao(movimentacao.pk)\n"
+  edge_cases: 'Sub-records created only if truthy payload present. Bed occupancy set BEFORE pathway/alert creation.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-031
+  - RULE-MOVIMENTACAO-ADT-033
+  - RULE-MOVIMENTACAO-ADT-025
+  merged_from:
+  - RULE-movimentacao-BE-04-037
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/movimentacao/cadastrar_primeira_movimentacao.py
+    lines: 50-168
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'SOFA scoring (__criar_escore_sofa) runs out of partition. The occupy-on-admission behavior is also asserted
+    by test_movimentacao.py:537-558 (see RULE-031).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-033
+  name: First admission (Primeira Movimentacao) viewset - forced fields and downstream workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'MovimentacaoViewSet.create runs MovimentacaoValidation first, then forces registrado_por to the
+    current user and leito to the leitos__pk URL kwarg (server-side, ignoring client values), resolves/creates the
+    patient via CadastrarPaciente, creates the Movimentacao row, and hands dados_prontuario (tagged with the new
+    movimentacao id) to the PrimeiraMovimentacao use case.
+
+    '
+  inputs:
+  - kwargs.leitos__pk (uuid)
+  - request.data.paciente (object)
+  - request.data.dados_prontuario (object)
+  outputs:
+  - movimentacao (object)
+  logic: 'MovimentacaoValidation(request, kwargs).validate()
+
+    request.data["registrado_por"] = request.user.pk
+
+    request.data["leito"] = kwargs.get("leitos__pk")
+
+    request.data["paciente"] = CadastrarPaciente(request.data.get("paciente")).create()
+
+    movimentacao = super().create(request, *args, **kwargs)
+
+    dados_prontuario = request.data.pop("dados_prontuario")
+
+    dados_prontuario["movimentacao"] = movimentacao.data["id"]
+
+    PrimeiraMovimentacao(dados_prontuario)
+
+    return movimentacao
+
+    '
+  edge_cases: 'Entire operation wrapped in @transaction.atomic. permission_trilhas=(''can_create_paciente'',) with
+    exceto_metodo=''GET'' (list/retrieve bypass the permission check).
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-032
+  - RULE-MOVIMENTACAO-ADT-041
+  - RULE-MOVIMENTACAO-ADT-062
+  merged_from:
+  - RULE-movimentacao-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/movimentacao.py
+    lines: 43-66
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'MovimentacaoValidation, CadastrarPaciente, and PrimeiraMovimentacao live in core/use_cases; this rule
+    captures the view-layer orchestration/field-injection (distinct layer from RULE-032).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-034
+  name: New movimentacao - carry-forward of clinical data from previous
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Creating a subsequent movimentacao deactivates the prior one and clones its prontuario and clinical
+    sub-records (noradrenalina, PCR, ventilacao, sedativos, SOFA), applying any newly supplied values, then regenerates
+    pathways. Test-asserted: omitted sub-collections (e.g. sedativos) inherit from the previous movimentacao; provided
+    sub-collections fully replace (not merge); the new movimentacao links to its predecessor via ultima_movimentacao.
+
+    '
+  inputs:
+  - dados_prontuario (dict incl. ultima_movimentacao, movimentacao, noradrenalina, parada_cardiorrespiratoria, sedativos,
+    ventilacao_mecanica)
+  outputs:
+  - new DadosProntuario + sub-records + trilhas (side-effect)
+  logic: "order: get_atributos -> get_ultima_movimentacao(404) -> get_movimentacao(404)\n  -> desativar_ultima_movimentacao\
+    \ (ultima.atual=False)\n  -> gerar_novo_dado_prontuario: clone DadosProntuario(pk of ultima_movimentacao.id)\
+    \ with id/pk=None,\n       movimentacao=new, save; then apply new data via DadosProntuarioSerializer(instance=clone)\n\
+    \  -> for noradrenalina/parada/ventilacao: if new==empty dict skip; else clone prior tuple\n       (trocar_prontuario_do_atributo)\
+    \ then update with new data if provided\n  -> sedativos: if list provided create each; elif prior sedativos\
+    \ exist clone all\n  -> gerar_novo_escore_sofa: clone prior SOFA, call sofa.atualizar_atributos_sofa(), save\n\
+    \  -> gerar_trilhas: CriarTrilhas(new prontuario)\n  -> atualizar_alerta_movimentacao(new.movimentacao.pk)\n\
+    \n# test-asserted (test_movimentacao.py:297-376):\n# nova without sedativos -> new mov.sedativos == prior mov.sedativos\
+    \ (same count, quantidade, nome_sedativo)\n# nova with sedativos=[{nome:\"Sedativo Teste\", quantidade:25}]\
+    \ -> new mov.sedativos == exactly that (len 1)\n# new mov.ultima_movimentacao == prior movimentacao\n"
+  edge_cases: 'Cloning uses id=None/pk=None to force INSERT. gerar_novo_dado_prontuario fetches DadosProntuario
+    by ultima_movimentacao.id (assumes shared pk with prontuario). Empty {} / [] payloads are treated as "no new
+    data, keep clone". Provided sub-collections fully replace (not merge).
+
+    '
+  confidence: medium
+  related:
+  - RULE-MOVIMENTACAO-ADT-035
+  - RULE-MOVIMENTACAO-ADT-056
+  - RULE-MOVIMENTACAO-ADT-039
+  merged_from:
+  - RULE-movimentacao-BE-04-036
+  - RULE-CAREPATH-BE-12-029
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/movimentacao/cadastrar_nova_movimentacao.py
+    lines: 47-231
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 297-376
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Serializers/models (trilha_manual) out of partition. SOFA regeneration re-runs the scoring via atualizar_atributos_sofa
+    (out of partition). The ultima_movimentacao linkage assertion also relates to the viewset field-injection in
+    RULE-035. Test capture (test_movimentacao.py:297-376) folded here as a duplicate of the carry-forward semantics.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-MOVIMENTACAO-ADT-035
+  name: New movimentacao viewset carries forward patient and bed from the previous record
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'MovimentacaoNovaViewSet.create resolves the PREVIOUS Movimentacao from movimentacoes__pk, then forces
+    the new record''s paciente and leito to match that previous record (this route does not change beds - it records
+    a subsequent movimentacao entry on the SAME bed/patient), links ultima_movimentacao to the previous pk, forces
+    atualizado_por to the current user, then hands off to NovaMovimentacao.
+
+    '
+  inputs:
+  - kwargs.movimentacoes__pk (uuid)
+  - request.data.dados_prontuario (object)
+  outputs:
+  - movimentacao (object)
+  logic: 'ultima_movimentacao = get_object_or_404(Movimentacao, pk=kwargs["movimentacoes__pk"])
+
+    request.data["ultima_movimentacao"] = str(ultima_movimentacao.pk)
+
+    request.data["paciente"] = ultima_movimentacao.paciente.pk
+
+    request.data["leito"] = ultima_movimentacao.leito.pk
+
+    request.data["atualizado_por"] = request.user.pk
+
+    movimentacao = super().create(request, *args, **kwargs)
+
+    dados_prontuario["ultima_movimentacao"] = str(ultima_movimentacao.pk)
+
+    dados_prontuario["movimentacao"] = movimentacao.data["id"]
+
+    NovaMovimentacao(dados_prontuario)
+
+    return movimentacao
+
+    '
+  edge_cases: '@transaction.atomic wraps the whole operation. permission_trilhas=(''can_add_movimentacao'',), no
+    exceto_metodo.
+
+    '
+  confidence: high
+  related:
+  - RULE-MOVIMENTACAO-ADT-034
+  - RULE-MOVIMENTACAO-ADT-056
+  merged_from:
+  - RULE-movimentacao-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/movimentacao.py
+    lines: 133-162
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'NovaMovimentacao use case (RULE-034) is a distinct layer; this rule captures the view-layer field-injection/orchestration.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

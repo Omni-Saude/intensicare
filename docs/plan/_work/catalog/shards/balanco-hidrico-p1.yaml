@@ -1,0 +1,1800 @@
+shard: balanco-hidrico-p1
+cluster: balanco-hidrico
+rule_count: 31
+rules_with_escalations: 22
+rules:
+- id: RULE-BALANCO-HIDRICO-001
+  name: Balanco Hidrico acumulado (cumulative fluid balance)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Cumulative fluid balance across ALL BalancoHidrico days for the same bed and admission = total non-deleted
+    intake minus total non-deleted output.
+
+    '
+  inputs:
+  - entradas.quantidade (all days, deletado_em is null) (mL)
+  - saidas.quantidade (all days, deletado_em is null) (mL)
+  outputs:
+  - balanco_acumulado (mL)
+  logic: "entradas = 0; saidas = 0\nfor balanco in BalancoHidrico.objects.filter(leito=self.leito, nr_atendimento=self.leito.nr_atendimento):\n\
+    \    entradas_qs = balanco.entradas.filter(deletado_em__isnull=True)\n    saidas_qs   = balanco.saidas.filter(deletado_em__isnull=True)\n\
+    \    if entradas_qs.exists(): entradas += entradas_qs.aggregate(total=Sum(\"quantidade\")).get(\"total\", 0)\n\
+    \    if saidas_qs.exists():   saidas   += saidas_qs.aggregate(total=Sum(\"quantidade\")).get(\"total\", 0)\n\
+    return entradas - saidas\n"
+  edge_cases: 'Filters on self.leito.nr_atendimento (the bed''s current admission), NOT self.nr_atendimento (the
+    balance row''s) - if a bed is reused across admissions these may diverge. Sum over an existing queryset whose
+    quantidade are all null returns None, and .get("total", 0) returns that None (default 0 not used) -> `entradas
+    += None` raises TypeError; quantidade defaults 0 mitigates.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-002
+  - RULE-BALANCO-HIDRICO-003
+  - RULE-BALANCO-HIDRICO-004
+  - RULE-BALANCO-HIDRICO-005
+  - RULE-BALANCO-HIDRICO-006
+  merged_from:
+  - RULE-balanco-BE-06-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/balanco.py
+    lines: 32-59
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Only excludes soft-deleted (deletado_em) rows. TODO in source notes a planned single-query refactor.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Malbrain MLNG, Marik PE, Witters I, et al. Fluid overload, de-resuscitation, and outcomes in critically
+      ill or injured patients (ADQI/IFAD). Anaesthesiol Intensive Ther 2014; Bouchard J et al. Kidney Int 2009.
+      Standard definition: (cumulative) fluid balance = total fluid intake - total fluid output; cumulative balance
+      = sum of daily balances since admission.'
+    detail_file: balanco-hidrico-batch1.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-002
+  name: Balanco Hidrico ganhos (daily intake total)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Total fluid intake for this balance day = sum of non-deleted entrada quantities.
+
+    '
+  inputs:
+  - entradas.quantidade (this balance, deletado_em is null) (mL)
+  outputs:
+  - ganhos (mL)
+  logic: 'entradas_qs = self.entradas.filter(deletado_em__isnull=True)
+
+    entradas = entradas_qs.aggregate(total=Sum("quantidade")).get("total", 0) if entradas_qs.exists() else 0
+
+    return entradas or 0
+
+    '
+  edge_cases: 'Returns 0 when no entries. `or 0` coerces a None Sum to 0.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-001
+  - RULE-BALANCO-HIDRICO-003
+  - RULE-BALANCO-HIDRICO-007
+  - RULE-BALANCO-HIDRICO-014
+  merged_from:
+  - RULE-balanco-BE-06-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/balanco.py
+    lines: 61-71
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ADQI/Malbrain 2014 fluid-balance framework: daily fluid intake (gains) = sum of all recorded intake
+      volumes over the accounting period. Elementary aggregation.'
+    detail_file: balanco-hidrico-batch1.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-003
+  name: Balanco Hidrico perdas (daily output total)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Total fluid output for this balance day = sum of non-deleted saida quantities.
+
+    '
+  inputs:
+  - saidas.quantidade (this balance, deletado_em is null) (mL)
+  outputs:
+  - perdas (mL)
+  logic: 'saidas_qs = self.saidas.filter(deletado_em__isnull=True)
+
+    saidas = saidas_qs.aggregate(total=Sum("quantidade")).get("total", 0) if saidas_qs.exists() else 0
+
+    return saidas or 0
+
+    '
+  edge_cases: 'Returns 0 when no outputs. `or 0` coerces a None Sum to 0.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-001
+  - RULE-BALANCO-HIDRICO-002
+  - RULE-BALANCO-HIDRICO-015
+  merged_from:
+  - RULE-balanco-BE-06-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/balanco.py
+    lines: 73-85
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ADQI/Malbrain 2014 fluid-balance framework: daily fluid output (losses) = sum of all recorded output
+      volumes over the accounting period. Elementary aggregation.'
+    detail_file: balanco-hidrico-batch1.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-004
+  name: Balanco Hidrico diurno (day-shift balance 07:00-19:00)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Day-shift fluid balance = (intake - output) for entries/outputs created between 07:00 and 19:00
+    local time on the balance day.
+
+    '
+  inputs:
+  - entradas.quantidade in [07:00,19:00], deletado_em null (mL)
+  - saidas.quantidade in [07:00,19:00], deletado_em null (mL)
+  - self.dia
+  outputs:
+  - balanco_diurno (mL)
+  logic: 'dia = strptime(self.dia,"%Y-%m-%d").date() if isinstance(self.dia, str) else self.dia
+
+    horario_inicio = datetime.combine(dia, time(7,0,0)).astimezone()
+
+    horario_fim    = datetime.combine(dia, time(19,0,0)).astimezone()
+
+    entradas_qs = entradas.filter(criado_em__range=[inicio,fim], deletado_em__isnull=True)
+
+    saidas_qs   = saidas.filter(criado_em__range=[inicio,fim], deletado_em__isnull=True)
+
+    entradas = Sum(entradas_qs.quantidade) if exists else 0
+
+    saidas   = Sum(saidas_qs.quantidade)   if exists else 0
+
+    return entradas - saidas
+
+    '
+  edge_cases: 'Day shift is defined as 07:00-19:00 inclusive range (__range is inclusive on both ends) in the server''s
+    local timezone via .astimezone(). Overlap boundary 19:00 counts as diurno (and would double-count with noturno
+    if noturno were also range-based, but noturno is derived by subtraction - see RULE-balanco-BE-06-005).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-005
+  - RULE-BALANCO-HIDRICO-006
+  merged_from:
+  - RULE-balanco-BE-06-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/balanco.py
+    lines: 87-117
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Shift window hardcoded 07:00-19:00.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference defines a fluid-balance 'day shift' as 07:00-19:00.
+      Nursing 12h day/night shift boundaries (and the 07:00-07:00 nursing day) are institutional scheduling conventions
+      that vary by facility, not validated clinical cutoffs (contrast Sepsis-3, KDIGO, ASPEN). The underlying arithmetic
+      (intake - output within a window) is the ADQI/Malbrain standard.
+    detail_file: balanco-hidrico-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-225
+    band: UNVERIFIABLE
+    title: Balanco Hidrico diurno (day-shift balance 07:00-19:00)
+    excerpt: The (intake - output) arithmetic within a time window is standard and correct; the specific definition
+      of the day shift as 07:00-19:00 is a hard-coded institutional/nursing convention with no authoritative published
+      source to v…
+- id: RULE-BALANCO-HIDRICO-005
+  name: Balanco Hidrico noturno (night-shift balance by subtraction)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Night-shift fluid balance = stored 24h balance minus computed day-shift balance.
+
+    '
+  inputs:
+  - self.balanco_24h (mL)
+  - balanco_diurno (mL)
+  outputs:
+  - balanco_noturno (mL)
+  logic: 'return self.balanco_24h - self.balanco_diurno
+
+    '
+  edge_cases: 'Uses the persisted balanco_24h field (default 0), NOT (ganhos - perdas). If balanco_24h is stale/unset
+    (0), noturno = -diurno.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-004
+  - RULE-BALANCO-HIDRICO-006
+  merged_from:
+  - RULE-balanco-BE-06-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/balanco.py
+    lines: 119-121
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'balanco_24h is a stored FloatField (default 0), populated elsewhere (likely serializer/util, out of partition).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published reference defines a fluid-balance 'night shift' value as (24h balance
+      - day-shift balance). The additive decomposition day+night = 24h is arithmetically valid, but the 07:00-19:00
+      / 19:00-07:00 shift split is an institutional convention (see RULE-004). Concept traces to ADQI/Malbrain daily
+      fluid-balance accounting.
+    detail_file: balanco-hidrico-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-226
+    band: UNVERIFIABLE
+    title: Balanco Hidrico noturno (night-shift balance by subtraction)
+    excerpt: The subtraction identity (night = 24h - day) is arithmetically sound and there is no published clinical
+      reference for the 19:00-07:00 night-shift construct, so verdict is UNVERIFIABLE (internal business rule),
+      flagged for inter…
+- id: RULE-BALANCO-HIDRICO-006
+  name: 24h fluid balance = intake minus output over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Net fluid balance (balanco hidrico) for an attendance over the 07:00-07:00 nursing day, computed
+    as total Entrada intake minus total Saida output. Unlike the other helpers, missing sums default to 0 (not None),
+    so this always returns a number.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - balanco_24h (volume mL (can be negative))
+  logic: "if horario_ref.hour < 7:\n    entrada_qs1 = Entrada day==(ref-2d).day AND hour>=7\n    entrada_qs2 = Entrada\
+    \ day==(ref-1d).day AND hour<=7\n    saida_qs1   = Saida   day==(ref-2d).day AND hour>=7\n    saida_qs2   =\
+    \ Saida   day==(ref-1d).day AND hour<=7\nelse:\n    entrada_qs1 = Entrada day==(ref-1d).day AND hour>=7\n  \
+    \  entrada_qs2 = Entrada (criado_em==horario_ref) AND hour<7\n    saida_qs1   = Saida   day==(ref-1d).day AND\
+    \ hour>=7\n    saida_qs2   = Saida   (criado_em==horario_ref) AND hour<7\nsaidas   = null-aware(s1,s2) else\
+    \ 0\nentradas = null-aware(e1,e2) else 0\nreturn entradas - saidas\n"
+  edge_cases: 'Same window defects as RULE-...-001 (month-agnostic __day; else-branch qs2 unsatisfiable). Here empty
+    sums fall back to 0, so the return is always numeric (never None). Note Saida here applies NO tipo filter (all
+    outputs), unlike diureses/evacuacoes.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-005
+  - RULE-BALANCO-HIDRICO-007
+  - RULE-BALANCO-HIDRICO-008
+  - RULE-BALANCO-HIDRICO-009
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-012
+  - RULE-BALANCO-HIDRICO-014
+  - RULE-BALANCO-HIDRICO-015
+  - RULE-BALANCO-HIDRICO-027
+  divergence: 'Window construction defect (shared across BE-09 helpers): criado_em__day matches day-of-month ONLY
+    (wrong across month boundaries). In the hour>=7 branch qs2 predicate `criado_em == horario_ref AND hour < 7`
+    is unsatisfiable, silently dropping 00:00-07:00 of the current day. Unlike the sibling helpers, empty sums fall
+    back to 0, so this always returns a number (never None). Applies NO tipo filter on Saida (all outputs).
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 212-276
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY inherited from shared window helper. balanco = entradas - saidas.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Cumulative/24h fluid balance = total intake - total output is the standard critical-care definition
+      (Malbrain MLNG et al., "Principles of fluid management and stewardship in septic shock", Ann Intensive Care
+      2018;8:66; LITFL Critical Care Compendium - Fluid Balance). The 07:00-07:00 nursing-day (turno das 7h as 7h)
+      is an institutional nursing convention, not a guideline equation. No scored calculator / coefficients exist.
+    detail_file: balanco-hidrico-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-022
+    band: P1
+    title: 24h fluid balance = intake minus output over the 07:00-07:00 nursing day
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Net fluid
+      balance (balanco hidrico) for an attendance over the 07:00-07:00 nursing day, computed as total Entrada intake
+      minus total Saida output. Unlike the other helpers, missing sums default to 0 (not None), so this always returns
+      a number. - **Deviation:** Window construction defect (shared across BE-09 '
+- id: RULE-BALANCO-HIDRICO-007
+  name: Ganhos (fluid intake) summed over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Sum of all fluid-intake quantities (Entrada.quantidade, no type filter) for an attendance over the
+    07:00-07:00 nursing day.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - total_ganhos (volume mL (Entrada.quantidade))
+  logic: "if horario_ref.hour < 7:\n    qs1 = Entrada day==(ref-2d).day AND hour>=7\n    qs2 = Entrada day==(ref-1d).day\
+    \ AND hour<=7\nelse:\n    qs1 = Entrada day==(ref-1d).day AND hour>=7\n    qs2 = Entrada (criado_em==horario_ref)\
+    \ AND hour<7\ns1=Sum(qs1.quantidade); s2=Sum(qs2.quantidade)\nreturn s1+s2 / s1 / s2 / None   (null-aware, 0\
+    \ falsy)\n"
+  edge_cases: 'Same defects as RULE-...-001 (month-agnostic __day; unsatisfiable else qs2; 0->None).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-003
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-008
+  - RULE-BALANCO-HIDRICO-009
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-012
+  divergence: 'Same 07:00-07:00 window defect as RULE-BALANCO-HIDRICO-006: month-agnostic __day; else-branch qs2
+    unsatisfiable; 0-sum coerced to None. Ganhos = Sum(Entrada.quantidade) with no tipo filter.
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 107-138
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY inherited from shared window helper.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Total fluid intake ("ganhos") over the 24h nursing day is a definitional sum of intake volumes; the
+      intake/output ledger is standard critical-care fluid accounting (Malbrain et al., Ann Intensive Care 2018;8:66).
+      No scored calculator / coefficients / cutoffs.
+    detail_file: balanco-hidrico-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-023
+    band: P1
+    title: Ganhos (fluid intake) summed over the 07:00-07:00 nursing day
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Sum of
+      all fluid-intake quantities (Entrada.quantidade, no type filter) for an attendance over the 07:00-07:00 nursing
+      day. - **Deviation:** Same 07:00-07:00 window defect as RULE-BALANCO-HIDRICO-006: month-agnostic __day; else-branch
+      qs2 unsatisfiable; 0-sum coerced to None. Ganhos = Sum(Entrada.quantidade)'
+- id: RULE-BALANCO-HIDRICO-008
+  name: Diureses (urine output) summed over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Sum of urine-output quantities (Saida with tipo in {diurese_espontanea, diurese_sonda}) for an attendance
+    over the 07:00-07:00 nursing day, using the same two-queryset window construction as evacuacoes.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - total_diurese (volume mL (Saida.quantidade))
+  logic: "diureses = (\"diurese_espontanea\", \"diurese_sonda\")\nfilter tipo__in = diureses, balanco.nr_atendimento\
+    \ == nr_atendimento\nif horario_ref.hour < 7:\n    qs1 = Saida day==(ref-2d).day AND hour>=7\n    qs2 = Saida\
+    \ day==(ref-1d).day AND hour<=7\nelse:\n    qs1 = Saida day==(ref-1d).day AND hour>=7\n    qs2 = Saida (criado_em==horario_ref)\
+    \ AND hour<7\ncombine s1,s2 with the same null-aware add: s1+s2 / s1 / s2 / None\n"
+  edge_cases: 'Same defects as RULE-...-001: __day ignores month; else-branch qs2 unsatisfiable; 0 treated as None;
+    None when empty.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-007
+  - RULE-BALANCO-HIDRICO-009
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-012
+  divergence: 'Same window defect as RULE-BALANCO-HIDRICO-006. Diureses filter tipo__in (diurese_espontanea, diurese_sonda);
+    0-sum treated as None; None when empty.
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 68-104
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY inherited from shared window helper. Diurese type enum (diurese_espontanea, diurese_sonda)
+    is defined on the Saida model (different partition); referenced here.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Urine output ("diureses") summed over 24h; accurate urine-output quantitation underpins the KDIGO
+      2012 AKI oliguria criterion (urine output <0.5 mL/kg/h). KDIGO Clinical Practice Guideline for Acute Kidney
+      Injury, Kidney Int Suppl 2012;2(1). The tipo filter {diurese_espontanea, diurese_sonda} correctly restricts
+      to urine. No scored calculator here.
+    detail_file: balanco-hidrico-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-024
+    band: P1
+    title: Diureses (urine output) summed over the 07:00-07:00 nursing day
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Sum of
+      urine-output quantities (Saida with tipo in {diurese_espontanea, diurese_sonda}) for an attendance over the
+      07:00-07:00 nursing day, using the same two-queryset window construction as evacuacoes. - **Deviation:** Same
+      window defect as RULE-BALANCO-HIDRICO-006. Diureses filter tipo__in (diurese_esponta'
+- id: RULE-BALANCO-HIDRICO-009
+  name: Evacuacoes (bowel movements) summed over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Total number/quantity of bowel-movement outputs (Saida with tipo="evacuacao") for a given attendance
+    over the 24h "nursing day" that runs 07:00 to 07:00. The window is assembled from two day-of-month filtered
+    querysets whose composition depends on whether the reference time is before or after 07:00.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - total_evacuacoes (count/volume (Saida.quantidade))
+  logic: "diurese_types irrelevant; filter tipo == \"evacuacao\", balanco.nr_atendimento == nr_atendimento.\nif\
+    \ horario_ref.hour < 7:\n    qs1 = Saida where criado_em.day == (horario_ref - 2 days).day  AND criado_em.hour\
+    \ >= 7\n    qs2 = Saida where criado_em.day == (horario_ref - 1 day).day   AND criado_em.hour <= 7\nelse:\n\
+    \    qs1 = Saida where criado_em.day == (horario_ref - 1 day).day   AND criado_em.hour >= 7\n    qs2 = Saida\
+    \ where criado_em == horario_ref (EXACT datetime eq)  AND criado_em.hour < 7\ns1 = Sum(qs1.quantidade); s2 =\
+    \ Sum(qs2.quantidade)\nif s1 and s2: return s1 + s2\nelif s1 and not s2: return s1\nelif not s1 and s2: return\
+    \ s2\nelse: return None\n"
+  edge_cases: 'Uses criado_em__day (day-of-month ONLY, ignores month/year) so results are wrong across month boundaries.
+    Boundary hour 7 is included by BOTH qs (>=7 and <=7). Zero sums are falsy so a genuine total of 0 is treated
+    like None. In the else (hour>=7) branch, qs2''s predicate ''criado_em == horario_ref AND hour < 7'' can never
+    be satisfied (horario_ref.hour>=7), so qs2 is always empty and only day D-1 07:00-23:59 is counted (00:00-07:00
+    of the current day is dropped). Returns None (not 0) when no records.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-007
+  - RULE-BALANCO-HIDRICO-008
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-012
+  divergence: 'Same window defect as RULE-BALANCO-HIDRICO-006. Evacuacoes filter tipo==''evacuacao''; boundary hour
+    7 included by BOTH querysets (>=7 and <=7); 0-sum treated as None.
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 30-65
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: (1) __day matches day-of-month regardless of month; (2) else-branch qs2 uses exact datetime
+    equality ''criado_em=horario_ref'' AND hour<7, which is unsatisfiable and silently drops the post-midnight portion
+    of the shift. Same two defects recur verbatim in RULE-...-002/003/004/005/006. Recorded as implemented, not
+    corrected.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: Bowel-movement ("evacuacoes") output summed over the 24h nursing day - a definitional count/volume
+      aggregation with no published scored calculator, coefficients, or cutoffs. tipo filter == "evacuacao". General
+      nursing intake/output charting standard (StatPearls, Fluid Balance / Intake and Output).
+    detail_file: balanco-hidrico-batch2.yaml
+  escalations:
+  - item_id: ESC-P2-069
+    band: P2
+    title: Evacuacoes (bowel movements) summed over the 07:00-07:00 nursing day
+    excerpt: Same window defect as RULE-BALANCO-HIDRICO-006. Evacuacoes filter tipo=='evacuacao'; boundary hour
+      7 included by BOTH querysets (>=7 and <=7); 0-sum treated as None.
+- id: RULE-BALANCO-HIDRICO-010
+  name: Maximum temperature over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Highest recorded body temperature (SinaisVitais.temperatura) for an attendance over the 07:00-07:00
+    nursing day. Takes the MAX of the per-window maxima.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - temperatura_max_24h (degrees Celsius)
+  logic: 'windows built exactly as RULE-...-003 but on SinaisVitais.
+
+    valores = [ Max(qs1.temperatura), Max(qs2.temperatura) ]
+
+    remove all None from valores
+
+    valores.sort()
+
+    return valores[-1] if valores else None   # the largest of the two window maxima
+
+    '
+  edge_cases: 'Same window defects as RULE-...-001. Aggregate is Max not Sum. Removes None entries then sorts ascending
+    and returns last element (the maximum). Returns None if no readings.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-012
+  - RULE-BALANCO-HIDRICO-028
+  divergence: 'Same window defect as RULE-BALANCO-HIDRICO-006, but aggregate is Max not Sum: valores=[Max(qs1.temperatura),Max(qs2.temperatura)],
+    strip None, sort ascending, return last (the maximum); None if no readings.
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 141-174
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY inherited from shared window helper.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Maximum recorded body temperature over the 24h nursing day (Tmax) - a simple MAX aggregation. Fever
+      thresholds (e.g. >=38.3 C) are applied downstream, not in this helper (O'Grady NP et al., Guidelines for evaluation
+      of new fever in critically ill adult patients, SCCM/IDSA, Crit Care Med 2008;36:1330). No scored calculator
+      here.
+    detail_file: balanco-hidrico-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-025
+    band: P1
+    title: Maximum temperature over the 07:00-07:00 nursing day
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Highest
+      recorded body temperature (SinaisVitais.temperatura) for an attendance over the 07:00-07:00 nursing day. Takes
+      the MAX of the per-window maxima. - **Deviation:** Same window defect as RULE-BALANCO-HIDRICO-006, but aggregate
+      is Max not Sum: valores=[Max(qs1.temperatura),Max(qs2.temperatura)], strip No'
+- id: RULE-BALANCO-HIDRICO-011
+  name: Maximum HGT (capillary blood glucose) over the 07:00-07:00 nursing day
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Highest recorded capillary glucose (HGT = hemoglicoteste, SinaisVitais.hgt) for an attendance over
+    the 07:00-07:00 nursing day. MAX of per-window maxima.
+
+    '
+  inputs:
+  - horario_ref
+  - nr_atendimento
+  outputs:
+  - hgt_max_24h (mg/dL)
+  logic: 'windows built exactly as RULE-...-003 but on SinaisVitais.
+
+    valores = [ Max(qs1.hgt), Max(qs2.hgt) ]
+
+    remove None; valores.sort(); return valores[-1] if valores else None
+
+    '
+  edge_cases: 'Same as RULE-...-004 (max, None-strip, month-agnostic __day, unsatisfiable else qs2).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-012
+  - RULE-BALANCO-HIDRICO-028
+  divergence: 'Same window+Max defect as RULE-BALANCO-HIDRICO-010, on SinaisVitais.hgt (capillary glucose, mg/dL).
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 177-209
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY inherited from shared window helper. HGT (hemoglicoteste) is the Brazilian term for point-of-care
+    capillary blood glucose.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'No authoritative published clinical reference governs a "max capillary glucose over the 07:00-07:00
+      nursing day" aggregation helper — this is an internal data-rollup rule. Only the externally-referenced dimension
+      (unit) is checkable: HGT (hemoglicoteste / point-of-care capillary blood glucose) is recorded in mg/dL in
+      Brazilian ICUs. Reddy et al., "Accuracy of point-of-care capillary blood sugar measurements in critically
+      ill patients" (POC glucose reported in mg/dL).'
+    detail_file: balanco-hidrico-batch3.yaml
+  escalations:
+  - item_id: ESC-P2-070
+    band: P2
+    title: Maximum HGT (capillary blood glucose) over the 07:00-07:00 nursing day
+    excerpt: Same window+Max defect as RULE-BALANCO-HIDRICO-010, on SinaisVitais.hgt (capillary glucose, mg/dL).
+- id: RULE-BALANCO-HIDRICO-012
+  name: Formulario - agregacoes de 24h (evolucao) incl. balanco hidrico
+  category: physiological-calculation
+  type: formula
+  status: AMBIGUOUS
+  verify: true
+  description: 'Evolution form exposes last-24h rollups - evacuations, diuresis, gains, max temperature, max HGT
+    and 24h fluid balance - referenced to the form''s creation time; the active implementations delegate to helper
+    functions.
+
+    '
+  inputs:
+  - self.criado_em (reference time)
+  - self.nr_atendimento
+  outputs:
+  - evacuacoes_ultimo_dia / diurese_ultimo_dia / ganhos_ultimo_dia / temperatura_max_ultimo_dia / hgt_ultimo_dia
+    / balanco_ultimo_dia (mL / Celsius / mg-dL)
+  logic: 'evacuacoes_ultimo_dia   = evacuacoes_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    diurese_ultimo_dia      = diureses_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    ganhos_ultimo_dia       = ganhos_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    temperatura_max_ultimo_dia = temperatura_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    hgt_ultimo_dia          = hgt_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    balanco_ultimo_dia      = balanco_24h_evo(criado_em.astimezone(), nr_atendimento)
+
+    # Superseded inline formula (commented, lines 242-258) documenting intended 24h fluid balance:
+
+    #   vomitos_24h = Sum(Saida.quantidade where tipo="vomito_retorno_sonda", criado_em in [ref-1d, ref])
+
+    #   balanco_24h = (ganhos_24h or 0) - ((diurese_24h or 0) + (vomitos_24h or 0))  or None
+
+    #   where diurese_24h sums tipo in ("diurese_espontanea","diurese_sonda") over [ref-1d, ref]
+
+    '
+  edge_cases: '24h window = [criado_em - 1 day, criado_em] per the commented reference implementation. The intended
+    balance formula SUBTRACTS diuresis + vomit/tube-return from gains (it does NOT subtract all outputs, only diuresis
+    and vomit).
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-007
+  - RULE-BALANCO-HIDRICO-008
+  - RULE-BALANCO-HIDRICO-009
+  - RULE-BALANCO-HIDRICO-010
+  - RULE-BALANCO-HIDRICO-011
+  - RULE-BALANCO-HIDRICO-028
+  merged_from:
+  - RULE-balanco-BE-06-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/formularios/formulario.py
+    lines: 147-262
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS because the ACTIVE computation lives in trilha_homecare.utils (evacuacoes_24h_evo, diureses_24h_evo,
+    ganhos_24h_evo, temperatura_24h_evo, hgt_24h_evo, balanco_24h_evo) - OUTSIDE this partition; a verifier must
+    open trilha_homecare/utils.py to confirm the exact 24h fluid-balance formula. The commented-out inline versions
+    (lines 147-258) are recorded here as the documented intent. Note this 24h balance definition (gains - (diuresis
+    + vomit)) differs from the entrada/saida-based RULE-balanco-BE-06-001..005.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Standard nursing/ICU fluid-balance definition: Fluid Balance = total intake - total output, where
+      output includes urine, stool, emesis, blood loss, and wound/chest-tube drainage; positive balance = intake
+      exceeds output. Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".'
+    detail_file: balanco-hidrico-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-227
+    band: UNVERIFIABLE
+    title: Formulario - agregacoes de 24h (evolucao) incl. balanco hidrico
+    excerpt: AMBIGUOUS from extraction, and UNVERIFIABLE here because the ACTIVE 24h fluid-balance computation delegates
+      to trilha_homecare.utils (balanco_24h_evo / ganhos_24h_evo / diureses_24h_evo / temperatura_24h_evo / hgt_24h_evo
+      / eva…
+- id: RULE-BALANCO-HIDRICO-013
+  name: Fluid-balance visao-geral 2-hour time-bucketing (08:00-start day, view facade + utils impl)
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Builds the fluid-balance overview grid: for each distinct item name (nome) in a balanco, sum quantidade
+    into twelve fixed 2-hour buckets. Bucket labels/edges start at 08:00 and wrap through 06:00-08:00, using America/Sao_Paulo
+    local time.
+
+    '
+  inputs:
+  - modelo
+  - balanco_pk
+  - tipo_balanco
+  outputs:
+  - payload (mL per bucket)
+  logic: "horario labels = [\"08:00\",\"10:00\",\"12:00\",\"14:00\",\"16:00\",\"18:00\",\"20:00\",\"22:00\",\"00:00\"\
+    ,\"02:00\",\"04:00\",\"06:00\"]\nbucket edges (ref) = [[8,10],[10,12],[12,14],[14,16],[16,18],[18,20],[20,22],[22,00],[0,2],[2,4],[4,6],[6,8]]\n\
+    qs = modelo.objects_without_deleted.filter(balanco_id == balanco_pk)\nfor each distinct nome in qs:\n    for\
+    \ (h_ini, h_fim) in [(time(a),time(b)) for a,b in ref]:\n        valor = qs.annotate(horario = TruncTime(criado_em,\
+    \ tz=America/Sao_Paulo))\n                  .filter(nome==nome, horario__range=[h_ini, h_fim])\n           \
+    \       .aggregate(Sum(quantidade))\n        append valor or 0\n"
+  edge_cases: 'Bucket [22,00] becomes range [22:00:00, 00:00:00]; since 22:00 > 00:00 this SQL BETWEEN is empty,
+    so the 22:00-00:00 slot ALWAYS aggregates to 0 (data there is lost). horario__range is inclusive on both edges,
+    so a record at an exact boundary (e.g. 10:00:00) is counted in two adjacent buckets. Uses objects_without_deleted
+    (soft-delete aware). TruncTime converts to America/Sao_Paulo before comparing.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-025
+  - RULE-BALANCO-HIDRICO-027
+  - RULE-BALANCO-HIDRICO-044
+  - RULE-BALANCO-HIDRICO-054
+  divergence: 'Bucket [22,00] becomes SQL BETWEEN 22:00:00 and 00:00:00 (inverted range) so the 22:00-00:00 slot
+    ALWAYS aggregates to 0 and its data is lost; horario__range is inclusive on both edges so a record at an exact
+    boundary (e.g. 10:00:00) is double-counted in two adjacent buckets. The view action (balanco_hidrico.py:66-88)
+    and the utils implementation (utils.py:288-358) carry identical 12-slot labels [08:00..06:00]; the utils layer
+    holds the buggy TruncTime bucketing.
+
+    '
+  merged_from:
+  - RULE-balancohidrico-BE-09-007
+  - RULE-balanco-BE-08-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 288-358
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/balanco_hidrico.py
+    lines: 66-88
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'DISCREPANCY: the 22:00->00:00 bucket is an empty inverted range (loses late-evening data), and inclusive
+    endpoints double-count boundary timestamps. Consumed by cria_payload_de_envio_ahmdocs to render the balanco
+    PDF (pdf_balanco_hidrico*.html).
+
+
+    Merged catalog-facade (BalancoHidricoViewSet.visao_geral returns the 12 fixed labels and spreads get_visao_geral
+    for Entrada+Saida) with the precise predicate implementation in trilha_homecare/utils.py get_visao_geral (chosen
+    as primary logic). Uses objects_without_deleted (soft-delete aware) and TruncTime -> America/Sao_Paulo. Consumed
+    by cria_payload_de_envio_ahmdocs to render pdf_balanco_hidrico*.html; frontend consumer divergence is RULE-BALANCO-HIDRICO-025.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: No authoritative published clinical reference governs a 2-hour time-bucketing display grid for a
+      fluid-balance overview — this is an internal presentation/aggregation algorithm. The only externally-anchored
+      concept is the 24h I&O charting window (Nurseslabs I&O), which the grid is meant to partition; the bucketing
+      math itself is proprietary.
+    detail_file: balanco-hidrico-batch3.yaml
+  escalations:
+  - item_id: ESC-P1-026
+    band: P1
+    title: Fluid-balance visao-geral 2-hour time-bucketing (08:00-start day, view facade + utils impl)
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Builds
+      the fluid-balance overview grid: for each distinct item name (nome) in a balanco, sum quantidade into twelve
+      fixed 2-hour buckets. Bucket labels/edges start at 08:00 and wrap through 06:00-08:00, using America/Sao_Paulo
+      local time. - **Deviation:** Bucket [22,00] becomes SQL BETWEEN 22:00:00 and 00:00'
+- id: RULE-BALANCO-HIDRICO-014
+  name: Fluid balance 24h accrual on intake (entrada)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Creating an Entrada (intake) record incrementally adds its quantidade to the parent BalancoHidrico''s
+    running balanco_24h total (rather than recomputing the sum from all entradas/saidas).
+
+    '
+  inputs:
+  - balanco.balanco_24h (mL (assumed))
+  - quantidade (mL (assumed))
+  outputs:
+  - balanco.balanco_24h (mL (assumed))
+  logic: 'balanco.balanco_24h = balanco.balanco_24h + validated_data.quantidade
+
+    balanco.save()
+
+    '
+  edge_cases: 'Incremental accumulator, not a recompute: EntradaSerializer.update() (lines 120-135) never adjusts
+    balanco.balanco_24h even when quantidade changes on an edit, and there is no corresponding decrement on delete
+    visible in this file — editing/deleting an intake record after creation does not correct the running 24h balance
+    shown in BalancoHidricoSerializer.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-015
+  - RULE-BALANCO-HIDRICO-038
+  merged_from:
+  - RULE-balanco-BE-07-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 100-101
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Mirror/opposite of RULE-balanco-BE-07-011 (Saida subtracts instead of adds). The apparent lack of balance
+    correction on update is flagged as an edge case rather than a full DISCREPANCY because no update-time recomputation
+    code exists at all to contradict — it is simply absent.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Standard nursing/ICU fluid-balance sign convention: Fluid Balance = total intake - total output;
+      intake (oral, IV, tube feeds, TPN, flushes) INCREASES the balance, and when intake exceeds output the balance
+      is POSITIVE (net gain). Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".'
+    detail_file: balanco-hidrico-batch3.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-015
+  name: Fluid balance 24h accrual on output (saida)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Creating a Saida (output) record incrementally subtracts its quantidade from the parent BalancoHidrico''s
+    running balanco_24h total.
+
+    '
+  inputs:
+  - balanco.balanco_24h (mL (assumed))
+  - quantidade (mL (assumed))
+  outputs:
+  - balanco.balanco_24h (mL (assumed))
+  logic: 'balanco.balanco_24h = balanco.balanco_24h - validated_data.quantidade
+
+    balanco.save()
+
+    '
+  edge_cases: 'Same incremental-accumulator caveat as RULE-balanco-BE-07-003: SaidaSerializer.update() (lines 129-143)
+    never adjusts balanco.balanco_24h even if quantidade is edited.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-014
+  - RULE-BALANCO-HIDRICO-039
+  merged_from:
+  - RULE-balanco-BE-07-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 111-112
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Mirror/opposite of RULE-balanco-BE-07-003.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Standard nursing/ICU fluid-balance sign convention: Fluid Balance = total intake - total output;
+      output (urine, stool, emesis, drainage, blood loss) DECREASES the balance, and when output exceeds intake
+      the balance is NEGATIVE (net loss). Nurseslabs, "Monitoring Fluid Intake and Output (I&O)".'
+    detail_file: balanco-hidrico-batch3.yaml
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-016
+  name: tempo_criacao - horas desde a criacao (shared helper)
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'Hours elapsed since a record (Entrada/Saida/SinaisVitais) was created, used as the recency window
+    guard in sepsis criteria.
+
+    '
+  inputs:
+  - self.criado_em
+  outputs:
+  - tempo_criacao (hours)
+  logic: 'return (timezone.now().astimezone() - self.criado_em.astimezone()).seconds / 3600
+
+    '
+  edge_cases: 'Uses timedelta.seconds (the seconds-within-a-day component, 0..86399), NOT total_seconds(). For any
+    record older than 24h the day component is dropped, so the result is always in [0, 24) and wraps daily. This
+    makes sepsis "<= 24" window guards effectively always-true and the "<= 12" guard (criterio_9) and criterio_6
+    "< 2h" recency unreliable.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-017
+  divergence: 'Uses timedelta.seconds (the seconds-within-a-day component, 0..86399) instead of total_seconds();
+    for any record older than 24h the day component is dropped, so the result wraps into [0,24). This makes the
+    sepsis recency window guards (<=24, the <=12 in criterio_9, and criterio_6 <2h) unreliable. Byte-identical defect
+    triplicated in models/balanco_hidrico/entradas.py:66-68 and saidas.py:73-75; consumed by RULE-sepse-BE-06-001/003/005/008/009
+    and inline in criterio_6.
+
+    '
+  merged_from:
+  - RULE-balanco-BE-06-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/sinais_vitais.py
+    lines: 110-113
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: should use .total_seconds() for a true elapsed-hours value. Identical implementation duplicated
+    in entradas.py (lines 66-68) and saidas.py (lines 73-75). Consumed by RULE-sepse-BE-06-001/003/005/008/009 and
+    (via inline seconds/3600) criterio_6.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Python Software Foundation. datetime.timedelta — total_seconds() vs. the .seconds attribute (seconds-within-a-day
+      only, 0..86399). Python 3 Standard Library documentation.
+    detail_file: balanco-hidrico-batch4.yaml
+  escalations:
+  - item_id: ESC-P1-027
+    band: P1
+    title: tempo_criacao - horas desde a criacao (shared helper)
+    excerpt: '*`balanco-hidrico` · `physiological-calculation` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Hours elapsed
+      since a record (Entrada/Saida/SinaisVitais) was created, used as the recency window guard in sepsis criteria.
+      - **Deviation:** Uses timedelta.seconds (the seconds-within-a-day component, 0..86399) instead of total_seconds();
+      for any record older than 24h the day component is dropped, so the res'
+- id: RULE-BALANCO-HIDRICO-017
+  name: SinaisVitais.anterior - leitura anterior de sinais vitais
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Returns the SECOND most recent vital-signs record for an admission (the reading before the current
+    one), or None if fewer than two exist.
+
+    '
+  inputs:
+  - nr_atendimento
+  outputs:
+  - anterior
+  logic: "try:\n    return SinaisVitais.objects.filter(balanco__nr_atendimento=nr_atendimento).order_by(\"-criado_em\"\
+    )[1]\nexcept IndexError:\n    return None\n"
+  edge_cases: 'Index [1] = second newest. Does NOT filter deletado_em, so soft-deleted readings can be returned
+    as "previous". Returns None when 0 or 1 readings exist.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-016
+  merged_from:
+  - RULE-balanco-BE-06-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/balanco_hidrico/sinais_vitais.py
+    lines: 115-123
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Consumed by sepse criterio_3 (ventilation change) and criterio_7 (consciousness change).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal data-access helper: returns the 2nd-most-recent
+      SinaisVitais row (order_by -criado_em, index [1]) for an admission; used as the ''previous reading'' baseline
+      for sepse change-detection criteria.'
+    detail_file: balanco-hidrico-batch4.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-228
+    band: UNVERIFIABLE
+    title: SinaisVitais.anterior - leitura anterior de sinais vitais
+    excerpt: 'Internal business/data-access rule with no published clinical source to check against; flag for internal
+      review, not treated as wrong. Behavioral observation only: the query does NOT filter deletado_em, so a soft-deleted
+      readin…'
+- id: RULE-BALANCO-HIDRICO-018
+  name: Blood-pressure display composition (systolic/diastolic)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Composes the arterial blood pressure string from systolic (pas) and diastolic (pad) fields. Each
+    component is shown only when strictly greater than 0; otherwise it is replaced by the placeholder "--". The
+    composed value is rendered as "systolic/diastolic". The whole Pressao Arterial row is displayed only if at least
+    one of pad or pas is truthy.
+
+    '
+  inputs:
+  - item.pas (mmHg)
+  - item.pad (mmHg)
+  outputs:
+  - valuePressaoArterial (mmHg)
+  logic: 'sistole  = (pas != null && pas > 0) ? pas : "--"
+
+    diastole = (pad != null && pad > 0) ? pad : "--"
+
+    valuePressaoArterial = sistole + "/" + diastole
+
+    // Row "Pressao Arterial (mmHg)" rendered only if (pad || pas) is truthy
+
+    // AND the composed value is truthy (which it always is, being a string).
+
+    '
+  edge_cases: 'pas/pad of 0 or negative render as "--" (0 treated as missing). A value of exactly 0 is NOT displayed.
+    Because pas/pad==0 makes (pad || pas) falsy, if BOTH are 0/absent the entire BP row is hidden; if one is >0
+    the row shows e.g. "120/--".
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-028
+  - RULE-BALANCO-HIDRICO-052
+  merged_from:
+  - RULE-balanco-FE-03-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoItens/ItemSinaisVitais/ItemSinaisVitais.tsx
+    lines: 29-48
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'pas = pressao arterial sistolica (systolic), pad = pressao arterial diastolica (diastolic). No hypertension/hypotension
+    thresholds are applied here; this is purely a display/formatting rule.
+
+
+    Cross-surface contrast (NOT auto-flagged as divergence - different documents): this interactive balanco card
+    renders the Pressao Arterial row when EITHER pas or pad is truthy and shows ''--'' for the missing side; the
+    backend medical-evolution PDF (RULE-BALANCO-HIDRICO-028, pdf_medico.html) renders its PA row only when BOTH
+    pas AND pad are present. Preserved as-implemented on both sides.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical reference. UI display/formatting rule composing a 'systolic/diastolic'
+      string; each side shown only when strictly > 0 else '--'. No hypertension/hypotension thresholds applied.
+    detail_file: balanco-hidrico-batch4.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-229
+    band: UNVERIFIABLE
+    title: Blood-pressure display composition (systolic/diastolic)
+    excerpt: Pure display formatting (pas=systolic, pad=diastolic); no clinical scale, calculation, or threshold
+      to verify against a published source. No unit conversion (mmHg passthrough). Cross-surface contrast with the
+      PDF path (RULE-...…
+- id: RULE-BALANCO-HIDRICO-019
+  name: Fluid-balance pain-scale conditional (NRS 0-10 / BPS 3-12)
+  category: clinical-scoring
+  type: scoring
+  status: AMBIGUOUS
+  verify: true
+  description: 'Pain assessment branches by patient report; a verbal complaint triggers a 0-10 numeric rating scale,
+    whereas observed pain signs trigger a 3-12 scored scale.
+
+    '
+  inputs:
+  - dor
+  - escala_dor (score)
+  - sinais_dor (score)
+  outputs:
+  - pain score (score)
+  logic: "dor options { ausente, queixa, sinais }\n  queixa -> escala_dor required, min 0, max 10\n  sinais -> sinais_dor\
+    \ required, min 3, max 12\n"
+  edge_cases: 'Boundaries inclusive (min/max). Empty branch for "ausente".
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-059
+  merged_from:
+  - RULE-fluidbalance-FE-01-015
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 582-622
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: '0-10 range is consistent with the Numeric Rating Scale; the 3-12 range is consistent with the Behavioral
+    Pain Scale (BPS). Scale identities are inferred, not labelled in code -> AMBIGUOUS.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Numeric Rating Scale (NRS) for pain intensity: integer 0-10 (0=no pain, 10=worst imaginable). Behavioral
+      Pain Scale (BPS), Payen et al., Crit Care Med 2001;29(12):2258-2263 — sum of 3 subscales (facial expression,
+      upper-limb movements, compliance with mechanical ventilation), each scored 1-4, total range 3-12.'
+    detail_file: balanco-hidrico-batch4.yaml
+  escalations:
+  - item_id: ESC-P3-093
+    band: P3
+    title: clinical-scoring
+    excerpt: 'Extraction status was AMBIGUOUS only because the scale names are not labelled in code; against the
+      published references the enforced bounds are exactly canonical: queixa (verbal complaint) -> 0-10 = NRS; sinais
+      (observed signs, non-verba…'
+- id: RULE-BALANCO-HIDRICO-020
+  name: Default volume for enteral diet intake entry
+  category: physiological-calculation
+  type: threshold
+  status: OK
+  verify: true
+  description: 'When creating a fluid-balance "entrada" (intake) record of type "dieta_enteral" (enteral tube feeding)
+    without an explicit quantity, the system defaults the volume to 200 (presumably mL).
+
+    '
+  inputs:
+  - tipo
+  - quantidade (mL (assumed))
+  outputs:
+  - quantidade (mL (assumed))
+  logic: "if validated_data.tipo == \"dieta_enteral\" and not validated_data.quantidade:\n    validated_data.quantidade\
+    \ = 200\n"
+  edge_cases: 'Only triggers when quantidade is falsy (None, 0, "", missing) AND tipo is exactly "dieta_enteral";
+    any other tipo without a quantidade falls through to the generic zero-fallback (RULE-balanco-BE-07-002).
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-021
+  - RULE-BALANCO-HIDRICO-022
+  - RULE-BALANCO-HIDRICO-029
+  - RULE-BALANCO-HIDRICO-048
+  merged_from:
+  - RULE-balanco-BE-07-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 88-91
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Mirrors the "presenca_espontanea" default in Saida (RULE-balanco-BE-07-008), i.e. both intake and output
+    serializers hardcode default volumes for specific entry subtypes.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. Internal serializer default: entrada tipo==''dieta_enteral''
+      with falsy quantidade -> quantidade=200 (assumed mL). No clinical guideline (e.g. ASPEN enteral nutrition)
+      prescribes a fixed 200 mL charting default; this is a data-entry convenience value.'
+    detail_file: balanco-hidrico-batch4.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-230
+    band: UNVERIFIABLE
+    title: Default volume for enteral diet intake entry
+    excerpt: Internal business rule (default charting volume) with no published clinical source to verify; flag
+      for internal review, not treated as wrong. Only fires when quantidade is falsy AND tipo is exactly 'dieta_enteral'.
+      Unit (mL) is…
+- id: RULE-BALANCO-HIDRICO-021
+  name: Default volume for spontaneous presence output
+  category: physiological-calculation
+  type: threshold
+  status: OK
+  verify: true
+  description: 'When creating a fluid-balance "saida" (output) record whose presenca_espontanea equals "presente"
+    (spontaneous presence), the quantity is defaulted to 200.
+
+    '
+  inputs:
+  - presenca_espontanea
+  outputs:
+  - quantidade (mL (assumed))
+  logic: "if validated_data.presenca_espontanea == \"presente\":\n    validated_data.quantidade = 200\n"
+  edge_cases: 'Applied unconditionally on tipo; overwrites any client-supplied quantidade.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-020
+  - RULE-BALANCO-HIDRICO-022
+  - RULE-BALANCO-HIDRICO-031
+  merged_from:
+  - RULE-balanco-BE-07-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 94-95
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published source. Internal business default: when a spontaneous output (presenca_espontanea==''presente'')
+      is recorded without measurement, volume is hard-coded to 200 mL. Arbitrary institutional estimate, not derived
+      from any clinical guideline or validated calculator.'
+    detail_file: balanco-hidrico-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-231
+    band: UNVERIFIABLE
+    title: Default volume for spontaneous presence output
+    excerpt: 'Internal default-volume business rule (saidas.py:94-95). Confirmed against legacy source: `if validated_data.get(''presenca_espontanea'')==''presente'':
+      validated_data[''quantidade'']=200`. It unconditionally overwrites any client-su…'
+- id: RULE-BALANCO-HIDRICO-022
+  name: Presence-level to volume mapping for evacuacao/vomito outputs
+  category: physiological-calculation
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'For evacuation or gastric-tube vomit/return outputs, the recorded "presenca" qualitative level ("presente+"
+    / "presente++" / "presente+++") is converted to a fixed default volume of 100 / 200 / 300 respectively — but
+    the guarding condition has an operator-precedence bug that changes which tipos are gated by "presenca" being
+    truthy.
+
+    '
+  inputs:
+  - tipo
+  - presenca
+  outputs:
+  - quantidade (mL (assumed))
+  logic: "presenca = validated_data.presenca\n# AS WRITTEN (Python operator precedence: `and` binds tighter than\
+    \ `or`):\n#   condition = (presenca AND tipo == \"evacuacao\") OR (tipo == \"vomito_retorno_sonda\")\nif presenca\
+    \ and tipo == \"evacuacao\" or tipo == \"vomito_retorno_sonda\":\n    if presenca == \"presente+\":\n      \
+    \  quantidade = 100\n    elif presenca == \"presente++\":\n        quantidade = 200\n    elif presenca == \"\
+    presente+++\":\n        quantidade = 300\n"
+  edge_cases: 'Because of the precedence bug, any record with tipo == "vomito_retorno_sonda" enters the mapping
+    block even when presenca is null/blank (falling through all elif branches with no quantidade change), while
+    an "evacuacao" record with a falsy presenca never enters the block at all — even though the evident intent (given
+    the identical presenca choices apply to both tipos) was likely `presenca and (tipo == "evacuacao" or tipo ==
+    "vomito_retorno_sonda")`.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-021
+  - RULE-BALANCO-HIDRICO-031
+  divergence: 'Operator-precedence: `if presenca and tipo == ''evacuacao'' or tipo == ''vomito_retorno_sonda''`
+    parses (Python: and binds tighter than or) as (presenca AND tipo==''evacuacao'') OR (tipo==''vomito_retorno_sonda'').
+    Consequence: a vomito_retorno_sonda record enters the presente+/++/+++ -> 100/200/300 mapping block even when
+    presenca is null/blank (falls through all elif with no change), while an evacuacao record with falsy presenca
+    never enters the block. Evident intent was `presenca and (tipo == ''evacuacao'' or tipo == ''vomito_retorno_sonda'')`.
+    Recorded verbatim, not corrected.
+
+    '
+  merged_from:
+  - RULE-balanco-BE-07-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 96-103
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Recorded verbatim per instructions — the discrepancy is the exact operator precedence of `presenca and
+    tipo == "evacuacao" or tipo == "vomito_retorno_sonda"`, which a naive reading might assume applies the `presenca`
+    gate to both tipos.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: No authoritative published source for the presente+/++/+++ -> 100/200/300 mL volume mapping (arbitrary
+      institutional semiquantitative estimate). The extraction-flagged defect is an internal code-vs-intent operator-precedence
+      issue, verifiable by hand-tracing the Python logic itself.
+    detail_file: balanco-hidrico-batch5.yaml
+  escalations:
+  - item_id: ESC-P3-101
+    band: P3
+    title: physiological-calculation
+    excerpt: 'Operator-precedence: `if presenca and tipo == ''evacuacao'' or tipo == ''vomito_retorno_sonda''` parses
+      (Python: and binds tighter than or) as (presenca AND tipo==''evacuacao'') OR (tipo==''vomito_retorno_sonda'').
+      Consequence: a vomito_retorno_…'
+- id: RULE-BALANCO-HIDRICO-023
+  name: Default clinical-day cutoff (07:00) for balanco hidrico
+  category: physiological-calculation
+  type: threshold
+  status: OK
+  verify: true
+  description: 'When no ''dia'' query parameter is supplied, the fluid-balance day defaults to "today" if the current
+    wall-clock hour is 07:00 or later, otherwise it defaults to "yesterday". This encodes a 24h clinical-day boundary
+    starting at 07:00 rather than midnight.
+
+    '
+  inputs:
+  - now.hour (hour (0-23, local/aware time))
+  outputs:
+  - dia_param
+  logic: "now = datetime.now().astimezone()\nif now.hour >= 7:\n    dia_param = now.date()\nelse:\n    dia_param\
+    \ = now.date() - timedelta(days=1)\n"
+  edge_cases: 'Boundary is inclusive at hour==7 (>=7 counts as "today"). Uses server/local timezone via astimezone()
+    with no explicit timezone parameter - relies on system default tz.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-024
+  - RULE-BALANCO-HIDRICO-027
+  - RULE-BALANCO-HIDRICO-035
+  merged_from:
+  - RULE-balanco-BE-08-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/balanco_hidrico.py
+    lines: 32-37
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same 07:00 cutoff concept is reimplemented differently (and with a bug) in list() - see RULE-balanco-BE-08-007.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Nursing 07:00-to-07:00 (day/night 12h shift) clinical-day convention. This is a widely used institutional/operational
+      nursing-shift convention (7-to-7), not a published clinical guideline with a mandated cutoff; the exact boundary
+      is facility-configurable and not fixed by any authoritative standard.
+    detail_file: balanco-hidrico-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-232
+    band: UNVERIFIABLE
+    title: Default clinical-day cutoff (07:00) for balanco hidrico
+    excerpt: Operational clinical-day boundary (07:00). Internally consistent with the same 7-to-7 window used across
+      all balanco 24h aggregations. No authoritative published source fixes 07:00 as THE boundary (it is a nursing-shift
+      convent…
+- id: RULE-BALANCO-HIDRICO-024
+  name: Fixed clinical shift window for fluid balance (07:00-07:00)
+  category: physiological-calculation
+  type: threshold
+  status: OK
+  verify: true
+  description: 'The fluid-balance (balanço hídrico) page always computes/displays balances using a fixed 24-hour
+    "turno" (shift) window running from 07:00 to 07:00 the next day, regardless of any facility-specific shift configuration.
+    The date picker and initial date state are both pinned to this window.
+
+    '
+  inputs:
+  - current date/time
+  outputs:
+  - date (turno-aligned reference date)
+  logic: 'initialDate = dateTurn(moment(), "7:00", "7:00")
+
+    // CustomDatePicker configured with dateTurnProps = { start: "7:00", end: "7:00" }
+
+    // UI label: "Turno vigente: 7:00 às 7:00"
+
+    '
+  edge_cases: 'dateTurn implementation itself is out of FE-08 scope (utils/dateTurn); this page passes identical
+    start/end "7:00" strings in all cases, so the shift boundary is not configurable from this page.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-023
+  - RULE-BALANCO-HIDRICO-027
+  merged_from:
+  - RULE-balanco-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/balanco/index.tsx
+    lines: 67-69, 321-335
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: Same 07:00-to-07:00 nursing-shift 'turno' convention as RULE-023, applied on the frontend (fixed
+      start/end '7:00'). Institutional/operational convention, no authoritative published clinical standard mandating
+      this exact window.
+    detail_file: balanco-hidrico-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-233
+    band: UNVERIFIABLE
+    title: Fixed clinical shift window for fluid balance (07:00-07:00)
+    excerpt: Frontend display convention mirroring RULE-023's backend 07:00 boundary; the two surfaces are mutually
+      consistent. No external clinical reference to validate the exact 07:00-07:00 turno (facility convention).
+      dateTurn implement…
+- id: RULE-BALANCO-HIDRICO-025
+  name: Fluid-balance overview cell visibility threshold (grid vs mobile mismatch)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: 'In the fluid-balance overview, a quantity cell is only shown when the value is nonzero. The desktop
+    GridView shows a cell when value !== 0 (so negative values ARE shown), while the MobileView shows a value only
+    when quantidades[i] > 0 (negative and zero suppressed). The two views apply different thresholds to the same
+    data.
+
+    '
+  inputs:
+  - value (GridView) / quantidades[i] (MobileView) (ml)
+  outputs:
+  - cell rendered?
+  logic: "GridView (desktop):\n  if (value !== 0) render \"<value> ml\" else render empty cell\nMobileView:\n  rowHasData\
+    \ = valores.some(v => v.quantidades[i] > 0)\n  if (rowHasData) for each valor: if (valor.quantidades[i] > 0)\
+    \ render\n    \"<quantidades[i]> ml\"\n  else render \"Nenhum registro informado\"\n"
+  edge_cases: 'A negative quantity (value < 0) renders in GridView but is hidden in MobileView. A zero quantity
+    is hidden in both. MobileView additionally renders a "Nenhum registro informado" placeholder for a time-slot
+    with no positive value.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-013
+  - RULE-BALANCO-HIDRICO-054
+  divergence: 'Desktop GridView (GridView.tsx:86) renders a cell when `value !== 0` (so negative volumes ARE shown);
+    MobileView (MobileView.tsx:41 & 44) renders only when `quantidades[i] > 0` (negative and zero suppressed) and
+    otherwise shows ''Nenhum registro informado''. The two views apply different visibility predicates to the same
+    overview payload; they coincide only if the domain never produces negative volumes.
+
+    '
+  merged_from:
+  - RULE-balanco-FE-03-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/BalancoHidricoVisaoGeral/GridView/GridView.tsx
+    lines: 81-96
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'DISCREPANCY: inconsistent visibility predicate between desktop (value !== 0, line 86) and mobile (quantidades[i]
+    > 0, MobileView.tsx lines 41 & 44). If the domain never produces negative volumes the behaviors coincide; if
+    it can (e.g. corrections), the two views disagree. Verifier should confirm whether negative quantities are possible
+    in Models.BalancoHidricoGeral.Valores.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-103
+    band: P3
+    title: alert-threshold
+    excerpt: Desktop GridView (GridView.tsx:86) renders a cell when `value !== 0` (so negative volumes ARE shown);
+      MobileView (MobileView.tsx:41 & 44) renders only when `quantidades[i] > 0` (negative and zero suppressed)
+      and otherwise shows 'Nenhum r…
+- id: RULE-BALANCO-HIDRICO-026
+  name: Balanco-hidrico sub-record delete authorization (can_delete) - Entrada/Saida/SinaisVitais
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'A fluid-intake record can be deleted only if the requesting user holds the "can_delete_balanco_hidrico"
+    company-scoped permission OR is the original author, AND the record has not already been soft-deleted.
+
+    '
+  inputs:
+  - user permissions (get_permissoes_empresa)
+  - instance.preenchido_por
+  - instance.deletado_em
+  outputs:
+  - can_delete
+  logic: "can_delete = (\n    \"can_delete_balanco_hidrico\" in get_permissoes_empresa(user, request.empresa)\n\
+    \    OR instance.preenchido_por == user\n) AND NOT bool(instance.deletado_em)\n"
+  edge_cases: 'Raises a ValidationError({"empresa_obrigatoria": ...}) if request.empresa is missing, via an explicit
+    try/except — this graceful handling is NOT present in the equivalent methods on Saida/SinaisVitais (see RULE-balanco-BE-07-012
+    / RULE-balanco-BE-07-014 notes), where a missing empresa would instead raise an unhandled AttributeError.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-033
+  - RULE-BALANCO-HIDRICO-034
+  - RULE-BALANCO-HIDRICO-051
+  divergence: 'Core predicate is identical across all three serializers: (''can_delete_balanco_hidrico'' in get_permissoes_empresa(user,
+    request.empresa) OR instance.preenchido_por == user) AND NOT bool(instance.deletado_em). They DIVERGE on missing-empresa
+    handling: Entrada.get_can_delete (entradas.py:144-157) wraps the request.empresa access in try/except and raises
+    ValidationError({''empresa_obrigatoria'': ...}); Saida.get_can_delete (saidas.py:152-158) and SinaisVitais.get_can_delete
+    (sinais_vitais.py:181-187) access request.empresa directly with no guard, so a missing/None empresa surfaces
+    an unhandled AttributeError instead of the clear validation error.
+
+    '
+  merged_from:
+  - RULE-balanco-BE-07-006
+  - RULE-balanco-BE-07-013
+  - RULE-balanco-BE-07-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/entradas.py
+    lines: 144-157
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/saidas.py
+    lines: 152-158
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/sinais_vitais.py
+    lines: 181-187
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Permission string "can_delete_balanco_hidrico" is shared with Saida and SinaisVitais delete checks.
+
+    Permission string ''can_delete_balanco_hidrico'' is shared across all three record types (and consumed by the
+    frontend as record.can_delete, RULE-BALANCO-HIDRICO-034/045).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-112
+    band: P3
+    title: care-pathway
+    excerpt: 'Core predicate is identical across all three serializers: (''can_delete_balanco_hidrico'' in get_permissoes_empresa(user,
+      request.empresa) OR instance.preenchido_por == user) AND NOT bool(instance.deletado_em). They DIVERGE on missing-empr…'
+- id: RULE-BALANCO-HIDRICO-027
+  name: 07:00 shift boundary assigns pre-07:00 entries to previous day's balanco
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'When an Entrada/Saida/SinaisVitais record is (re)timed, its owning daily fluid balance is chosen
+    by the 07:00 rule: an entry timed before 07:00 on the current calendar day belongs to the PREVIOUS day''s BalancoHidrico
+    (because the nursing day runs 07:00 to 07:00). This encodes the same 7-to-7 shift used by all 24h aggregations,
+    and is displayed in templates as "Turno vigente: 7:00 as 7:00".
+
+    '
+  inputs:
+  - balanco_atual
+  - horario
+  outputs:
+  - balanco
+  logic: "if horario and horario < \"07:00\" (lexicographic string compare)\n       and date.today() == balanco_atual.dia:\n\
+    \    return BalancoHidrico.objects.filter(nr_atendimento == balanco_atual.nr_atendimento)\n                \
+    \                 .get(dia == balanco_atual.dia - 1 day)\nelse:\n    return balanco_atual\n"
+  edge_cases: 'String comparison "HH:MM" < "07:00" works only for zero-padded 24h strings. The previous-day lookup
+    uses .get() and will raise DoesNotExist if yesterday''s balanco is missing. Only reassigns when the balanco''s
+    dia equals today; otherwise leaves it unchanged.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-013
+  - RULE-BALANCO-HIDRICO-023
+  - RULE-BALANCO-HIDRICO-024
+  merged_from:
+  - RULE-balancohidrico-BE-09-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 496-506
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Foundational 07:00 boundary shared with RULE-...-001..007. The "7:00 as 7:00" turno constant is also hard-coded
+    in pdf_balanco_hidrico.html (l.156/168), pdf_balanco_hidrico_com_assinatura.html and pdf_prescription_v2.html
+    (l.155).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-028
+  name: Medical-evolution 24h-indicator gate vs value source mismatch
+  category: physiological-calculation
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: true
+  description: 'On the medical-evolution PDF, each 24h indicator row (diurese, ganhos, balanco, temperatura max,
+    HGT) is CONDITIONED on the truthiness of formulario_data.sinais_vitais.<field> but then DISPLAYS the value from
+    formulario_data.indicadores_24h.<field>. If the sinais_vitais gating value is falsy while indicadores_24h has
+    data (or vice versa), the row is hidden or the wrong source shown.
+
+    '
+  inputs:
+  - formulario_data.sinais_vitais.{diurese_24h,ganhos_24h,balanco_24h,temperatura_max_24h,hgt_24h}
+  - formulario_data.indicadores_24h.{same keys}
+  outputs:
+  - rendered indicator rows
+  logic: '# diurese, ganhos, temperatura_max, hgt rows (evacuacoes uses sinais_vitais for both gate+value):
+
+    if formulario_data.sinais_vitais.diurese_24h:          show indicadores_24h.diurese_24h
+
+    if formulario_data.sinais_vitais.ganhos_24h:           show indicadores_24h.ganhos_24h
+
+    if formulario_data.sinais_vitais.balanco_24h:          show indicadores_24h.balanco_24h
+
+    if formulario_data.sinais_vitais.temperatura_max_24h:  show indicadores_24h.temperatura_max_24h
+
+    if formulario_data.sinais_vitais.hgt_24h:              show indicadores_24h.hgt_24h
+
+    # PA row: show only if BOTH pas and pad present -> "{pas} por {pad}"
+
+    '
+  edge_cases: 'Row visibility keyed on sinais_vitais.* but printed value taken from indicadores_24h.*; the two namespaces
+    can disagree. evacuacoes_24h row (l.495-497) both gates and prints from sinais_vitais. PA row requires both
+    systolic (pas) and diastolic (pad) to render.
+
+    '
+  confidence: medium
+  related:
+  - RULE-BALANCO-HIDRICO-006
+  - RULE-BALANCO-HIDRICO-012
+  - RULE-BALANCO-HIDRICO-018
+  merged_from:
+  - RULE-balancohidrico-BE-09-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/templates/arquivos/pdf_medico.html
+    lines: 469-501
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS/likely DISCREPANCY: mismatched gate vs value namespaces (sinais_vitais.* vs indicadores_24h.*).
+    Underlying indicator values come from utils.py RULE-...-002..006. Cannot confirm intent from this partition
+    alone (serializer that builds the context is in api/, out of scope).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published source. Pure PDF-template presentation/gating logic for the medical-evolution
+      report; the underlying 24h indicator VALUES trace to utils.py helpers (RULE-...-006..011) which are the clinically-relevant
+      computations, not this row-visibility rule.
+    detail_file: balanco-hidrico-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-234
+    band: UNVERIFIABLE
+    title: Medical-evolution 24h-indicator gate vs value source mismatch
+    excerpt: 'Extraction status AMBIGUOUS. Characterized: the gate/value namespace mismatch (gate on sinais_vitais.*,
+      value from indicadores_24h.*) is a real template defect that can hide a row when the gating field is falsy
+      while the indica…'
+- id: RULE-BALANCO-HIDRICO-029
+  name: Fluid-balance intake type decision tree
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A fluid intake ("entrada") record selects one of 8 types; each type conditionally reveals type-specific
+    required fields, most terminating in a required volume in ml.
+
+    '
+  inputs:
+  - tipo
+  - quantidade (ml)
+  outputs:
+  - intake entry
+  logic: "tipo required. conditions[tipo]:\n  dieta_enteral   -> quantidade(ml) required\n  dieta_oral      -> aceitacao\
+    \ required (see RULE-008)\n  medicamento     -> nome (route enum, required) + quantidade(ml) required\n  hidratacao_venosa\
+    \ -> nome (solution enum, required) + quantidade(ml) required\n  drogas_hidratacao_bi -> nome (drug enum, required)\
+    \ + quantidade(ml) required\n  antibiotico     -> nome (antibiotic enum, required) + quantidade(ml) required\n\
+    \  reposicao_eletrolito -> nome (electrolyte enum, required) + quantidade(ml) required\n  outra_entrada   ->\
+    \ nome (free string, required) + quantidade(ml) required\nAlso: observacao(string) optional; horario(masked\
+    \ HH:MM, RULE-004).\n"
+  edge_cases: 'All quantidade fields required; medicamento route enum = {intravenoso, oral, gastrostomia, sonda
+    nasoenteral, retal}.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-020
+  - RULE-BALANCO-HIDRICO-030
+  - RULE-BALANCO-HIDRICO-055
+  - RULE-BALANCO-HIDRICO-056
+  - RULE-BALANCO-HIDRICO-057
+  - RULE-BALANCO-HIDRICO-058
+  merged_from:
+  - RULE-fluidbalance-FE-01-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 1-302
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Sub-vocabularies broken out as RULE-009..012.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-030
+  name: Oral-diet acceptance conditional volume
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'For an oral-diet intake, acceptance level determines whether a volume is required.
+
+    '
+  inputs:
+  - aceitacao
+  outputs:
+  - quantidade (ml)
+  logic: "aceitacao required.\n  aceitou  -> quantidade(ml) required\n  reduzida -> quantidade(ml) required\n  recusou\
+    \  -> no volume field (patient refused; implicit 0)\n"
+  edge_cases: 'The recusou branch intentionally collects no volume.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-029
+  merged_from:
+  - RULE-fluidbalance-FE-01-008
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 53-92
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-BALANCO-HIDRICO-031
+  name: Fluid-balance output type decision tree
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A fluid output ("saida") record selects one of 5 types; each reveals type-specific required fields
+    including presence-grading and stool aspect enums.
+
+    '
+  inputs:
+  - tipo
+  outputs:
+  - output entry
+  logic: "tipo required. conditions[tipo]:\n  diurese_sonda      -> quantidade(ml) required\n  diurese_espontanea\
+    \ -> presenca_espontanea required { ausente | presente }\n  evacuacao          -> presenca required { ausente\
+    \ | presente+ | presente++ | presente+++ }\n                        + aspecto required { regular | pastosa |\
+    \ liquida | sangue-melema }\n  vomito_retorno_sonda -> presenca required { ausente | presente+ | presente++\
+    \ | presente+++ }\n  outra_saida        -> nome (string) required + quantidade(ml) required\nAlso observacao(string)\
+    \ optional; horario HH:MM (RULE-004).\n"
+  edge_cases: 'Presence grading 1+/2+/3+ has clinical semi-quantitative meaning; only sonda/outra branches capture
+    ml volume.
+
+    '
+  confidence: high
+  related:
+  - RULE-BALANCO-HIDRICO-021
+  - RULE-BALANCO-HIDRICO-022
+  merged_from:
+  - RULE-fluidbalance-FE-01-013
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormBalancoHidrico.ts
+    lines: 304-468
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
