@@ -28,7 +28,41 @@ env:
   POETRY_VERSION: "1.8"
   DOCKER_IMAGE: ghcr.io/${{ github.repository }}/api
 
+permissions:
+  contents: read
+
 jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 0 — Frontend Lint & Build
+  # ═══════════════════════════════════════════════════════════════════════════
+  frontend:
+    name: Frontend — Lint & Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
   # ═══════════════════════════════════════════════════════════════════════════
   # Job 1 — Lint & Type Check
   # ═══════════════════════════════════════════════════════════════════════════
@@ -215,8 +249,7 @@ jobs:
           bandit -r src/ \
             -f sarif \
             -o bandit-results.sarif \
-            --severity-level medium \
-            || true
+            --severity-level medium
 
       - name: Upload Bandit SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -225,7 +258,7 @@ jobs:
           category: bandit
 
       - name: pip-audit — Dependency scan
-        run: pip-audit --require-hashes --strict || true
+        run: pip-audit --strict
 
       - name: Trivy — Filesystem scan
         # v0.28.0 broke upstream: its transitive setup-trivy@v0.2.1 tag was deleted.
@@ -252,10 +285,14 @@ jobs:
     name: Build & Push
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: [test, security]
+    needs: [test, security, frontend]
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
       github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
     outputs:
       image_tag: ${{ steps.meta.outputs.version }}
@@ -342,6 +379,8 @@ jobs:
     timeout-minutes: 10
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
