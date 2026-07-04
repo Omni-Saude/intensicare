@@ -119,9 +119,11 @@ def main() -> int:
                  f"{str(r.get('recommendation', ''))[:90]} | {d} |")
     L.append("")
 
-    esc_rules = set(items[i]["rule_id"] for i in items)
+    # rules already anchored above: P0/P1/ADDENDUM sections + UNVERIFIABLE groups
+    anchored_rules = {it["rule_id"] for it in esc["items"]
+                      if it["band"] in {"P0", "P1", "UNVERIFIABLE", "ADDENDUM"}}
     extra = [(rid, r) for rid, r in sorted(merged.items())
-             if r.get("disposition") == "RATIFY" and rid not in esc_rules]
+             if r.get("disposition") == "RATIFY" and rid not in anchored_rules]
     if extra:
         L += [f"## Additional RATIFY dispositions (not escalation-driven) ({len(extra)})", "",
               "| Ref | Rule | Why |", "|---|---|---|"]
