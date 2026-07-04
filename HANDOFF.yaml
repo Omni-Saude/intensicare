@@ -1,212 +1,108 @@
-# HANDOFF.yaml — Blocked/Completed tracking for IntensiCare
-# Atualizado: 26 de junho de 2026
-#
-# Bloqueios que impedem produção:
-# - Regulatórios (ANVISA, LGPD)
-# - Técnicos (audit_trail, criptografia PHI)
-# - Clínicos (validação com dados reais)
+# HANDOFF.yaml — future-oriented work tracker for IntensiCare
+# Updated: 2026-07-04 (post-merge of PR #1)
+# Rule: pending/blocked items only, pruned as done; history lives in git and docs/, not here.
 
+context:
+  main: "PR #1 MERGED 2026-07-04 (2d19e7b): audit KB (959 rules/351 escalations/18 ADRs) + full CI remediation. CI is GREEN on main (lint, tests 3.12/3.13, coverage-informational, security)."
+  audit_kb: "docs/rules/ (959 rules), docs/rules/ESCALATIONS.md (351 items), docs/adr/, docs/design/"
+  v2_prompt: "docs/prompts/intensicare-build-plan-orchestrator-prompt.md (run only when user asks)"
+
+# ── Blocked / gated work (pre-production) ───────────────────────────────────
 blocked:
-  - id: "REG-001"
-    title: "ANVISA SaMD Classification"
-    severity: critical
-    description: "Classificação formal do software como dispositivo médico (SaMD) — Classe II preliminar."
-    resolution: "Contratar consultoria especializada em regulação ANVISA para SaMD."
-    deadline: "2026-Q3"
-
-  - id: "REG-002"
-    title: "LGPD RIPD (Relatório de Impacto à Proteção de Dados)"
-    severity: critical
-    description: "RIPD obrigatório para processamento de dados de saúde (sensíveis, Art. 11 LGPD)."
-    resolution: "DPO + time jurídico devem elaborar RIPD antes de processar dados de pacientes reais."
-    deadline: "2026-Q3"
-
-  - id: "TECH-001"
-    title: "Tabela audit_trail imutável"
-    severity: critical
-    description: "Invariante arquitetural #1. Trilha de auditoria append-only com trigger anti-mutação."
-    resolution: "Implementar tabela audit_trail + trigger antes da primeira ingestão de dados reais."
-    deadline: "Antes do piloto clínico"
-
-  - id: "TECH-002"
-    title: "Criptografia em repouso (pgcrypto para PHI)"
-    severity: critical
-    description: "Campos PHI (nome, CPF, CNS) devem ser criptografados com pgcrypto. Invariante #4."
-    resolution: "Implementar criptografia de colunas sensíveis via pgcrypto."
-    deadline: "Antes do piloto clínico"
-
-  - id: "TECH-003"
-    title: "Dead man's switch externo"
-    severity: high
-    description: "Monitoramento externo que alerta se a API ficar indisponível. Invariante #5."
-    resolution: "Script externo de health check com alerta (PagerDuty/similar)."
-    deadline: "Antes do piloto clínico"
-
-  - id: "TECH-004"
-    title: "IdempotencyStore em Redis para produção"
-    severity: medium
-    description: "Implementação atual usa store em memória. Produção precisa de Redis com TTL."
-    resolution: "Migrar IdempotencyStore para Redis com TTL configurável."
-    deadline: "Fase 2"
-
-  - id: "CLIN-001"
-    title: "Validação clínica com dados reais"
-    severity: critical
-    description: "Nenhum teste foi feito com tráfego HL7 real de hospital."
-    resolution: "Piloto de 48h com tráfego HL7 real do hospital AUSTA."
-    deadline: "Fase 2 (Sprint 4)"
-
-  - id: "CLIN-002"
-    title: "Clinical Validation Protocol"
-    severity: high
-    description: "Protocolo formal de validação para scores MEWS/NEWS2/SOFA/qSOFA contra gold-standard."
-    resolution: "Time clínico deve elaborar e executar protocolo de validação."
-    deadline: "2026-Q3"
-
-  - id: "SEC-001"
-    title: "Pentest externo"
-    severity: high
-    description: "Teste de penetração por empresa externa antes do go-live."
-    resolution: "Contratar empresa de segurança para pentest."
-    deadline: "2026-Q4"
-
-  - id: "SEC-002"
-    title: "TLS/HTTPS em produção"
-    severity: high
-    description: "Reverse proxy com Caddy + TLS automático ainda não configurado."
-    resolution: "Configurar Caddy como reverse proxy com Let's Encrypt."
-    deadline: "Fase 3"
-
-  # --- AUDIT FINDINGS (2026-06-26) ---
   - id: "AUDIT-001"
     title: "MEWS scoring: 3 parâmetros inflados vs Subbe 2001"
     severity: critical
-    description: "Heart rate ≤40 (3 vs 2), HR 41-50 (2 vs 1), RR ≤8 (3 vs 2), Temp ≤35.0 (3 vs 2). Copiados do NEWS2 em vez do MEWS original."
-    resolution: "Corrigir thresholds baixos para Subbe 2001. Atualizar algorithm_version para MEWS-v1.0.1."
+    description: "HR ≤40 (3 vs 2), HR 41-50 (2 vs 1), RR ≤8 (3 vs 2), Temp ≤35.0 (3 vs 2) — copiados do NEWS2. Valores PRESERVADOS na remediação de lint 2026-07-04 (constantes nomeadas, comportamento intacto por mandato zero-behavior-change)."
+    resolution: "Correção clínica deliberada: ajustar para Subbe 2001, bump algorithm_version MEWS-v1.0.1, atualizar test vectors. Gate: sign-off clínico."
     deadline: "Antes do piloto clínico"
-
   - id: "AUDIT-002"
     title: "NEWS2 Scale 2 (hypercapnic): 5 boundary errors + O2 integration gap"
     severity: critical
-    description: "Bandas 86-87% (2 vs 1) e 88-92% (1 vs 0) deslocadas vs RCP 2017. SpO2≥93% em O2 não integrado corretamente."
-    resolution: "Corrigir score_spo2() para RCP 2017 Scale 2. Adicionar parâmetro supplemental_o2."
+    description: "Bandas SpO2 86-87%/88-92% deslocadas vs RCP 2017; supplemental_o2 não integrado. Valores preservados (mesmo mandato acima)."
+    resolution: "Corrigir score_spo2() para RCP 2017 Scale 2 + parâmetro supplemental_o2; bump algorithm_version; test vectors novos."
     deadline: "Antes do piloto clínico"
-
   - id: "AUDIT-003"
-    title: "SOFA: dual risk-classification paths inconsistent"
+    title: "SOFA: dual risk-classification paths inconsistentes (live vs replay)"
     severity: medium
-    description: "Live path e idempotent-replay path usam thresholds e formatos diferentes para mortalidade."
-    resolution: "Unificar classificação de risco em single source of truth."
+    resolution: "Unificar em single source of truth."
     deadline: "Fase 2"
-
   - id: "AUDIT-004"
-    title: "Invariante #5: Health check sem verificações de dependências"
+    title: "Invariante #5: /health não verifica PostgreSQL nem Redis"
     severity: high
-    description: "/health retorna estático — não verifica PostgreSQL nem Redis. Se banco cair, health check ainda diz 'healthy'."
-    resolution: "Adicionar SELECT 1 no PostgreSQL e redis.ping() ao health check."
+    resolution: "SELECT 1 + redis.ping() no health check."
     deadline: "Antes do piloto clínico"
-
   - id: "AUDIT-005"
-    title: "Invariante #6: Retry/backoff não implementado"
+    title: "Invariante #6: retry/backoff não implementado (tenacity é dead dependency)"
     severity: high
-    description: "tenacity é dead dependency (instalado, nunca importado). Nenhum retry para notificações de alerta."
-    resolution: "Implementar ARQ worker ou tenacity retry decorator para alert delivery."
+    resolution: "ARQ worker ou tenacity para alert delivery."
     deadline: "Fase 2"
-
-  - id: "AUDIT-006"
-    title: "review-queue.md: audit_trail marcado como IMPLEMENTADO (falso)"
-    severity: medium
-    description: "docs/review-queue.md linha 26 afirma que audit_trail está IMPLEMENTADO. Não existe tabela, modelo ou trigger."
-    resolution: "Corrigir review-queue.md para PENDENTE. Remover claim falso. ✅ CORRIGIDO em 2026-06-26."
-    deadline: "Imediato"
-
   - id: "AUDIT-007"
-    title: "API contract mismatch: GET /api/v1/alerts array vs frontend objeto"
+    title: "API contract mismatch: GET /api/v1/alerts array vs frontend objeto {alerts, total}"
     severity: medium
-    description: "Backend retorna list[AlertResponse] direto. Frontend AlertListResponse espera {alerts: AlertInfo[], total: number}."
-    resolution: "Alinhar contrato: backend wrappar em objeto ou frontend consumir array puro."
     deadline: "Fase 2"
-
   - id: "AUDIT-008"
     title: "Severity enum mismatch: backend watch/urgent/critical vs frontend info/warning/critical"
     severity: medium
-    description: "BedGrid usa 'warning' que não existe no backend. Sorting de severidade quebrado."
-    resolution: "Padronizar severity enum entre backend e frontend."
+    note: "v2 design resolve: escala clinical.* de 4 níveis definida no prompt docs/prompts/… — alinhar backend/frontend nela."
     deadline: "Fase 2"
+  - id: "TECH-001"
+    title: "Tabela audit_trail imutável (invariante #1) — NÃO implementada"
+    severity: critical
+    deadline: "Antes do piloto clínico"
+  - id: "TECH-002"
+    title: "Criptografia em repouso pgcrypto para PHI (invariante #4)"
+    severity: critical
+    deadline: "Antes do piloto clínico"
+  - id: "TECH-003"
+    title: "Dead man's switch externo (invariante #5)"
+    severity: high
+    deadline: "Antes do piloto clínico"
+  - id: "TECH-004"
+    title: "IdempotencyStore em Redis (hoje em memória)"
+    severity: medium
+    deadline: "Fase 2"
+  - id: "REG-001"
+    title: "ANVISA SaMD Classification (Classe II preliminar) — consultoria"
+    severity: critical
+    deadline: "2026-Q3"
+  - id: "REG-002"
+    title: "LGPD RIPD antes de dados reais"
+    severity: critical
+    deadline: "2026-Q3"
+  - id: "CLIN-001"
+    title: "Validação com tráfego HL7 real (48h, hospital AUSTA)"
+    severity: critical
+    deadline: "Fase 2 (Sprint 4)"
+  - id: "CLIN-002"
+    title: "Clinical Validation Protocol (MEWS/NEWS2/SOFA/qSOFA vs gold-standard)"
+    severity: high
+    deadline: "2026-Q3"
+  - id: "SEC-001"
+    title: "Pentest externo"
+    severity: high
+    deadline: "2026-Q4"
+  - id: "SEC-002"
+    title: "TLS/HTTPS produção (Caddy + Let's Encrypt)"
+    severity: high
+    deadline: "Fase 3"
 
-completed:
-  - id: "MVP-001"
-    title: "MEWS scoring engine"
-    notes: "Implementado, testado e validado (MEWS-v1.0). 5 parâmetros, determinístico."
+# ── Ratification queue (audit outputs awaiting humans; docs/rules/AUDIT-REPORT.md §8) ──
+ratification:
+  - "Clinical committee: 12 P0 + 45 P1 escalations (docs/rules/ESCALATIONS.md)"
+  - "Owners: 102 UNVERIFIABLE proprietary rules — confirmar intenção"
+  - "Legal: achados de assinatura eletrônica (PIN default compartilhado; perfil 'advanced' sem ICP-Brasil)"
+  - "Clinical: divergência de agregação sepse v1-AND vs v3-OR"
+  - "Eng+clinical: unidades canônicas (FiO2 fração, lactato mmol/L, vasopressor mcg/kg/min)"
 
-  - id: "MVP-002"
-    title: "NEWS2 scoring engine"
-    notes: "Implementado, testado e validado (NEWS2-v1.0). 7 parâmetros, Escala 1 e 2."
+# ── Ops backlog (não bloqueia PR #1) ────────────────────────────────────────
+ops_backlog:
+  - "Declarar GitHub Environment 'staging' e restaurar bloco environment: no job deploy (TODO(ops) em ci.yml ~l.320)"
+  - "Não existe gate de cobertura em lugar nenhum — decidir e adicionar fail-under (plano: ≥70% MVP, ≥85% prod)"
+  - "Trivy pinado v0.28.0 (válido); v0.36.0 disponível para bump deliberado"
+  - "bandit e pip-audit rodam com '|| true' (não gateiam) — decidir se devem gatear"
+  - "actionlint/shellcheck style findings em ci.yml (l.~165/327/348) — cosmético"
+  - "Legado: senha Postgres hardcoded em .github/workflows/trilhas.yml do repo ahlabs-trilhas (RULE-ops-COORD-001) — avisar owners"
 
-  - id: "MVP-003"
-    title: "SOFA scoring engine"
-    notes: "Implementado, testado e validado (SOFA-v1.0). 6 sistemas orgânicos."
-
-  - id: "MVP-004"
-    title: "qSOFA scoring engine"
-    notes: "Implementado, testado e validado (qSOFA-v1.0). 3 critérios binários."
-
-  - id: "MVP-005"
-    title: "POST /api/v1/vitals — ingestão com idempotência"
-    notes: "Ingestão de sinais vitais com X-Idempotency-Key, cálculo de 4 scores e alert engine."
-
-  - id: "MVP-006"
-    title: "GET /api/v1/patients/{mpi_id}/status"
-    notes: "Status agregado: vitals recentes, último score, tendência (5 últimos)."
-
-  - id: "MVP-007"
-    title: "GET /api/v1/dashboard"
-    notes: "Grid de leitos com MEWS, NEWS2, alertas. Filtro por unidade."
-
-  - id: "MVP-008"
-    title: "Alert engine com thresholds e rate limiting"
-    notes: "Thresholds configuráveis por tenant/unit, rate limiting Redis, cooldown."
-
-  - id: "MVP-009"
-    title: "WebSocket para alertas em tempo real"
-    notes: "Connect/subscribe/unsubscribe/broadcast. Clientes sem subscription recebem todos."
-
-  - id: "MVP-010"
-    title: "JWT authentication"
-    notes: "Login/register/logout com bcrypt + JWT (access 30min, refresh 7 dias). Token blacklist."
-
-  - id: "MVP-011"
-    title: "MLLP Listener (HL7 v2)"
-    notes: "Servidor TCP async na porta 2575. Parseia ORU-R01, mapeia LOINC, encaminha para API."
-
-  - id: "MVP-012"
-    title: "Docker Compose ambiente dev"
-    notes: "API + PostgreSQL/TimescaleDB + Redis + MLLP Listener + Frontend React."
-
-  - id: "MVP-013"
-    title: "Frontend React dashboard"
-    notes: "BedGrid, PatientDetail com gráficos, AlertPanel, autenticação JWT."
-
-  - id: "MVP-014"
-    title: "Test suite (12 arquivos)"
-    notes: "Cobertura de todos os componentes: scoring, API, auth, alerts, WebSocket, MLLP."
-
-  - id: "MVP-015"
-    title: "Versionamento de algoritmos"
-    notes: "Coluna algorithm_version em clinical_score. Invariante #3 implementado."
-
-  - id: "DOC-001"
-    title: "README atualizado com instruções reais"
-    notes: "README reflete o estado atual do código, com exemplos reais de curl e endpoints."
-
-  - id: "DOC-002"
-    title: "API documentation (docs/api/overview.md)"
-    notes: "Todos os endpoints documentados com request/response examples."
-
-  - id: "DOC-003"
-    title: "PROJECT_STATUS.md"
-    notes: "Status completo do projeto: o que funciona, pendências, arquitetura, como rodar."
-
-  - id: "DOC-004"
-    title: "Review queue atualizada"
-    notes: "docs/review-queue.md atualizado com status de todos os itens regulatórios e técnicos."
+# ── Next big track (user-triggered only) ────────────────────────────────────
+next_track:
+  - "Executar docs/prompts/intensicare-build-plan-orchestrator-prompt.md como prompt operacional do orquestrador de design v2 (produz docs/plan/). NÃO iniciar sem pedido explícito do usuário."
