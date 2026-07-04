@@ -149,3 +149,8 @@ The plan indexes a 1,521-file knowledge corpus (coverage machine-verified in
 - Disputes resolve by authority: ADR-001 ≻ `docs/product/vision.md` ≻ plan directives ≻ legacy
   (see blueprint §8 for the full consult-when table).
 - `docs/plan/_work/briefs/*.json` are the cheap loading path into every long source — use them first.
+
+> **Kickoff-gate update (2026-07-04):** the ratification decisions and the BUILD-ADR-001 ack are
+> ALREADY GIVEN — see `docs/plan/RATIFICATION-DECISIONS.md` (+ machine record
+> `docs/plan/_work/ratification-decisions.yaml`). At kickoff, verify both files exist and treat the
+> "collect decisions" step as satisfied; the residual professional gates listed there still apply.

@@ -26,6 +26,7 @@ PHASE_B = [
 ]
 PHASE_E_EXTRA = [
     "README.md", "executive-summary.md", "traceability-matrix.md", "RATIFICATION.md",
+    "RATIFICATION-DECISIONS.md",
     "clinical/alert-catalog.md", "clinical/hazard-log.md",
     "design/screens/command-center.md", "design/screens/patient-timeline.md",
     "design/screens/handoff.md", "design/screens/alert-routing.md",
