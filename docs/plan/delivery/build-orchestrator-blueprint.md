@@ -329,3 +329,22 @@ Guilds mirror the plan's architect roles (`test-strategy.md` §6 ownership map).
 ---
 
 *Provenance: this blueprint was authored by reading `CONTRACTS.md`, `HANDOFF.yaml`, briefs (`implementation-plan.json`, `adr-001.json`, `vision.json`), `architecture/{system-architecture,alert-engine,data-model}.md`, `delivery/test-strategy.md`, `observability-slo.md`, `security-lgpd.md`, `RATIFICATION.md`, `_work/adrs/operational-vitals-ingress.md`, the 9 `_work/alerts/*.yaml` catalogs (50 alerts / 266 vectors), the gate scripts, and the on-disk v1 code (`src/intensicare/` — 40 modules / ~4.9k LoC — and `frontend/`). Divergences from the source directive are recorded in Section 1 (v1 frontend exists on disk) and Section 0 (verify-on-disk doctrine).*
+
+## 8. Knowledge-base map — the full corpus and when to consult it
+
+The plan is an index over a much larger knowledge corpus (1,521 files under `docs/` — machine-verified
+coverage: `_work/coverage/knowledge-map.yaml`; every file classified, zero unmapped). Nothing from the
+audit or planning investment is discarded; the build MUST use it as follows:
+
+| Corpus area | Files | When the builder consults it |
+|---|---|---|
+| `docs/rules/` (959 rule docs + phase-1..3 extraction + AUDIT-REPORT + ESCALATIONS) | ~1,150 | **Mandatory during implementation:** every WO that implements a rule dispositioned ADOPT / ADOPT-CORRECTED / ADAPT opens the rule's own `docs/rules/<category>/RULE-*.md` for verbatim legacy logic, edge cases, provenance, and verification vectors; the disposition record (matrix row → `_work/dispositions/`) tells you which form to build. ESCALATIONS entries are the clinical context behind every RAT-* decision. |
+| `docs/plan/_work/briefs/` (39 structured extractions) | 39 | Fast machine-readable views of vision/ADR-001/personas/design-inventory/each cluster — load a brief before reading a long source; `source_ref` fields point back to exact sections. |
+| `docs/plan/_work/alerts/*.yaml` + `dispositions/` + `escalations/` | ~60 | The machine truth the generated deliverables render from; 266 test vectors are executable fixtures (WO test scaffolds generate directly from them). |
+| `docs/adr/0001-0018` + `docs/design/` | ~25 | Legacy frontend rationale + visual DNA (hex/shadow/component states) — consulted through the migration map in `design/design-tokens.md` whenever visual fidelity questions arise. |
+| `docs/product/`, `docs/architecture/adr/ADR-001`, `docs/data/model.md` | ~5 | Authority chain for disputes: ADR-001 ≻ vision ≻ plan directives ≻ legacy (CONTRACTS §5). |
+| `docs/clinical/alert-catalog.md` (v1) + `docs/api/overview.md` | 2 | Superseded-but-reconciled: consult during brownfield migration of kept v1 modules only. |
+| `docs/plan/_work/{barriers,panels,redteam,safety}` | ~80 | The decision log: why each contested design/severity/latency call went the way it did; red-team findings + fixes; the hazard log's 105 mitigations each name an owning spec the code must satisfy. |
+
+Regeneration commands for derived artifacts (never hand-edit): `shard_catalog.py`, `build_matrix.py`,
+`build_alert_catalog.py`, `build_ratification.py` (all under `docs/plan/_work/scripts/`).

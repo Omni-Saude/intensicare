@@ -133,3 +133,19 @@ ANVISA/RIPD; Fase 4: Alt-B decision journaled) and the **Final DoD in staging**:
 invariants verified by their named drills on the release candidate, every shipped alert traceable,
 every pending-RATIFY default flagged — plus CLIN-001/002 clinical validation signed. Do not declare
 any phase done without pasting its gate output into the journal.
+
+## Corpus map — leverage EVERYTHING (nothing is throwaway)
+
+The plan indexes a 1,521-file knowledge corpus (coverage machine-verified in
+`docs/plan/_work/coverage/knowledge-map.yaml` — zero unmapped). Binding rules:
+
+- Implementing any ADOPT / ADOPT-CORRECTED / ADAPT rule ⇒ OPEN its `docs/rules/<category>/RULE-*.md`
+  (verbatim legacy logic + edge cases + provenance + verification vectors) alongside its disposition
+  record. The matrix row is the pointer, not the knowledge.
+- Alert WOs generate their test scaffolds from `docs/plan/_work/alerts/<domain>.yaml` (266 vectors are
+  executable fixtures); the domain doc + units registry are the semantics.
+- Visual/UX fidelity questions ⇒ `docs/design/design-system-inventory.md` via the token migration map;
+  design rationale ⇒ `docs/adr/0001-0018` dispositions.
+- Disputes resolve by authority: ADR-001 ≻ `docs/product/vision.md` ≻ plan directives ≻ legacy
+  (see blueprint §8 for the full consult-when table).
+- `docs/plan/_work/briefs/*.json` are the cheap loading path into every long source — use them first.
