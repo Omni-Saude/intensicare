@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
-from sqlalchemy import desc, select, func
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.models import PatientCache, Alert, ClinicalScore, VitalSign
+from intensicare.models.alert import Alert
+from intensicare.models.clinical_score import ClinicalScore
+from intensicare.models.patient_cache import PatientCache
+from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.dashboard import (
-    PatientBedSummary,
     DashboardResponse,
+    PatientBedSummary,
     PatientDetailResponse,
-    VitalsHistoryPoint,
     ScoreHistoryPoint,
+    VitalsHistoryPoint,
 )
-from intensicare.services.mews import compute_trend
+
+# NEWS2 clinical risk-category thresholds (aggregate score)
+NEWS2_HIGH_RISK_THRESHOLD = 7
+NEWS2_MEDIUM_RISK_THRESHOLD = 5
 
 
 async def get_dashboard(
@@ -27,7 +35,7 @@ async def get_dashboard(
         unit: Optional unit filter.
     """
     # Get all active patients
-    patient_query = select(PatientCache).where(PatientCache.is_active == True)
+    patient_query = select(PatientCache).where(PatientCache.is_active.is_(True))
     if unit:
         patient_query = patient_query.where(PatientCache.unit == unit)
     patient_query = patient_query.order_by(PatientCache.bed_id)
@@ -38,7 +46,6 @@ async def get_dashboard(
         return DashboardResponse(patients=[], total=0, active_alerts_total=0)
 
     mpi_ids = [p.mpi_id for p in patients]
-    patient_map = {p.mpi_id: p for p in patients}
 
     # Get latest MEWS for each patient — use a single query with DISTINCT ON
     # or iterate. For simplicity, do a subquery approach.
@@ -70,7 +77,6 @@ async def get_dashboard(
 
     # Get latest MEWS and NEWS2 scores per patient
     # Use a raw approach: get all latest scores in subquery
-    from sqlalchemy import and_
 
     # Latest MEWS per patient
     mews_subq = (
@@ -141,9 +147,9 @@ async def get_dashboard(
         news2_score = None
         if news2_data:
             news2_score = news2_data[0]
-            if news2_score >= 7:
+            if news2_score >= NEWS2_HIGH_RISK_THRESHOLD:
                 news2_risk = "high"
-            elif news2_score >= 5:
+            elif news2_score >= NEWS2_MEDIUM_RISK_THRESHOLD:
                 news2_risk = "medium"
             else:
                 news2_risk = "low"
@@ -183,16 +189,12 @@ async def get_patient_detail(
         mpi_id: Patient MPI ID.
     """
     # Get patient cache
-    patient_result = await db.execute(
-        select(PatientCache).where(PatientCache.mpi_id == mpi_id)
-    )
+    patient_result = await db.execute(select(PatientCache).where(PatientCache.mpi_id == mpi_id))
     patient = patient_result.scalar_one_or_none()
     if not patient:
         return None
 
     # Get vitals history (last 24h)
-    from datetime import datetime, timezone, timedelta
-
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     vitals_query = (
         select(VitalSign)
@@ -272,20 +274,22 @@ async def get_patient_detail(
     alerts_result = await db.execute(alerts_query)
     alerts_list = []
     for a in alerts_result.scalars().all():
-        alerts_list.append({
-            "id": a.id,
-            "mpi_id": a.mpi_id,
-            "score_id": a.score_id,
-            "severity": a.severity,
-            "status": a.status,
-            "title": a.title,
-            "body": a.body,
-            "created_at": a.created_at.isoformat() if a.created_at else None,
-            "acknowledged_at": a.acknowledged_at.isoformat() if a.acknowledged_at else None,
-            "acknowledged_by": a.acknowledged_by,
-            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
-            "resolution": a.resolution,
-        })
+        alerts_list.append(
+            {
+                "id": a.id,
+                "mpi_id": a.mpi_id,
+                "score_id": a.score_id,
+                "severity": a.severity,
+                "status": a.status,
+                "title": a.title,
+                "body": a.body,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "acknowledged_at": a.acknowledged_at.isoformat() if a.acknowledged_at else None,
+                "acknowledged_by": a.acknowledged_by,
+                "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+                "resolution": a.resolution,
+            }
+        )
 
     return PatientDetailResponse(
         mpi_id=patient.mpi_id,

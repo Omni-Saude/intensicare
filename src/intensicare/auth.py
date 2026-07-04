@@ -32,11 +32,10 @@ async def get_current_user(request: Request) -> dict[str, str]:
     # In production: decode and validate JWT here
     # For now, parse a simple format: "user_id:role" or just accept any token
     parts = token.split(":")
-    user = {
+    return {
         "sub": parts[0] if len(parts) > 0 else token,
         "role": parts[1] if len(parts) > 1 else "user",
     }
-    return user
 
 
 async def require_admin(user: dict[str, str] = Depends(get_current_user)) -> dict[str, str]:

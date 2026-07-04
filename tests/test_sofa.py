@@ -14,18 +14,18 @@ from intensicare.services.sofa import (
     SOFAComponents,
     SOFAResult,
     calculate_sofa,
-    score_respiration,
+    score_cardiovascular,
     score_coagulation,
     score_liver,
-    score_cardiovascular,
     score_neurological,
     score_renal,
+    score_respiration,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Respiration — PaO2/FiO2
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestRespiration:
     @pytest.mark.parametrize(
@@ -33,21 +33,21 @@ class TestRespiration:
         [
             # Without ventilation
             (None, False, (0, "missing")),
-            (500, False, (0, None)),    # ≥400
-            (400, False, (0, None)),    # boundary
-            (350, False, (1, None)),    # 300-399
-            (300, False, (1, None)),    # boundary
-            (250, False, (2, None)),    # 200-299
-            (200, False, (2, None)),    # boundary
-            (150, False, (2, None)),    # <200 without vent → capped at 2
-            (50, False, (2, None)),     # <100 without vent → capped at 2
+            (500, False, (0, None)),  # ≥400
+            (400, False, (0, None)),  # boundary
+            (350, False, (1, None)),  # 300-399
+            (300, False, (1, None)),  # boundary
+            (250, False, (2, None)),  # 200-299
+            (200, False, (2, None)),  # boundary
+            (150, False, (2, None)),  # <200 without vent → capped at 2
+            (50, False, (2, None)),  # <100 without vent → capped at 2
             # With ventilation
-            (350, True, (1, None)),     # vent doesn't change 300-399
-            (200, True, (2, None)),     # vent at 200 → still 2
-            (150, True, (3, None)),     # <200 with vent → 3
-            (100, True, (3, None)),     # boundary
-            (80, True, (4, None)),      # <100 with vent → 4
-            (50, True, (4, None)),      # <100 with vent → 4
+            (350, True, (1, None)),  # vent doesn't change 300-399
+            (200, True, (2, None)),  # vent at 200 → still 2
+            (150, True, (3, None)),  # <200 with vent → 3
+            (100, True, (3, None)),  # boundary
+            (80, True, (4, None)),  # <100 with vent → 4
+            (50, True, (4, None)),  # <100 with vent → 4
         ],
     )
     def test_score_respiration(self, pao2_fio2, vent, expected):
@@ -68,21 +68,22 @@ class TestRespiration:
 # Coagulation — Platelets
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestCoagulation:
     @pytest.mark.parametrize(
         "platelets,expected",
         [
             (None, (0, "missing")),
-            (200, (0, None)),     # ≥150
-            (150, (0, None)),     # boundary
-            (140, (1, None)),     # 100-149
-            (100, (1, None)),     # boundary
-            (80, (2, None)),      # 50-99
-            (50, (2, None)),      # boundary
-            (40, (3, None)),      # 20-49
-            (20, (3, None)),      # boundary
-            (15, (4, None)),      # <20
-            (5, (4, None)),       # very low
+            (200, (0, None)),  # ≥150
+            (150, (0, None)),  # boundary
+            (140, (1, None)),  # 100-149
+            (100, (1, None)),  # boundary
+            (80, (2, None)),  # 50-99
+            (50, (2, None)),  # boundary
+            (40, (3, None)),  # 20-49
+            (20, (3, None)),  # boundary
+            (15, (4, None)),  # <20
+            (5, (4, None)),  # very low
         ],
     )
     def test_score_coagulation(self, platelets, expected):
@@ -93,23 +94,24 @@ class TestCoagulation:
 # Liver — Bilirubin
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestLiver:
     @pytest.mark.parametrize(
         "bilirubin,expected",
         [
             (None, (0, "missing")),
-            (0.5, (0, None)),      # <1.2
-            (1.1, (0, None)),      # <1.2
-            (1.2, (1, None)),      # 1.2-1.9
+            (0.5, (0, None)),  # <1.2
+            (1.1, (0, None)),  # <1.2
+            (1.2, (1, None)),  # 1.2-1.9
             (1.5, (1, None)),
-            (1.9, (1, None)),      # boundary
-            (2.0, (2, None)),      # 2.0-5.9
+            (1.9, (1, None)),  # boundary
+            (2.0, (2, None)),  # 2.0-5.9
             (4.0, (2, None)),
-            (5.9, (2, None)),      # boundary
-            (6.0, (3, None)),      # 6.0-11.9
+            (5.9, (2, None)),  # boundary
+            (6.0, (3, None)),  # 6.0-11.9
             (10.0, (3, None)),
-            (11.9, (3, None)),     # boundary
-            (12.0, (4, None)),     # ≥12.0
+            (11.9, (3, None)),  # boundary
+            (12.0, (4, None)),  # ≥12.0
             (20.0, (4, None)),
         ],
     )
@@ -120,6 +122,7 @@ class TestLiver:
 # ═══════════════════════════════════════════════════════════════════════════
 # Cardiovascular — MAP + Vasopressors
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestCardiovascular:
     def test_missing_map(self):
@@ -204,6 +207,7 @@ class TestCardiovascular:
 # Neurological — GCS
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestNeurological:
     @pytest.mark.parametrize(
         "gcs,expected",
@@ -228,6 +232,7 @@ class TestNeurological:
 # Renal — Creatinine + Urine output
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestRenal:
     def test_both_missing(self):
         assert score_renal(None, None) == (0, "missing")
@@ -235,18 +240,18 @@ class TestRenal:
     @pytest.mark.parametrize(
         "creatinine,expected",
         [
-            (0.8, (0, None)),    # <1.2
-            (1.1, (0, None)),    # <1.2
-            (1.2, (1, None)),    # 1.2-1.9
+            (0.8, (0, None)),  # <1.2
+            (1.1, (0, None)),  # <1.2
+            (1.2, (1, None)),  # 1.2-1.9
             (1.5, (1, None)),
-            (1.9, (1, None)),    # boundary
-            (2.0, (2, None)),    # 2.0-3.4
+            (1.9, (1, None)),  # boundary
+            (2.0, (2, None)),  # 2.0-3.4
             (3.0, (2, None)),
-            (3.4, (2, None)),    # boundary
-            (3.5, (3, None)),    # 3.5-4.9
+            (3.4, (2, None)),  # boundary
+            (3.5, (3, None)),  # 3.5-4.9
             (4.5, (3, None)),
-            (4.9, (3, None)),    # boundary
-            (5.0, (4, None)),    # ≥5.0
+            (4.9, (3, None)),  # boundary
+            (5.0, (4, None)),  # ≥5.0
             (8.0, (4, None)),
         ],
     )
@@ -282,6 +287,7 @@ class TestRenal:
 # SOFAComponents dataclass
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSOFAComponents:
     def test_defaults(self):
         c = SOFAComponents()
@@ -312,6 +318,7 @@ class TestSOFAComponents:
 # ═══════════════════════════════════════════════════════════════════════════
 # SOFAResult dataclass
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSOFAResult:
     def test_version(self):
@@ -359,6 +366,7 @@ class TestSOFAResult:
 # Full SOFA Calculation
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestCalculateSOFA:
     def test_all_normal(self):
         """Patient with all normal values should score 0."""
@@ -387,15 +395,15 @@ class TestCalculateSOFA:
     def test_septic_patient_typical(self):
         """Typical septic patient with multi-organ dysfunction."""
         result = calculate_sofa(
-            pao2_fio2=180,          # <200, no vent → 2
+            pao2_fio2=180,  # <200, no vent → 2
             mechanical_ventilation=False,
-            platelets=80,           # 50-99 → 2
-            bilirubin=2.5,          # 2.0-5.9 → 2
-            map_value=60,           # <70 → 1
+            platelets=80,  # 50-99 → 2
+            bilirubin=2.5,  # 2.0-5.9 → 2
+            map_value=60,  # <70 → 1
             vasopressor_type=None,
             vasopressor_dose_mcg_kg_min=None,
-            gcs=13,                 # 13-14 → 1
-            creatinine=3.0,         # 2.0-3.4 → 2
+            gcs=13,  # 13-14 → 1
+            creatinine=3.0,  # 2.0-3.4 → 2
             urine_output_ml_day=600,  # ≥500 → no upgrade
         )
         assert result.total_score == 10
@@ -409,15 +417,15 @@ class TestCalculateSOFA:
     def test_critical_patient_max_scores(self):
         """Patient with maximum scores in all organ systems."""
         result = calculate_sofa(
-            pao2_fio2=60,           # <100, vent → 4
+            pao2_fio2=60,  # <100, vent → 4
             mechanical_ventilation=True,
-            platelets=10,           # <20 → 4
-            bilirubin=15.0,         # ≥12 → 4
-            map_value=45,           # low but on vasopressor
+            platelets=10,  # <20 → 4
+            bilirubin=15.0,  # ≥12 → 4
+            map_value=45,  # low but on vasopressor
             vasopressor_type="norepinephrine",
             vasopressor_dose_mcg_kg_min=0.5,  # >0.1 → 4
-            gcs=3,                  # <6 → 4
-            creatinine=7.0,          # ≥5.0 → 4
+            gcs=3,  # <6 → 4
+            creatinine=7.0,  # ≥5.0 → 4
             urine_output_ml_day=100,  # <200 → 4
         )
         assert result.total_score == 24  # Theoretical maximum
@@ -455,18 +463,18 @@ class TestCalculateSOFA:
 
     def test_deterministic(self):
         """Same inputs must produce same outputs."""
-        args = dict(
-            pao2_fio2=250,
-            mechanical_ventilation=False,
-            platelets=120,
-            bilirubin=1.5,
-            map_value=75,
-            vasopressor_type=None,
-            vasopressor_dose_mcg_kg_min=None,
-            gcs=14,
-            creatinine=1.8,
-            urine_output_ml_day=800,
-        )
+        args = {
+            "pao2_fio2": 250,
+            "mechanical_ventilation": False,
+            "platelets": 120,
+            "bilirubin": 1.5,
+            "map_value": 75,
+            "vasopressor_type": None,
+            "vasopressor_dose_mcg_kg_min": None,
+            "gcs": 14,
+            "creatinine": 1.8,
+            "urine_output_ml_day": 800,
+        }
         result1 = calculate_sofa(**args)
         result2 = calculate_sofa(**args)
         assert result1.total_score == result2.total_score
@@ -552,14 +560,24 @@ class TestCalculateSOFA:
         """Verify urine output properly upgrades renal score in full calculation."""
         # With normal urine output: creatinine 0.9 → renal=0
         result_normal_uo = calculate_sofa(
-            pao2_fio2=450, platelets=200, bilirubin=0.5,
-            map_value=80, gcs=15, creatinine=0.9, urine_output_ml_day=1000,
+            pao2_fio2=450,
+            platelets=200,
+            bilirubin=0.5,
+            map_value=80,
+            gcs=15,
+            creatinine=0.9,
+            urine_output_ml_day=1000,
         )
         assert result_normal_uo.components.renal == 0
 
         # With low urine output: creatinine 0.9 → renal=3
         result_low_uo = calculate_sofa(
-            pao2_fio2=450, platelets=200, bilirubin=0.5,
-            map_value=80, gcs=15, creatinine=0.9, urine_output_ml_day=300,
+            pao2_fio2=450,
+            platelets=200,
+            bilirubin=0.5,
+            map_value=80,
+            gcs=15,
+            creatinine=0.9,
+            urine_output_ml_day=300,
         )
         assert result_low_uo.components.renal == 3

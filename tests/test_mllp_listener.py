@@ -12,31 +12,27 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import json
-import socket
-import struct
-import time
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+import contextlib
+from typing import ClassVar
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
 from intensicare.mllp_listener import (
-    VT,
-    FS,
-    CR,
-    MLLP_END,
-    LOINC_VITAL_MAP,
     ALT_ID_MAP,
-    MLLPProtocol,
-    parse_oru_r01,
-    _parse_timestamp,
+    CR,
+    FS,
+    LOINC_VITAL_MAP,
+    MLLP_END,
+    VT,
     _map_obx3_to_field,
     _parse_obx_value,
+    _parse_timestamp,
     forward_to_api,
+    parse_oru_r01,
+    run_mllp_listener,
 )
-
 
 # ============================================================================
 # Sample HL7 ORU-R01 Messages
@@ -88,7 +84,7 @@ SAMPLE_ORU_R01_NO_PID = (
 SAMPLE_ORU_R01_WITH_OBR_TS = (
     "MSH|^~\\&|PHILIPS_MON|ICU||INTENSICARE|20260626180000||ORU^R01|MSG-00005|P|2.5|\r"
     "PID|1||MPI-00054321^^^AMH^PI||COSTA^ANA||19850505|F|||||||||||||||||\r"
-    "OBR|1|||VITAL_SIGNS||20260626183000+0000|||||||||||||||||||\r"
+    "OBR|1|||VITAL_SIGNS|||20260626183000+0000||||||||||||||||||\r"
     "OBX|1|NM|8867-4^HR^LN||88|bpm|||||F|||20260626183000|\r"
 )
 
@@ -96,6 +92,7 @@ SAMPLE_ORU_R01_WITH_OBR_TS = (
 # ============================================================================
 # Unit Tests: HL7 Parsing
 # ============================================================================
+
 
 class TestParseOruR01:
     """Tests for parse_oru_r01() — HL7 message extraction."""
@@ -261,6 +258,7 @@ class TestParseObxValue:
 # Unit Tests: API Forwarding
 # ============================================================================
 
+
 class TestForwardToApi:
     """Tests for forward_to_api()."""
 
@@ -282,7 +280,11 @@ class TestForwardToApi:
                 success = await forward_to_api(
                     client,
                     "http://api:8000/api/v1",
-                    {"mpi_id": "MPI-00012345", "recorded_at": "2026-06-26T14:30:00+00:00", "heart_rate": 72},
+                    {
+                        "mpi_id": "MPI-00012345",
+                        "recorded_at": "2026-06-26T14:30:00+00:00",
+                        "heart_rate": 72,
+                    },
                     "MSG-00001",
                 )
 
@@ -349,9 +351,16 @@ class TestForwardToApi:
 # Integration Tests: MLLP Protocol & TCP
 # ============================================================================
 
+
 def _build_mllp_frame(hl7_message: str) -> bytes:
-    """Wrap an HL7 message string in MLLP framing."""
-    return VT + hl7_message.encode("ascii") + MLLP_END
+    """Wrap an HL7 message string in MLLP framing.
+
+    Encode as UTF-8 to match the listener, which decodes frames as UTF-8
+    (``hl7_bytes.decode("utf-8", ...)``). Sample messages legitimately contain
+    non-ASCII characters such as the ``°C`` unit, so ASCII encoding here raised
+    ``UnicodeEncodeError`` before anything was ever sent.
+    """
+    return VT + hl7_message.encode("utf-8") + MLLP_END
 
 
 async def _read_mllp_frame(reader: asyncio.StreamReader, timeout: float = 5.0) -> bytes:
@@ -399,13 +408,12 @@ class TestMLLPProtocol:
     @pytest.mark.asyncio
     async def test_server_starts_and_accepts_connections(self, unused_tcp_port: int) -> None:
         """The MLLP listener starts and accepts TCP connections."""
-        import threading
-
-        from intensicare.mllp_listener import run_mllp_listener
 
         # We'll start the server in a task and check it binds
         server_task = asyncio.ensure_future(
-            run_mllp_listener(host="127.0.0.1", port=unused_tcp_port, api_url="http://localhost:9999/api/v1")
+            run_mllp_listener(
+                host="127.0.0.1", port=unused_tcp_port, api_url="http://localhost:9999/api/v1"
+            )
         )
 
         # Wait briefly for the server to start
@@ -413,7 +421,7 @@ class TestMLLPProtocol:
 
         # Try to connect
         try:
-            reader, writer = await asyncio.wait_for(
+            _reader, writer = await asyncio.wait_for(
                 asyncio.open_connection("127.0.0.1", unused_tcp_port), timeout=3.0
             )
             writer.close()
@@ -424,24 +432,19 @@ class TestMLLPProtocol:
 
         # Cancel the server
         server_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await server_task
-        except asyncio.CancelledError:
-            pass
 
         assert server_running, "MLLP listener failed to accept connections"
 
     @pytest.mark.asyncio
     async def test_full_end_to_end_flow(self, unused_tcp_port: int) -> None:
         """Full end-to-end: send HL7, receive ACK, API is called."""
-        from intensicare.mllp_listener import run_mllp_listener
-
-        # Mock the API: intercept all HTTP POST requests
-        api_calls: list[dict[str, Any]] = []
-
         # Start the server
         server_task = asyncio.ensure_future(
-            run_mllp_listener(host="127.0.0.1", port=unused_tcp_port, api_url="http://localhost:9999/api/v1")
+            run_mllp_listener(
+                host="127.0.0.1", port=unused_tcp_port, api_url="http://localhost:9999/api/v1"
+            )
         )
         await asyncio.sleep(0.3)
 
@@ -464,23 +467,20 @@ class TestMLLPProtocol:
             assert "MSA" in response_str, f"Expected MSA segment in ACK, got: {response_str!r}"
         except Exception as exc:
             server_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await server_task
-            except asyncio.CancelledError:
-                pass
             raise exc
 
         # Cancel the server
         server_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await server_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ============================================================================
 # MLLP Framing Tests
 # ============================================================================
+
 
 class TestMLLPFraming:
     """Tests for MLLP framing correctness."""
@@ -505,10 +505,11 @@ class TestMLLPFraming:
 # LOINC Mapping Completeness
 # ============================================================================
 
+
 class TestLOINCMappings:
     """Verify LOINC and alternative identifier maps cover all vital sign fields."""
 
-    VITAL_FIELD_NAMES = {
+    VITAL_FIELD_NAMES: ClassVar[set[str]] = {
         "heart_rate",
         "systolic_bp",
         "diastolic_bp",

@@ -1,7 +1,5 @@
 """Unit tests for NEWS2 scoring engine."""
 
-import pytest
-
 from intensicare.services.news2 import (
     NEWS2Components,
     NEWS2Result,
@@ -15,10 +13,10 @@ from intensicare.services.news2 import (
     score_temperature,
 )
 
-
 # ════════════════════════════════════════════════════════════════════════════
 # Respiratory Rate
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestRespiratoryRate:
     def test_low_critical(self):
@@ -59,6 +57,7 @@ class TestRespiratoryRate:
 # SpO2 — Scale 1 (non-hypercapnic)
 # ════════════════════════════════════════════════════════════════════════════
 
+
 class TestSpO2Scale1:
     def test_normal(self):
         """≥96 = 0"""
@@ -89,6 +88,7 @@ class TestSpO2Scale1:
 # ════════════════════════════════════════════════════════════════════════════
 # SpO2 — Scale 2 (hypercapnic)
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestSpO2Scale2:
     def test_normal(self):
@@ -124,6 +124,7 @@ class TestSpO2Scale2:
 # Supplemental Oxygen
 # ════════════════════════════════════════════════════════════════════════════
 
+
 class TestSupplementalO2:
     def test_on_o2(self):
         assert score_supplemental_o2(True) == 2
@@ -138,6 +139,7 @@ class TestSupplementalO2:
 # ════════════════════════════════════════════════════════════════════════════
 # Systolic Blood Pressure
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestSystolicBP:
     def test_low_critical(self):
@@ -177,6 +179,7 @@ class TestSystolicBP:
 # ════════════════════════════════════════════════════════════════════════════
 # Heart Rate
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestHeartRate:
     def test_bradycardia_critical(self):
@@ -223,6 +226,7 @@ class TestHeartRate:
 # Consciousness (AVPU)
 # ════════════════════════════════════════════════════════════════════════════
 
+
 class TestConsciousness:
     def test_alert(self):
         assert score_consciousness("A") == 0
@@ -249,6 +253,7 @@ class TestConsciousness:
 # ════════════════════════════════════════════════════════════════════════════
 # Temperature
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestTemperature:
     def test_hypothermia_critical(self):
@@ -288,6 +293,7 @@ class TestTemperature:
 # ════════════════════════════════════════════════════════════════════════════
 # Full NEWS2 Calculation
 # ════════════════════════════════════════════════════════════════════════════
+
 
 class TestCalculateNEWS2:
     def test_all_normal_returns_zero(self):
@@ -375,56 +381,100 @@ class TestCalculateNEWS2:
         """Score >= 5 or any individual component = 3 should trigger urgent assessment."""
         # Total >= 5
         result = calculate_news2(
-            respiratory_rate=10, spo2=94, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=105, heart_rate=115,
-            avpu="A", temperature=38.5,
+            respiratory_rate=10,
+            spo2=94,
+            hypercapnic=False,
+            supplemental_o2=False,
+            systolic_bp=105,
+            heart_rate=115,
+            avpu="A",
+            temperature=38.5,
         )  # 1+1+0+1+2+0+1 = 6
         assert result.requires_urgent_assessment is True
 
         # Single component = 3
         result = calculate_news2(
-            respiratory_rate=8, spo2=98, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=120, heart_rate=75,
-            avpu="A", temperature=37.0,
+            respiratory_rate=8,
+            spo2=98,
+            hypercapnic=False,
+            supplemental_o2=False,
+            systolic_bp=120,
+            heart_rate=75,
+            avpu="A",
+            temperature=37.0,
         )  # 3+0+0+0+0+0+0 = 3 — but RR=3 triggers
         assert result.requires_urgent_assessment is True
 
         # Low score, no 3s
         result = calculate_news2(
-            respiratory_rate=16, spo2=96, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=120, heart_rate=75,
-            avpu="A", temperature=37.0,
+            respiratory_rate=16,
+            spo2=96,
+            hypercapnic=False,
+            supplemental_o2=False,
+            systolic_bp=120,
+            heart_rate=75,
+            avpu="A",
+            temperature=37.0,
         )
         assert result.requires_urgent_assessment is False
 
     def test_risk_category_boundaries(self):
         """Test risk category classification boundaries."""
         # Low: 0-4
-        assert calculate_news2(
-            respiratory_rate=16, spo2=96, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=120, heart_rate=75,
-            avpu="A", temperature=37.0,
-        ).risk_category == "low"
+        assert (
+            calculate_news2(
+                respiratory_rate=16,
+                spo2=96,
+                hypercapnic=False,
+                supplemental_o2=False,
+                systolic_bp=120,
+                heart_rate=75,
+                avpu="A",
+                temperature=37.0,
+            ).risk_category
+            == "low"
+        )
 
         # Medium: 5-6
-        assert calculate_news2(
-            respiratory_rate=25, spo2=94, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=105, heart_rate=91,
-            avpu="A", temperature=37.0,
-        ).risk_category == "medium"  # 3+1+0+1+1+0+0 = 6
+        assert (
+            calculate_news2(
+                respiratory_rate=25,
+                spo2=94,
+                hypercapnic=False,
+                supplemental_o2=False,
+                systolic_bp=105,
+                heart_rate=91,
+                avpu="A",
+                temperature=37.0,
+            ).risk_category
+            == "medium"
+        )  # 3+1+0+1+1+0+0 = 6
 
         # High: >= 7
-        assert calculate_news2(
-            respiratory_rate=25, spo2=92, hypercapnic=False,
-            supplemental_o2=True, systolic_bp=120, heart_rate=75,
-            avpu="A", temperature=37.0,
-        ).risk_category == "high"  # 3+2+2+0+0+0+0 = 7
+        assert (
+            calculate_news2(
+                respiratory_rate=25,
+                spo2=92,
+                hypercapnic=False,
+                supplemental_o2=True,
+                systolic_bp=120,
+                heart_rate=75,
+                avpu="A",
+                temperature=37.0,
+            ).risk_category
+            == "high"
+        )  # 3+2+2+0+0+0+0 = 7
 
     def test_result_dataclass(self):
         """NEWS2Result dataclass properties."""
         components = NEWS2Components(
-            respiratory_rate=1, spo2=1, supplemental_o2=0,
-            systolic_bp=0, heart_rate=0, consciousness=0, temperature=1,
+            respiratory_rate=1,
+            spo2=1,
+            supplemental_o2=0,
+            systolic_bp=0,
+            heart_rate=0,
+            consciousness=0,
+            temperature=1,
         )
         result = NEWS2Result(total_score=3, components=components)
         assert result.risk_category == "low"
@@ -443,31 +493,48 @@ class TestCalculateNEWS2:
             Total: 14
 
         Example 3: Severe COPD with hypercapnia
-            RR=28 (3), SpO2=87 [Scale2] (1), O2=Yes (2), SBP=108 (1), HR=95 (1), AVPU=A (0), Temp=38.2 (1)
+            RR=28 (3), SpO2=87 [Scale2] (1), O2=Yes (2), SBP=108 (1),
+            HR=95 (1), AVPU=A (0), Temp=38.2 (1)
             Total: 9
         """
         # Example 1
         result = calculate_news2(
-            respiratory_rate=16, spo2=97, hypercapnic=False,
-            supplemental_o2=False, systolic_bp=125, heart_rate=72,
-            avpu="A", temperature=36.8,
+            respiratory_rate=16,
+            spo2=97,
+            hypercapnic=False,
+            supplemental_o2=False,
+            systolic_bp=125,
+            heart_rate=72,
+            avpu="A",
+            temperature=36.8,
         )
         assert result.total_score == 0, f"Expected 0, got {result.total_score}"
 
         # Example 2
         result = calculate_news2(
-            respiratory_rate=23, spo2=93, hypercapnic=False,
-            supplemental_o2=True, systolic_bp=100, heart_rate=115,
-            avpu="V", temperature=35.5,
+            respiratory_rate=23,
+            spo2=93,
+            hypercapnic=False,
+            supplemental_o2=True,
+            systolic_bp=100,
+            heart_rate=115,
+            avpu="V",
+            temperature=35.5,
         )
         assert result.total_score == 14, f"Expected 14, got {result.total_score}"
 
         # Example 3: Severe COPD with hypercapnia
-        # RR=28(3) + SpO2=87[Scale2:86-87=2] + O2(2) + SBP=108(1) + HR=95(1) + AVPU=A(0) + Temp=38.2(1) = 10
+        # RR=28(3) + SpO2=87[Scale2:86-87=2] + O2(2) + SBP=108(1)
+        # + HR=95(1) + AVPU=A(0) + Temp=38.2(1) = 10
         result = calculate_news2(
-            respiratory_rate=28, spo2=87, hypercapnic=True,
-            supplemental_o2=True, systolic_bp=108, heart_rate=95,
-            avpu="A", temperature=38.2,
+            respiratory_rate=28,
+            spo2=87,
+            hypercapnic=True,
+            supplemental_o2=True,
+            systolic_bp=108,
+            heart_rate=95,
+            avpu="A",
+            temperature=38.2,
         )
         assert result.total_score == 10, f"Expected 10, got {result.total_score}"
 
@@ -487,8 +554,13 @@ class TestNEWS2Components:
 
     def test_custom_values(self):
         c = NEWS2Components(
-            respiratory_rate=3, spo2=2, supplemental_o2=2,
-            systolic_bp=1, heart_rate=3, consciousness=3, temperature=1,
+            respiratory_rate=3,
+            spo2=2,
+            supplemental_o2=2,
+            systolic_bp=1,
+            heart_rate=3,
+            consciousness=3,
+            temperature=1,
         )
         assert c.respiratory_rate == 3
         assert c.spo2 == 2

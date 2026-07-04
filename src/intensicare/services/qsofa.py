@@ -13,18 +13,28 @@ in patients with suspected infection.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 QSOFA_VERSION = "qSOFA-v1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Published qSOFA thresholds (Singer et al., Sepsis-3, JAMA 2016;315:801-810).
+# The current implementation's values are authoritative and MUST NOT change;
+# these named constants only replace inline literals with no behavior change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+QSOFA_HIGH_RISK_MIN = 2  # total >= 2 (of 3) -> high risk for sepsis
+QSOFA_RR_TACHYPNEA_MIN = 22  # respiratory rate >= 22/min -> 1 point
+QSOFA_SBP_HYPOTENSION_MAX = 100  # systolic BP <= 100 mmHg -> 1 point
+QSOFA_GCS_NORMAL = 15  # GCS < 15 (altered mentation) -> 1 point
 
 
 @dataclass
 class qSOFAComponents:
     """Individual binary criteria for qSOFA."""
 
-    respiratory_rate: int = 0     # 1 if RR ≥ 22, else 0
-    systolic_bp: int = 0          # 1 if SBP ≤ 100, else 0
-    altered_mentation: int = 0    # 1 if GCS < 15, else 0
+    respiratory_rate: int = 0  # 1 if RR ≥ 22, else 0
+    systolic_bp: int = 0  # 1 if SBP ≤ 100, else 0
+    altered_mentation: int = 0  # 1 if GCS < 15, else 0
 
 
 @dataclass
@@ -39,12 +49,12 @@ class qSOFAResult:
     @property
     def is_high_risk(self) -> bool:
         """qSOFA ≥ 2 indicates high risk for sepsis."""
-        return self.total_score >= 2
+        return self.total_score >= QSOFA_HIGH_RISK_MIN
 
     @property
     def risk_level(self) -> str:
         """Return risk level string based on score."""
-        if self.total_score >= 2:
+        if self.total_score >= QSOFA_HIGH_RISK_MIN:
             return "high_risk"
         return "low_risk"
 
@@ -52,6 +62,7 @@ class qSOFAResult:
 # ═══════════════════════════════════════════════════════════════════════════
 # Individual criterion scoring
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_respiratory_rate_qsofa(rr: int | None) -> tuple[int, str | None]:
     """Score respiratory rate for qSOFA.
@@ -67,7 +78,7 @@ def score_respiratory_rate_qsofa(rr: int | None) -> tuple[int, str | None]:
     """
     if rr is None:
         return 0, "missing"
-    return (1, None) if rr >= 22 else (0, None)
+    return (1, None) if rr >= QSOFA_RR_TACHYPNEA_MIN else (0, None)
 
 
 def score_systolic_bp_qsofa(sbp: int | None) -> tuple[int, str | None]:
@@ -84,7 +95,7 @@ def score_systolic_bp_qsofa(sbp: int | None) -> tuple[int, str | None]:
     """
     if sbp is None:
         return 0, "missing"
-    return (1, None) if sbp <= 100 else (0, None)
+    return (1, None) if sbp <= QSOFA_SBP_HYPOTENSION_MAX else (0, None)
 
 
 def score_altered_mentation_qsofa(gcs: int | None) -> tuple[int, str | None]:
@@ -101,12 +112,13 @@ def score_altered_mentation_qsofa(gcs: int | None) -> tuple[int, str | None]:
     """
     if gcs is None:
         return 0, "missing"
-    return (1, None) if gcs < 15 else (0, None)
+    return (1, None) if gcs < QSOFA_GCS_NORMAL else (0, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Full qSOFA Calculation
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def calculate_qsofa(
     respiratory_rate: int | None = None,

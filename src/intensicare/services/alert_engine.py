@@ -31,15 +31,11 @@ async def check_score_against_thresholds(
 
     # Try unit-specific config first, fall back to tenant-wide
     if unit:
-        unit_config_result = await db.execute(
-            config_query.where(ThresholdConfig.unit == unit)
-        )
+        unit_config_result = await db.execute(config_query.where(ThresholdConfig.unit == unit))
         config = unit_config_result.scalar_one_or_none()
 
     if not unit or config is None:
-        global_config_result = await db.execute(
-            config_query.where(ThresholdConfig.unit.is_(None))
-        )
+        global_config_result = await db.execute(config_query.where(ThresholdConfig.unit.is_(None)))
         config = global_config_result.scalar_one_or_none()
 
     if config is None:
@@ -71,7 +67,9 @@ async def check_score_against_thresholds(
 
     # Cooldown check
     if config.cooldown_minutes:
-        cooldown_key = f"alert_cooldown:{clinical_score.mpi_id}:{clinical_score.score_type}:{severity}"
+        cooldown_key = (
+            f"alert_cooldown:{clinical_score.mpi_id}:{clinical_score.score_type}:{severity}"
+        )
         if await redis_client.exists(cooldown_key):
             return None  # Still in cooldown
 
@@ -100,7 +98,9 @@ async def check_score_against_thresholds(
     pipe.incr(rate_limit_key)
     pipe.expire(rate_limit_key, 3600)  # 1 hour window
     if config.cooldown_minutes:
-        cooldown_key = f"alert_cooldown:{clinical_score.mpi_id}:{clinical_score.score_type}:{severity}"
+        cooldown_key = (
+            f"alert_cooldown:{clinical_score.mpi_id}:{clinical_score.score_type}:{severity}"
+        )
         pipe.setex(cooldown_key, config.cooldown_minutes * 60, "1")
     await pipe.execute()
 
@@ -113,9 +113,7 @@ async def process_clinical_score(
 ) -> Alert | None:
     """Process a clinical score: find the patient's tenant/unit and check thresholds."""
     # Get patient info for tenant/unit context
-    result = await db.execute(
-        select(PatientCache).where(PatientCache.mpi_id == score.mpi_id)
-    )
+    result = await db.execute(select(PatientCache).where(PatientCache.mpi_id == score.mpi_id))
     patient = result.scalar_one_or_none()
 
     if patient is None:

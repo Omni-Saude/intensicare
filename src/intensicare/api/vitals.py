@@ -6,7 +6,7 @@ POST /api/v1/vitals — Ingere sinais vitais com idempotência e scoring MEWS.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.core.database import get_db
@@ -35,7 +35,8 @@ router = APIRouter()
 )
 async def create_vitals(
     body: VitalSignCreate,
-    request: Request,
+    request: Request,  # noqa: ARG001  # injected for request context/tracing; not referenced directly
+    response: Response,
     db: AsyncSession = Depends(get_db),
     x_idempotency_key: str | None = Header(
         None,
@@ -45,11 +46,15 @@ async def create_vitals(
 ) -> VitalSignResponse:
     """Ingere sinais vitais com idempotência, scoring e alert engine."""
     try:
-        result, alerts = await ingest_vitals(
+        result, alerts, is_replay = await ingest_vitals(
             db=db,
             data=body,
             idempotency_key=x_idempotency_key,
         )
+
+        # Idempotent replay is a 200 (already processed), not a 201 (created).
+        if is_replay:
+            response.status_code = status.HTTP_200_OK
 
         # Broadcast any created alerts to WebSocket clients
         if alerts:

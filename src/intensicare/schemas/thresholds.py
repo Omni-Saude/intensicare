@@ -21,6 +21,7 @@ class ThresholdConfigBase(BaseModel):
 
 class ThresholdConfigCreate(ThresholdConfigBase):
     """Request body for creating a threshold configuration."""
+
     pass
 
 

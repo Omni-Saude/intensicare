@@ -18,6 +18,40 @@ from typing import Any
 
 MEWS_VERSION = "MEWS-v1.0"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Published MEWS thresholds (Subbe et al., QJM 2001;94:521-526). The current
+# implementation's values are authoritative and MUST NOT change; these named
+# constants only replace inline literals with no behavior change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Heart rate (bpm); inclusive upper bound of each band
+MEWS_HR_BRADY_SEVERE_MAX = 40  # <= 40 -> 3
+MEWS_HR_BRADY_MODERATE_MAX = 50  # <= 50 -> 2
+MEWS_HR_NORMAL_MAX = 100  # <= 100 -> 0
+MEWS_HR_TACHY_MILD_MAX = 110  # <= 110 -> 1
+MEWS_HR_TACHY_MODERATE_MAX = 129  # <= 129 -> 2, else -> 3
+
+# Systolic BP (mmHg); inclusive upper bound of each band
+MEWS_SBP_HYPO_SEVERE_MAX = 70  # <= 70 -> 3
+MEWS_SBP_HYPO_MODERATE_MAX = 80  # <= 80 -> 2
+MEWS_SBP_HYPO_MILD_MAX = 100  # <= 100 -> 1
+MEWS_SBP_NORMAL_MAX = 199  # <= 199 -> 0, else -> 2
+
+# Respiratory rate (rpm); inclusive upper bound of each band
+MEWS_RR_BRADY_SEVERE_MAX = 8  # <= 8 -> 3
+MEWS_RR_NORMAL_MAX = 14  # <= 14 -> 0
+MEWS_RR_TACHY_MILD_MAX = 20  # <= 20 -> 1
+MEWS_RR_TACHY_MODERATE_MAX = 29  # <= 29 -> 2, else -> 3
+
+# Temperature (°C); inclusive upper bound of each band
+MEWS_TEMP_HYPOTHERMIA_MAX = 35.0  # <= 35.0 -> 3
+MEWS_TEMP_LOW_MAX = 36.0  # <= 36.0 -> 1
+MEWS_TEMP_NORMAL_MAX = 38.0  # <= 38.0 -> 0
+MEWS_TEMP_MILD_FEVER_MAX = 38.5  # <= 38.5 -> 1, else -> 2
+
+# Trend analysis requires at least this many consecutive scores
+MEWS_TREND_MIN_SAMPLES = 2
+
 
 def _score_heart_rate(value: int | None) -> dict[str, Any]:
     """MEWS sub-score para frequência cardíaca (bpm).
@@ -31,15 +65,15 @@ def _score_heart_rate(value: int | None) -> dict[str, Any]:
     """
     if value is None:
         return {"heart_rate": 0, "heart_rate_status": "missing"}
-    if value <= 40:
+    if value <= MEWS_HR_BRADY_SEVERE_MAX:
         pts = 3
-    elif value <= 50:
+    elif value <= MEWS_HR_BRADY_MODERATE_MAX:
         pts = 2
-    elif value <= 100:
+    elif value <= MEWS_HR_NORMAL_MAX:
         pts = 0
-    elif value <= 110:
+    elif value <= MEWS_HR_TACHY_MILD_MAX:
         pts = 1
-    elif value <= 129:
+    elif value <= MEWS_HR_TACHY_MODERATE_MAX:
         pts = 2
     else:
         pts = 3
@@ -57,13 +91,13 @@ def _score_systolic_bp(value: int | None) -> dict[str, Any]:
     """
     if value is None:
         return {"systolic_bp": 0, "systolic_bp_status": "missing"}
-    if value <= 70:
+    if value <= MEWS_SBP_HYPO_SEVERE_MAX:
         pts = 3
-    elif value <= 80:
+    elif value <= MEWS_SBP_HYPO_MODERATE_MAX:
         pts = 2
-    elif value <= 100:
+    elif value <= MEWS_SBP_HYPO_MILD_MAX:
         pts = 1
-    elif value <= 199:
+    elif value <= MEWS_SBP_NORMAL_MAX:
         pts = 0
     else:
         pts = 2
@@ -81,13 +115,13 @@ def _score_respiratory_rate(value: int | None) -> dict[str, Any]:
     """
     if value is None:
         return {"respiratory_rate": 0, "respiratory_rate_status": "missing"}
-    if value <= 8:
+    if value <= MEWS_RR_BRADY_SEVERE_MAX:
         pts = 3
-    elif value <= 14:
+    elif value <= MEWS_RR_NORMAL_MAX:
         pts = 0
-    elif value <= 20:
+    elif value <= MEWS_RR_TACHY_MILD_MAX:
         pts = 1
-    elif value <= 29:
+    elif value <= MEWS_RR_TACHY_MODERATE_MAX:
         pts = 2
     else:
         pts = 3
@@ -105,13 +139,13 @@ def _score_temperature(value: float | None) -> dict[str, Any]:
     """
     if value is None:
         return {"temperature": 0, "temperature_status": "missing"}
-    if value <= 35.0:
+    if value <= MEWS_TEMP_HYPOTHERMIA_MAX:
         pts = 3
-    elif value <= 36.0:
+    elif value <= MEWS_TEMP_LOW_MAX:
         pts = 1
-    elif value <= 38.0:
+    elif value <= MEWS_TEMP_NORMAL_MAX:
         pts = 0
-    elif value <= 38.5:
+    elif value <= MEWS_TEMP_MILD_FEVER_MAX:
         pts = 1
     else:
         pts = 2
@@ -207,12 +241,11 @@ def compute_trend(scores: list[int]) -> str | None:
     Returns:
         'increasing', 'decreasing', 'stable', ou None se lista tiver < 2 elementos.
     """
-    if len(scores) < 2:
+    if len(scores) < MEWS_TREND_MIN_SAMPLES:
         return None
     first, last = scores[0], scores[-1]
     if last > first:
         return "increasing"
-    elif last < first:
+    if last < first:
         return "decreasing"
-    else:
-        return "stable"
+    return "stable"

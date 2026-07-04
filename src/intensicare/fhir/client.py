@@ -7,11 +7,12 @@ Gracefully degrades when no FHIR server is configured.
 
 from __future__ import annotations
 
-import logging
+import contextlib
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from functools import lru_cache
-from typing import Any
+import logging
+from typing import Any, cast
 
 import httpx
 
@@ -89,10 +90,8 @@ class FHIRPatientData:
         # Birth date
         bd = resource.get("birthDate")
         if bd:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 parsed["birth_date"] = date.fromisoformat(bd)
-            except (ValueError, TypeError):
-                pass
 
         # Marital status
         ms = resource.get("maritalStatus", {})
@@ -124,19 +123,13 @@ class FHIRPatientData:
     def _parse_condition(resource: dict[str, Any], data: dict[str, Any]) -> None:
         code = resource.get("code", {})
         coding_list = code.get("coding", [])
-        display = (
-            coding_list[0].get("display")
-            if coding_list
-            else code.get("text")
-        )
+        display = coding_list[0].get("display") if coding_list else code.get("text")
         if display:
             conditions = data.setdefault("condition_list", [])
             conditions.append(display)
             # First active problem is the primary condition
             clinical_status = resource.get("clinicalStatus", {}).get("coding", [{}])
-            is_active = any(
-                c.get("code") == "active" for c in clinical_status
-            )
+            is_active = any(c.get("code") == "active" for c in clinical_status)
             if is_active and "primary_condition" not in data:
                 data["primary_condition"] = display
 
@@ -144,11 +137,7 @@ class FHIRPatientData:
     def _parse_allergy(resource: dict[str, Any], data: dict[str, Any]) -> None:
         code = resource.get("code", {})
         coding_list = code.get("coding", [])
-        display = (
-            coding_list[0].get("display")
-            if coding_list
-            else code.get("text")
-        )
+        display = coding_list[0].get("display") if coding_list else code.get("text")
         if display:
             allergies = data.setdefault("allergy_list", [])
             allergies.append(display)
@@ -157,11 +146,7 @@ class FHIRPatientData:
     def _parse_observation(resource: dict[str, Any], data: dict[str, Any]) -> None:
         code = resource.get("code", {})
         coding_list = code.get("coding", [])
-        obs_name = (
-            coding_list[0].get("display")
-            or coding_list[0].get("code")
-            or code.get("text")
-        )
+        obs_name = coding_list[0].get("display") or coding_list[0].get("code") or code.get("text")
         if not obs_name:
             return
 
@@ -241,11 +226,11 @@ class FHIRClient:
         try:
             client = await self._get_client()
             # Use _include / _revinclude to fetch related resources in one call
+            # Only the last "_revinclude" survived dict de-duplication at runtime;
+            # behavior preserved as-is (single Observation revinclude).
             params: dict[str, str | int] = {
                 "identifier": mpi_id,
                 "_include": "Patient:organization",
-                "_revinclude": "Condition:subject",
-                "_revinclude": "AllergyIntolerance:patient",
                 "_revinclude": "Observation:patient",
                 "_count": 50,
             }
@@ -255,7 +240,7 @@ class FHIRClient:
 
             return FHIRPatientData.from_fhir_bundle(mpi_id, bundle)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
+            if exc.response.status_code == httpx.codes.NOT_FOUND:
                 logger.info("FHIR patient not found: %s", mpi_id)
                 return FHIRPatientData(mpi_id=mpi_id)
             logger.warning("FHIR HTTP error for patient %s: %s", mpi_id, exc)
@@ -264,9 +249,7 @@ class FHIRClient:
             logger.warning("FHIR request failed for patient %s: %s", mpi_id, exc)
             return None
 
-    async def get_observation(
-        self, mpi_id: str, loinc_code: str
-    ) -> dict[str, Any] | None:
+    async def get_observation(self, mpi_id: str, loinc_code: str) -> dict[str, Any] | None:
         """Fetch the latest Observation for a patient by LOINC code.
 
         Returns None when FHIR is not configured or no result is found.
@@ -288,15 +271,13 @@ class FHIRClient:
 
             entries = bundle.get("entry", [])
             if entries:
-                return entries[0].get("resource")
+                return cast("dict[str, Any] | None", entries[0].get("resource"))
             return None
         except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
             logger.warning("FHIR observation fetch failed: %s", exc)
             return None
 
-    async def search(
-        self, resource_type: str, **params: str | int
-    ) -> dict[str, Any] | None:
+    async def search(self, resource_type: str, **params: str | int) -> dict[str, Any] | None:
         """Generic FHIR search returning the raw bundle.
 
         Returns None when FHIR is not configured.
@@ -308,7 +289,7 @@ class FHIRClient:
             client = await self._get_client()
             response = await client.get(f"/{resource_type}", params=params)
             response.raise_for_status()
-            return response.json()
+            return cast("dict[str, Any]", response.json())
         except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
             logger.warning("FHIR search %s failed: %s", resource_type, exc)
             return None

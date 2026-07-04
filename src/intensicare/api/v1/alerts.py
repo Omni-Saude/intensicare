@@ -43,12 +43,12 @@ class AcknowledgeRequest(BaseModel):
 @router.get("", response_model=list[AlertResponse])
 async def list_alerts(
     status_filter: str = Query("active", alias="status"),
-    unit: str | None = Query(None, alias="unit"),
+    unit: str | None = Query(None, alias="unit"),  # noqa: ARG001  # reserved unit filter; accepted for API compatibility
     mpi_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[AlertResponse]:
     """List alerts with optional filters."""
     query = select(Alert)
 
@@ -70,7 +70,7 @@ async def list_alerts(
             status=a.status,
             title=a.title,
             body=a.body,
-            created_at=a.created_at.isoformat() if a.created_at else None,
+            created_at=a.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
             acknowledged_at=a.acknowledged_at.isoformat() if a.acknowledged_at else None,
             acknowledged_by=a.acknowledged_by,
             resolved_at=a.resolved_at.isoformat() if a.resolved_at else None,
@@ -83,10 +83,10 @@ async def list_alerts(
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: int,
-    request_body: AcknowledgeRequest | None = None,
+    request_body: AcknowledgeRequest | None = None,  # noqa: ARG001  # optional body accepted for API compatibility
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> AlertResponse:
     """Acknowledge an alert (authenticated)."""
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
@@ -118,7 +118,7 @@ async def acknowledge_alert(
         status=alert.status,
         title=alert.title,
         body=alert.body,
-        created_at=alert.created_at.isoformat() if alert.created_at else None,
+        created_at=alert.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
         acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
         acknowledged_by=alert.acknowledged_by,
         resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,
@@ -130,7 +130,7 @@ async def acknowledge_alert(
 async def trace_alert(
     alert_id: int,
     db: AsyncSession = Depends(get_db),
-):
+) -> AlertResponse:
     """Get detailed trace of a specific alert."""
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
@@ -149,7 +149,7 @@ async def trace_alert(
         status=alert.status,
         title=alert.title,
         body=alert.body,
-        created_at=alert.created_at.isoformat() if alert.created_at else None,
+        created_at=alert.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
         acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
         acknowledged_by=alert.acknowledged_by,
         resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,

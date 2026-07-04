@@ -15,9 +15,7 @@ class VitalSign(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     heart_rate: Mapped[int | None] = mapped_column(Integer)
     systolic_bp: Mapped[int | None] = mapped_column(Integer)
     diastolic_bp: Mapped[int | None] = mapped_column(Integer)
@@ -27,9 +25,7 @@ class VitalSign(Base):
     avpu: Mapped[str | None] = mapped_column(String(4))
     supplemental_o2: Mapped[bool | None] = mapped_column(Boolean)
     source_system: Mapped[str | None] = mapped_column(String(32))
-    ingested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # ── Lab fields for SOFA/qSOFA scoring ──────────────────────
     pao2_fio2: Mapped[float | None] = mapped_column(Numeric(8, 2))
     mechanical_ventilation: Mapped[bool] = mapped_column(Boolean, default=False)

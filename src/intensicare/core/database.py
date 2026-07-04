@@ -2,7 +2,12 @@
 
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from intensicare.config import settings
@@ -24,16 +29,24 @@ def create_engine() -> AsyncEngine:
     )
 
 
-# Engine global (inicializada lazy no primeiro acesso)
-_engine: AsyncEngine | None = None
+# Engine global (inicializada lazy no primeiro acesso).
+# Armazenada como atributo de um container para evitar o uso de `global`.
+class _EngineState:
+    """Container para a engine assíncrona compartilhada."""
+
+    engine: AsyncEngine | None = None
+
+
+_engine_state = _EngineState()
 
 
 def get_engine() -> AsyncEngine:
     """Retorna a engine assíncrona (lazy init)."""
-    global _engine
-    if _engine is None:
-        _engine = create_engine()
-    return _engine
+    engine = _engine_state.engine
+    if engine is None:
+        engine = create_engine()
+        _engine_state.engine = engine
+    return engine
 
 
 # Session factory

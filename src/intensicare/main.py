@@ -11,6 +11,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from intensicare.api.thresholds import router as thresholds_router
+from intensicare.api.v1 import (
+    alerts_router,
+    auth_router,
+    dashboard_router,
+    patients_router,
+    vitals_router,
+)
 from intensicare.config import settings
 
 
@@ -56,7 +64,7 @@ def create_app() -> FastAPI:
 
     # Health check
     @app.get("/health", tags=["system"])
-    async def health_check():
+    async def health_check() -> JSONResponse:
         return JSONResponse(
             content={
                 "status": "healthy",
@@ -65,10 +73,15 @@ def create_app() -> FastAPI:
             }
         )
 
-    # TODO: Registrar routers
-    # from intensicare.api import patients, alerts, vitals
-    # app.include_router(patients.router, prefix="/api/v1/patients", tags=["patients"])
-    # app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
+    # Routers. Some already carry a full prefix (auth → /auth, alerts →
+    # /api/v1/alerts, dashboard → /api/v1, thresholds → /api/v1/thresholds);
+    # patients/vitals are unprefixed and mounted under /api/v1.
+    app.include_router(auth_router)
+    app.include_router(alerts_router)
+    app.include_router(dashboard_router)
+    app.include_router(thresholds_router)
+    app.include_router(patients_router, prefix="/api/v1")
+    app.include_router(vitals_router, prefix="/api/v1")
 
     return app
 

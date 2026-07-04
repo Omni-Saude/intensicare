@@ -11,32 +11,32 @@ import pytest
 
 from intensicare.services.qsofa import (
     QSOFA_VERSION,
+    calculate_qsofa,
     qSOFAComponents,
     qSOFAResult,
-    calculate_qsofa,
+    score_altered_mentation_qsofa,
     score_respiratory_rate_qsofa,
     score_systolic_bp_qsofa,
-    score_altered_mentation_qsofa,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Respiratory Rate
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestRespiratoryRateqSOFA:
     @pytest.mark.parametrize(
         "rr,expected",
         [
             (None, (0, "missing")),
-            (12, (0, None)),     # <22
-            (18, (0, None)),     # <22
-            (21, (0, None)),     # <22, just under threshold
-            (22, (1, None)),     # ≥22, boundary
-            (25, (1, None)),     # ≥22
-            (30, (1, None)),     # ≥22, tachypneic
-            (40, (1, None)),     # ≥22, severe tachypnea
-            (0, (0, None)),      # very low (bradypnea is NOT a qSOFA criterion)
+            (12, (0, None)),  # <22
+            (18, (0, None)),  # <22
+            (21, (0, None)),  # <22, just under threshold
+            (22, (1, None)),  # ≥22, boundary
+            (25, (1, None)),  # ≥22
+            (30, (1, None)),  # ≥22, tachypneic
+            (40, (1, None)),  # ≥22, severe tachypnea
+            (0, (0, None)),  # very low (bradypnea is NOT a qSOFA criterion)
         ],
     )
     def test_score_respiratory_rate(self, rr, expected):
@@ -47,19 +47,20 @@ class TestRespiratoryRateqSOFA:
 # Systolic BP
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSystolicBPqSOFA:
     @pytest.mark.parametrize(
         "sbp,expected",
         [
             (None, (0, "missing")),
-            (60, (1, None)),     # ≤100
-            (80, (1, None)),     # ≤100
-            (95, (1, None)),     # ≤100
-            (100, (1, None)),    # ≤100, boundary
-            (101, (0, None)),    # >100
-            (120, (0, None)),    # >100
-            (140, (0, None)),    # >100
-            (200, (0, None)),    # >100
+            (60, (1, None)),  # ≤100
+            (80, (1, None)),  # ≤100
+            (95, (1, None)),  # ≤100
+            (100, (1, None)),  # ≤100, boundary
+            (101, (0, None)),  # >100
+            (120, (0, None)),  # >100
+            (140, (0, None)),  # >100
+            (200, (0, None)),  # >100
         ],
     )
     def test_score_systolic_bp(self, sbp, expected):
@@ -70,18 +71,19 @@ class TestSystolicBPqSOFA:
 # Altered Mentation (GCS)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestAlteredMentationqSOFA:
     @pytest.mark.parametrize(
         "gcs,expected",
         [
             (None, (0, "missing")),
-            (15, (0, None)),     # normal mentation
-            (14, (1, None)),     # altered
-            (13, (1, None)),     # altered
-            (10, (1, None)),     # altered
-            (8, (1, None)),      # altered
-            (6, (1, None)),      # altered
-            (3, (1, None)),      # altered (minimum GCS)
+            (15, (0, None)),  # normal mentation
+            (14, (1, None)),  # altered
+            (13, (1, None)),  # altered
+            (10, (1, None)),  # altered
+            (8, (1, None)),  # altered
+            (6, (1, None)),  # altered
+            (3, (1, None)),  # altered (minimum GCS)
         ],
     )
     def test_score_altered_mentation(self, gcs, expected):
@@ -96,6 +98,7 @@ class TestAlteredMentationqSOFA:
 # ═══════════════════════════════════════════════════════════════════════════
 # qSOFAComponents dataclass
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestqSOFAComponents:
     def test_defaults(self):
@@ -118,6 +121,7 @@ class TestqSOFAComponents:
 # ═══════════════════════════════════════════════════════════════════════════
 # qSOFAResult dataclass
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestqSOFAResult:
     def test_version(self):
@@ -159,6 +163,7 @@ class TestqSOFAResult:
 # Full qSOFA Calculation
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestCalculateqSOFA:
     def test_all_normal(self):
         """Patient with normal vitals should score 0."""
@@ -179,9 +184,9 @@ class TestCalculateqSOFA:
     def test_one_criterion(self):
         """One positive criterion → score 1, not high risk."""
         result = calculate_qsofa(
-            respiratory_rate=25,   # 1 point
-            systolic_bp=120,       # 0 points
-            gcs=15,                # 0 points
+            respiratory_rate=25,  # 1 point
+            systolic_bp=120,  # 0 points
+            gcs=15,  # 0 points
         )
         assert result.total_score == 1
         assert result.is_high_risk is False
@@ -190,9 +195,9 @@ class TestCalculateqSOFA:
     def test_two_criteria_high_risk(self):
         """Two positive criteria → score 2, high risk."""
         result = calculate_qsofa(
-            respiratory_rate=25,   # 1 point
-            systolic_bp=95,        # 1 point
-            gcs=15,                # 0 points
+            respiratory_rate=25,  # 1 point
+            systolic_bp=95,  # 1 point
+            gcs=15,  # 0 points
         )
         assert result.total_score == 2
         assert result.is_high_risk is True
@@ -201,9 +206,9 @@ class TestCalculateqSOFA:
     def test_three_criteria_max_score(self):
         """All three criteria positive → score 3, high risk."""
         result = calculate_qsofa(
-            respiratory_rate=30,   # 1 point
-            systolic_bp=80,        # 1 point
-            gcs=12,                # 1 point
+            respiratory_rate=30,  # 1 point
+            systolic_bp=80,  # 1 point
+            gcs=12,  # 1 point
         )
         assert result.total_score == 3
         assert result.is_high_risk is True
@@ -268,11 +273,11 @@ class TestCalculateqSOFA:
 
     def test_deterministic(self):
         """Same inputs must produce same outputs."""
-        args = dict(
-            respiratory_rate=26,
-            systolic_bp=98,
-            gcs=14,
-        )
+        args = {
+            "respiratory_rate": 26,
+            "systolic_bp": 98,
+            "gcs": 14,
+        }
         result1 = calculate_qsofa(**args)
         result2 = calculate_qsofa(**args)
         assert result1.total_score == result2.total_score

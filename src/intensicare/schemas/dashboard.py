@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -63,4 +65,4 @@ class PatientDetailResponse(BaseModel):
     vitals_history: list[VitalsHistoryPoint] = Field(default_factory=list)
     mews_history: list[ScoreHistoryPoint] = Field(default_factory=list)
     news2_history: list[ScoreHistoryPoint] = Field(default_factory=list)
-    active_alerts: list = Field(default_factory=list)
+    active_alerts: list[dict[str, Any]] = Field(default_factory=list)

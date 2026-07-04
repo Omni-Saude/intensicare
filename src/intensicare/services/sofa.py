@@ -16,9 +16,59 @@ Higher scores indicate more severe organ dysfunction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 SOFA_VERSION = "SOFA-v1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Published SOFA thresholds (Vincent et al., Intensive Care Med 1996;22:707-710).
+# The current implementation's values are authoritative and MUST NOT change;
+# these named constants only replace inline literals with no behavior change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Total-score mortality-risk bands (inclusive upper bound of each band)
+SOFA_MORTALITY_RISK_LOW_MAX = 6
+SOFA_MORTALITY_RISK_MODERATE_MAX = 9
+SOFA_MORTALITY_RISK_HIGH_MAX = 12
+
+# Respiration — PaO2/FiO2 ratio (mmHg); inclusive lower bound of each score band
+SOFA_RESP_PF_NORMAL = 400  # >= 400 -> 0
+SOFA_RESP_PF_MILD = 300  # >= 300 -> 1
+SOFA_RESP_PF_MODERATE = 200  # >= 200 -> 2
+SOFA_RESP_PF_SEVERE = 100  # >= 100 (ventilated) -> 3, else -> 4
+
+# Coagulation — platelets (x10^3/µL); inclusive lower bound of each score band
+SOFA_PLATELETS_NORMAL = 150  # >= 150 -> 0
+SOFA_PLATELETS_MILD = 100  # >= 100 -> 1
+SOFA_PLATELETS_MODERATE = 50  # >= 50 -> 2
+SOFA_PLATELETS_SEVERE = 20  # >= 20 -> 3, else -> 4
+
+# Liver — bilirubin (mg/dL); exclusive upper bound of each score band
+SOFA_BILIRUBIN_NORMAL = 1.2  # < 1.2 -> 0
+SOFA_BILIRUBIN_MILD = 2.0  # < 2.0 -> 1
+SOFA_BILIRUBIN_MODERATE = 6.0  # < 6.0 -> 2
+SOFA_BILIRUBIN_SEVERE = 12.0  # < 12.0 -> 3, else -> 4
+
+# Cardiovascular — MAP (mmHg) and vasopressor doses (µg/kg/min)
+SOFA_MAP_NORMAL = 70  # MAP >= 70 (no pressors) -> 0, else -> 1
+SOFA_DOPAMINE_LOW = 5  # dopamine <= 5 -> 2
+SOFA_DOPAMINE_HIGH = 15  # dopamine <= 15 -> 3, else -> 4
+SOFA_ADRENERGIC_LOW = 0.1  # epinephrine/norepinephrine <= 0.1 -> 3, else -> 4
+
+# Neurological — Glasgow Coma Scale; inclusive lower bound of each score band
+SOFA_GCS_NORMAL = 15  # == 15 -> 0
+SOFA_GCS_MILD = 13  # >= 13 -> 1
+SOFA_GCS_MODERATE = 10  # >= 10 -> 2
+SOFA_GCS_SEVERE = 6  # >= 6 -> 3, else -> 4
+
+# Renal — creatinine (mg/dL); exclusive upper bound of each score band
+SOFA_CREATININE_NORMAL = 1.2  # < 1.2 -> 0
+SOFA_CREATININE_MILD = 2.0  # < 2.0 -> 1
+SOFA_CREATININE_MODERATE = 3.5  # < 3.5 -> 2
+SOFA_CREATININE_SEVERE = 5.0  # < 5.0 -> 3, else -> 4
+
+# Renal — 24h urine output (mL/day); upgrades the renal score
+SOFA_URINE_OUTPUT_SEVERE = 200  # < 200 -> 4
+SOFA_URINE_OUTPUT_MODERATE = 500  # < 500 -> 3
 
 
 @dataclass
@@ -54,11 +104,11 @@ class SOFAResult:
         SOFA 15-24: ~80-90%
         SOFA >15: ~>90%
         """
-        if self.total_score <= 6:
+        if self.total_score <= SOFA_MORTALITY_RISK_LOW_MAX:
             return "low"
-        if self.total_score <= 9:
+        if self.total_score <= SOFA_MORTALITY_RISK_MODERATE_MAX:
             return "moderate"
-        if self.total_score <= 12:
+        if self.total_score <= SOFA_MORTALITY_RISK_HIGH_MAX:
             return "high"
         return "very_high"
 
@@ -66,6 +116,7 @@ class SOFAResult:
 # ═══════════════════════════════════════════════════════════════════════════
 # Respiration — PaO2/FiO2 ratio
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_respiration(
     pao2_fio2: float | None = None,
@@ -92,27 +143,28 @@ def score_respiration(
     if pao2_fio2 is None:
         return 0, "missing"
 
-    if pao2_fio2 >= 400:
-        return 0, None
-    if pao2_fio2 >= 300:
-        return 1, None
-    if pao2_fio2 >= 200:
-        return 2, None
-    # pao2_fio2 < 200
-    if mechanical_ventilation:
-        if pao2_fio2 >= 100:
-            return 3, None
-        return 4, None
-    # Not ventilated: cap at 2
-    return 2, None
+    if pao2_fio2 >= SOFA_RESP_PF_NORMAL:
+        score = 0
+    elif pao2_fio2 >= SOFA_RESP_PF_MILD:
+        score = 1
+    elif pao2_fio2 >= SOFA_RESP_PF_MODERATE:
+        score = 2
+    elif mechanical_ventilation:
+        # pao2_fio2 < 200 and ventilated: 3 unless < 100
+        score = 3 if pao2_fio2 >= SOFA_RESP_PF_SEVERE else 4
+    else:
+        # pao2_fio2 < 200 and not ventilated: cap at 2
+        score = 2
+    return score, None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Coagulation — Platelets
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def score_coagulation(platelets: float | None = None) -> tuple[int, str | None]:
-    """Score coagulation based on platelet count (×10³/µL).
+    """Score coagulation based on platelet count (x10³/µL).
 
     ≥150 = 0
     <150 = 1
@@ -121,7 +173,7 @@ def score_coagulation(platelets: float | None = None) -> tuple[int, str | None]:
     <20  = 4
 
     Args:
-        platelets: Platelet count in ×10³/µL, or None if unavailable.
+        platelets: Platelet count in x10³/µL, or None if unavailable.
 
     Returns:
         Tuple of (score, status_string_or_None).
@@ -129,13 +181,13 @@ def score_coagulation(platelets: float | None = None) -> tuple[int, str | None]:
     if platelets is None:
         return 0, "missing"
 
-    if platelets >= 150:
+    if platelets >= SOFA_PLATELETS_NORMAL:
         return 0, None
-    if platelets >= 100:
+    if platelets >= SOFA_PLATELETS_MILD:
         return 1, None
-    if platelets >= 50:
+    if platelets >= SOFA_PLATELETS_MODERATE:
         return 2, None
-    if platelets >= 20:
+    if platelets >= SOFA_PLATELETS_SEVERE:
         return 3, None
     return 4, None
 
@@ -143,6 +195,7 @@ def score_coagulation(platelets: float | None = None) -> tuple[int, str | None]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Liver — Bilirubin
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_liver(bilirubin: float | None = None) -> tuple[int, str | None]:
     """Score liver function based on bilirubin (mg/dL or µmol/L).
@@ -163,13 +216,13 @@ def score_liver(bilirubin: float | None = None) -> tuple[int, str | None]:
     if bilirubin is None:
         return 0, "missing"
 
-    if bilirubin < 1.2:
+    if bilirubin < SOFA_BILIRUBIN_NORMAL:
         return 0, None
-    if bilirubin < 2.0:
+    if bilirubin < SOFA_BILIRUBIN_MILD:
         return 1, None
-    if bilirubin < 6.0:
+    if bilirubin < SOFA_BILIRUBIN_MODERATE:
         return 2, None
-    if bilirubin < 12.0:
+    if bilirubin < SOFA_BILIRUBIN_SEVERE:
         return 3, None
     return 4, None
 
@@ -177,6 +230,7 @@ def score_liver(bilirubin: float | None = None) -> tuple[int, str | None]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Cardiovascular — MAP + vasopressors
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_cardiovascular(
     map_value: float | None = None,
@@ -211,42 +265,41 @@ def score_cardiovascular(
 
     if not vasopressor_type or vasopressor_type.lower() in ("none", ""):
         # Score based on MAP alone
-        if map_value >= 70:
-            return 0, None
-        return 1, None
+        return (0 if map_value >= SOFA_MAP_NORMAL else 1), None
 
     # Has vasopressor — determine level
     vtype = vasopressor_type.lower().strip()
     dose = vasopressor_dose_mcg_kg_min
 
-    if vtype == "dobutamine":
-        return 2, None
-
     if vtype == "dopamine":
         if dose is None:
             # Unknown dose, default to moderate (2-3 range)
-            return 2, None
-        if dose <= 5:
-            return 2, None
-        if dose <= 15:
-            return 3, None
-        return 4, None
-
-    if vtype in ("epinephrine", "norepinephrine", "noradrenaline"):
+            score = 2
+        elif dose <= SOFA_DOPAMINE_LOW:
+            score = 2
+        elif dose <= SOFA_DOPAMINE_HIGH:
+            score = 3
+        else:
+            score = 4
+    elif vtype in ("epinephrine", "norepinephrine", "noradrenaline"):
         if dose is None:
             # Unknown dose, default to moderate-high
-            return 3, None
-        if dose <= 0.1:
-            return 3, None
-        return 4, None
+            score = 3
+        elif dose <= SOFA_ADRENERGIC_LOW:
+            score = 3
+        else:
+            score = 4
+    else:
+        # Dobutamine or unknown vasopressor type — default to mid-range
+        score = 2
 
-    # Unknown vasopressor type — default to mid-range
-    return 2, None
+    return score, None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Neurological — Glasgow Coma Scale
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_neurological(gcs: int | None = None) -> tuple[int, str | None]:
     """Score neurological function based on Glasgow Coma Scale.
@@ -266,13 +319,13 @@ def score_neurological(gcs: int | None = None) -> tuple[int, str | None]:
     if gcs is None:
         return 0, "missing"
 
-    if gcs == 15:
+    if gcs == SOFA_GCS_NORMAL:
         return 0, None
-    if gcs >= 13:
+    if gcs >= SOFA_GCS_MILD:
         return 1, None
-    if gcs >= 10:
+    if gcs >= SOFA_GCS_MODERATE:
         return 2, None
-    if gcs >= 6:
+    if gcs >= SOFA_GCS_SEVERE:
         return 3, None
     return 4, None
 
@@ -280,6 +333,7 @@ def score_neurological(gcs: int | None = None) -> tuple[int, str | None]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Renal — Creatinine + urine output
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def score_renal(
     creatinine: float | None = None,
@@ -309,15 +363,13 @@ def score_renal(
         return 0, "missing"
 
     # Creatinine-based score
-    if creatinine is None:
+    if creatinine is None or creatinine < SOFA_CREATININE_NORMAL:
         cr_score = 0
-    elif creatinine < 1.2:
-        cr_score = 0
-    elif creatinine < 2.0:
+    elif creatinine < SOFA_CREATININE_MILD:
         cr_score = 1
-    elif creatinine < 3.5:
+    elif creatinine < SOFA_CREATININE_MODERATE:
         cr_score = 2
-    elif creatinine < 5.0:
+    elif creatinine < SOFA_CREATININE_SEVERE:
         cr_score = 3
     else:
         cr_score = 4
@@ -325,9 +377,9 @@ def score_renal(
     # Urine output-based score
     if urine_output_ml_day is None:
         uo_score = 0
-    elif urine_output_ml_day < 200:
+    elif urine_output_ml_day < SOFA_URINE_OUTPUT_SEVERE:
         uo_score = 4
-    elif urine_output_ml_day < 500:
+    elif urine_output_ml_day < SOFA_URINE_OUTPUT_MODERATE:
         uo_score = 3
     else:
         uo_score = 0
@@ -338,6 +390,7 @@ def score_renal(
 # ═══════════════════════════════════════════════════════════════════════════
 # Full SOFA Calculation
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def calculate_sofa(
     pao2_fio2: float | None = None,
@@ -356,7 +409,7 @@ def calculate_sofa(
     Args:
         pao2_fio2: PaO2/FiO2 ratio in mmHg.
         mechanical_ventilation: Whether the patient is on mechanical ventilation.
-        platelets: Platelet count in ×10³/µL.
+        platelets: Platelet count in x10³/µL.
         bilirubin: Total bilirubin in mg/dL.
         map_value: Mean Arterial Pressure in mmHg.
         vasopressor_type: Type of vasopressor ('dopamine', 'dobutamine',
@@ -384,7 +437,9 @@ def calculate_sofa(
         missing.append("bilirubin")
 
     cv_score, cv_status = score_cardiovascular(
-        map_value, vasopressor_type, vasopressor_dose_mcg_kg_min,
+        map_value,
+        vasopressor_type,
+        vasopressor_dose_mcg_kg_min,
     )
     if cv_status == "missing":
         missing.append("map_value")
@@ -406,10 +461,7 @@ def calculate_sofa(
         renal=renal_score,
     )
 
-    total = (
-        resp_score + coag_score + liver_score
-        + cv_score + neuro_score + renal_score
-    )
+    total = resp_score + coag_score + liver_score + cv_score + neuro_score + renal_score
 
     return SOFAResult(
         total_score=total,

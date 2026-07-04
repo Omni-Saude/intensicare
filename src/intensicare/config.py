@@ -20,19 +20,26 @@ class Settings(BaseSettings):
     )
 
     # Ambiente
-    environment: Literal["development", "testing", "staging", "production"] = (
-        "development"
-    )
+    environment: Literal["development", "testing", "staging", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     debug: bool = False
     secret_key: SecretStr = SecretStr("change-me-in-production")
 
     # API
-    api_host: str = "0.0.0.0"
+    api_host: str = "0.0.0.0"  # noqa: S104  # intentional bind-all default for container deploys; override via API_HOST
     api_port: int = 8000
     api_reload: bool = False
     api_workers: int = 1
     cors_origins: list[str] = ["*"]
+
+    # JWT / Auth
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 30
+    jwt_refresh_expire_days: int = 7
+
+    # FHIR (HAPI FHIR / AMH Data Platform) — empty base URL disables enrichment
+    fhir_base_url: str = ""
+    fhir_auth_token: SecretStr | None = None
 
     # PostgreSQL / TimescaleDB
     postgres_host: str = "localhost"
@@ -43,7 +50,7 @@ class Settings(BaseSettings):
     postgres_min_connections: int = 2
     postgres_max_connections: int = 10
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]  # pydantic computed property; mypy lacks decorated-property support
     @property
     def database_url(self) -> str:
         """Connection string assíncrona para SQLAlchemy."""
@@ -58,7 +65,7 @@ class Settings(BaseSettings):
             )
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]  # pydantic computed property; mypy lacks decorated-property support
     @property
     def database_sync_url(self) -> str:
         """Connection string síncrona (usada pelo Alembic)."""
@@ -79,15 +86,26 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: SecretStr = SecretStr("")
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]  # pydantic computed property; mypy lacks decorated-property support
     @property
     def redis_url(self) -> str:
         """Connection string para Redis."""
         pwd = self.redis_password.get_secret_value()
         if pwd:
-            url = "redis://" + pwd + "@" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
+            url = (
+                "redis://"
+                + pwd
+                + "@"
+                + self.redis_host
+                + ":"
+                + str(self.redis_port)
+                + "/"
+                + str(self.redis_db)
+            )
         else:
-            url = "redis://" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
+            url = (
+                "redis://" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
+            )
         return url
 
 

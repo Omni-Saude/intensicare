@@ -47,14 +47,13 @@ async def patient_status(
 ) -> PatientStatusResponse:
     """Retorna status agregado do paciente com enriquecimento FHIR opcional."""
     try:
-        result = await get_patient_status(
+        # Retorna 200 mesmo sem dados — o frontend decide como tratar
+        return await get_patient_status(
             db=db,
             mpi_id=mpi_id,
             score_type=score_type,
             enrich=enrich,
         )
-        # Retorna 200 mesmo sem dados — o frontend decide como tratar
-        return result
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

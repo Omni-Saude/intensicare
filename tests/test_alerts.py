@@ -2,15 +2,14 @@
 
 from datetime import datetime, timezone
 
-import pytest
 from httpx import AsyncClient
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.api.v1.auth import hash_password
+from intensicare.auth.jwt import create_access_token
 from intensicare.models.alert import Alert
 from intensicare.models.user import User
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 async def create_test_alert(db: AsyncSession, status="active", severity="watch") -> Alert:
@@ -35,7 +34,7 @@ async def create_test_user(db: AsyncSession) -> tuple[User, str]:
     user = User(
         username="testuser",
         email="test@test.com",
-        hashed_password=pwd_context.hash("test1234"),
+        hashed_password=hash_password("test1234"),
         display_name="Test User",
         is_admin=False,
         is_active=True,
@@ -90,7 +89,7 @@ class TestListAlerts:
         """Should respect the limit parameter."""
         for i in range(5):
             alert = Alert(
-                mpi_id=f"MPI-{1000+i}",
+                mpi_id=f"MPI-{1000 + i}",
                 severity="watch",
                 status="active",
                 title=f"Alert {i}",
@@ -125,7 +124,7 @@ class TestAcknowledgeAlert:
         user = User(
             username="nurse",
             email="nurse@test.com",
-            hashed_password=pwd_context.hash("nurse1234"),
+            hashed_password=hash_password("nurse1234"),
             is_active=True,
             created_at=datetime.now(timezone.utc),
         )
@@ -133,7 +132,6 @@ class TestAcknowledgeAlert:
         await db_session.flush()
 
         # Login to get token
-        from intensicare.auth.jwt import create_access_token
         token = create_access_token({"sub": user.username, "user_id": user.id})
 
         response = await client.post(
@@ -144,20 +142,21 @@ class TestAcknowledgeAlert:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_acknowledge_already_acknowledged(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_acknowledge_already_acknowledged(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Should return 409 if already acknowledged."""
         alert = await create_test_alert(db_session, status="acknowledged")
         user = User(
             username="nurse",
             email="nurse@test.com",
-            hashed_password=pwd_context.hash("nurse1234"),
+            hashed_password=hash_password("nurse1234"),
             is_active=True,
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
         await db_session.flush()
 
-        from intensicare.auth.jwt import create_access_token
         token = create_access_token({"sub": user.username, "user_id": user.id})
 
         response = await client.post(

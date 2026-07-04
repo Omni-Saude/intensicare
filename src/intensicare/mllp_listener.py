@@ -22,12 +22,13 @@ Idempotency is guaranteed via X-Idempotency-Key header using MSH-10
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
-from datetime import datetime, timezone
+import re
 from typing import Any
 
+import hl7apy.parser
 import httpx
-import hl7apy.parser  # type: ignore[import-untyped]
 
 # ---------------------------------------------------------------------------
 # MLLP Protocol Constants
@@ -45,18 +46,24 @@ SEG_PID = "PID"
 SEG_OBR = "OBR"
 SEG_OBX = "OBX"
 
+# Minimum length of a parseable HL7 timestamp: YYYYMMDD (date-only form).
+HL7_TIMESTAMP_MIN_LENGTH = 8
+
+# HTTP status code treated as a non-fatal idempotency conflict when forwarding.
+HTTP_CONFLICT = 409
+
 # ---------------------------------------------------------------------------
 # LOINC → Vital Sign Field Mapping
 # ---------------------------------------------------------------------------
 LOINC_VITAL_MAP: dict[str, str] = {
-    "8867-4": "heart_rate",        # Heart rate (bpm)
-    "8480-6": "systolic_bp",       # Systolic blood pressure (mmHg)
-    "8462-4": "diastolic_bp",      # Diastolic blood pressure (mmHg)
-    "8310-5": "temperature",       # Body temperature (°C)
-    "2708-6": "spo2",              # Oxygen saturation (%)
-    "59408-5": "spo2",             # Oxygen saturation in arterial blood (%)
+    "8867-4": "heart_rate",  # Heart rate (bpm)
+    "8480-6": "systolic_bp",  # Systolic blood pressure (mmHg)
+    "8462-4": "diastolic_bp",  # Diastolic blood pressure (mmHg)
+    "8310-5": "temperature",  # Body temperature (°C)
+    "2708-6": "spo2",  # Oxygen saturation (%)
+    "59408-5": "spo2",  # Oxygen saturation in arterial blood (%)
     "9279-1": "respiratory_rate",  # Respiratory rate (rpm)
-    "11488-4": "avpu",             # AVPU level of consciousness
+    "11488-4": "avpu",  # AVPU level of consciousness
 }
 
 # Alternative identifier mappings (used when OBX-3 doesn't carry LOINC)
@@ -103,6 +110,7 @@ logger.setLevel(logging.DEBUG)
 # HL7 Parsing Utilities
 # ---------------------------------------------------------------------------
 
+
 def _safe_get_segments(segments: list[Any], segment_name: str) -> list[Any]:
     """Filter segments by name from a flat segment list (hl7apy 1.x)."""
     return [s for s in segments if str(s.name) == segment_name]
@@ -129,10 +137,8 @@ def _get_subfield(segment: Any, field_attr: str, sub_attr: str) -> str | None:
 
 def _parse_timestamp(raw: str | None) -> datetime | None:
     """Parse an HL7 timestamp (YYYYMMDDHHMMSS[.SSSS][+/-ZZZZ]) to UTC datetime."""
-    if raw is None or len(raw) < 8:
+    if raw is None or len(raw) < HL7_TIMESTAMP_MIN_LENGTH:
         return None
-
-    import re
 
     # Strip timezone offset for naive parsing; we'll reapply if present.
     tz_match = re.search(r"([+\-]\d{4})$", raw)
@@ -144,32 +150,31 @@ def _parse_timestamp(raw: str | None) -> datetime | None:
         sign = 1 if tz_str[0] == "+" else -1
         tz_offset = sign * (int(tz_str[1:3]) * 3600 + int(tz_str[3:5]) * 60)
 
-    # Parse the body
-    formats = [
-        "%Y%m%d%H%M%S.%f",
-        "%Y%m%d%H%M%S",
-        "%Y%m%d%H%M",
-        "%Y%m%d%H",
-        "%Y%m%d",
-    ]
-    dt: datetime | None = None
-    for fmt in formats:
-        try:
-            dt = datetime.strptime(clean, fmt)
-            break
-        except ValueError:
-            continue
+    # Select the format strictly by length. strptime's numeric directives are
+    # greedy (e.g. "%Y%m%d%H" happily consumes the 8-digit date-only "20260626"
+    # as 2026-06-02T06), so trying formats longest-first misreads shorter values.
+    if "." in clean:
+        fmt: str | None = "%Y%m%d%H%M%S.%f"
+    else:
+        fmt = {
+            14: "%Y%m%d%H%M%S",
+            12: "%Y%m%d%H%M",
+            10: "%Y%m%d%H",
+            8: "%Y%m%d",
+        }.get(len(clean))
+    if fmt is None:
+        return None
 
-    if dt is None:
+    try:
+        dt = datetime.strptime(clean, fmt)
+    except ValueError:
         return None
 
     # Apply timezone
-    from datetime import timedelta
-
     return dt.replace(tzinfo=timezone.utc) - timedelta(seconds=tz_offset)
 
 
-def _parse_obx_value(raw: str | None, field_name: str) -> Any:
+def _parse_obx_value(raw: str | None, field_name: str) -> Any:  # noqa: PLR0911 -- one early return per typed parse branch aids readability
     """Parse an OBX-5 observation value into the appropriate Python type."""
     if raw is None or raw == "":
         return None
@@ -212,9 +217,11 @@ def _map_obx3_to_field(identifier: str, text: str | None = None) -> str | None:
     if upper_id in ALT_ID_MAP:
         return ALT_ID_MAP[upper_id]
 
-    # 3. Try text field
+    # 3. Try text field. Human-readable OBX-3.2 text uses spaces ("Heart Rate")
+    # whereas the alias map is keyed with underscores ("HEART_RATE"), so
+    # normalise internal whitespace before the lookup.
     if text:
-        upper_text = text.upper().strip()
+        upper_text = "_".join(text.upper().split())
         if upper_text in ALT_ID_MAP:
             return ALT_ID_MAP[upper_text]
 
@@ -232,9 +239,7 @@ def parse_oru_r01(message_str: str) -> dict[str, Any] | None:
         or None if parsing fails.
     """
     try:
-        segments = hl7apy.parser.parse_segments(
-            message_str.replace("\\r", "\r")
-        )
+        segments = hl7apy.parser.parse_segments(message_str.replace("\\r", "\r"))
     except Exception as exc:
         logger.error("Failed to parse HL7 message: %s", exc)
         return None
@@ -369,21 +374,20 @@ async def forward_to_api(
                 resp_json.get("mews_score"),
             )
             return True
-        elif response.status_code == 409:
+        if response.status_code == HTTP_CONFLICT:
             logger.warning(
                 "Conflict forwarding vitals for mpi_id=%s: %s",
                 vitals_data.get("mpi_id"),
                 response.text,
             )
             return False
-        else:
-            logger.error(
-                "API returned %d forwarding vitals for mpi_id=%s: %s",
-                response.status_code,
-                vitals_data.get("mpi_id"),
-                response.text,
-            )
-            return False
+        logger.error(
+            "API returned %d forwarding vitals for mpi_id=%s: %s",
+            response.status_code,
+            vitals_data.get("mpi_id"),
+            response.text,
+        )
+        return False
     except httpx.TimeoutException:
         logger.error("Timeout forwarding vitals for mpi_id=%s", vitals_data.get("mpi_id"))
         return False
@@ -403,6 +407,7 @@ async def forward_to_api(
 # MLLP TCP Server
 # ---------------------------------------------------------------------------
 
+
 class MLLPProtocol(asyncio.Protocol):
     """Async protocol handler for MLLP-framed HL7 messages."""
 
@@ -415,6 +420,9 @@ class MLLPProtocol(asyncio.Protocol):
         self.api_url = api_url
         self.http_client = httpx_client
         self.buffer: bytearray = bytearray()
+        # Keep strong references to in-flight processing tasks so they are not
+        # garbage-collected mid-execution (asyncio only holds a weak reference).
+        self._pending_tasks: set[asyncio.Future[None]] = set()
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport: asyncio.Transport = transport  # type: ignore[assignment]
@@ -448,7 +456,9 @@ class MLLPProtocol(asyncio.Protocol):
 
             # Schedule message processing (non-blocking)
             hl7_str = hl7_bytes.decode("utf-8", errors="replace").strip()
-            asyncio.ensure_future(self._process_message(hl7_str))
+            task = asyncio.ensure_future(self._process_message(hl7_str))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
 
     async def _process_message(self, message_str: str) -> None:
         """Parse and forward an HL7 message."""
@@ -502,7 +512,7 @@ class MLLPProtocol(asyncio.Protocol):
 
 
 async def run_mllp_listener(
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # noqa: S104 -- binding all interfaces is required for containerized deployment
     port: int = 2575,
     api_url: str = "http://api:8000/api/v1",
 ) -> None:
@@ -557,7 +567,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
+        default="0.0.0.0",  # noqa: S104 -- default binds all interfaces for containerized deployment
         help="Bind address (default: 0.0.0.0)",
     )
     parser.add_argument(
