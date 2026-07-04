@@ -116,6 +116,31 @@ Occupancy is a first-class layer, fixing the legacy empty-vs-`NEUTRO` indistingu
 
 **The not-evaluated state (`MF-2`/`HAZ-030`) is load-bearing.** An occupied bed whose score **cannot be computed because a required input is missing** must render as its own `não avaliado` state — never as `normal` (a calm green cell would falsely read as "evaluated, stable") and never as `vazio`. Correspondingly, the ribbon acuity distribution counts these in a **separate `não-avaliado` segment** and **excludes them from the `normal` count** (§7.1). `não avaliado` is distinct from `stale`: *stale* = we had a value, it aged out; *não avaliado* = we never had enough to score.
 
+**The assignment-uncertainty flag — `leito/unidade desatualizado` (`RT2-AMH-03`,
+`REQ-AMH-ASSIGN-01`) — is additive, not an occupancy state.** Unlike `não avaliado` above, a bed
+whose `bed_unit_assignment` has exceeded its 15 min `staleness_max` (§6) is not uncertain about
+*occupancy* — it is uncertain about *which* bed/unit binding is current, after a possibly-missed ADT
+event (admit/transfer/discharge, `amh-freshness.yaml` `bed_unit_assignment.fallback`). It therefore
+renders as an **additive identity-level flag**, layered on top of whatever occupancy/severity state
+the cell already carries — exactly like `clinical.status.attended`/`clinical.status.stale` (§4.2) —
+never masking the underlying severity:
+
+- **Cell treatment.** A small badge on the cell's **Identity** region (§3.1) carrying the PT-BR
+  label **"leito/unidade desatualizado"**, distinct in icon+shape from the per-datum
+  `clinical.status.stale` mark so a stale *value* is never confused with a stale *binding*. Exact
+  token mechanics (a new additive `clinical.status.*` sibling to `attended`/`stale`, or an
+  equivalent identity-badge primitive) are ratified with `design-tokens.md` at C2/C3 (§16 open
+  reconciliation) — this spec fixes the *behavior*, not the hex/icon.
+- **Alert-context propagation (`REQ-AMH-ASSIGN-01`).** Any alert firing while its patient's
+  assignment is flagged stale carries the **same flag into the alert's context/why-panel**
+  (`alert-triage.md §4`), so a clinician reading the alert — not just the grid — sees the
+  bed-binding uncertainty. This screen owns the **render**; the routing-widen / threshold-conservatize
+  behavior the flag reflects is engine-side (`architecture/alert-engine.md §6`,
+  `design/screens/alert-routing.md §1.1` — cross-doc, outside this screen's fence).
+- **Never silent.** Per `REQ-AMH-ASSIGN-01`, a stale assignment is **always** flagged — there is no
+  suppressed/quiet variant of this badge; it persists on the cell and on every alert it touches until
+  a fresh ADT event resolves it.
+
 ### 3.3 The acuity vector & trajectory arrows — the tested baseline/delta rule (MF-7, MF-8)
 The acuity vector = **severity band** (§4) + **trajectory** derived from deltas of the implemented scores MEWS / NEWS2 / qSOFA / SOFA (`VIS-2-01..04`). A wrong or stale-derived arrow is **false reassurance** (`HAZ-031`), so the rule is explicit, tested, and staleness-aware:
 
@@ -213,14 +238,50 @@ Per-source thresholds (from `amh-freshness.yaml`) that drive the per-datum mark 
 | `vitals_gold` (batch) | 30 min | analytical/replay |
 | `blood_gas_respiratory` | 1 h ABG / 5 min SpO₂·FiO₂ | respiratory |
 | `hemodynamic_monitor` | 5 min monitor / 2 h lactate | hemodynamic |
-| `labs_electrolytes` (K⁺/Na⁺) | 1 h | electrolytes |
+| `labs_electrolytes` (K⁺/Na⁺) | **30 min** (**15 min** CRIT analytes, e.g. K⁺ > 6.5) | electrolytes |
 | `labs_sepsis` (lactate/PCT) | 2 h | sepsis |
 | `labs_renal` (creatinine) | 12 h | AKI |
 | `medication_events` | 6 h | infusions, interactions |
 | `delirium_assessments` (RASS/CAM-ICU) | 12 h | delirium |
+| `bed_unit_assignment` (leito/unidade) | **15 min** | threshold resolution, routing, identity |
 | `mpi_demographics` | 24 h (advisory, **never** a scoring input) | identity |
 
 Beyond `staleness_max`, new threshold-cross alerts on that source are suppressed upstream (frozen-value guard, `amh-freshness.yaml` fallback) — the surface renders the last value **badged stale**, never silently as current, and never auto-resolves an open CRIT on a stale panel.
+
+**`labs_electrolytes` — the "possible newer result pending" caveat (`RT1-AMH-02`/`RT2-AMH-01`).**
+`labs_electrolytes.staleness_max` (30 min; **15 min** for CRIT analytes) is clamped to the Gold
+batch's own p95 worst case, so a value still *inside* the window can already have been superseded by
+a newer bedside result not yet materialized in Gold. This is a **distinct state from the
+past-`staleness_max` `stale` badge** (§3.1's per-cell `clinical.status.stale`) — it fires *before*
+staleness_max is breached, whenever last-seen age approaches the source's expected batch cadence
+(`freshness_slo`, "on-result / p95 30 min via Gold batch").
+
+- **Trigger.** Last-seen age approaching `freshness_slo`'s ~30 min batch cadence while still inside
+  `staleness_max` — the value has not aged into `stale`, but a fresher result may already exist
+  upstream and simply hasn't landed yet.
+- **Render.** A **distinct caveat pill**, additive to the normal fresh display (never replacing the
+  value shown), carrying the PT-BR text **"resultado mais recente pode estar pendente"** with its
+  own icon (e.g. `refresh-cw`, distinct from the `clock-alert` used by `clinical.status.stale`) so
+  the two kinds of staleness — a stale *value* vs. a *possibly-superseded* fresh value — are never
+  confused, per the triple-encoding contract (`CON-SEED-11`). Applies at the per-cell datum badge
+  (point 3 above) and inside the L2/L3 lab-value detail (§2.3).
+- **CRIT band.** For the 15-min CRIT analytes, the caveat is load-bearing: a normal-looking K⁺
+  inside its 15-min CRIT window is flagged as *possibly superseded* rather than rendered as flatly
+  current — a clinician is never invited to treat a borderline-normal value as ruling out a CRIT
+  derangement that has already occurred bedside.
+- **Not suppression.** The caveat never suppresses a threshold-cross alert or downgrades a fired
+  alert's severity — it is a **display-layer trust signal** layered on the existing
+  fresh/stale/expired three-band contract (§0, `HAZ-024`), consistent with `amh-freshness.yaml`
+  `labs_electrolytes.possible_newer_result_pending`.
+
+**`bed_unit_assignment` — the "leito/unidade desatualizado" flag (`RT2-AMH-03`,
+`REQ-AMH-ASSIGN-01`).** When a bed/unit assignment's age exceeds its **15 min** `staleness_max` (or
+a missed ADT event is detected, `amh-freshness.yaml` `bed_unit_assignment.fallback`), the binding
+between a patient and their displayed `Leito`/`Setor` is no longer trustworthy — a stale assignment
+after a transfer can silently mis-threshold **and** mis-route unit-level delivery. Full state
+definition (cell treatment + alert-context propagation) is in §3.2; the render obligation here is
+that this source's staleness feeds that flag exactly like any other per-datum staleness mark, at its
+own **15 min** ceiling.
 
 ---
 
@@ -266,6 +327,7 @@ Ownership boundary: this screen **owns** `PER-FERNANDA-01` (the live woven dashb
 - **Empty scope** — a unit with no beds → explicit empty-state card with a capacity note; empty (`vazio`/Vago) cells always visually distinct from occupied (§3.2).
 - **Bed states** — `vazio`/Vago · `reservado` · `higienização` · `bloqueado` · `em transferência/alta` · occupied-`normal` · occupied-`watch` · occupied-`urgent` · occupied-`critical` · **`não avaliado — dados ausentes`** (`MF-2`) · per-datum/`stale`.
 - **Alert states on a cell** — none · single · multiple (worst + `+N`) · acknowledged (adds `attended` badge, motion stills) · suppressed (muted `×N` recurrence dot) · escalated (RRT paged). Lifecycle machinery: `alert-triage.md §2`.
+- **Assignment-uncertainty flag** — additive `leito/unidade desatualizado` badge (§3.2, `REQ-AMH-ASSIGN-01`); co-occurs with any bed/alert state above; propagates into the alert why-panel context (`alert-triage.md §4`).
 - **Realtime states (whole surface)** — `ao vivo` · `reconectando` · `dados defasados` · `offline` (§8).
 - **Trajectory states** — rising / steady / falling / **indeterminate `—`** / **stale-caveated** (§3.3).
 - **Error / permission-denied scope** — classified error (validation / permission / server) mapped to visual weight; **no error class defaults to a blocking `Modal.error`** (`A11Y-REQ-19`, retires the legacy `handleApiError`); permission-denied re-routes per deny-by-default (`ADR-C-05`/`ADR-C-11`). A single cell that fails to hydrate shows a per-cell inline error + retry, never a screen-wide modal — the grid degrades gracefully.
@@ -382,6 +444,7 @@ Target scope: Fernanda's full census (30 adult + coronary + neonatal, up to **90
 | `ADR-0010-01` overlay-stack manager · `ADR-0009-01` IA/breadcrumb/no side nav | C2 | §2.2, §2.3, §10.2 |
 | `ADR-0013-01`/`ADR-0014-01` severity + abnormal-value flagging | C2/C3 | §3.1, §4 |
 | `HAZ-024/025/026/030/031` treatments | C3 (safety) | §3.2–3.5, §6, §7.2, §8 |
+| `REQ-AMH-ASSIGN-01` leito/unidade desatualizado flag (bed cell + alert context) | C3 | §3.2, §6, §9 |
 
 **Open reconciliations (routed, not resolved):**
 - **Acuity-flow as a role default is ratification-blocked** — it may not become any role's boot default until validated with nurses (`MF-1`, ux-researcher-C). Spatial ships as the default; flow ships opt-in.

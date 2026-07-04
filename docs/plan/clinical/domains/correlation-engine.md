@@ -173,6 +173,30 @@ window the dispatcher **pushes only the correlation** and **folds** the member a
 vision-sanctioned pairs (VIS-4-03) produce; it does **not** cover a deterioration that lights up EWS + Sepsis +
 Hemo without matching one of the three pairs — that residual is the job of §5.2.
 
+**BREAK-THROUGH rule — the fold cooldown is a concurrency dedup, never a silence for escalation (HAZ-026-safe,
+HAZ-027-safe) — [RT2-PATIENT-SAFETY-01].** The fold suppresses only the **re-push of a member instance that was
+already concurrent with the correlation at push time**. It NEVER suppresses a severity escalation or a new
+interruptive member. On **each evaluation cycle** the engine **re-evaluates every folded member's current
+severity**, and:
+
+- a **NEW member alert** that joins an existing fold at severity **≥ urgent** — a member instance not part of the
+  correlation at push time (e.g. `ALERT-SEPSIS-SHOCK-03` firing at hour 6 of a live `ALERT-CORR-SEPSIS-AKI-01`
+  fold, or an AKI KDIGO stage-3 event arriving after a stage-1 member was folded) — **RE-NOTIFIES IMMEDIATELY at
+  its own delivery tier**, regardless of the correlation's cooldown (`PT12H`/`PT4H`/`PT8H`);
+- a **severity INCREASE within any folded member domain** (`watch→urgent→critical`) likewise **breaks through and
+  re-pages at the higher tier** the same cycle it is detected;
+- only a member re-firing at **unchanged-or-lower** severity, **still concurrent** with the live correlation, is
+  folded.
+
+This **composes with, and never overrides,** the never-suppress-critical invariant (§5.3 inv. 2; `alert-routing.md`
+§4 banner; `architecture/alert-engine.md` §5 carve-outs; HAZ-026): `critical`/`urgent` are never budget-suppressed,
+rate-limited, or maintenance-muted, and the fold cooldown is **not** an exception to that for a new or escalating
+member. The §6 recommended default ("never fold across a *higher* member severity than the correlation's own") is
+**necessary but not sufficient on its own**: because all three correlations are themselves `critical`, an
+*equal-severity* `critical` member would otherwise fold silently — the break-through rule closes exactly that gap
+(a new-or-escalating `critical` member delivers even when the correlation is already `critical`). Verified by the
+`SEPSIS-AKI-01` break-through test vectors (`_work/alerts/correlation-engine.yaml`).
+
 ### 5.2 Cross-domain deterioration-cluster fold (shared-physiology suppression group) — [RT1-ALARM-FATIGUE-02]
 
 The three pairwise correlations catch three *specific* causal pairs. They do **not** catch the common case where

@@ -30,6 +30,7 @@ PHASE_E_EXTRA = [
     "design/screens/command-center.md", "design/screens/patient-timeline.md",
     "design/screens/handoff.md", "design/screens/alert-routing.md",
     "delivery/roadmap.md", "delivery/build-orchestrator-blueprint.md",
+    "delivery/build-kickoff-prompt.md",
 ]
 MIN_BYTES = {".md": 2000, ".yaml": 800}
 

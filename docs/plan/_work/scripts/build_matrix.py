@@ -71,7 +71,11 @@ def main() -> int:
         r = records[rid]
         tgt = r.get("target") or "—"
         if tgt != "—":
-            tgt = f"[{tgt.split('#')[0].split('/')[-1]}#{tgt.split('#')[1] if '#' in tgt else ''}]({tgt})"
+            # link at file granularity (verified to exist); section anchors in the machine
+            # records are advisory and get wired during the build (blueprint §6)
+            path, _, frag = tgt.partition("#")
+            label = path.split("/")[-1] + (f" §{frag}" if frag else "")
+            tgt = f"[{esc_md(label)}]({path})"
         lines.append(
             f"| {rid} | {esc_md(name_of.get(rid, ''))[:60]} | {cluster_of.get(rid, '?')} "
             f"| {esc_md(verdict_of.get(rid, ''))} | {r['disposition']} | {tgt} "

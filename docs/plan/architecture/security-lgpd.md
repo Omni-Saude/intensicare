@@ -89,7 +89,7 @@ Legend: **S**poofing · **T**ampering · **R**epudiation · **I**nformation disc
 | # | Interface | Top STRIDE threats | Mitigation (owner) |
 |---|---|---|---|
 | **I1** | Clinician → **REST API** (HTTPS) | **S**: stolen/replayed session token (legacy 30-day cookie — RULE-AUTH-USUARIOS bad pattern). **E**: request a permission not held. **I**: PHI in error bodies / verbose 500s. **R**: deny having acknowledged/edited. | **App**: OIDC bearer from IAM IC (I10), short TTL + refresh, no 30-day cookies; **deny-by-default** authz gate server-side **before** shell render (`CON-0038`, §5); RFC 7807 problem+json with no PHI; every mutation → `audit_trail` (invariant #1, §5.3). TLS 1.2+ enforced at ALB. |
-| **I2** | Clinician → **WebSocket** push (WSS) | **S**: unauthenticated socket subscribes to another tenant's bed-board. **I**: cross-tenant fan-out of alerts. **D**: connection-flood exhausts workers. | **App**: authenticate on WS handshake (same OIDC), bind subscription to `tenant_id`+`unit` scope from the token, per-connection rate/back-pressure caps; server-side tenant filter on every push (never trust client-supplied unit). The **sole** cross-unit exception is the least-privilege `rrt` role (§5.3.1: tenant-wide but limited to critical/urgent streams + minimal, post-authN bed context, rotation-gated, every read audited). |
+| **I2** | Clinician → **WebSocket** push (WSS) | **S**: unauthenticated socket subscribes to another tenant's bed-board. **I**: cross-tenant fan-out of alerts. **D**: connection-flood exhausts workers. | **App**: authenticate on WS handshake (same OIDC), bind subscription to `tenant_id`+`unit` scope from the token, per-connection rate/back-pressure caps; server-side tenant filter on every push (never trust client-supplied unit). Cross-unit exceptions are limited to roles entered in the **cross-unit role registry** (§5.3.1) — currently `rrt` (tenant-wide, limited to critical/urgent streams + minimal, post-authN bed context, rotation-gated, every read audited) and `coordinator` (assigned estabelecimento(s), limited to occupancy/acuity aggregates + bed-board severity context, assignment-gated, every read audited); a role absent from the registry stays bound to `tenant_id`+`unit`. |
 | **I3** | Monitor/EMR → **MLLP listener** (HL7 v2 ORU-R01) | **S**: rogue host injects fabricated vitals → false scores/alerts. **T**: altered ORU segments. **D**: malformed-message flood. **R**: no attribution of source. | **App**: mutual-TLS on the MLLP socket + source allow-list (VPC-internal only, no public ingress); strict HL7 parse + reject on schema violation; **idempotency on MSH-10** (`CON-0067`, invariant #2) blocks replay/dup; `source_system` stamped for attribution; ACK/NAK semantics; rate cap per source. |
 | **I4** | Gold Reader → **Athena/Gold** (read) | **E**: scan partitions of a tenant IC may not read. **I**: over-broad SELECT. | **Inherited**: Lake Formation **ABAC** + per-tenant KMS decide readable partitions (`ADR001-C-07`); IC adds **no parallel authz** — least-privilege IAM task role scoped to the IC Glue DB/columns only. High-watermark, column-projected polls (no `SELECT *`). |
 | **I5** | Gold Writer → **Gold** (`fact_patient_score`/`fact_alert`) write-back | **T**: corrupt corporate analytics. **E**: write outside IC's fact tables. | **Inherited + App**: IAM task role write-scoped to exactly the two fact tables; schema-versioned writes (`ADR001-C-09`); write-back carries **no direct identifiers** beyond `mpi_id` (§3.3). |
@@ -227,45 +227,59 @@ In the legacy system, e-signature PINs shipped with a **single org-wide default*
 ### 5.3 v2 model
 
 - **Subjects** — clinician identities from IAM Identity Center (I10); IdP groups map to IC roles.
-- **Roles (named permission sets)** — aligned to personas: `nurse` (Ana — view scores/vitals, ack alerts, document actions), `intensivist` (Carlos — all nurse + score detail + config-read), `coordinator` (Fernanda — bed-board + metrics dashboard), `rrt` (Rafael — **hospital-wide** critical/urgent-alert receive/ack; the **one cross-unit role**, §5.3.1), `admin` (threshold config, user-role admin). Each role is a **closed enumerated** set from the permission catalog.
-- **Enforcement** — deny-by-default at the route (`CON-0038`), evaluated **server-side before render**; unknown/absent permission ⇒ **403 + audit log**, never a silent pass. Tenant scope (`tenant_id`) and unit scope are enforced on every read/subscription (I1/I2), never trusted from the client. The **sole** cross-unit subscription is the least-privilege `rrt` role (§5.3.1); **every other role is bound to `tenant_id`+`unit`** (I2) — there is no silent tenant-wide grant.
+- **Roles (named permission sets)** — aligned to personas: `nurse` (Ana — view scores/vitals, ack alerts, document actions), `intensivist` (Carlos — all nurse + score detail + config-read), `coordinator` (Fernanda — bed-board + occupancy/acuity metrics dashboard, **cross-unit across her assigned estabelecimento(s)** — cross-unit role registry member, §5.3.1), `rrt` (Rafael — **hospital-wide** critical/urgent-alert receive/ack — cross-unit role registry member, §5.3.1), `admin` (threshold config, user-role admin). Each role is a **closed enumerated** set from the permission catalog.
+- **Enforcement** — deny-by-default at the route (`CON-0038`), evaluated **server-side before render**; unknown/absent permission ⇒ **403 + audit log**, never a silent pass. Tenant scope (`tenant_id`) and unit scope are enforced on every read/subscription (I1/I2), never trusted from the client. Cross-unit subscriptions exist **only** for roles entered in the **cross-unit role registry** (§5.3.1) — `rrt` and `coordinator` today, each least-privilege-filtered to its own scope; **every role absent from the registry is bound to `tenant_id`+`unit`** (I2) — there is no silent tenant-wide grant, and no role gains cross-unit reach without a registry entry satisfying all four class constraints (§5.3.1).
 - **Audit (invariant #1 — the access-audit backbone).** Every login, every PHI read, every alert ack/resolve, every threshold edit, every role change, and every signing action writes **exactly one** `audit_trail` row (append-only, `BEFORE UPDATE OR DELETE` trigger blocks mutation — `CON-0066`/`CON-0097`) with actor, action, entity, before/after, and OTEL `request_id`. This is what makes the LGPD "who accessed my data" subject-right answerable (§3.4) and closes *Repudiation* across all interfaces.
 
-### 5.3.1 The one enumerated cross-unit role — `rrt` (least-privilege hospital-wide) *(RT1-SEC-04)*
+### 5.3.1 The cross-unit role class + registry — least-privilege, audited, governed *(RT1-SEC-04, RT2-SEC-01)*
 
-I2 binds **every** WebSocket subscription to the token's `tenant_id`+`unit`. But the RRT responder
-(Rafael) is by design **hospital-wide and location-free** (`alert-routing.md` §3.1) — a `critical`
-alert on *any* unit must reach the on-shift RRT within the <5 s dispatch budget (`CON-0092`). Left
-unstated, `rrt` would be either unit-scoped (breaking hospital-wide dispatch) or **silently tenant-wide**
-(an un-enumerated broad grant that violates deny-by-default). It is **neither**: `rrt` is the **single,
-explicitly enumerated cross-unit role**, and its grant is least-privilege, not "all of the tenant":
+I2 binds **every** WebSocket subscription to the token's `tenant_id`+`unit`. Two roles are, by
+design, legitimately **cross-unit**: the RRT responder (Rafael) is **hospital-wide and
+location-free** (`alert-routing.md` §3.1) — a `critical` alert on *any* unit must reach the
+on-shift RRT within the <5 s dispatch budget (`CON-0092`); and the UTI coordinator (Fernanda) owns
+a multi-unit occupancy/acuity dashboard that spans every unit she governs, up to **"Todas as
+unidades"** across adult/coronary/neonatal (`command-center.md` §2.4/§7.1, `PER-FERNANDA-01`). Left
+unstated, either role is forced into a false choice: **unit-scoped** (breaking the job the role
+exists to do) or **silently tenant-wide** (an un-enumerated broad grant that violates
+deny-by-default).
 
-- **Tenant-wide, but stream-limited.** The `rrt` subscription spans every unit of its `tenant_id`
-  **but is filtered server-side to the `critical` and `urgent` streams only** — the two tiers that can
-  route to R3/RRT (`alert-routing.md` §1/§2). It carries **no** `normal`/`watch` traffic and grants
-  **no** routine cross-unit bed-board / patient-browsing capability. There is no "list all patients in
-  unit X" permission attached to the role — only the alerts that earned R2/R3.
-- **Minimal bed context on the authenticated stream; the *push* is severity-only.** The **pre-authN
-  push** (I11) carries **only** a severity band + an opaque deep-link token — **no** bed/unit locator,
-  score, trend, vitals, or name (bed+unit+time on a lock screen re-identifies the ICU patient). Minimal
-  bed context (`Estabelecimento▸Setor▸Leito`) and all clinical content appear **only** on the
-  **authenticated** in-app WS stream / en-route view, after the responder taps through and OIDC
-  re-validates (`alert-routing.md` §5.1). Being cross-unit therefore never widens what the role sees
-  **pre-authN** — pre-authN it sees nothing patient-identifying at all.
-- **Deny-by-default, gated on active rotation membership.** The cross-unit grant is **not** a standing
-  property of the role; it is evaluated per connection and is **active only while the subject is the
-  on-shift member of the RRT rotation** (the audited `rrt_rotation` table, `alert-routing.md`
-  §3.1.1/§5.3). Off-rotation, the subject falls back to its base `tenant_id`+`unit` scope. Absent/expired
-  rotation membership ⇒ **denied** (deny-by-default), never a silent tenant-wide default.
-- **Every cross-unit PHI read is audited.** Opening any bed detail on a unit the responder is not
-  natively assigned to writes an `audit_trail action='phi.read'` row with actor, `mpi_id`, and
-  `request_id` (invariant #1, REQ-INV-1-S1) — the cross-unit reach is fully traceable in the "who
-  accessed my data" report (§3.4). Broad-but-shallow + fully-audited is what makes this acceptable
-  under LGPD Art. 46 least-privilege.
+The fix is not a second hard-coded exception — a hard-coded pair is exactly as brittle as a
+hard-coded singleton the next time a role needs cross-unit reach. IntensiCare instead defines an
+explicit, **extensible cross-unit role class**: a role may be granted cross-unit scope **if and
+only if** its grant satisfies all four class constraints below and is entered in the registry that
+follows. `rrt` (`RT1-SEC-04`) is the class's **first member, not its definition**; `coordinator`
+(`RT2-SEC-01`) is the second; any future role that genuinely needs cross-unit reach clears the same
+bar.
 
-This makes `rrt` the **one** documented exception to "bind to `tenant_id`+`unit`" (I2) — explicit,
-least-privilege, stream-scoped, PHI-free pre-authN, rotation-gated, and audited — rather than the
-unresolved deny-by-default hole RT1-SEC-04 flagged. It reconciles I2 with `alert-routing.md` §3.1.
+**The four class constraints — every registry member satisfies all four:**
+
+1. **Least-privilege stream/data filter** — the grant is scoped server-side to the minimum
+   stream/data class the role's job requires, never a raw "all data, every unit" grant.
+2. **Audited access** — every cross-unit PHI read the role performs writes an
+   `audit_trail action='phi.read'` row (actor, `mpi_id`, `request_id` — invariant #1,
+   REQ-INV-1-S1), so the reach is fully traceable in the "who accessed my data" report (§3.4).
+3. **Governance approval** — cross-unit scope is **not** a client toggle or a runtime config flag;
+   it is an architecturally ratified decision, recorded in this registry and reviewed at a
+   reconciliation barrier before it ships — the same signoff discipline as any other invariant.
+4. **Registry enumeration** — the role and its exact scope are named in the table below. A role
+   **absent** from this registry has **no** cross-unit reach and stays bound to `tenant_id`+`unit`
+   (I2, the deny-by-default floor). This registry, not prose elsewhere, is the single source of
+   truth for "which roles are cross-unit."
+
+**Cross-unit role registry:**
+
+| Role | Cross-unit extent | Least-privilege filter | Activation gate | Audit |
+|---|---|---|---|---|
+| **`rrt`** *(RT1-SEC-04)* | Hospital-wide — every unit of the subject's `tenant_id` | Server-side filtered to the **`critical`+`urgent` streams only** — no `normal`/`watch` traffic, no routine cross-unit bed-board/patient-browsing permission, only the alerts that earned R2/R3 (`alert-routing.md` §1/§2). The **pre-authN push carries only a severity band + opaque deep-link token** (no locator/score/trend/vitals/name, §2.2 I11); minimal bed context (`Estabelecimento▸Setor▸Leito`) and clinical content appear only on the **authenticated** in-app stream, post-authN (`alert-routing.md` §5.1). | Deny-by-default, **rotation-gated**: active only while the subject is the on-shift member of the audited `rrt_rotation` table (`alert-routing.md` §3.1.1/§5.3). Off-rotation falls back to base `tenant_id`+`unit`; absent/expired rotation ⇒ denied. | Every cross-unit bed detail opened outside the responder's native unit writes `audit_trail action='phi.read'` (REQ-INV-1-S1). |
+| **`coordinator`** *(RT2-SEC-01)* | The estabelecimento(s) the coordinator is assigned to govern — up to **all** units of the `tenant_id` under `command-center.md`'s **"Todas as unidades"** filter (`PER-FERNANDA-01`). | Scoped to the **occupancy/acuity ribbon aggregates + bed-board severity context** for every unit in the assigned scope (`command-center.md` §1.2/§7.1–7.3) — census, acuity distribution, SLA gauge, bed-level severity. **No** threshold-config-write or user-role-admin permission outside the assigned scope (those stay `admin`-only). Bed-board PHI (name/age per occupied cell) rendered within scope follows the same per-read audit as any bedside role's view — cross-unit reach changes **which units** are visible, not the render contract (see `data-model.md` for the phi.read granularity this implies). | Deny-by-default, **assignment-gated**: active only for the estabelecimento(s) recorded in the coordinator's admin-maintained role assignment, itself audited on every change (same pattern as `rrt_rotation`). A coordinator assigned to one estabelecimento has no reach beyond it. | Every cross-unit PHI read (bed detail, patient identity in an out-of-native-unit cell) writes `audit_trail action='phi.read'` (REQ-INV-1-S1); ribbon aggregates (counts, SLA figures) are derived non-PHI and are not individually PHI-audited. |
+
+This registry — not a single named role — is what makes `rrt` and `coordinator` the two current,
+explicit, least-privilege, audited exceptions to "bind to `tenant_id`+`unit`" (I2), reconciling I2
+with both `alert-routing.md` §3.1 (RRT hospital-wide dispatch) and `command-center.md` §2.4/§7.1
+(coordinator multi-unit dashboard) — closing the gap RT1-SEC-04 first flagged and RT2-SEC-01
+found still open for the second role. Any later persona whose job genuinely requires cross-unit
+reach is added here under the identical four constraints; the class is open, the registry is the
+enumeration, and no role acquires cross-unit scope by omission or default.
 
 ---
 

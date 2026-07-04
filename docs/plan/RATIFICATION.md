@@ -1869,3 +1869,20 @@ review): the reference-correct behaviour is a legally-determined, explicit profi
 | <a id="rat-trilhas-engine-01"></a>RAT-TRILHAS-ENGINE-01 | RULE-TRILHAS-ENGINE-003 | The 'automatica' branch's reliance on implicit default queryset ordering (vs the explicit -criado_em ordering  |
 | <a id="rat-trilhas-engine-02"></a>RAT-TRILHAS-ENGINE-02 | RULE-TRILHAS-ENGINE-012 | Whether v3 pathway records are meant to be scoped per-encounter (nr_atendimento) or per-patient-lifetime canno |
 | <a id="rat-trilhas-engine-03"></a>RAT-TRILHAS-ENGINE-03 | RULE-TRILHAS-ENGINE-015 | The refuse workflow's required-justification requirement is clinically sound, but its aceito field is submitte |
+
+## Accepted-risk red-team findings (3)
+
+<a id="rt2-alarm-01"></a>
+### RT2-ALARM-01
+
+PER-CARLOS-02 (<3 FP/patient-day p95, >3-share <=5%) is a DoD gate but no artifact computes its achievability at go-live under the untuned fleet-default configuration (baseline PPV 0.35, tuning loop needs 2 consecutive 30-day dispositioned windows, i.e. >=60 days untuned), and no interim FP-ceiling mitigation (phased enablement, tier downgrade of unvalidated alerts, launch-only high-PPV subset) is named as a go-live precondition. The gate numbers appear only as targets, never as a demonstrated launch value.
+
+<a id="rt2-patient-safety-02"></a>
+### RT2-PATIENT-SAFETY-02
+
+RT1-PATIENT-SAFETY-01 (merged RT1-COMP-04) is recorded status:fixed and counted inside ledger.json's unresolved_confirmed_critical:0, but only its alert-engine half landed: hazard-log.yaml still carries the identical 12 spec_ref:null mitigations at the identical round-1 lines, HAZ-009's third mitigation still cites the bogus "alert-engine.md §2" anchor instead of the new §2.2 Gate A the fix created, three nulls now have existing §2.2 anchors they were never repointed to (HAZ-016->Gate C, HAZ-019->Gate B, HAZ-020->Gate A), and no mechanical gate checks hazard-log spec_refs (check_links.py excludes _work/**).
+
+<a id="rt2-lat-03"></a>
+### RT2-LAT-03
+
+The RT1-LAT-01 reconciliation promises a hazard-log entry as the safety net for the RAT-INGRESS-01 REJECTED branch ("the pure-batch reading (with a hazard-log entry for the ~30-min early-warning latency it reintroduces)") in both system-architecture §3.3 and the ADR — but no such entry exists. HAZ-033 covers a different failure (owned-pipeline latency >30s under load, status mitigated) and does not address the fallback where the entire bedside early-warning path degrades to ~30-min batch latency. The promised mitigation is a dangling reference while RAT-INGRESS-01 is still pending.

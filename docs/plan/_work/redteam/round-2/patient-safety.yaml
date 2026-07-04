@@ -1,0 +1,306 @@
+round: 2
+lens: patient-safety
+# Regression pass first: every round-1 finding marked fixed was re-walked. VERIFIED LANDED AND HOLDING:
+# RT1-PATIENT-SAFETY-02 (SOFA boundary vectors TV-5..TV-13 present and clinically correct: renal >=5.0->4 /
+# 4.9->3, norepi 0.10->3 / 0.11->4, bili 2.0/6.0/12.0 edges, MV-gate pair TV-12/13; HAZ-002/003/019 spec_refs
+# repointed), RT1-PATIENT-SAFETY-03 (PAIN-08 severity-scaling severe->urgent with NRS-10/BPS-12 max vectors
+# TV-6/TV-7 + floor vectors TV-8/TV-9; HAZ-004/005 rewritten; dedup_key includes band so a moderate->severe
+# escalation is not cooldown-masked), RT1-PATIENT-SAFETY-04 (delta_na_24h split into delta_na_24h_trailing /
+# correcao_na_24h_from_nadir in electrolyte.yaml + electrolyte.md, TV-6 nadir-vs-trailing proof vector correct),
+# RT1-COMP-01 (sepsis.md §3.1 RULE-SEPSE-099 now RATIFY-pending, RAT-SEPSE-ADD-01), RT1-ALARM-FATIGUE-01
+# (ppv-ledger fp_patient_day_p95_max + gt3_share gates; fleet mean demoted to diagnostic), RT1-ALARM-FATIGUE-02/03
+# (correlation-engine §5.2 cluster fold + §5.4 honest 1-6% accounting), RT1-ALARM-FATIGUE-04 (alert-engine §5.1
+# concurrency model), RT1-PATIENT-SAFETY-01 alert-engine HALF (§2.2 Gates A/B/C + REQ-GATE-01..03 present),
+# RT1-LAT-01/02/03/04/05/06 (ADR draft + §3.4 + T1 quantified + §4.2 out-of-band SNS dead-man + §6.1 storm +
+# latency.yaml poll split), RT1-AMH-01 (bed_unit_assignment source + REQ-AMH-ASSIGN-01 fail-safe), RT1-AMH-02
+# (labs_electrolytes 30min/15min + possible_newer_result_pending), RT1-SEC-01/02/03/04, RT1-UX-01 (in their
+# owning docs). P0 design-out spot-walk: P0-01..11 each traced to a live spec artifact; P0-12 FAILED (finding 04).
+# Findings below are the regression failures and residual/new defects in the areas the fixes touched.
+findings:
+  - finding_id: RT2-PATIENT-SAFETY-01
+    severity: critical
+    claim: >-
+      The pairwise correlation fold suppresses the PUSH of every member alert-definition for the whole
+      correlation cooldown (SEPSIS-AKI PT12H, RESP-HEMO PT4H, QTC-ELEC PT8H) with no member-escalation
+      break-through: a NEW critical member firing during the window — e.g. sepsis progresses from organ
+      dysfunction to septic shock (ALERT-SEPSIS-SHOCK-03) or AKI jumps to KDIGO 3 at hour 6 of
+      ALERT-CORR-SEPSIS-AKI-01's fold — is folded and delivers no page, because (a) the fold is declared
+      class-level "for the cooldown" over SEP-002/AKI-001..004 member definitions, (b) the §6 recommended
+      default only exempts a member of HIGHER severity than the correlation, and all three correlations are
+      already critical, so an escalating member at critical stays folded, and (c) the correlation's own
+      dedup_key/cooldown (patient_id+alert_id, PT12H) blocks a re-page and its severity is already max so the
+      alert-engine §5 "severity increase on an existing dedup_key" carve-out never triggers. A clinician who
+      acked the correlation page at t0 receives nothing when the patient decompensates into shock at t0+6h —
+      a suppression path masking a new critical deterioration for up to 12h, contradicting alert-routing §2
+      rung R3 / §4 banner ("critical ... never rate-limited/suppressed") and HAZ-026.
+    falsifiable_check: >-
+      (1) correlation-engine.yaml line 59: member_suppression "folds member sepsis.organ_dysfunction/shock
+      alert + AKI stage alert (SEP-002/AKI-001..004) for the cooldown" with cooldown PT12H — definition-class
+      fold, not instance fold; same pattern lines 114 (PT4H) and 165 (PT8H). (2) correlation-engine.md §5.1:
+      "For the correlation's dedup/cooldown window the dispatcher pushes only the correlation and folds the
+      member alerts"; grep the doc for any member-severity-escalation break-through clause — none exists (the
+      "critical member still pages RRT" clause appears ONLY under §5.2 cluster fold and GROUP-CORR yaml
+      delivery, whose cluster_window is PT1H concurrency, not the 4-12h pairwise fold). (3) §6 recommended
+      default: "never fold across a *higher* member severity than the correlation's own" — equal-severity
+      (critical member under a critical correlation) folds. (4) correlation-engine.yaml line 42 comment:
+      "Escalation stays critical; the emitted event carries kdigo_stage so the UI escalates the renal chip" —
+      intra-window escalation is UI-chip-only, no push. (5) alert-routing.md line 171 banner + line 51
+      ("critical ... never rate-limited/suppressed ... silenced only by human ack") — the folded member push
+      was never delivered, so ack cannot have silenced it.
+    owning_doc: docs/plan/clinical/domains/correlation-engine.md
+    proposed_fix: >-
+      Constrain the pairwise fold to instance-level concurrency, mirroring §5.2: fold only member pushes that
+      fire within a short concurrency window of the correlation push (<= PT1H, same RAT-CORR-01 parameter),
+      and add an explicit break-through rule to §5.1 + correlation-engine.yaml member_suppression: any member
+      firing that is (a) a new alert-definition instance not concurrent with the correlation push, or (b) any
+      severity increase within a member domain (organ-dysfunction->shock, KDIGO stage-up), delivers its own
+      page regardless of the fold window. Add a test vector: SEPSIS-AKI-01 fires t0; SHOCK-03 fires t0+6h ->
+      expected: SHOCK-03 pages (not folded). Mirror the rule in alert-engine §5.1 bullet 3.
+  - finding_id: RT2-PATIENT-SAFETY-02
+    severity: major
+    claim: >-
+      RT1-PATIENT-SAFETY-01 is marked fixed but only its alert-engine half landed: the hazard-log half of the
+      adjudicated proposed_fix ("Repoint HAZ-009/016/017/019/020/021/022 spec_refs to it; drop the bogus §2
+      citation; extend a mechanical gate ... to fail on spec_ref: null") was executed by nobody — F2's receipt
+      explicitly says it "remains with the safety-log owner". The identical 12 `spec_ref: null` mitigations
+      persist at the identical round-1 lines, including the three whose owning anchors now EXIST in §2.2
+      (HAZ-016 facade contract test = Gate C/REQ-GATE-03; HAZ-019 band-coverage property test = Gate
+      B/REQ-GATE-02; HAZ-020 build-time criterion coverage = Gate A/REQ-GATE-01), HAZ-009's third mitigation
+      still cites "architecture/alert-engine.md §2 (declarative, versioned definitions — no dead code path)"
+      instead of §2.2 Gate A, and no script fails on null spec_refs (no _work/scripts change; check_links.py
+      still excludes _work/**). Safety-critical class mitigations remain untraceable to owning spec sections
+      while the finding reads "fixed".
+    falsifiable_check: >-
+      (1) grep -n 'spec_ref: null' docs/plan/_work/safety/hazard-log.yaml -> 12 hits at lines 261, 274, 275,
+      302, 315, 331, 345, 378, 419, 446, 462, 517 (HAZ-016/017/017/019/020/021/022/024/027/029/030/034) —
+      byte-identical line set to the round-1 walk_note. (2) hazard-log.yaml HAZ-009 third mitigation (line
+      ~157) still reads "architecture/alert-engine.md §2 (declarative, versioned definitions — no dead code
+      path)". (3) alert-engine.md §2.2 REQ-GATE-01/02/03 exist and are the exact anchors lines 261/302/315
+      describe. (4) grep -rn 'spec_ref' docs/plan/_work/scripts/*.py -> no checker reads hazard-log spec_refs.
+      (5) fixes-F2.yaml RT1-PATIENT-SAFETY-01 note, last sentence: repointing "remain[s] with the safety-log
+      owner". adjudicated.yaml marks the finding resolution.status: fixed.
+    owning_doc: docs/plan/_work/safety/hazard-log.yaml
+    proposed_fix: >-
+      Repoint the three §2.2-anchored nulls (HAZ-016 -> alert-engine.md §2.2 Gate C/REQ-GATE-03; HAZ-019 ->
+      Gate B/REQ-GATE-02; HAZ-020 -> Gate A/REQ-GATE-01) and HAZ-009's stale §2 citation -> §2.2 Gate A. Fill
+      or explicitly OPEN-mark the remaining nine (HAZ-017 AST-diff + OR-vector; HAZ-021/022 ingestion-edge
+      vectors -> §2.2 sibling-gates bullet; HAZ-024/030 stale-/missing-input vectors; HAZ-027 constituent-ack
+      UX; HAZ-029 override bounds; HAZ-034 recall mechanism). Add a check (new check_hazards.py or extend
+      check_schema.py) failing on `spec_ref: null` for any mitigation of an open hazard.
+  - finding_id: RT2-PATIENT-SAFETY-03
+    severity: major
+    claim: >-
+      The plan is self-contradictory on whether urgent/critical alerts are per-patient rate-limited, and the
+      RT1-ALARM-FATIGUE-04 fix made the contradiction load-bearing: alert-routing §4 banner says urgent and
+      critical are "NEVER ... rate-limited"; alert-engine §5 layer 3 applies rate-limit with a carve-out list
+      that names only critical (and severity increases); every urgent AND critical catalog entry carries a
+      rate_limit (e.g. ALERT-SEPSIS-SHOCK-03 critical 6/24h, ORGAN-02 critical 3/24h, PAIN-08 urgent 3/24h);
+      and new §5.1 declares "Per-definition rate_limit is the only hard per-patient cap on these tiers" with a
+      93/24h structural ceiling computed by summing urgent(41)+critical(52) caps — while simultaneously saying
+      "for critical they bound re-page frequency only; a new firing or a severity upgrade always delivers".
+      If the routing banner holds, §5.1's worst-case bound (the C3 RRT pager-load sizing input) is void and
+      the never-suppressed tiers are unbounded; if the engine/catalog reading holds, the 4th genuine ORGAN-02
+      critical firing in 24h is silenced — HAZ-026 as designed behavior. "Re-page" vs "new firing" is defined
+      nowhere, so the safety property is undecidable from the specs.
+    falsifiable_check: >-
+      (1) alert-routing.md line 171: "Critical and urgent alerts are NEVER budget-suppressed, budget-demoted,
+      digest-held, rate-limited, or maintenance-muted." (2) alert-engine.md §5 numbered layer 3 (rate-limit,
+      DM-T-05) + carve-out sentence listing only critical / severity-increase / operational — urgent absent.
+      (3) alert-engine.md §5.1 "Worst case (structural bound)" bullet: "Per-definition rate_limit is the only
+      hard per-patient cap on these tiers ... 93/24h (urgent 41 + critical 52)" vs §5.1 bounding-summary item
+      (1) "(for critical they bound re-page *frequency* only; a new firing or a severity upgrade always
+      delivers)" — grep both strings. (4) sepsis.yaml line 140 (SHOCK-03, severity critical, rate_limit
+      "6/24h/patient"), line 95 (ORGAN-02 critical, 3/24h); severity-model.yaml critical row rate_limited:
+      false. No doc defines what a rate-limited "re-page" is vs an always-delivered "new firing".
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Define the two terms once in §5: a NEW FIRING = predicate transition false->true after a reset condition
+      (resolution/expiry or condition-clear) — always delivered for urgent+critical; a RE-PAGE = re-delivery
+      of a still-active same dedup_key alert — this alone is what per-definition cooldown/rate_limit bound.
+      Restate the catalog suppression fields as re-page bounds, recompute §5.1's worst case on that basis (or
+      mark it re-page-only), and align the alert-routing §4 banner wording ("never rate-limited" -> "new
+      firings never rate-limited; re-pages of an already-delivered active alert are bounded per definition").
+      Add a contract test: resolve SHOCK-03, re-fire within cooldown -> delivers.
+  - finding_id: RT2-PATIENT-SAFETY-04
+    severity: major
+    claim: >-
+      P0-12 (RULE-SEPSE-043 hypotension PAD<90-vs-PAD<60) is NOT verifiably designed out: hazard-log HAZ-012's
+      test-requirement mitigation ("test vector at PAD 75 mmHg (normal) MUST NOT satisfy the criterion") cites
+      spec_ref "_work/alerts/sepsis.yaml (test_vectors + ppv_budget)", but sepsis.yaml contains no PAD vector
+      and no alert that consumes pressao_arterial_diastolica at all (hypotension appears only as qSOFA SBP<=100
+      and shock MAP<65); the ratified-default corrected criterion "PAS<90 OR PAD<60 OR MAP<65" exists only as
+      an evidence-table row and an unconsumed domain-inputs declaration in sepsis.md, wired to no alert, no
+      form spec, and no test — while HAZ-012 carries residual_risk: low on that absent verification. This is
+      the identical hazard-log-claims-a-nonexistent-artifact failure class that round-1 PS-02/PS-03 confirmed,
+      surviving in a hazard the round-1 fixes did not touch.
+    falsifiable_check: >-
+      (1) grep -in 'diastolica\|PAD' docs/plan/_work/alerts/sepsis.yaml -> zero hits (no input, no trigger,
+      no vector). (2) hazard-log.yaml HAZ-012 (lines ~197-199): test-requirement text + spec_ref
+      "_work/alerts/sepsis.yaml (test_vectors + ppv_budget)"; residual_risk: low. (3) sepsis.md line 55
+      declares pressao_arterial_diastolica as a domain input and line 299 repeats it in the domain-inputs
+      machine block; line 223 evidence row "SBP<90 OR PAD<60 OR MAP<65"; no alert or form spec consumes it
+      (grep pressao_arterial_diastolica across docs/plan/_work/alerts/*.yaml and design/screens/*.md).
+      (4) merged.json RULE-SEPSE-043: disposition RATIFY, target RATIFICATION.md#rat-sepse-22 (still pending).
+    owning_doc: docs/plan/_work/safety/hazard-log.yaml
+    proposed_fix: >-
+      Either (a) wire the corrected hypotension criterion where it actually lives — if the C6 manual-screen
+      criterion ships in v2, specify it (clinical-forms/sepsis screening spec) with boundary vectors PAD 59 ->
+      satisfies / PAD 60 -> not / PAD 75 -> not, and repoint HAZ-012's spec_ref there; or (b) if the manual C6
+      criterion is not in v2 scope, rewrite HAZ-012's mitigation to the real control (criterion not ported;
+      RAT-SEPSE-22 pending; alert-side hypotension is SBP/MAP only) and raise residual_risk from low until
+      RAT-SEPSE-22 is decided. Also remove or consume the dangling pressao_arterial_diastolica domain-input
+      declaration (it is exactly a Gate-A unwired input if the domain block is compiled).
+  - finding_id: RT2-PATIENT-SAFETY-05
+    severity: major
+    claim: >-
+      The RT1-AMH-02 fix set labs_electrolytes staleness_max_for_alerting_crit to 15min while the same
+      register pins delivery at Gold batch p95 30min measured on the CLINICAL timestamp — so under normal
+      operation the majority of CRIT electrolyte results (K+ > 6.5) arrive already older than their crit
+      staleness ceiling, and the register's three-state semantics make the consequence undecidable: the header
+      defines fire-UNQUALIFIED below staleness_max, stale-badge beyond it, and "beyond the hard ceiling,
+      suppression applies" — but no source defines the hard ceiling, and hazard-log HAZ-024's mitigation
+      offers implementers "MUST NOT fire (or must explicitly flag 'stale-input')" as alternatives. Reading A
+      (badge): essentially every critical hyperkalemia alert renders permanently stale-badged, training
+      clinicians that the stale badge on the most lethal alert class is noise (HAZ-024's own desensitization
+      harm). Reading B (suppress at/near the ceiling): critical K+ alerts are systematically suppressed by
+      design. Neither reading was reconciled when the ceiling was tightened below the pipeline's own worst
+      case.
+    falsifiable_check: >-
+      (1) amh-freshness.yaml lines 14-16 (three states incl. "beyond the hard ceiling, suppression applies")
+      and lines 19-20 (staleness measured on lab collected_at, not ingested_at); grep 'hard ceiling' across
+      docs/plan/** -> defined nowhere. (2) lines 118-120: freshness_slo "p95 30min via Gold batch" vs
+      staleness_max_for_alerting_crit "15min" — 15 < 30, so at p95 the CRIT analyte age at first visibility
+      already exceeds the crit ceiling. (3) hazard-log.yaml HAZ-024 first mitigation: "the engine MUST NOT
+      fire (or must explicitly flag 'stale-input') when any required input exceeds its staleness_max" — the
+      no-fire branch is offered for an input class whose staleness_max is routinely exceeded in normal
+      operation. (4) The fallback text (lines 127-135) specifies badge + never-auto-resolve but does not
+      forbid the HAZ-024 no-fire branch nor define the suppression ceiling.
+    owning_doc: docs/plan/_work/platform/amh-freshness.yaml
+    proposed_fix: >-
+      Define the register's three thresholds explicitly per source: fresh_max (unqualified), stale_badge_max
+      (fire + badge), hard_ceiling (suppress new threshold-cross alerts, operational alert instead) — and for
+      labs_electrolytes CRIT analytes state that the no-fire/suppression branch NEVER applies to a first
+      firing on a newly-arrived result regardless of collected_at age (a 30-min-old K+ 7.2 must page, badged
+      with its collection age), reconciling HAZ-024's wording ("MUST NOT fire" scoped to re-evaluation on
+      unchanged stale data, never to newly-delivered results). State the expected steady-state badge rate for
+      CRIT electrolytes so the badge is designed as an age annotation, not an anomaly signal, and add a test
+      vector: K+ 7.0 collected 25min ago, first delivery -> fire critical + age badge.
+  - finding_id: RT2-PATIENT-SAFETY-06
+    severity: major
+    claim: >-
+      The RT1-SEC-01 fix does not hold across the deliverables: product/journey-maps.md MOT-14 still mandates
+      the PHI lock-screen payload the fix removed — "Lock-screen payload: score, trend, patient location" and
+      "payload complete without unlocking-then-navigating" — and even lists the now-designed PHI-free behavior
+      as a FAILURE mode ("payload says 'Alerta crítico' with no location (Rafael runs to the app, not the
+      patient)"), directly contradicting alert-routing §5.1/INV-ROUTE-09 and security-lgpd I11/REQ-INV-4-S3.
+      A builder implementing the RRT journey from the journey map re-imports the pre-authN PHI push (LGPD Art.
+      46 breach path) or ships a spec conflict; F4's receipt flagged MOT-14/15 as an out-of-fence follow-up
+      that no agent then executed, while adjudicated.yaml records the finding as fixed.
+    falsifiable_check: >-
+      (1) journey-maps.md lines 225-233 (MOT-14): "Lock-screen payload: score, trend, patient location";
+      "payload complete without unlocking-then-navigating"; failure-modes line treating no-location payload as
+      a defect. (2) alert-routing.md §5.1 transport bullet: severity band + generic label + opaque deep-link
+      token ONLY; INV-ROUTE-09 in the routing-ladder block. (3) security-lgpd.md REQ-INV-4-S3: VAPID push body
+      has no clinical fields and no bed/unit locator. (4) fixes-F4.yaml cross_doc_followups lists
+      "product/journey-maps.md MOT-14/MOT-15 (owner: journey author)" as not done; grep round-1 fixes-F*.yaml
+      for journey-maps -> no other fixer took it. adjudicated.yaml RT1-SEC-01 resolution.status: fixed.
+    owning_doc: docs/plan/product/journey-maps.md
+    proposed_fix: >-
+      Rewrite MOT-14 steps 2-3 and the failure-modes line to the ratified design: lock screen shows severity
+      band + "novo alerta crítico" + one authenticated tap; the complete card (score, trend,
+      Estabelecimento▸Setor▸Leito, vitals) renders post-OIDC inside the PWA with a content-load p95 <= 2s
+      budget; recast the failure mode as "post-auth content-load slow/failed" rather than "no location on lock
+      screen". Update MOT-15 step 1 wording to "one authenticated tap". Cross-cite alert-routing §5.1 and
+      REQ-INV-4-S3.
+  - finding_id: RT2-PATIENT-SAFETY-07
+    severity: major
+    claim: >-
+      Lifecycle dead-end in the ACTING state: both alert-engine §9 and severity-model.yaml define system-timer
+      escalations only out of `raised` (ack-SLA breach) and `acknowledged` (action-SLA breach); once a
+      clinician clicks intervention-start (acknowledged -> acting) there is NO system transition out of
+      `acting` — no action-window-breach escalation, no TTL, no reminder. Combined with (a) alert-engine §5
+      layer-1 dedup ("a duplicate within cooldown increments the recurrence counter on the existing active
+      alert instead of raising a new row") and (b) alert-routing §3.3 recipient-level suppression demoting
+      same-dedup_key repeats while the patient is ASSISTIDO, a critical alert whose responder is pulled away
+      after tapping "act" sits in `acting` indefinitely while the same-severity condition persists — already
+      at max severity, so no severity-increase carve-out can ever break through — and the crit <5-min action
+      window (CON-0062) is measured but never enforced by any timer.
+    falsifiable_check: >-
+      (1) alert-engine.md §9 transition table: rows exist for raised->escalated and acknowledged->escalated
+      (both "system (timer)"); no row exits `acting` except acting->resolved (actor: clinician). (2)
+      severity-model.yaml lifecycle transitions (lines ~140-146): from acting only "{to: resolved, actor:
+      clinician}"; the action-window-breach system escalation is attached to from: acknowledged only. (3)
+      alert-engine §5 layer 1 dedup sentence; alert-routing.md §3.3 + §2 encoding-table 'attended' row
+      "(additive; climb stilled, severity unchanged)". (4) grep -i 'acting' across both docs for any
+      breach/timeout/TTL clause on the acting state -> none.
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Add `acting -> escalated` (actor: system timer) on action-window breach measured from created_at
+      (CON-0062..64: crit 5min / urg 30min / watch 2h) — entering `acting` must not stop the action clock,
+      mirroring §2.1's one-global-clock rule for ack; audit with triggered_by. Mirror the row in
+      severity-model.yaml transitions and alert-routing §2 (ASSISTIDO stills the ACK climb, not the action
+      clock). Add a lifecycle test vector: critical acked+acting at t0, unresolved at t0+5min -> escalated
+      page fires.
+  - finding_id: RT2-PATIENT-SAFETY-08
+    severity: minor
+    claim: >-
+      Residual of RT1-PATIENT-SAFETY-04 outside the fixed files: the electrolyte domain-interface event
+      contract still publishes the retired ambiguous field name `delta_na_24h` on BOTH sodium events —
+      electrolyte.dysnatremia.detected (where the alert now computes delta_na_24h_trailing) and
+      electrolyte.sodium_correction.hazard (where the alert now computes correcao_na_24h_from_nadir) — so one
+      event field name carries two different quantities to consumers (correlation engine, UI payload
+      renderers), re-importing at the contract boundary exactly the baseline collision the fix eliminated
+      inside the alert definitions (HAZ-031 deterministic-baseline class; a consumer rendering the correction
+      event's "delta_na_24h" would show -8 for a firing whose evaluated quantity was +12, a Gate-C
+      facade/predicate drift).
+    falsifiable_check: >-
+      (1) _work/domain-interfaces/electrolyte.yaml line 29 (dysnatremia fields: ... delta_na_24h ...) and line
+      32 (sodium_correction.hazard fields: ... delta_na_24h, sodio_nadir_24h ...). (2) electrolyte.yaml/md now
+      define only delta_na_24h_trailing and correcao_na_24h_from_nadir (grep 'delta_na_24h,' in the alerts
+      file -> none bare). (3) TV-6 (electrolyte.yaml line 220) proves the two quantities differ in sign for
+      the same patient (nadir +12 vs trailing -8).
+    owning_doc: docs/plan/_work/domain-interfaces/electrolyte.yaml
+    proposed_fix: >-
+      Rename the event fields to match the split quantities: dysnatremia.detected -> delta_na_24h_trailing;
+      sodium_correction.hazard -> correcao_na_24h_from_nadir (keep sodio_nadir_24h). Sweep the two remaining
+      stale references (constraints/ledger.yaml line ~892 prose, ppv-ledger-draft.yaml line ~372 comment,
+      hazard-log HAZ-031 spec_ref anchor text) to the new names.
+  - finding_id: RT2-PATIENT-SAFETY-09
+    severity: minor
+    claim: >-
+      Round-1 CONFIRMED finding RT1-PATIENT-SAFETY-05 (delta-lactate rate not normalized for elapsed time on
+      critical ALERT-SEPSIS-ORGAN-02) was assigned to no fixer and carries no resolution/deferral record: the
+      trigger still states "delta_lactato > 0.5 mmol/L per hour over PT6H" with no rate formula or minimum
+      sample spacing, and TV-2 still divides by 6h while TV-6 divides by 1h for the same single-prior-sample
+      input shape — a fast repeat draw can false-fire and a slow 6h-spaced genuine rise can be missed, on a
+      critical alert, with the defect now silently carried across rounds.
+    falsifiable_check: >-
+      (1) adjudicated.yaml RT1-PATIENT-SAFETY-05: verdict CONFIRMED, no resolution block; grep
+      'PATIENT-SAFETY-05' across round-1/fixes-F*.yaml -> zero hits. (2) sepsis.yaml line 78 trigger unchanged;
+      TV-2 (line 108) note "0.6 mmol/L over 6h = 0.1 mmol/L/h" vs TV-6 (line 112) note "0.9 mmol/L over 1h
+      lookback = 0.9 mmol/L/h" — two denominators, no timestamps in inputs.
+    owning_doc: docs/plan/_work/alerts/sepsis.yaml
+    proposed_fix: >-
+      Apply the round-1 proposed_fix: rate = (lactato_atual - lactato_anterior) / max(elapsed_hours,
+      min_interval_hours) with an explicit minimum spacing (e.g. 1h); add collected_at timestamps to the
+      lactato inputs and rewrite TV-2/TV-6 with explicit timestamps; or record a deliberate deferral in the
+      round ledger so the defect stops being silently carried.
+  - finding_id: RT2-PATIENT-SAFETY-10
+    severity: minor
+    claim: >-
+      RT1-COMP-02 is marked fixed but holds for only 4 of the 6 non-compliant files the adjudicated claim
+      enumerated: design-tokens.md and component-library.md still contain zero A11Y-GATE occurrences (F5's
+      receipt explicitly scoped them out; no other fixer took them), so two of the deliverables
+      accessibility-standard.md §8 mandates — including the component library whose severity chips/critical
+      states carry the AAA critical-value ceiling — still fail the standard's own blocking back-to-owner rule.
+    falsifiable_check: >-
+      (1) grep -c 'A11Y-GATE-' docs/plan/design/design-tokens.md docs/plan/design/component-library.md -> 0
+      and 0 (vs 16/16/17/16 in admin-config/alert-triage/clinical-forms/alert-routing). (2)
+      accessibility-standard.md §8 MUST + back-to-owner sentence. (3) fixes-F5.yaml task_scope_note:
+      "design-tokens.md and component-library.md are out of this task's scope"; adjudicated.yaml RT1-COMP-02
+      resolution.status: fixed.
+    owning_doc: docs/plan/design/design-tokens.md
+    proposed_fix: >-
+      Add the mandated Accessibility-gate checklist subsection (all 16 A11Y-GATE IDs checked or N/A with
+      rationale) to design-tokens.md and component-library.md, mirroring the pattern already applied in the
+      other four files.

@@ -68,11 +68,18 @@ def main() -> int:
     if phase in ("D", "E"):
         if rt.exists():
             led = json.loads(rt.read_text())
-            ok = led.get("consecutive_clean", 0) >= 2 and led.get("unresolved_confirmed_critical", 1) == 0
-            results.append({"gate": "redteam-ledger", "exit": 0 if ok else 1,
-                            "status": "PASS" if ok else "FAIL",
+            unresolved = led.get("unresolved_confirmed_critical", 1)
+            clean2 = led.get("consecutive_clean", 0) >= 2
+            capped = led.get("cap_invoked", False)
+            if clean2 and unresolved == 0:
+                st, code = "PASS", 0
+            elif capped and unresolved == 0:
+                st, code = "WARN", 2  # user-sanctioned cap: all confirmed findings fixed/ratified
+            else:
+                st, code = "FAIL", 1
+            results.append({"gate": "redteam-ledger", "exit": code, "status": st,
                             "summary": f"clean_rounds={led.get('consecutive_clean')}, "
-                                       f"unresolved_critical={led.get('unresolved_confirmed_critical')}"})
+                                       f"unresolved_critical={unresolved}, cap_invoked={capped}"})
         else:
             results.append({"gate": "redteam-ledger", "exit": 1, "status": "MISSING",
                             "summary": "no red-team ledger yet"})
