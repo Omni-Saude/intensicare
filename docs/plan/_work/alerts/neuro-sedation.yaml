@@ -194,9 +194,17 @@ alerts:
 
   - alert_id: ALERT-NEUROSED-PAIN-08
     name: "Dor não controlada (escala VISUAL/COMPORTAMENTAL, dois balanços consecutivos)"
-    severity: watch
+    severity: urgent            # severity-SCALING: severe NRS>=7 / BPS>=10 -> urgent; moderate NRS 4-6 / BPS 7-9 -> watch. Pending safety-officer re-check (R2).
     trigger:
-      logic: "(escala_dor_numerica >= 4 OR escala_dor_comportamental >= 7) confirmed on TWO consecutive fluid-balance records"
+      logic: >-
+        Severity-scaling uncontrolled-pain alert; output = worst band, each confirmed on TWO consecutive
+        fluid-balance records (built-in false-positive filter; RULE-SEDACAO-001/002).
+        MODERATE (watch): (escala_dor_numerica 4..6) OR (escala_dor_comportamental 7..9).
+        SEVERE (urgent): (escala_dor_numerica >= 7) OR (escala_dor_comportamental >= 10) — RESTORED distinct urgent
+        escalation for severe uncontrolled pain (NRS 7-10 / BPS 10-12). Scale maximums NRS 10 / BPS 12 MUST reach
+        the severe->urgent band. Bands are expressed low <= x <= high, never the chained-comparison misparse
+        '7 <= dor > 10' / '10 <= sinais > 12' that silently suppressed the severe grade (SYS-06 / P0-04 / P0-05).
+        PENDING SAFETY-OFFICER RE-CHECK (R2).
       window: PT12H
     inputs:
       - {name: escala_dor_numerica, type: quantity, unit: "points", source: "AMH Gold Observation (EVA/VISUAL 0-10)", staleness_max: PT6H}
@@ -204,16 +212,20 @@ alerts:
     evidence:
       - {citation: "Devlin JW et al. PADIS 2018 (pain assessment standard)", rule_refs: [RULE-SEDACAO-001]}
       - {citation: "Payen JF et al. Crit Care Med 2001;29(12):2258-2263 (Behavioral Pain Scale)", rule_refs: [RULE-SEDACAO-002]}
-    suppression: {dedup_key: "patient_id+alert_id", cooldown: PT6H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
+    suppression: {dedup_key: "patient_id+alert_id+band", cooldown: PT6H, rate_limit: "3/24h/patient", maintenance_window_aware: true}
     ppv_budget:
       target_ppv: 0.60
       est_volume_per_100_beds_day: 3
-      rationale: "The two-consecutive-balance confirmation is a built-in false-positive filter (a single spurious high score never fires), directly carried from RULE-SEDACAO-001/002. ~3/100 beds/day. PPV ~0.60 — uncontrolled pain confirmed on two balances is a genuine analgesia-titration prompt; severe band (VISUAL 7-10 / BPS 10-12) escalates the advisory text but severity stays watch (not an imminent-life-threat class)."
-    response: {required: "reavaliar analgesia e titular; distinguir dor de agitação/delirium", ack_sla: PT2H}
+      rationale: "The two-consecutive-balance confirmation is a built-in false-positive filter (a single spurious high score never fires), directly carried from RULE-SEDACAO-001/002. ~3/100 beds/day total; the SEVERE sub-band (NRS 7-10 / BPS 10-12) is the smaller fraction. PPV ~0.60 — uncontrolled pain confirmed on two balances is a genuine analgesia-titration prompt. The severe band now emits a DISTINCT URGENT escalation (ack <30min) instead of folding into watch — restoring the escalation lost when severe pain was collapsed to watch; moderate (NRS 4-6 / BPS 7-9) stays watch. Pending safety-officer re-check (R2)."
+    response: {required: "reavaliar analgesia e titular; distinguir dor de agitação/delirium", ack_sla: PT30M}   # PT30M (urgent tier) for the severe band NRS>=7 / BPS>=10; PT2H for the moderate/watch band
     test_vectors:
-      - {id: TV-1, kind: fire, inputs: {escala_dor_numerica: 6, consecutive_balances: 2}, expected: fire, note: "VISUAL 6 (moderate) on two consecutive balances"}
+      - {id: TV-1, kind: fire, inputs: {escala_dor_numerica: 6, consecutive_balances: 2, expected_severity: watch}, expected: fire, note: "MODERATE band: VISUAL 6 (4-6) on two consecutive balances -> watch"}
       - {id: TV-2, kind: no-fire, inputs: {escala_dor_numerica: 6, consecutive_balances: 1}, expected: no-fire, note: "single balance only; two-consecutive confirmation not met"}
-      - {id: TV-3, kind: boundary, inputs: {escala_dor_numerica: 4, consecutive_balances: 2}, expected: fire, note: "boundary: VISUAL exactly 4 is the moderate-band floor (>=4); fires"}
-      - {id: TV-4, kind: boundary, inputs: {escala_dor_numerica: 3, escala_dor_comportamental: 7, consecutive_balances: 2}, expected: fire, note: "boundary: VISUAL 3 below floor but BPS exactly 7 meets the COMPORTAMENTAL moderate floor; OR-branch fires. Guards against the chained-comparison severe-band suppression bug (SYS-06/P0-04/05)"}
+      - {id: TV-3, kind: boundary, inputs: {escala_dor_numerica: 4, consecutive_balances: 2, expected_severity: watch}, expected: fire, note: "boundary: VISUAL exactly 4 is the moderate-band floor (>=4) -> watch"}
+      - {id: TV-4, kind: boundary, inputs: {escala_dor_numerica: 3, escala_dor_comportamental: 7, consecutive_balances: 2, expected_severity: watch}, expected: fire, note: "boundary: VISUAL 3 below floor but BPS exactly 7 meets the COMPORTAMENTAL moderate floor (7-9); OR-branch fires watch. Guards the chained-comparison severe-band suppression bug (SYS-06/P0-04/05)"}
       - {id: TV-5, kind: boundary, inputs: {escala_dor_numerica: 3, escala_dor_comportamental: 6, consecutive_balances: 2}, expected: no-fire, note: "boundary: VISUAL 3 and BPS 6 both below floors; no fire"}
-    reconciliation: {existing_id: null, status: new, note: "No DEL-* catalog alert covers pain (analgesia pillar); new alert carrying RULE-SEDACAO-001 (moderate) and RULE-SEDACAO-002 (severe) ADOPT forward with the two-consecutive-balance confirmation preserved."}
+      - {id: TV-6, kind: boundary, inputs: {escala_dor_numerica: 10, consecutive_balances: 2, expected_severity: urgent}, expected: fire, note: "SEVERE scale-maximum: NRS exactly 10 MUST fire URGENT on two consecutive assessments (restored distinct severe-pain escalation; was silently capped at watch). Directly satisfies HAZ-004 max-value requirement (P0-04 chained-comparison). Pending safety-officer re-check (R2)"}
+      - {id: TV-7, kind: boundary, inputs: {escala_dor_comportamental: 12, consecutive_balances: 2, expected_severity: urgent}, expected: fire, note: "SEVERE scale-maximum: BPS exactly 12 MUST fire URGENT (non-communicative/sedated patients, the population BPS exists for). Satisfies HAZ-005 max-value requirement (P0-05). Pending safety-officer re-check (R2)"}
+      - {id: TV-8, kind: boundary, inputs: {escala_dor_numerica: 7, consecutive_balances: 2, expected_severity: urgent}, expected: fire, note: "boundary: NRS exactly 7 is the SEVERE-band floor (>=7) -> urgent, distinct from the moderate watch band (4-6)"}
+      - {id: TV-9, kind: boundary, inputs: {escala_dor_comportamental: 10, consecutive_balances: 2, expected_severity: urgent}, expected: fire, note: "boundary: BPS exactly 10 is the SEVERE-band floor (>=10) -> urgent; guards the BPS 9/10 moderate-severe edge"}
+    reconciliation: {existing_id: null, status: new, note: "No DEL-* catalog alert covers pain (analgesia pillar); new alert carrying RULE-SEDACAO-001 (moderate) and RULE-SEDACAO-002 (severe) ADOPT forward with the two-consecutive-balance confirmation preserved. The severe band (RULE-SEDACAO-002, NRS 7-10 / BPS 10-12) now outputs a DISTINCT URGENT escalation (restored; previously folded to watch) — reinstating the domain's flagged single genuine clinical loss. Pending safety-officer re-check (R2)."}

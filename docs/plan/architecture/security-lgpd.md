@@ -89,7 +89,7 @@ Legend: **S**poofing · **T**ampering · **R**epudiation · **I**nformation disc
 | # | Interface | Top STRIDE threats | Mitigation (owner) |
 |---|---|---|---|
 | **I1** | Clinician → **REST API** (HTTPS) | **S**: stolen/replayed session token (legacy 30-day cookie — RULE-AUTH-USUARIOS bad pattern). **E**: request a permission not held. **I**: PHI in error bodies / verbose 500s. **R**: deny having acknowledged/edited. | **App**: OIDC bearer from IAM IC (I10), short TTL + refresh, no 30-day cookies; **deny-by-default** authz gate server-side **before** shell render (`CON-0038`, §5); RFC 7807 problem+json with no PHI; every mutation → `audit_trail` (invariant #1, §5.3). TLS 1.2+ enforced at ALB. |
-| **I2** | Clinician → **WebSocket** push (WSS) | **S**: unauthenticated socket subscribes to another tenant's bed-board. **I**: cross-tenant fan-out of alerts. **D**: connection-flood exhausts workers. | **App**: authenticate on WS handshake (same OIDC), bind subscription to `tenant_id`+`unit` scope from the token, per-connection rate/back-pressure caps; server-side tenant filter on every push (never trust client-supplied unit). |
+| **I2** | Clinician → **WebSocket** push (WSS) | **S**: unauthenticated socket subscribes to another tenant's bed-board. **I**: cross-tenant fan-out of alerts. **D**: connection-flood exhausts workers. | **App**: authenticate on WS handshake (same OIDC), bind subscription to `tenant_id`+`unit` scope from the token, per-connection rate/back-pressure caps; server-side tenant filter on every push (never trust client-supplied unit). The **sole** cross-unit exception is the least-privilege `rrt` role (§5.3.1: tenant-wide but limited to critical/urgent streams + minimal, post-authN bed context, rotation-gated, every read audited). |
 | **I3** | Monitor/EMR → **MLLP listener** (HL7 v2 ORU-R01) | **S**: rogue host injects fabricated vitals → false scores/alerts. **T**: altered ORU segments. **D**: malformed-message flood. **R**: no attribution of source. | **App**: mutual-TLS on the MLLP socket + source allow-list (VPC-internal only, no public ingress); strict HL7 parse + reject on schema violation; **idempotency on MSH-10** (`CON-0067`, invariant #2) blocks replay/dup; `source_system` stamped for attribution; ACK/NAK semantics; rate cap per source. |
 | **I4** | Gold Reader → **Athena/Gold** (read) | **E**: scan partitions of a tenant IC may not read. **I**: over-broad SELECT. | **Inherited**: Lake Formation **ABAC** + per-tenant KMS decide readable partitions (`ADR001-C-07`); IC adds **no parallel authz** — least-privilege IAM task role scoped to the IC Glue DB/columns only. High-watermark, column-projected polls (no `SELECT *`). |
 | **I5** | Gold Writer → **Gold** (`fact_patient_score`/`fact_alert`) write-back | **T**: corrupt corporate analytics. **E**: write outside IC's fact tables. | **Inherited + App**: IAM task role write-scoped to exactly the two fact tables; schema-versioned writes (`ADR001-C-09`); write-back carries **no direct identifiers** beyond `mpi_id` (§3.3). |
@@ -98,7 +98,7 @@ Legend: **S**poofing · **T**ampering · **R**epudiation · **I**nformation disc
 | **I8** | App ⇄ **Redis 7** (cache/pubsub/queue) | **I**: PHI cached in plaintext, survives in memory/RDB dumps. **S**: unauthenticated Redis. | **App**: Redis AUTH + TLS + VPC-private; **cache only non-PHI or short-TTL de-identified** score payloads keyed by `mpi_id`; no `nome`/`CPF`/`CNS` in cache values; disable persistence for PHI-bearing keys. |
 | **I9** | App → **OTEL / AMP-Grafana** (telemetry egress) | **I**: PHI leaks into logs/traces/span attributes/metric labels. | **App**: structured logging with a **PHI-redaction filter**; never log `nome`/`CPF`/`CNS`/`MRN` or raw HL7 bodies; span attributes carry `mpi_id`+`request_id` only; log review in the pentest checklist (§8). |
 | **I10** | App → **IAM Identity Center** (SSO/OIDC) | **S**: forged token. **E**: over-broad claims. | **Inherited**: IdP-issued OIDC (`ADR001-C-07`). **App**: verify signature/issuer/audience/exp, map IdP groups → IC roles (§5), **fail closed** on any validation error. |
-| **I11** | ARQ → **clinician mobile** (SMS/push egress) | **I**: PHI in an SMS body to a wrong/roamed number. **D**: notification storm. | **App**: alert payloads carry **no PHI** — bed/unit + severity + deep-link only, PHI shown only after in-app authN; retry+backoff+DLQ (invariant #6, `CON-0071`); rate/dedup caps. |
+| **I11** | ARQ → **clinician mobile** (SMS/push egress) | **I**: PHI **or a re-identifying locator** in a push/SMS body previewable on a lock screen or sent to a wrong/roamed number. **D**: notification storm. | **App**: alert payloads carry **no PHI and nothing patient-identifying** — **severity band + opaque deep-link token only** (no bed/unit locator, score, trend, vitals, or name; bed+unit+time on a lock screen re-identifies the ICU patient). All context + PHI render **only after in-app OIDC authN** — the opaque token resolves the payload **server-side post-auth**; retry+backoff+DLQ (invariant #6, `CON-0071`); rate/dedup caps. Contract-tested by REQ-INV-4-S3. |
 
 **Cross-cutting (all interfaces).** *Repudiation* is closed system-wide by invariant #1 (append-only `audit_trail`, §5.3). *Elevation* is closed by the deny-by-default model (§5). *Spoofing* funnels through IAM IC (I10). *Residency*: all interfaces are in-VPC / sa-east-1 (`CON-0008`) — no PHI crosses a region boundary.
 
@@ -146,7 +146,7 @@ flowchart LR
 
 ### 3.3 Egress minimization
 - **Gold write-back (I5)** carries `mpi_id` + aggregates only — **no `nome`/`CPF`/`CNS`** re-exported to the analytical layer.
-- **Notifications (I11)** carry bed/unit/severity/deep-link — **no PHI** off-platform.
+- **Notifications (I11)** carry **severity band + opaque deep-link token only** — **no PHI and no patient-identifying context** (no bed/unit locator, score, trend, vitals, or name) on the pre-authN push; all context resolves in-app **post-authN** (§2.2 I11, REQ-INV-4-S3).
 - **Telemetry (I9)** carries `mpi_id`/`request_id` — **no PHI** in logs/traces.
 
 ### 3.4 RIPD inputs (hand-off to the DPO)
@@ -227,9 +227,45 @@ In the legacy system, e-signature PINs shipped with a **single org-wide default*
 ### 5.3 v2 model
 
 - **Subjects** — clinician identities from IAM Identity Center (I10); IdP groups map to IC roles.
-- **Roles (named permission sets)** — aligned to personas: `nurse` (Ana — view scores/vitals, ack alerts, document actions), `intensivist` (Carlos — all nurse + score detail + config-read), `coordinator` (Fernanda — bed-board + metrics dashboard), `rrt` (Rafael — critical-alert receive/ack), `admin` (threshold config, user-role admin). Each role is a **closed enumerated** set from the permission catalog.
-- **Enforcement** — deny-by-default at the route (`CON-0038`), evaluated **server-side before render**; unknown/absent permission ⇒ **403 + audit log**, never a silent pass. Tenant scope (`tenant_id`) and unit scope are enforced on every read/subscription (I1/I2), never trusted from the client.
+- **Roles (named permission sets)** — aligned to personas: `nurse` (Ana — view scores/vitals, ack alerts, document actions), `intensivist` (Carlos — all nurse + score detail + config-read), `coordinator` (Fernanda — bed-board + metrics dashboard), `rrt` (Rafael — **hospital-wide** critical/urgent-alert receive/ack; the **one cross-unit role**, §5.3.1), `admin` (threshold config, user-role admin). Each role is a **closed enumerated** set from the permission catalog.
+- **Enforcement** — deny-by-default at the route (`CON-0038`), evaluated **server-side before render**; unknown/absent permission ⇒ **403 + audit log**, never a silent pass. Tenant scope (`tenant_id`) and unit scope are enforced on every read/subscription (I1/I2), never trusted from the client. The **sole** cross-unit subscription is the least-privilege `rrt` role (§5.3.1); **every other role is bound to `tenant_id`+`unit`** (I2) — there is no silent tenant-wide grant.
 - **Audit (invariant #1 — the access-audit backbone).** Every login, every PHI read, every alert ack/resolve, every threshold edit, every role change, and every signing action writes **exactly one** `audit_trail` row (append-only, `BEFORE UPDATE OR DELETE` trigger blocks mutation — `CON-0066`/`CON-0097`) with actor, action, entity, before/after, and OTEL `request_id`. This is what makes the LGPD "who accessed my data" subject-right answerable (§3.4) and closes *Repudiation* across all interfaces.
+
+### 5.3.1 The one enumerated cross-unit role — `rrt` (least-privilege hospital-wide) *(RT1-SEC-04)*
+
+I2 binds **every** WebSocket subscription to the token's `tenant_id`+`unit`. But the RRT responder
+(Rafael) is by design **hospital-wide and location-free** (`alert-routing.md` §3.1) — a `critical`
+alert on *any* unit must reach the on-shift RRT within the <5 s dispatch budget (`CON-0092`). Left
+unstated, `rrt` would be either unit-scoped (breaking hospital-wide dispatch) or **silently tenant-wide**
+(an un-enumerated broad grant that violates deny-by-default). It is **neither**: `rrt` is the **single,
+explicitly enumerated cross-unit role**, and its grant is least-privilege, not "all of the tenant":
+
+- **Tenant-wide, but stream-limited.** The `rrt` subscription spans every unit of its `tenant_id`
+  **but is filtered server-side to the `critical` and `urgent` streams only** — the two tiers that can
+  route to R3/RRT (`alert-routing.md` §1/§2). It carries **no** `normal`/`watch` traffic and grants
+  **no** routine cross-unit bed-board / patient-browsing capability. There is no "list all patients in
+  unit X" permission attached to the role — only the alerts that earned R2/R3.
+- **Minimal bed context on the authenticated stream; the *push* is severity-only.** The **pre-authN
+  push** (I11) carries **only** a severity band + an opaque deep-link token — **no** bed/unit locator,
+  score, trend, vitals, or name (bed+unit+time on a lock screen re-identifies the ICU patient). Minimal
+  bed context (`Estabelecimento▸Setor▸Leito`) and all clinical content appear **only** on the
+  **authenticated** in-app WS stream / en-route view, after the responder taps through and OIDC
+  re-validates (`alert-routing.md` §5.1). Being cross-unit therefore never widens what the role sees
+  **pre-authN** — pre-authN it sees nothing patient-identifying at all.
+- **Deny-by-default, gated on active rotation membership.** The cross-unit grant is **not** a standing
+  property of the role; it is evaluated per connection and is **active only while the subject is the
+  on-shift member of the RRT rotation** (the audited `rrt_rotation` table, `alert-routing.md`
+  §3.1.1/§5.3). Off-rotation, the subject falls back to its base `tenant_id`+`unit` scope. Absent/expired
+  rotation membership ⇒ **denied** (deny-by-default), never a silent tenant-wide default.
+- **Every cross-unit PHI read is audited.** Opening any bed detail on a unit the responder is not
+  natively assigned to writes an `audit_trail action='phi.read'` row with actor, `mpi_id`, and
+  `request_id` (invariant #1, REQ-INV-1-S1) — the cross-unit reach is fully traceable in the "who
+  accessed my data" report (§3.4). Broad-but-shallow + fully-audited is what makes this acceptable
+  under LGPD Art. 46 least-privilege.
+
+This makes `rrt` the **one** documented exception to "bind to `tenant_id`+`unit`" (I2) — explicit,
+least-privilege, stream-scoped, PHI-free pre-authN, rotation-gated, and audited — rather than the
+unresolved deny-by-default hole RT1-SEC-04 flagged. It reconciles I2 with `alert-routing.md` §3.1.
 
 ---
 
@@ -264,7 +300,7 @@ Security-control-tier requirements owned by **this** document. IDs use the `-S` 
 | **REQ-INV-1-S3** | Signing/ack attribution is **individual and non-repudiable** — no shared/default secret can authorize a signing action (countermeasure to RULE-AUTH-USUARIOS-063). | Attempt to sign with a default/shared credential → rejected; every ack/sign audit row carries a unique per-user actor; no org-wide default signing secret exists in config/seed. | Auth + signing path (§5.1). |
 | **REQ-INV-4-S1** | PHI (`display_name`, `mrn`, `birth_date`, `CPF`/`CNS` if present) is stored **pgcrypto-encrypted** (BYTEA); plaintext never persisted in column, index, or dump (`CON-0069`/`CON-0103`/`IMP-C-04`). | Inspect raw table bytes/`pg_dump` → ciphertext only, no plaintext PHI; decrypt round-trip unit test; confirm `mrn` equality uses `mrn_bidx`, no plaintext MRN index. | `patient_cache` + pgcrypto (twin: REQ-INV-4-1/-3). |
 | **REQ-INV-4-S2** | Encryption keys are **per-tenant, KMS-issued** DEKs injected per session, **never stored** in DB or source; a cross-tenant decrypt with the wrong key **fails** (`CON-0007`/`ADR001-C-07`). | Grep schema/seed/source for embedded key material → none; verify DEK set per session + rotated; attempt decrypt of tenant A's row with tenant B's DEK → fails. | Key-management (KMS) + session bootstrap (twin: REQ-INV-4-2). |
-| **REQ-INV-4-S3** | PHI does **not** leak across the minimizing egress boundaries: Gold write-back (I5), notifications (I11), and telemetry (I9) carry no `nome`/`CPF`/`CNS`/`MRN`. | Contract test on write-back payload → only `mpi_id`+aggregates; notification payload → no PHI; log/trace scrub test asserts redaction filter drops PHI fields. | Gold writer, ARQ workers, OTEL exporter (§3.3). |
+| **REQ-INV-4-S3** | PHI does **not** leak across the minimizing egress boundaries: Gold write-back (I5), notifications (I11), and telemetry (I9) carry no `nome`/`CPF`/`CNS`/`MRN`. The **notification (VAPID push) body is PHI-free *and* non-identifying** — severity band + opaque deep-link token only, **no** clinical field **and no** bed/unit locator (pre-authN lock-screen exposure, `alert-routing.md` §5.1). | Contract test on write-back payload → only `mpi_id`+aggregates; **contract test on the VAPID push body asserts it contains no clinical fields (score/trend/vitals/name) and no bed/unit locator** — severity band + opaque token only; log/trace scrub test asserts the redaction filter drops PHI fields. | Gold writer, ARQ workers, OTEL exporter (§3.3). |
 
 ---
 

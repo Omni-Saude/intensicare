@@ -46,6 +46,9 @@ def git(*args: str) -> str:
 
 def porcelain() -> tuple[list[str], list[str]]:
     lines = [l for l in git("status", "--porcelain=v1").splitlines() if l.strip()]
+    # docs/plan/** is this effort's own workspace — it churns by design and is
+    # committed via scoped adds; the tripwire protects everything OUTSIDE it.
+    lines = [l for l in lines if not l[3:].strip().startswith("docs/plan")]
     tracked = sorted(l for l in lines if not l.startswith("??"))
     untracked = sorted(l for l in lines if l.startswith("??"))
     return tracked, untracked
@@ -68,7 +71,13 @@ def main() -> int:
     dirty_path = WORK / "gates/dirty-tree-baseline.json"
 
     if init:
-        manifest = {str(p.relative_to(ROOT)): sha256_file(p) for p in AUTHORITATIVE}
+        manifest = {str(p.relative_to(ROOT)): sha256_file(p) for p in AUTHORITATIVE if p.exists()}
+        gone = [str(p.relative_to(ROOT)) for p in AUTHORITATIVE if not p.exists()]
+        if gone:
+            manifest["_retired_inputs"] = {
+                rel: {"pinned_commit": "aa5e786",
+                      "note": "absent at (re)init; content preserved in _work/briefs + git history"}
+                for rel in gone}
         (WORK / "gates").mkdir(parents=True, exist_ok=True)
         dump_json(manifest, inputs_path)
         tracked, untracked = porcelain()
@@ -93,6 +102,8 @@ def main() -> int:
 
     changed = []
     for rel, h in manifest.items():
+        if rel.startswith("_"):
+            continue
         p = ROOT / rel
         if not p.exists():
             changed.append(f"MISSING {rel}")

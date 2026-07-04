@@ -7,11 +7,14 @@
 #   <5s MVP/<2s prod (IMP-C-14). Summed naively the MVP figures give 30s+5s = 35s > 30s.
 # RESOLUTION:
 #   1. The 30s SLO is the END-TO-END envelope IntensiCare OWNS over the five controllable stages
-#      poll -> normalize -> evaluate -> persist -> deliver. impl 'score' maps to the evaluate stage;
-#      impl 'alert' maps to the deliver stage. They are intra-budget stage ceilings, not separate frames.
-#   2. Production stage targets are binding (sum ~9s << 30s). MVP relaxations are re-scoped so
-#      evaluate_MVP <= 30s - sum(other stages); end-to-end stays <= 30s. The 35s contradiction was an
-#      artifact of adding two intra-budget numbers AGAINST the ceiling instead of INSIDE it.
+#      poll -> normalize -> evaluate -> persist -> deliver. The poll stage is PER-PATH (RT1-LAT-03):
+#      poll_nrt (Redis event pickup) vs poll_micro_batch (Athena SELECT round-trip). impl 'score' maps
+#      to the evaluate stage; impl 'alert' maps to the deliver stage. They are intra-budget stage
+#      ceilings, not separate frames.
+#   2. Production stage targets are binding (sum: NRT ~9s, micro-batch ~16s, both << 30s). MVP
+#      relaxations are re-scoped PER PATH so evaluate_MVP <= 30s - sum(other stages of that path);
+#      end-to-end stays <= 30s. The 35s contradiction was an artifact of adding two intra-budget
+#      numbers AGAINST the ceiling instead of INSIDE it.
 #   3. Source freshness (AMH source->Gold, <=30min p95, ADR001-F-02) is INHERITED and EXCLUDED from the
 #      committed SLO (uncontrollable under ADR001-C-01/C-10); surfaced for transparency only.
 #      End-to-end bedside->alert = source_freshness + owned_pipeline.
@@ -41,11 +44,18 @@ stages:
     included_in_slo: false
     assumption: "Time from datum origin to IntensiCare's queryable surface. NRT ~2s; Athena/Gold batch <=30min. Uncontrollable under ADR001-C-01; held separate from the 30s IntensiCare commits."
     source_ref: [ADR001-F-02, ADR001-C-10]
-  - stage: poll
+  - stage: poll_nrt
+    path: near_real_time
     p95_ms: 1000
     included_in_slo: true
-    assumption: "Event pickup from Redis stream (NRT) or expedited micro-batch trigger."
+    assumption: "Event pickup from the Redis stream (NRT runner). Trigger/event pickup ONLY — the NRT path issues no Athena query on the hot path."
     source_ref: [VIS-2-08, IMP-3.2-05]
+  - stage: poll_micro_batch
+    path: micro_batch
+    p95_ms: 8000                             # STATED PLANNING ASSUMPTION — replaced by measured p95 (RT1-LAT-03)
+    included_in_slo: true
+    assumption: "Athena SELECT round-trip for one incremental, partition-pruned poll: queue wait + query planning + S3/Iceberg scan + result fetch. ASSUMPTION: 8s p95 for the narrow high-watermark reads this engine issues (single lab/domain partition, small result set) — multi-second, dominated by Athena queue+planning overhead, not scan volume. The prior single 'poll' stage (1000ms) budgeted only trigger pickup and NO stage budgeted the actual Athena SELECT round-trip (RT1-LAT-03); this stage closes that gap. Pilot-measured p95 replaces this number; a measured breach re-opens the micro-batch sum at C3. The ~1-2min expedited electrolyte cadence is the TRIGGER INTERVAL; this stage is the per-poll query cost inside it. NOT to be confused with the /api/v1/health athena connectivity probe (SELECT-1-class, ~hundreds of ms) — that probe is not a data poll."
+    source_ref: [ADR001-C-01, IMP-3.2-06]
   - stage: normalize
     p95_ms: 500
     included_in_slo: true
@@ -53,9 +63,10 @@ stages:
     source_ref: [IMP-C-12, CON-SEED-12]
   - stage: evaluate
     p95_ms: 5000                             # production score budget
-    p95_ms_mvp_ceiling: 23000                # re-scoped: 30000 - poll 1000 - normalize 500 - persist 500 - deliver_MVP 5000 = 23000 (B3-001)
+    p95_ms_mvp_ceiling: 23000                # NRT-path re-scope: 30000 - poll_nrt 1000 - normalize 500 - persist 500 - deliver_MVP 5000 = 23000 (B3-001)
+    p95_ms_mvp_ceiling_micro_batch: 16000    # micro-batch-path re-scope: 30000 - poll_micro_batch 8000 - normalize 500 - persist 500 - deliver_MVP 5000 = 16000 (RT1-LAT-03)
     included_in_slo: true
-    assumption: "Run score + alert-definition predicates. Production <5s (IMP-C-13). MVP ceiling re-scoped to fit the 30s end-to-end envelope using the IMP-C-14 MVP deliver (5000ms) — NOT the PROD deliver (2000ms) — so it honours IMP-C-14's <5s MVP alert budget; NOT a standalone 30s."
+    assumption: "Run score + alert-definition predicates. Production <5s (IMP-C-13). MVP ceiling re-scoped PER PATH to fit the 30s end-to-end envelope using the IMP-C-14 MVP deliver (5000ms) — NOT the PROD deliver (2000ms) — so it honours IMP-C-14's <5s MVP alert budget; NOT a standalone 30s."
     source_ref: [IMP-C-13, IMP-C-14]
   - stage: persist
     p95_ms: 500
@@ -70,16 +81,25 @@ stages:
     source_ref: [IMP-C-14, CON-0071, CON-0092]
 
 budget_check:
-  owned_pipeline_stages: [poll, normalize, evaluate, persist, deliver]
-  owned_pipeline_sum_ms: 9000                # 1000+500+5000+500+2000 (production); linear p95 upper bound
+  # Per-path sums (RT1-LAT-03): the owned pipeline is stated PER PATH because the poll stage differs.
+  nrt_path:
+    owned_pipeline_stages: [poll_nrt, normalize, evaluate, persist, deliver]
+    owned_pipeline_sum_ms: 9000              # 1000+500+5000+500+2000 (production); linear p95 upper bound
+    headroom_ms: 21000
+    within_ceiling: true
+  micro_batch_path:
+    owned_pipeline_stages: [poll_micro_batch, normalize, evaluate, persist, deliver]
+    owned_pipeline_sum_ms: 16000             # 8000+500+5000+500+2000 (production); linear p95 upper bound; carries the 8s Athena assumption
+    headroom_ms: 14000
+    within_ceiling: true
   ceiling_ms: 30000                          # VIS-C-09
-  headroom_ms: 21000                         # absorbs MVP relaxation + sum-vs-true-p95 slack
-  within_ceiling: true
+  within_ceiling: true                       # both paths close within the ceiling
   notes:
-    - "Linear sum of stage p95s OVER-estimates true end-to-end p95 (stages not perfectly correlated); 9s is a conservative upper bound."
+    - "Linear sum of stage p95s OVER-estimates true end-to-end p95 (stages not perfectly correlated); 9s (NRT) / 16s (micro-batch) are conservative upper bounds."
     - "deliver 2000ms < personas_rrt_push_s 5000ms (CON-0092/PER-C-06): PASS."
-    - "engine detection->delivery <=9s leaves the rest of the 5-min CRIT action window (CON-0062) for human response."
-    - "MVP column sums to EXACTLY 30000ms: poll 1000 + normalize 500 + evaluate 23000 + persist 500 + deliver_MVP 5000 = 30000 (== VIS-C-09 ceiling), honouring IMP-C-14's <5s MVP alert budget (B3-001). PROD column (Sigma 9000ms) is unaffected."
+    - "engine detection->delivery <=9s (NRT) / <=16s (micro-batch) leaves the rest of the 5-min CRIT action window (CON-0062) for human response."
+    - "MVP columns sum to EXACTLY 30000ms per path: NRT poll_nrt 1000 + normalize 500 + evaluate 23000 + persist 500 + deliver_MVP 5000 = 30000; micro-batch poll_micro_batch 8000 + normalize 500 + evaluate 16000 + persist 500 + deliver_MVP 5000 = 30000 (== VIS-C-09 ceiling), honouring IMP-C-14's <5s MVP alert budget (B3-001, RT1-LAT-03). PROD columns (9000/16000ms) are unaffected."
+    - "The expedited electrolyte CRIT poll (~1-2min trigger cadence) is budgeted by the micro-batch path: cadence is the trigger interval, poll_micro_batch (8000ms assumed p95) is the per-poll Athena cost inside it — no longer under-budgeted by the old single 1000ms poll stage (RT1-LAT-03)."
 
 notes:
   con_seed_01: "Machine-readable companion to the canonical decomposition in architecture/alert-engine.md sec8 — which is the SOLE canonical PROSE statement of the CON-SEED-01 resolution. This file is the single source of the NUMBERS; alert-engine.md sec8 is the canonical prose; observability-slo.md sec3 is a downstream restatement that MUST introduce no number absent here. Flag: RESOLVES CON-SEED-01; final signoff at barrier C3. (B3-005)"
@@ -96,3 +116,15 @@ notes:
     requires the Alternativa-B dedicated MSK topic (ADR001-F-08). VIS-C-09 applied to these scores is the
     quantified trigger ADR-001 left open. Owner: amh-integration-architect (CON-0001); signoff C3.
   staleness_guard: "Because Gold freshness can lag <=30min and can fail silently, the alert-on-no-alerts staleness watchdog (INV-5, CON-0070) converts silence into a paged operational alert — see architecture/alert-engine.md sec 7.2."
+  poll_split_rt1_lat_03: >-
+    RT1-LAT-03 fix: the former single 'poll' stage (1000ms) budgeted only trigger/event pickup, and no
+    stage in the decomposition budgeted the actual Athena SELECT round-trip (queue + planning + scan),
+    so the 9s owned-pipeline sum held only for the NRT Redis path and every micro-batch domain —
+    including the expedited electrolyte CRIT poll — was under-budgeted. The poll stage is now split
+    into poll_nrt (1000ms Redis/event pickup) and poll_micro_batch (8000ms ASSUMED Athena SELECT
+    round-trip p95, to be replaced by pilot-measured p95; breach re-opens C3), and the owned-pipeline
+    sums are stated per path (NRT 9000ms / micro-batch 16000ms, both < 30000ms). The 340ms
+    'last_query_latency_ms' figure in observability-slo.md sec 4.1 is a SELECT-1-class connectivity
+    probe, not a data-poll round-trip, and is relabelled there accordingly. Mirrors: alert-engine.md
+    sec 8.1 (canonical prose) and observability-slo.md sec 3 (SRE render) — this file remains the
+    single source of the numbers.

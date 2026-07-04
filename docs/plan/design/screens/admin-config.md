@@ -107,3 +107,26 @@ An alert type's enabled/disabled state is itself a governed, audited config — 
 | `CON-0041`/`CON-0049`/`DES-C-01` clinical vs brand color decoupled | C2 | §0 |
 
 **Open reconciliations (→ B / data-architect):** add nullable `bed_id` to `threshold_config` (extends `DM-T-05`); add `effective_from` + a version/supersession key so a config row is immutably versioned rather than updated-in-place; confirm the enable/disable state persistence (per-scope `enabled` flag on the alert-definition scope join, or a dedicated `alert_enablement` table) — flagged for the data model.
+
+---
+
+## 6. Accessibility gate (required by `accessibility-standard.md §8`)
+
+Per `accessibility-standard.md §1`, admin threshold/governance forms are **incidental chrome scoped to WCAG 2.2 AA**, not the AAA critical-value ceiling — the sole AAA-scoped surface here is the `critical`-band **preview** chip, which renders through the same C2-validated `clinical.*` tokens as clinical screens.
+
+- [x] **A11Y-GATE-01** — Every form label, value, and change-history text meets `SC 1.4.3` (4.5:1 / large 3:1) in both themes; the one AAA-scoped element — the `critical`-band threshold **preview** chip — renders through the C2-validated `clinical.*` tokens that clear 7:1 (`A11Y-REQ-01`; §0, §1.1).
+- [x] **A11Y-GATE-02** — Band-preview chips, form-field borders, the `safety_critical` lock glyph, and focus rings meet `SC 1.4.11` (≥3:1 non-text) against adjacent colors in both themes (same `signal-*` roles as the app).
+- [x] **A11Y-GATE-03** — Enable/disable state, the `safety_critical` **shown-locked** state, and band previews carry a distinct icon **and** shape/text (a lock glyph + *"bloqueado — escalar RATIFY"* on a locked toggle, §4.3), never color alone (`A11Y-REQ-02`).
+- [x] **A11Y-GATE-04** — **N/A** — this screen introduces **no new severity hex**; band previews consume the C2-validated `clinical.*` set already run through the §2.2 CVD/ΔE method (`design-tokens.md §6`).
+- [x] **A11Y-GATE-05** — No severity animation on this screen; save/validation transitions honor `prefers-reduced-motion` (collapse to instant) and nothing flashes >3 Hz (`A11Y-REQ-13/14`).
+- [x] **A11Y-GATE-06** — The `watch`/`urgent`/`critical` band-preview chips stay icon+shape-distinct at the smallest preview size, protecting the deuteranopia `watch↔critical` LOW-RISK pair (`A11Y-GATE-06`/§2.3 of the standard).
+- [x] **A11Y-GATE-07** — Band previews and every severity rendering derive from the live threshold→band computation via `clinical.*` tokens — no hardcoded literal severity anywhere in the spec (`A11Y-REQ`, §0).
+- [x] **A11Y-GATE-08** — The propose→review→activate workflow, change-history view, and US-26 retrospective preview open on the managed overlay stack: `Escape` closes only the topmost, back matches Esc, `role="dialog"` (`alertdialog` for the destructive disable / RATIFY-escalation confirm, initial focus on the **safe** default), `aria-modal` + focus trap, exact focus-restore, depth ≤2 (`A11Y-REQ-07..11`, `accessibility-standard §3`).
+- [x] **A11Y-GATE-09** — The only live surfaces are the save/validation result and async retrospective-preview completion → `aria-live="polite"` (non-critical status, no forced focus change, `A11Y-REQ-16`); no `critical`-tier alert renders on this admin surface.
+- [x] **A11Y-GATE-10** — Where a scope row or governance-queue item names an alert type, its accessible name states severity band → score/parameter → scope (tenant/unit/bed), never band or scope alone (`A11Y-REQ-18`).
+- [x] **A11Y-GATE-11** — Every toggle, scope-row edit, and the `Propor`/`Aprovar`/`Ativar` controls meet the 24×24 floor; the primary governed-change actions meet 44×44 (`A11Y-REQ-20/21`).
+- [x] **A11Y-GATE-12** — No pure `#FFFFFF`/`#000000` large surface (`A11Y-REQ-23`); embossed form cards carrying values pass the both-theme contrast check (`CON-0037`) and have a `prefers-contrast: more` flat fallback (`A11Y-REQ-24`).
+- [x] **A11Y-GATE-13** — **N/A** — no drag interactions on this screen (state: none); scope selection and toggles are tap/click.
+- [x] **A11Y-GATE-14** — **N/A** — the safety-critical disable path is a **RATIFY-level governance escalation** (§4.1), an audited approval workflow, **not** a login/e-signature/PIN step, so `SC 3.3.8` has no cognitive-function-test gate here; if institutional policy later requires a signing step on activation it inherits `A11Y-REQ-25` from the shared signing redesign.
+- [x] **A11Y-GATE-15** — The scope-row editor, enable/disable toggle, locked-floor annotation, and change-history timeline each expose an accessible name/role/state (`SC 4.1.2`) — no bare `<div onClick>`.
+- [x] **A11Y-GATE-16** — Config forms use the schema-driven clinical form engine (§0); a governed change never re-asks a value already captured earlier in the same propose→review flow (`SC 3.3.7`; binds `form-engine-designer`).

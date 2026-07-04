@@ -1,0 +1,683 @@
+round: 1
+adjudicator: round-1
+raw_findings: 33
+findings_after_dedupe: 32
+findings:
+- finding_id: RT1-LAT-01
+  merged_from: []
+  lens: latency-architecture
+  severity: critical
+  verdict: CONFIRMED
+  claim: The NRT early-warning path depends on the MLLP HL7 listener, which contradicts ADR001-C-01 (Athena/Gold-only
+    clinical reads); the deliverables simultaneously (a) record the conflict as unresolved/routed to C3, (b) commit
+    the MLLP feed as delivering VIS-C-09 <30s "today", and (c) silently re-scope C-01 to "clinical analytics" —
+    an unreconciled contradiction on the most load-bearing platform constraint.
+  owning_doc: docs/plan/architecture/system-architecture.md
+  proposed_fix: 'Pick ONE reconciliation and make every doc agree: either formally amend/annotate ADR001-C-01 to
+    admit the MLLP operational feed as a sanctioned exception (amh-integration-architect + CTO/AMH signoff, ledger
+    decision) and delete the "unresolved/routed" framing in alert-engine.md §1.2; or keep it unresolved and stop
+    asserting NRT <30s "today" in observability-slo.md §3 and amh-freshness.yaml until C3 signoff, with an explicit
+    hazard-log entry for ~30-min early-warning latency in the interim.'
+  walk_note: 'All five citations reproduce verbatim. system-architecture.md line 7 load-bearing sentence ("reads
+    clinical data only from the AMH Gold layer via Amazon Athena"); §3.3 option 1 "keeps ADR001-C-01 intact for
+    *clinical analytics*" (re-scoping); alert-engine.md §1.2 "record and route ... rather than decide it" (owner
+    amh-integration-architect, C3); observability-slo.md §3 "use the 2s gold-availability row via the operational
+    MLLP feed and can meet the full 30s end-to-end promise (VIS-C-09) today"; amh-freshness.yaml vitals_gold fallback
+    "Interim: read vitals from the operational MLLP feed for NRT scoring". Same capability is deferred and committed
+    at once — contradiction confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-LAT-02
+  merged_from: []
+  lens: latency-architecture
+  severity: critical
+  verdict: CONFIRMED
+  claim: 'The dead-man''s switch (INV-5) shares fate with the paging path it is supposed to watch: the external
+    watchdog escalates via IntensiCare''s own Tier-1 delivery layer, its probe metric has no no-data alarm, and
+    both watchdog visibility and the watched system depend on the same AMP backend — so "sistema cai e ninguém sabe"
+    is reintroduced exactly when the delivery layer dies.'
+  owning_doc: docs/plan/architecture/observability-slo.md
+  proposed_fix: Route the watchdog page through a provider independent of IntensiCare's delivery layer and of AMP
+    evaluation (e.g. SNS→PagerDuty invoked directly by the Lambda/canary); add a no-data alarm on healthcheck_probe_result
+    (page on metric absence > 2 probe intervals); state the no-shared- fate requirement for the paging path and
+    verify in the INV-5 chaos test (kill delivery layer → page still arrives).
+  walk_note: 'observability-slo.md §4.2 Escalation reproduces: "page on-call via the same interruptive channel as
+    a critical clinical alert (Tier 1, alert-engine.md §3)". alert-engine.md §3 critical row: Tier 1 = "WS push
+    + mobile page to RRT <5s + bed-board + audible" — IntensiCare''s own ARQ/WS/push layer. §4.2 Placement bullet
+    itself demands the watchdog "not share fate with the thing it watches", so the escalation path violates the
+    section''s own requirement. Grep for a no-data/heartbeat-absence alarm on healthcheck_probe_result: none (§4.3
+    staleness watchdog covers score production, not the probe metric). Probe results emit only via OTEL→AMP (CON-0006),
+    the shared inherited backend. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-SEC-01
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: critical
+  verdict: CONFIRMED
+  claim: The RRT critical/urgent web-push payload carries clinical PHI (score + trend + location + latest vitals)
+    rendered on the device lock screen pre-authentication, directly contradicting the security model's no-PHI-in-notifications
+    invariant (I11, REQ-INV-4-S3) — an LGPD Art. 46 breach path over the exact push channel the security doc names
+    as PHI-crossing.
+  owning_doc: docs/plan/design/screens/alert-routing.md
+  proposed_fix: Make the push payload PHI-free (severity band + opaque deep-link token only per I11); render score/trend/vitals
+    only inside the en-route responder view after in-app OIDC authN. Update alert-routing §5.1/§1.1, alert-triage
+    §1.1.3, journey MOT-14/15; reconcile PER-RAFAEL-02 to post-auth completeness; add the REQ-INV-4-S3 contract
+    test asserting the VAPID push body carries no clinical fields.
+  walk_note: 'Contradiction reproduces across three docs. security-lgpd.md I11: "alert payloads carry no PHI — bed/unit
+    + severity + deep-link only, PHI shown only after in-app authN"; REQ-INV-4-S3: "notification payload → no PHI".
+    alert-routing.md §5.1: push "carrying the en-route payload (score + trend + Estabelecimento▸Setor▸Leito + latest
+    vitals ...) so the payload is complete without unlock-then-navigate". product/journey-maps.md MOT-14: "Lock-screen
+    payload: score, trend, patient location" + "payload complete without unlocking-then-navigating". security-lgpd
+    §3.1 classifies vitals as "Sensitive health data" and scores as "Derived health data". Both specs cannot hold;
+    confirmed critical.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-PATIENT-SAFETY-01
+  merged_from:
+  - RT1-COMP-04
+  lens: patient-safety (+completeness)
+  severity: critical
+  verdict: CONFIRMED
+  claim: 'The platform-level SYS-* class mitigations that design OUT the systemic P0 defect classes are unowned:
+    the class controls for SYS-04/05/07/08/09/10 carry spec_ref: null (11-12 null mitigations across 10 open hazards
+    in total), HAZ-009 cites alert-engine.md §2 for a build-time criterion-reachability/coverage gate that §2 does
+    not contain, and this whole gap class is invisible to every Phase-D mechanical gate because check_links.py excludes
+    docs/plan/_work/**.'
+  owning_doc: docs/plan/architecture/alert-engine.md
+  proposed_fix: 'Add an alert-engine section specifying two CI-failing build-time gates: (a) criterion-coverage
+    — every declared criterion wired into aggregation with a can-fire vector (kills SYS-08); (b) facade==predicate
+    — rendered rationale/units/thresholds generated from the firing AST, drift is a build failure (kills SYS-04).
+    Repoint HAZ-009/016/017/019/020/021/022 spec_refs to it; drop the bogus §2 citation; extend a mechanical gate
+    (or a new check) to fail on `spec_ref: null` for open hazards in _work/safety/hazard-log.yaml.'
+  walk_note: 'grep ''spec_ref: null'' in hazard-log.yaml returns 12 hits (lines 261, 274, 275, 302, 315, 331, 345,
+    378, 419, 446, 462, 517) including all six SYS-04/05/07/08/09/10 class controls cited. HAZ-009 (line 157) cites
+    "architecture/alert-engine.md §2 (declarative, versioned definitions — no dead code path)" for the no-unwired-criterion
+    coverage check; grep -icE ''reachab|coverage check|unwired|dead code|facade'' over alert-engine.md returns 0
+    — §2 mandates declarative/versioned records and a unit gate only, no reachability or facade==predicate gate.
+    check_links.py docstring confirms scope "docs/plan/**/*.md (excluding _work)", so hazard-log spec_refs are never
+    mechanically checked. Merged RT1-COMP-04 (same defect: null-spec_ref open mitigations invisible to gates); COMP-04''s
+    count of 11 was 12 on my walk — immaterial.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-ALARM-FATIGUE-01
+  merged_from: []
+  lens: alarm-fatigue
+  severity: critical
+  verdict: CONFIRMED
+  claim: 'DoD line PER-CARLOS-02 (<3 FP/patient-day) is mis-operationalized twice: ppv-ledger defines fp_per_patient_day
+    as a fleet mean (total FP / census patient-days), structurally blind to per-patient concentration on the sickest
+    patients; and the only per-patient "3" governor (alert-routing §4.1) cites CON-0088/PER-C-02 for a watch/normal-only
+    loudness-token budget that counts no false positives and excludes urgent/critical. The DoD FP ceiling has no
+    per-patient enforcement mechanism while claiming one.'
+  owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+  proposed_fix: Re-define PER-CARLOS-02 as a per-patient-day distribution metric (e.g. p95 of FP/patient-day <3,
+    or share of patient-days with >3 dispositioned FP < X%) in method.formulas; sever the alert-routing §4.1 citation
+    of CON-0088 from the watch/normal token governor (rename it a loudness budget, cite VIS-7.1-04) so the DoD ceiling
+    is not claimed as implemented by it.
+  walk_note: 'ppv-ledger-draft.yaml method.formulas: fp_per_patient_day: "false_positive / patient_days" (patient_days
+    from occupancy census) — fleet ratio, no per-patient percentile/cap anywhere in method. alert-routing.md §4.1
+    reproduces: "rolling budget of ≤3 escalation tokens/24h for the watch/normal band (false_positive_budget.target_max_per_patient_day:
+    3, CON-0088/PER-C-02)"; §4 banner: budget touches "normal and watch ONLY", urgent/critical bypass entirely;
+    §4.4 MF-02 coalesces/force-flushes rather than dropping. Both artifacts cite the same DoD constraint for two
+    different quantities, neither a per-patient FP ceiling. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-ALARM-FATIGUE-02
+  merged_from: []
+  lens: alarm-fatigue
+  severity: major
+  verdict: CONFIRMED
+  claim: 'No cross-domain de-duplication exists for one physiology firing multiple domains: the correlation engine
+    fixes exactly three pairs; Sepsis↔EWS, Sepsis↔Hemo and EWS↔Hemo are not among them, so a septic-shock patient
+    co-fires many urgent/critical pushes with zero fold, and the 137/100-beds/day fleet volume treats every alert
+    as independent.'
+  owning_doc: docs/plan/clinical/domains/correlation-engine.md
+  proposed_fix: Specify a cross-domain shared-physiology suppression group (deterioration cluster folding concurrent
+    EWS/Sepsis/Hemo pushes into one max-severity escalation), or add the missing correlations, or justify with per-patient
+    co-fire arithmetic why the overlaps do not multiply delivered pushes.
+  walk_note: 'correlation-engine.md §1 table lists exactly three clinical correlations + one efficiency alert. alert-engine.md
+    §5: dedup_key = "mpi_id + alert_definition_id (+ criterion)" — within one definition only. alert-routing.md
+    §4.2 severity-supersession is explicitly "in the same domain". Grep for cross-domain dedup / shared-physiology
+    outside the three pairs: only the red-team lens prompt itself. The nine-alert co-fire scenario is consistent
+    with the catalog triggers (sepsis/hemo/EWS alerts all keyed on overlapping hypotension/lactate/RR inputs). Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-ALARM-FATIGUE-03
+  merged_from: []
+  lens: alarm-fatigue
+  severity: major
+  verdict: CONFIRMED
+  claim: The correlation engine is billed as "the central alarm-fatigue lever" carrying ignored-rate 25% → ≤10%,
+    but its own volumes (3 clinical correlations totalling 4 firings/100 beds/day, folding ≤ ~8 member pushes of
+    a 137 fleet total, <6% gross) cannot mechanistically produce a 15-percentage-point swing; the true mechanism
+    for the target is unaccounted.
+  owning_doc: docs/plan/clinical/domains/correlation-engine.md
+  proposed_fix: Re-scope the engine's claimed contribution to a defensible ~1-6% push reduction; identify the actual
+    levers for the remaining reduction (PPV gates, budget coalescing, tuning loop) or mark the 25%→10% target as
+    not yet mechanistically accounted and route to C3.
+  walk_note: 'Summed est_volume_per_100_beds_day across all 10 _work/alerts/*.yaml catalogs = 137, matching the
+    claim. correlation-engine.yaml clinical volumes: SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 = 4 (EXAM-REDUND 2
+    is explicitly net-ADDITIVE per the file''s own header comment). §1 line reproduces "This is the central alarm-fatigue
+    lever (baseline ignored-rate 25% → goal ≤ 10%, VIS-7.1-04)". 8/137 = 5.8% gross fold — an order of magnitude
+    short of the attributed swing. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-ALARM-FATIGUE-04
+  merged_from: []
+  lens: alarm-fatigue
+  severity: major
+  verdict: CONFIRMED
+  claim: 'Urgent/critical push clustering on the sickest patients is unbounded by design (correct never-suppress
+    invariant) but the fleet fatigue targets never model per-patient concentration: per-alert rate_limits on a shock
+    patient''s urgent/critical set sum to >20/24h with no cross-alert per-patient ceiling or concurrency model anywhere.'
+  owning_doc: docs/plan/architecture/alert-engine.md
+  proposed_fix: Add a per-patient urgent/critical concurrency model (expected/worst-case pages per decompensating
+    patient-day) to alert-engine.md §5, and a same-physiology urgent/critical FOLD (upgrade to one richer alert,
+    never suppress — HAZ-026-safe).
+  walk_note: 'alert-routing.md §4 banner reproduces: "Critical and urgent alerts are NEVER budget-suppressed, budget-demoted,
+    digest-held, rate-limited, or maintenance-muted", and the Concept-C veto note states "budget depletion correlates
+    with acuity — the sickest patients fire the most alerts". Per-patient rate_limits verified in catalogs: sepsis
+    6/24h (SHOCK-03) + 3/24h (ORGAN-02) + hemodynamics 3+4+4+6/24h etc. — the urgent/critical subset alone exceeds
+    20/24h. No artifact models per-patient urgent/critical daily load; est_volume and VIS-7.1-04 are fleet-level
+    only. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-COMP-01
+  merged_from: []
+  lens: completeness
+  severity: major
+  verdict: CONFIRMED
+  claim: sepsis.md §3.1 presents RULE-SEPSE-099 as a settled "ADOPT-CORRECTED" design default, but the canonical
+    disposition in merged.json is RATIFY (ADDENDUM band, ESC-ADDENDUM-349, pending clinical-committee confirmation)
+    — a builder reading the design doc would ship RATIFY-gated text as final, bypassing SYS-C-03; check_alert_catalog
+    independently WARNs on the same rule via ALERT-SEPSIS-SCREEN-01.
+  owning_doc: docs/plan/clinical/domains/sepsis.md
+  proposed_fix: Mark RULE-SEPSE-099 RATIFY-pending in sepsis.md §3.1 with the corrected criterio_8 wording stated
+    as the recommended default, mirroring hemodynamics.md's handling of pending RAT-ESTABILIDADE-08 items.
+  walk_note: 'sepsis.md line 121 reproduces: "RULE-SEPSE-099, ADOPT-CORRECTED — fixes the ... key typo". merged.json
+    records["RULE-SEPSE-099"].disposition = "RATIFY", justification "ADDENDUM-band item ... policy mandates RATIFY
+    ... ESC-ADDENDUM-349". sepsis.yaml ALERT-SEPSIS-SCREEN-01 cites RULE-SEPSE-099 in evidence (the check_alert_catalog
+    WARN). Contradiction confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-COMP-02
+  merged_from: []
+  lens: completeness
+  severity: major
+  verdict: CONFIRMED
+  claim: '6 of the 9 deliverables that accessibility-standard.md §8 mandates carry an "Accessibility gate" A11Y-GATE-NN
+    checklist have none (admin-config, alert-triage, clinical-forms, design-tokens, component-library: zero accessibility
+    content; alert-routing: prose accessibility section with no gate IDs) — a gap the standard itself classifies
+    as a blocking, back-to-owner completeness failure.'
+  owning_doc: docs/plan/design/accessibility-standard.md
+  proposed_fix: Add the mandated "Accessibility gate" subsection with per-ID check-off (or explicit N/A rationale)
+    to the six non-compliant files; convert alert-routing's §10 prose into gate-ID citations.
+  walk_note: 'Counted mechanically: ''Accessibility gate'' / ''A11Y-GATE-'' hits — command-center 1/22, handoff
+    1/14, patient-timeline 1/16 comply; admin-config 0/0, alert-triage 0/0, clinical-forms 0/0, alert-routing 0/0
+    (gate IDs), design-tokens 0, component-library 0. accessibility-standard.md line 389 reproduces the MUST + "missing
+    gate subsection ... equivalent to a missing test-vector set (back to owner)" rule. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-COMP-03
+  merged_from: []
+  lens: completeness
+  severity: major
+  verdict: CONFIRMED
+  claim: The frozen authoritative sources docs/implementation-plan.md and docs/review-queue.md — cited by product-spec.md
+    and multiple ledgers as the verbatim origin of the story backlog — are deleted from the working tree, breaking
+    provenance for "verbatim" claims; the tree has also drifted (5 stray untracked paths outside docs/plan/, other
+    deletions) versus the frozen Phase-D baseline per check_env.
+  owning_doc: docs/plan/_work/scripts/check_env.py
+  proposed_fix: Restore the two frozen source files (or re-point every "verbatim from implementation-plan.md" citation
+    to the surviving _work/briefs/*.json snapshots and re-freeze the baseline); quarantine or commit the stray untracked
+    paths so ENV checks pass against a declared baseline.
+  walk_note: 'git status confirms: ''D docs/implementation-plan.md'', ''D docs/review-queue.md'' (plus CRITICA_MVP.md,
+    PROJECT_STATUS.md deleted); ls confirms both absent. Untracked outside docs/plan/: .github/CODEOWNERS, dependabot.yml,
+    codeql.yml, dependency-review.yml, SECURITY.md — exactly the 5 strays claimed. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+    note: retired-inputs provenance annotation; sources pinned at aa5e786; briefs are working views
+- finding_id: RT1-LAT-03
+  merged_from: []
+  lens: latency-architecture
+  severity: major
+  verdict: CONFIRMED
+  claim: The poll stage p95 of 1,000 ms budgets only the trigger/event-pickup, and no stage in the 5-stage decomposition
+    budgets the actual Athena SELECT round-trip (queue + planning + S3 scan, realistically multi-second p95), so
+    the headline 9s owned-pipeline Σ holds only for the NRT Redis path; every micro-batch domain — including the
+    expedited electrolyte CRIT poll — is under-budgeted.
+  owning_doc: docs/plan/_work/budgets/latency.yaml
+  proposed_fix: Split poll into poll_nrt (~1s Redis pickup) and poll_micro_batch (measured Athena round-trip p95);
+    recompute and state the owned-pipeline Σ per path; fix or relabel the 340ms health-check Athena example; reflect
+    the split in alert-engine §8.1 and observability-slo §3.
+  walk_note: 'latency.yaml poll stage: p95_ms 1000, assumption "Event pickup from Redis stream (NRT) or expedited
+    micro-batch trigger" — trigger only. evaluate stage assumption is "Run score + alert-definition predicates"
+    — no Athena execution stage exists. source_freshness carries a separate batch value; poll does not. observability-slo.md
+    line 109 health JSON: last_query_latency_ms: 340 (below Athena''s practical multi-second p95 for partitioned
+    Iceberg scans — external fact, but well-established). owned_pipeline_sum_ms: 9000 computed from the single poll=1000.
+    Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-LAT-04
+  merged_from: []
+  lens: latency-architecture
+  severity: major
+  verdict: CONFIRMED
+  claim: Concrete per-domain Gold poll-cadence promises (electrolytes ~1-2 min expedited, sepsis/ABG ~5 min, etc.)
+    depend on Athena concurrent-query headroom that is never quantified anywhere; the only mention defers capacity
+    to AMH-DP while the cadence commitments remain IntensiCare's.
+  owning_doc: docs/plan/architecture/system-architecture.md
+  proposed_fix: Add a poll-concurrency budget (peak concurrent Athena queries at the 240-bed/4-hospital tier vs
+    the regional concurrency quota), state the required quota/workgroup partitioning as a negotiated AMH dependency,
+    and tie the expedited electrolyte cadence to proven headroom or relabel it best-effort with the Alternativa-B
+    trigger as mitigation.
+  walk_note: 'Grep across docs/plan for concurrency/workgroup/DPU/quota: the only relevant hits are observability-slo.md
+    §6 lever 4 ("bounded by the AMH DP''s own capacity ... an AMH-DP-side capacity conversation ... not something
+    IntensiCare provisions itself") and the Beyond-trial row''s Lake-Formation workgroup mention. amh-freshness.yaml
+    labs_electrolytes fallback commits "tighten the electrolyte lab-partition Athena poll to ~1-2min". No artifact
+    computes peak concurrent poll count against any Athena ceiling. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-LAT-05
+  merged_from: []
+  lens: latency-architecture
+  severity: major
+  verdict: CONFIRMED
+  claim: The 9s owned-pipeline p95 is validated only at steady-state trickle (~6/18/48 rows/min) and never at the
+    committed VIS-C-11 >500 alerts/min; deliver-stage p95 under storm (ARQ saturation, retry amplification, single-node
+    Redis fan-out) is unquantified, and the never-rate-limited critical class has no backpressure/storm-coalescing,
+    so the delivery queue is unbounded exactly when load peaks.
+  owning_doc: docs/plan/architecture/observability-slo.md
+  proposed_fix: Add an alert-storm capacity/latency analysis at ≥500 alerts/min and an all-beds-critical burst;
+    size ARQ workers and Redis fan-out to hold deliver p95 <2s and RRT push <5s under it; specify per-source storm
+    detection that pages one operational alert instead of N criticals; state the 9s budget's validity range vs arrival
+    rate.
+  walk_note: 'observability-slo.md §6 capacity table verified: only ~6/~18/~48 rows/min steady-state modeled; the
+    >500/min appears solely as a headroom column, and the multi-hospital row itself concedes "first tier where ARQ
+    worker count and Redis throughput need explicit sizing, not assumption"; the Beyond row demands VIS-C-11 "re-validated
+    ... not assumed". alert-engine.md §3 critical row: "never rate-limited"; §5 carve-outs confirm no admission
+    control on critical. Lever 2 asserts single-node Redis adequate "per the sizing above" — which contains no fan-out
+    number. The gap is real though partially self-acknowledged as future work; storm behavior of a safety-critical
+    paging path is an MVP concern, so severity stays major.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-LAT-06
+  merged_from: []
+  lens: latency-architecture
+  severity: major
+  verdict: CONFIRMED
+  claim: 'Alternativa-B trigger T1 is only half-quantified: the conjunct "the MLLP path cannot close it" has no
+    metric, threshold, or observation window anywhere in §6, so T1 is not operationally decidable from telemetry
+    — defeating §6''s stated purpose of supplying the quantified trigger ADR-001 left qualitative — and it presumes
+    an MLLP path whose sanction is the open RT1-LAT-01 question.'
+  owning_doc: docs/plan/architecture/system-architecture.md
+  proposed_fix: Define "cannot close it" as a telemetry-observable condition (with MLLP enabled, vitals-driven ingest→alert
+    p95 remains >30s, or MLLP availability < X% / path p95 > Ys, sustained N hours) using metrics already emitted;
+    resolve RT1-LAT-01 first; cross-update alert-engine.md §1.2.
+  walk_note: 'system-architecture.md §6.1 T1 row reproduces: condition "> 30s (VIS-C-09) and the MLLP path (§3.3
+    option 1) cannot close it" — no numeric definition of the second conjunct anywhere in §6 or OQ-1 (OQ-1 quantifies
+    only the first conjunct, "p95 < 30s ... pending signoff"). T3 (p95 ≥ 30 min) and T4 (<99.5%) are concretely
+    quantified by contrast. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-SEC-02
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: Alert-type enable/disable state has no persistence entity and no audit action in the data model, so admin-config's
+    load-bearing "safety-critical alerts cannot be silently disabled" guardrail is unimplementable as specified
+    and a disable is not guaranteed an audit row.
+  owning_doc: docs/plan/architecture/data-model.md
+  proposed_fix: Add a versioned append-only alert_enablement entity (or per-scope enabled flag on the alert-definition
+    scope join) with INV-1 anti-mutation treatment; add alert.enable/alert.disable to the audit_trail action vocabulary
+    + a REQ-INV-1 row; encode the safety_critical non-disable rule as a DB/service constraint.
+  walk_note: 'grep ''enablement|enabled|disable'' over data-model.md returns nothing (exit 1). audit_trail action
+    examples (line 318): "alert.acknowledge | alert.resolve | threshold.update | phi.read …" — no enable/disable
+    (the trailing ellipsis marks the list non-exhaustive, but no enablement action or entity is defined anywhere).
+    admin-config.md''s own open-reconciliation confirms: "confirm the enable/disable state persistence ... flagged
+    for the data model". Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-SEC-03
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: birth_date is mandated pgcrypto-encrypted by security-lgpd (PHI inventory, §4.1, REQ-INV-4-S1) and by data-model
+    §3's own delta table, but the §7 DDL keeps it plaintext DATE ("if LGPD-restricted, store encrypted too") and
+    §9 REQ-INV-4-1 omits it — the two invariant registers silently disagree on a PHI column; a pg_dump test would
+    fail the security invariant.
+  owning_doc: docs/plan/architecture/data-model.md
+  proposed_fix: Encrypt birth_date to BYTEA in the §7 DDL and add it to REQ-INV-4-1, or record a jointly-ratified
+    plaintext exception (age-band scoring rationale + residual risk) in BOTH docs.
+  walk_note: 'All four citations reproduce. security-lgpd PHI inventory row: "Birth date ... pgcrypto-encrypted";
+    REQ-INV-4-S1 names birth_date. data-model §3 delta (line 71): "wrap display_name, mrn, birth_date under pgcrypto
+    (INV-4)". §7 DDL ALTERs only display_name and mrn; comment line 363: "birth_date kept as DATE but access-logged
+    (INV-1); if LGPD-restricted, store encrypted too". §9 REQ-INV-4-1 lists "nome (display_name), CPF, CNS, MRN"
+    — birth_date absent. Internal self-contradiction plus cross-doc contradiction confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-SEC-04
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: 'The deny-by-default model has an unresolved hole for the hospital-wide RRT role: I2/§5.3 bind every WS
+    subscription to token tenant_id+unit, but the RESPONDER is "hospital-wide, location-free" with deep-links into
+    any unit''s bed detail, and no cross-unit scope rule for `rrt` is enumerated — so RRT is either unit-scoped
+    (breaking <5s hospital-wide dispatch) or silently tenant-wide (un-enumerated broad grant).'
+  owning_doc: docs/plan/architecture/security-lgpd.md
+  proposed_fix: 'Add an explicit least-privilege RRT scope to §5.3: tenant-wide subscription limited to critical/urgent
+    streams + minimal bed context, deny-by-default, every PHI read audited, gated on RRT-rotation membership; state
+    it is the one enumerated cross-unit role.'
+  walk_note: 'security-lgpd.md I2 reproduces: "bind subscription to tenant_id+unit scope from the token ... server-side
+    tenant filter on every push". §5.3 role list: "rrt (Rafael — critical-alert receive/ack)" — a closed enumerated
+    permission set with no cross-unit scope carve-out anywhere in §5. alert-routing.md §3.1: "RESPONDER = on-shift
+    RRT physician (Rafael), hospital-wide ... on-call, location-free". The gap (no rule reconciling the two) is
+    confirmed by absence.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-AMH-01
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: Bed/unit assignment rides the 24h-staleness-tolerant mpi_demographics sync yet is load-bearing for threshold-band
+    resolution (bed ≻ unit ≻ tenant from patient_cache) and OWNER/COVERING routing (keyed on setor); after an intra-hospital
+    transfer a stale assignment silently mis-thresholds and mis-routes unit-level delivery for up to 24h with no
+    staleness guard on the assignment key.
+  owning_doc: docs/plan/_work/platform/amh-freshness.yaml
+  proposed_fix: Split bed/unit ASSIGNMENT from advisory demographics with a minutes-level ADT-event-driven freshness
+    target; make routing/threshold resolution fail-safe on stale assignment (widen routing, fall back to most-conservative
+    threshold, visible "leito/unidade desatualizado" flag); add a transfers source to the register + a REQ that
+    a critical alert is never sole-routed on a stale assignment.
+  walk_note: 'amh-freshness.yaml mpi_demographics verified: staleness_max_for_alerting 24h, "advisory context, never
+    a scoring input ... never block an alert on demographics"; no ADT/transfer source exists in the register. alert-engine.md
+    §6 verified: resolution keys (tenant, unit, bed) from patient_cache. alert-routing.md §3.1 verified: OWNER/COVERING
+    keyed on the setor. DOWNGRADED critical→major on the walk: alert-routing §3.2 "CRIT parallel multicast" pages
+    the hospital-wide location-free RESPONDER simultaneously and "degrade WIDER, never narrower" applies to resolver
+    uncertainty — so a critical alert still reaches the RRT despite a stale unit. What remains unguarded is real:
+    wrong unit board/OWNER targeting, urgent-band routing (no RRT leg), and — most seriously — threshold resolution
+    against the old unit''s config, which can change whether/at what band the alert fires. Also, the sync SLO is
+    best-effort 15min, so the 24h figure is the unguarded worst case, not the typical one.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-AMH-02
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: labs_electrolytes staleness_max_for_alerting (1h) is looser than the pipeline's own worst-case delivery
+    latency (Gold batch p95 <30min), so for the most lethal lab domain a 45-min-old normal K+ renders unbadged as
+    fresh while a new bedside critical K+ can sit undelivered ~30min — and the Alternativa-B remedy is deferred
+    to Fase 4 (T5), leaving MVP unprotected.
+  owning_doc: docs/plan/_work/platform/amh-freshness.yaml
+  proposed_fix: Set labs_electrolytes staleness_max ≤ Gold batch worst case (≤30min, tighter for CRIT analytes);
+    add a "possible newer result pending" state from expected cadence vs last-seen; record the residual MVP risk
+    against MOT-11 instead of implying on-result latency.
+  walk_note: 'amh-freshness.yaml labs_electrolytes verified: freshness_slo "on-result / p95 30min via Gold batch",
+    staleness_max_for_alerting "1h", fallback names it "the STRONGEST Alternativa-B escape-hatch candidate". system-architecture.md
+    §3.2 Gold p95 <30min (ADR001-F-02) and §6 T5 "DEFER to Fase 4" verified. command-center.md §6 staleness table:
+    labs_electrolytes 1h — badge applies only past staleness_max, so the 30-60min window renders unqualified. The
+    arithmetic (1h > 30min) reproduces; the "stale-but-green during the batch window" hazard is inherent to the
+    chosen ceiling. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-UX-01
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: CONFIRMED
+  claim: The anchor <5s RRT dispatch depends on a roster/on-call/RRT-rotation source that alert-routing itself admits
+    is "specified in no brief" and is the model's top dependency — unowned, with no entity, feed, owner, or SLA
+    in any architecture doc; §5.3 requires a provably-non-empty rotation with no named source, so the strict ladder
+    cannot ship and the flow degrades to broadcast.
+  owning_doc: docs/plan/design/screens/alert-routing.md
+  proposed_fix: Name and own an on-call/roster/rotation source (AMH service, local rotation table, or ratified integration)
+    with freshness SLA; add it to amh-freshness.yaml and the data model with a dead-man on empty/stale rotation;
+    keep the resolver's narrowing gated on ratification and make the MVP broadcast fallback an explicit tested guarantee.
+  walk_note: 'alert-routing.md §3.2 reproduces verbatim: "Roster/presence are specified in no brief and are the
+    model''s top dependency", resolver in "shadow mode with severity-broadcast live", "Open dependency (C3): roster/on-call
+    source + live-presence signal — ratification-gated before any narrowing ships". No roster/on-call entity exists
+    in data-model.md, amh-freshness.yaml, or system-architecture.md (checked). Slight overstatement in the claim
+    — the specified fallback (severity-broadcast: unit board + on-call as-if-all-present) means the page does not
+    silently vanish in MVP — but the dependency is genuinely unowned/unsourced and the persona promise (targeted
+    <5s hospital-wide dispatch) is not deliverable without it. Confirmed major.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-PATIENT-SAFETY-02
+  merged_from: []
+  lens: patient-safety
+  severity: major
+  verdict: CONFIRMED
+  claim: 'The SOFA sub-score boundary vectors that HAZ-002/HAZ-003/HAZ-019 name as verification of the P0-02 (vasopressor
+    tier) and P0-03 (renal off-by-one at Cr 5.0) fixes do not exist: the only SOFA alert tests aggregate deltas
+    and one FiO2 case; no creatinine-5.0→4-points, no norepi-0.1 tier edge, no bilirubin band edges — a re-introduced
+    strict ''>5'' would pass the suite.'
+  owning_doc: docs/plan/_work/alerts/early-warning-scores.yaml
+  proposed_fix: 'Add boundary vectors asserting expected sub-scores: creatinina 5.0→renal 4 / 4.9→3; norepinephrine
+    0.10→cardio 3 / 0.11→4; bilirubina 2.0→2, 6.0→3, 12.0→4; plus a ventilation-gated P/F 3/4 case.'
+  walk_note: 'early-warning-scores.yaml ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03 test_vectors verified: TV-1 delta
+    +3, TV-2 delta +1, TV-3 delta boundary +2, TV-4 FiO2 fraction — no creatinina, dose_vasopressor, or bilirubina
+    sub-score edge anywhere. hazard-log HAZ-003 reproduces "mandatory boundary vector at creatinine exactly 5.0
+    mg/dL expecting 4 points" with spec_ref "_work/alerts/early-warning-scores.yaml (boundary test_vectors)"; HAZ-002
+    "boundary at norepi 0.1 mcg/kg/min", same file. The cited artifacts are absent; both hazards carry residual_risk:
+    low on unverified mitigations. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-PATIENT-SAFETY-03
+  merged_from: []
+  lens: patient-safety
+  severity: major
+  verdict: CONFIRMED
+  claim: 'Severe uncontrolled pain (NRS 7-10 / BPS 10-12) ships at severity watch (2h ack SLA) with no scale-maximum
+    test vector, while HAZ-004/HAZ-005 present the P0-04/05 hazards as near-closed (residual_risk: low) via a "MUST
+    fire grade 3 at NRS 10 / BPS 12" test requirement the shipped design cannot satisfy; the relocation is itself
+    the domain''s flagged-RATIFY "single genuine clinical loss".'
+  owning_doc: docs/plan/_work/safety/hazard-log.yaml
+  proposed_fix: Either restore a distinct urgent/critical severe-pain escalation with NRS-10/BPS-12 max vectors,
+    or rewrite HAZ-004/005 mitigations to the actually-shipped control (max values MUST fire PAIN-08 at watch on
+    two consecutive assessments) and set residual_risk to track the open RAT. Add the two scale-maximum boundary
+    vectors either way.
+  walk_note: 'neuro-sedation.yaml ALERT-NEUROSED-PAIN-08 verified: severity watch, ack_sla PT2H, rationale "severity
+    stays watch (not an imminent-life-threat class)"; test vectors max out at NRS 6 / BPS 7 — no NRS 10, no BPS
+    12, no grade-3 expectation. hazard-log HAZ-004/HAZ-005 verified: test-requirement "test vector at NRS 10 (scale
+    maximum) MUST fire grade 3" / "at BPS 12 ... MUST fire grade 3", spec_ref neuro-sedation.yaml, residual_risk:
+    low. early-warning-scores.md line 228 verified: "This is the single genuine clinical loss and is flagged RATIFY".
+    The hazard log claims a verification the design forecloses. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-PATIENT-SAFETY-04
+  merged_from: []
+  lens: patient-safety
+  severity: major
+  verdict: CONFIRMED
+  claim: 'delta_na_24h is defined two different ways under one name in the same domain: SODIUM-01 derives it as
+    sodio_atual - sodio_24h_atras (trailing) while the catastrophic-ODS safety alert CORRECTION-02 derives it as
+    sodio_atual - sodio_nadir_24h; a shared derived-value registry computing the name once can hand the ODS net
+    the wrong baseline and miss an ODS-range correction (HAZ-032), violating HAZ-031''s deterministic-baseline requirement.'
+  owning_doc: docs/plan/_work/alerts/electrolyte.yaml
+  proposed_fix: Rename to distinct quantities (delta_na_24h_trailing vs correcao_na_24h_from_nadir), state in electrolyte.md
+    that CORRECTION-02 MUST use the nadir form, and add a vector with Na 140→120→132 (nadir delta +12, trailing
+    -8) asserting CORRECTION-02 fires critical.
+  walk_note: 'electrolyte.yaml verified: SODIUM-01 input (line 115-116) delta_na_24h source "derived (sodio_atual
+    - sodio_24h_atras)"; CORRECTION-02 input (line 178-179) delta_na_24h source "derived (sodio_atual - sodio_nadir_24h;
+    signed correction over 24h)" — same name, same PT24H window, different baseline. CORRECTION-02''s own trigger
+    prose even says "change over a trailing 24h window", adding a third internal inconsistency. hazard-log HAZ-031
+    deterministic-baseline requirement and HAZ-032 (catastrophic ODS) verified. Confirmed.'
+  resolution:
+    status: fixed
+    round: 1
+- finding_id: RT1-AMH-04
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: major
+  verdict: PLAUSIBLE
+  claim: 'The Gold-schema policy is self-contradictory on fail-closed granularity: §7.2.1 asserts the expected schema
+    version per-poll with mismatch → fail closed, while §7.2.2 says additive nullable-column evolution is non-breaking
+    and "adopted opportunistically" — under exact-version assertion an additive Glue schema bump fails closed, converting
+    routine additive evolution into a domain-wide scoring outage.'
+  owning_doc: docs/plan/architecture/system-architecture.md
+  proposed_fix: Replace exact-version equality with an explicit COMPATIBILITY assertion (fail closed only on drop/rename/type-narrow/semantic
+    change; pass additive nullable diffs); pin a required-columns/types contract rather than a whole-schema version;
+    state IMP-4.3-01 checks compatibility, not equality.
+  walk_note: 'Both sentences reproduce at §7.2 points 1-2 exactly as claimed, and no compatibility-vs-equality definition
+    of the assertion exists anywhere in §7. However a reconciling reading survives: point 2''s own language ("breaking
+    ... requires a NEW schema version") implies the pinned version is a contract version minted only for breaking
+    changes, under which an additive column does not change the asserted version and both points hold. The doc pins
+    "a schema version in the Glue Data Catalog", whose table versions do bump on additive evolution — supporting
+    the finding — but which notion of version is asserted is genuinely undefined. Cannot fully reproduce the outage,
+    cannot refute the ambiguity: PLAUSIBLE, severity kept major because the ambiguity sits on a fail-closed path
+    for all scoring.'
+- finding_id: RT1-ALARM-FATIGUE-07
+  merged_from: []
+  lens: alarm-fatigue
+  severity: minor
+  verdict: PLAUSIBLE
+  claim: 'ALERT-SEPSIS-SCREEN-01''s budget (est_volume 7/100 beds/day at PPV 0.60) is epidemiologically optimistic:
+    its infection gate includes atb<24h, near-ubiquitous under empiric ICU antibiotics, collapsing the alert toward
+    a raw SIRS/qSOFA screen whose published ICU firing rates and PPV (~0.2-0.35) would make this single alert dominate
+    the fleet FP total at 2-3x volume.'
+  owning_doc: docs/plan/_work/alerts/sepsis.yaml
+  proposed_fix: Cite an ICU sepsis-screen firing-rate/PPV reference for est_volume or widen it to a validated range;
+    pre-commit a context-gating remedy and mark this alert the top day-1 tuning priority (its guideline anchor bars
+    threshold relaxation).
+  walk_note: 'Repo-verifiable parts reproduce: trigger gate "infection_present := (cultura_positiva OR atb_iniciado_ultimas_24h
+    OR suspeita_infeccao_documentada)", ppv_budget target 0.60 / est_volume 7, and the rationale cites specificity
+    caveats but no firing-rate source. The epidemiological magnitude (2-3x volume, PPV ~0.35 in production) rests
+    on external ICU literature not present in the repo — cannot reproduce, cannot refute. PLAUSIBLE.'
+- finding_id: RT1-AMH-03
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: minor
+  verdict: PLAUSIBLE
+  claim: The source of truth for load-bearing lab inputs is ambiguously worded across four docs ("via AMH Gold /
+    HAPI FHIR Observation"), leaving FHIR-outage degradation for lab-driven scoring undefined if any lab is in fact
+    FHIR-read — contradicting §4.3's "FHIR is NOT a scoring data source".
+  owning_doc: docs/plan/architecture/system-architecture.md
+  proposed_fix: Pin one read path per lab input (Gold/Athena for all scoring inputs per ADR001-C-01; FHIR strictly
+    enrichment); correct the amh-freshness and data-model wording; add an explicit FHIR-outage degradation clause
+    and a FHIR readiness probe distinct from Athena.
+  walk_note: 'Wording verified in all four places. However the contradiction is not established: data-model §4.4
+    says "via FHIR Observation / DiagnosticReport IN GOLD" and amh-freshness''s "AMH Gold / FHIR Observation" is
+    most naturally read as FHIR-shaped lab entities materialized in the Gold layer, consistent with §4.3 ("scoring
+    source ... is Gold, §3") and §3.1 Athena-only. All four docs can be simultaneously true under that reading;
+    what remains is a genuine wording ambiguity and the absence of an explicit per-source read-path pin. Downgraded
+    major→minor: PLAUSIBLE doc-clarity gap, not a confirmed dual-source contradiction.'
+- finding_id: RT1-ALARM-FATIGUE-05
+  merged_from: []
+  lens: alarm-fatigue
+  severity: minor
+  verdict: CONFIRMED
+  claim: The tuning loop's primary remedy (threshold delta) is locked for exactly the highest-volume alerts (guideline-anchored
+    safety_critical sepsis/EWS/ARDS screens, non-relaxable below published values), and no alternative remedy playbook
+    (context gates, denominator refinement, delivery-tier downgrade) is specified for a noisy threshold-locked alert.
+  owning_doc: docs/plan/design/screens/admin-config.md
+  proposed_fix: Define permitted remedies for a noisy guideline-locked alert (specificity inputs/context gates via
+    a new definition version, denominator refinement, delivery-tier downgrade without disabling, RATIFY escalation)
+    and state which top-volume alerts are threshold-locked so the loop's reach is honest.
+  walk_note: 'Facts reproduce: admin-config §4.1/§5 "non-relaxable safety floor ... without RATIFY escalation" and
+    ppv-ledger tuning_recommendation offering only "the suggested threshold delta". Top-volume alerts (SEPSIS-SCREEN-01
+    vol 7, RESP-ARDS vol 7, EWS-TREND vol 6) are guideline-anchored. DOWNGRADED major→minor on the walk: the loop
+    is not actually dead-ended — US-25 AC5 explicitly provides the RATIFY-level escalation path for below-guideline
+    changes, and the §1 scope note''s "changing a fixed cutoff mints a new immutable definition version" gives a
+    sanctioned route for added specificity inputs. What is missing is a documented remedy playbook, not a permission.'
+- finding_id: RT1-ALARM-FATIGUE-06
+  merged_from: []
+  lens: alarm-fatigue
+  severity: minor
+  verdict: CONFIRMED
+  claim: 'The FP/patient-day metric deflates under the fatigue it should detect: never-acked alerts classify as
+    "ignored" (excluded from false_positive), so as overload rises and ack-rate falls, measured fp_per_patient_day
+    improves while real burden worsens — PER-CARLOS-02 can pass on paper because clinicians stopped acknowledging.'
+  owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+  proposed_fix: Gate PER-CARLOS-02 jointly with an ignored-rate ceiling (both must hold), or count a defined fraction
+    of never-acked high-tier alerts toward FP.
+  walk_note: 'ppv-ledger method verified: denominator_rule "Only DISPOSITIONED alerts count toward PPV"; ignored
+    = "reached ack-SLA breach ... never acknowledged ... feeds ignored_rate, NOT ppv"; fp_per_patient_day counts
+    only false_positive. The constructed scenario (volume up, ack-rate down, true FP rate constant → false_positive
+    count falls, fp/patient-day improves, ignored_rate rises) follows mechanically from the definitions. Confirmed;
+    minor because ignored_rate (VIS-7.1-04) does move the right way and is itself a DoD metric — the gap is that
+    PER-CARLOS-02 is not jointly gated on it.'
+- finding_id: RT1-COMP-05
+  merged_from: []
+  lens: completeness
+  severity: minor
+  verdict: CONFIRMED
+  claim: aki.md §4's evidence table labels RULE-BALANCO-HIDRICO-008 "(ADAPT)"/"(window ADAPT)" in three rows although
+    the canonical disposition is RATIFY (P1, RAT-BALANCO-HIDRICO-05); the reconciling scope explanation exists in
+    §3.2/§8 of the same file but not at the point of citation — the same skim failure mode as RT1-COMP-01, in narrower,
+    explained form.
+  owning_doc: docs/plan/clinical/domains/aki.md
+  proposed_fix: Append to the three table cells a pointer such as "(RATIFY-pending at the fluid-balance-reporting
+    level, see §8 RAT-BALANCO-HIDRICO-05 — AKI staging independently adapts the intent)".
+  walk_note: 'Verified: lines 229/231/234 cite "RULE-BALANCO-HIDRICO-008 (window ADAPT)"/"(ADAPT)"; merged.json
+    canonical disposition is RATIFY ("mandates ratification ... urine-output totals over the buggy 07:00-07:00 window
+    directly underpin the KDIGO oliguria criterion"). Mitigating: line 128 in the same file already says "RULE-BALANCO-HIDRICO-008,
+    P1 → RATIFY", so the pending status is disclosed in-file, just not at the §4 table cells. Facts reproduce →
+    CONFIRMED (upgraded from the lens''s PLAUSIBLE), held at minor.'
+- finding_id: RT1-UX-02
+  merged_from: []
+  lens: lgpd-amh-workflow
+  severity: minor
+  verdict: CONFIRMED
+  claim: 'command-center contradicts itself on the triggering-parameter chip: §3.1 declares it "a hard L1 element,
+    never hidden behind disclosure" (PER-ANA-02), but the §5 density table omits it from the monitor-wall preset
+    (≥1920px, MOT-18 night wall) where it first appears only in the workstation preset — so the night wall cannot
+    answer "qual parâmetro disparou?" at a glance.'
+  owning_doc: docs/plan/design/screens/command-center.md
+  proposed_fix: Either keep a short-form chip on the monitor-wall preset at wall-legible size, or amend §3.1 to
+    scope "never hidden" to workstation/phone density and point the wall glance to the L2 peek. Do not leave both
+    asserted.
+  walk_note: 'command-center.md line 99 reproduces: "a hard L1 element, never hidden behind disclosure". §5 density
+    table reproduces: monitor-wall row lists "severity · Leito · dominant score · trend arrow · staleness age" (no
+    chip); workstation row adds "+ triggering-parameter chip". Direct internal contradiction for the MOT-18 wall.
+    Confirmed minor (density preference `enxuto↔rico` allows forcing richer wall content, partially softening impact).'
+- finding_id: RT1-PATIENT-SAFETY-05
+  merged_from: []
+  lens: patient-safety
+  severity: minor
+  verdict: CONFIRMED
+  claim: ALERT-SEPSIS-ORGAN-02's delta-lactate branch (>0.5 mmol/L/h) specifies no elapsed-time normalization for
+    irregular sampling, and its own vectors disagree on the denominator (TV-2 computes over 6h, TV-6 over 1h for
+    the same single-prior-sample input) — a fast repeat draw can false-fire this critical alert and a slow 6h-spaced
+    rise can be missed (HAZ-031 class).
+  owning_doc: docs/plan/_work/alerts/sepsis.yaml
+  proposed_fix: Define rate = (lactato_atual - lactato_anterior) / max(elapsed_hours, min_interval) with an explicit
+    minimum sample spacing; rewrite TV-2/TV-6 with explicit sample timestamps.
+  walk_note: 'sepsis.yaml ORGAN-02 verified: trigger "delta_lactato > 0.5 mmol/L per hour over PT6H" with no normalization
+    rule; input lactato_arterial_anterior "prior result, 6h lookback"; TV-2 note "trend 0.6 mmol/L over 6h = 0.1
+    mmol/L/h"; TV-6 note "delta 0.9 mmol/L over 1h lookback = 0.9 mmol/L/h" — two denominators for the same input.
+    Confirmed.'
+counts:
+  confirmed_critical: 5
+  confirmed_major: 19
+  confirmed_minor: 5
+  plausible_critical: 0
+  plausible: 3
+  rejected: 0

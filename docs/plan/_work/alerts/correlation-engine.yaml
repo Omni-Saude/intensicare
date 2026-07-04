@@ -236,3 +236,50 @@ alerts:
     reconciliation:
       - {existing_id: null, status: new,
          note: "No v1.0.0 counterpart — new efficiency correlation carried from legacy RULE-EFICIENCIA-007 (ADAPT); no catalog alert covered redundant diagnostic ordering. Standalone (no member alert to suppress); a stewardship signal, not a fold of existing deterioration alerts."}
+
+# ==========================================================================================
+# CROSS-DOMAIN DETERIORATION-CLUSTER FOLD (shared-physiology suppression group) — RT1-ALARM-FATIGUE-02.
+# Presentation-layer net that folds CONCURRENT deterioration pushes from multiple domains (EWS + Sepsis + Hemo,
+# EWS + Sepsis + Respiratory, ...) — the co-fires the three PAIRWISE correlations above do NOT catch (Sepsis<->EWS,
+# Sepsis<->Hemo, EWS<->Hemo are not pairwise members). Folding != suppression: every member is still computed,
+# individually dispositionable, and logged to prontuário NGS-2; only the PUSH is deduplicated. It is NOT a new
+# clinical alert (no re-derived threshold, no ppv_budget/test_vectors of its own) — it is a grouping construct over
+# already-fired member pushes. Prose: correlation-engine.md §5.2 (mechanism) + §5.4 (honest ~1-6% accounting).
+cross_domain_grouping:
+  group_id: GROUP-CORR-DETERIORATION-CLUSTER-01
+  name: "Agrupamento de deterioração multi-domínio (mesma fisiologia)"
+  kind: presentation-fold            # folds concurrent member PUSHES into one notification; not a new alert definition
+  emits_event: correlation.deterioration_cluster.detected
+  grouping_key:
+    identity: "mpi_id + encounter_id"
+    cluster_window: PT1H             # config, RAT-CORR-01; CONCURRENCY window (short — a fraction of member cooldowns), NOT a causal-latency window like the PT72H joins above
+    shared_physiological_driver: required   # members must share an overlapping triggering-input axis, read from the member events (no re-derivation, §2)
+  drivers:                           # named shared-input axes that make a set of co-fires foldable
+    - {driver: perfusao_circulatorio, shared_inputs: [pressao_arterial_media, lactato_arterial, dose_vasopressor, freq_cardiaca, pressao_sistolica], co_fires: [EWS, sepsis, hemodynamics]}
+    - {driver: respiratorio, shared_inputs: [spo2, relacao_pao2_fio2, fio2, freq_respiratoria], co_fires: [EWS, sepsis, respiratory]}
+  membership:
+    includes: "any concurrent deterioration push (watch|urgent|critical) for the key — bare domain alerts AND a fired pairwise correlation (§5.1) plus its leftover member"
+    excludes: "ALERT-CORR-EXAM-REDUND-04 and any normal-band advisory (B3-004 — only deterioration signals cluster); members with NO shared input axis (genuinely independent — stay separate pushes)"
+  severity_rule: "max(member severities)"     # never downgrades; a critical member keeps the cluster critical (HAZ-026-safe)
+  delivery: "single push on the HIGHEST member's delivery tier (severity-model.yaml, alert-triage.md §1); a critical member still pages RRT on the Tier-1 path <5s"
+  never_suppress_rule: >-
+    Folding is a presentation dedup, never a suppression: each member is still computed, still individually
+    dispositionable, and still written to prontuário NGS-2 (VIS-C-07) with its triggering parameter+value+trend
+    and evidence citation intact inside the cluster (nothing summarized to a bare count). Composes with, and NEVER
+    overrides, the alert-engine/alert-routing invariant that critical/urgent are never budget-suppressed,
+    rate-limited, or maintenance-muted — the cluster is ONE richer push at the top severity, not a dropped or
+    delayed one.
+  notification_payload:
+    - {field: severity, note: "max(member severities)"}
+    - {field: driver, note: "the named shared physiological axis — what one thing is deteriorating"}
+    - {field: members, note: "ordered list; per member: own severity, triggering parameter+value+trend, evidence citation, deep-link to the single-domain detail"}
+    - {field: member_alerts_folded, note: "the suppressed_member_alert_ids folded into this push"}
+  fatigue_accounting:
+    metric: "N members folded -> 1 delivered push"
+    delivered_push_delta: "-(N-1) per cluster"
+    ppv_attribution: "each folded member still counts INDIVIDUALLY toward PPV (ppv-ledger-draft.yaml); the fold feeds only the push-count / ignored-rate reduction, never inflates PPV"
+    scope_note: "bounded contribution — correlation-engine.md §5.4; the engine is one alarm-fatigue lever of five, not the whole 25%->10% swing (RT1-ALARM-FATIGUE-03); at-scale magnitude scales with co-fire frequency, routed to C3"
+  ratify_ref: RAT-CORR-01            # cluster_window + fold aggression ratified once alongside the alert-rollup AMBIGUOUS items (OQ-CORR-03, RAT-ALERTAS-01/02/03)
+  evidence:
+    - {citation: "Cvach M. Monitor alarm fatigue: an integrative review. Biomed Instrum Technol 2012;46(4):268-277 (concurrent multi-parameter alarms on one deterioration drive fatigue)", rule_refs: []}
+    - {citation: "vision VIS-7.1-04 (ignored-rate 25%->10%), VIS-4-03; RT1-ALARM-FATIGUE-02 adjudicated proposed_fix", rule_refs: []}

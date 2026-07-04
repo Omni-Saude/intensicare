@@ -56,7 +56,7 @@ Phase-1 entities are unchanged in shape; Phase-2 adds the medication, lab, alert
 
 1. **Canonical physical name is `clinical_score` (singular).** Rationale: (a) `model.md` (authority `vision`, `DM-T-03`) uses singular; (b) *every* existing table follows singular convention — `patient_cache`, `vital_sign`, `alert`, `threshold_config` (`DM-T-01/02/04/05`); (c) the shipped Phase-1 code already declares `__tablename__ = "clinical_score"` in `src/intensicare/models/clinical_score.py`. The impl-plan's `clinical_scores` is a documentation typo, not a schema. **All plan docs MUST cite `clinical_score`.**
 2. **The `algorithm_version` column is adopted, verbatim, onto `clinical_score`** (satisfying invariant #3). The Phase-1 model already carries `algorithm_version VARCHAR(32)` (nullable) in code; Phase-2 makes it **`NOT NULL`** and joins it to a first-class `algorithm_registry` (§5). This is the only schema change invariant #3 requires — the *table* was never renamed.
-3. New multi-row Phase-2 tables continue the **singular** convention (`lab_result`, `medication_order`, `medication_administration`, `alert_definition`, `alert_definition_version`, `correlation_event`, `audit_trail`, `algorithm_registry`).
+3. New multi-row Phase-2 tables continue the **singular** convention (`lab_result`, `medication_order`, `medication_administration`, `alert_definition`, `alert_definition_version`, `alert_enablement`, `correlation_event`, `audit_trail`, `algorithm_registry`).
 
 ---
 
@@ -269,6 +269,81 @@ SELECT create_hypertable('lab_result', 'collected_at');
 CREATE INDEX ix_lab_patient_analyte ON lab_result (mpi_id, loinc_code, collected_at DESC);
 ```
 
+### 4.5 Alert enablement (`alert_enablement`) — versioned, append-only enable/disable state *(RT1-SEC-02)*
+
+`admin-config.md` §4 governs enabling/disabling an alert type **per scope** (tenant/unit/bed), whose
+central guardrail is **"safety-critical alerts cannot be silently disabled"** (§4.1). That guardrail
+was previously un-implementable here: the model carried **no** enable/disable persistence entity, and
+`audit_trail` had **no** enable/disable action — admin-config's own closing note flags exactly this
+(*"confirm the enable/disable state persistence … flagged for the data model"*). This entity supplies
+the substrate: a **versioned, append-only** enable/disable record scoped exactly like `threshold_config`
+(bed ≻ unit ≻ tenant), every change an immutable row wired to `audit_trail` (INV-1). State is never
+updated in place — a change mints a **new row** (the enable/disable analogue of the `threshold_config` /
+`alert_definition_version` versioning pattern).
+
+```sql
+-- Per-scope enable/disable state for an alert definition. Append-only: a change mints a new version
+-- row; the effective state is the latest row for the most-specific matching scope (bed ≻ unit ≻ tenant).
+CREATE TABLE alert_enablement (
+    id                  BIGSERIAL PRIMARY KEY,
+    alert_definition_id BIGINT       NOT NULL REFERENCES alert_definition(id),
+    tenant_id           VARCHAR(32),                 -- NULL = platform-default scope
+    unit                VARCHAR(64),                 -- NULL = tenant-wide
+    bed_id              VARCHAR(32),                 -- NULL = unit-/tenant-wide (scope parity with threshold_config §3.1a)
+    enabled             BOOLEAN      NOT NULL,        -- the state this version sets
+    is_safety_critical  BOOLEAN      NOT NULL,        -- snapshot of the definition's safety_critical flag at write time (CON-0061)
+    version             INT          NOT NULL,        -- monotonic per (alert_definition_id, tenant_id, unit, bed_id)
+    actor               VARCHAR(255) NOT NULL,        -- IAM Identity Center subject who made the change (ADR001-C-07)
+    reason              TEXT         NOT NULL,        -- REQUIRED justification (admin-config §3 propose→review; US-25 AC4)
+    ratify_ref          VARCHAR(64),                 -- RATIFY escalation id; REQUIRED to disable a safety_critical alert (US-25 AC5)
+    valid_from          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    UNIQUE (alert_definition_id, tenant_id, unit, bed_id, version)
+);
+CREATE INDEX ix_enablement_scope
+    ON alert_enablement (alert_definition_id, tenant_id, unit, bed_id, valid_from DESC);
+
+-- INV-1 anti-mutation: enablement history is immutable (same trigger as audit_trail §6 /
+-- alert_definition_version §4.1). A disable/enable is a NEW row, never an UPDATE/DELETE.
+CREATE TRIGGER trg_alert_enablement_immutable
+    BEFORE UPDATE OR DELETE ON alert_enablement
+    FOR EACH ROW EXECUTE FUNCTION audit_trail_no_mutation();
+
+-- Safety-critical alerts cannot be SILENTLY disabled: block any enabled=FALSE write for a
+-- safety_critical alert unless it carries a RATIFY escalation reference (US-25 AC5, CON-0061,
+-- SYS-C-03). Enforced in the DB as defense-in-depth; the service layer enforces the same rule via the
+-- governed propose->review->activate workflow (admin-config §3/§4.1).
+CREATE OR REPLACE FUNCTION alert_enablement_guard() RETURNS trigger AS $$
+BEGIN
+    IF NEW.is_safety_critical AND NEW.enabled = FALSE AND NEW.ratify_ref IS NULL THEN
+        RAISE EXCEPTION
+          'safety_critical alert % cannot be disabled without a RATIFY escalation (US-25 AC5 / CON-0061)',
+          NEW.alert_definition_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_alert_enablement_guard
+    BEFORE INSERT ON alert_enablement
+    FOR EACH ROW EXECUTE FUNCTION alert_enablement_guard();
+```
+
+- **Effective state** = the latest `valid_from` row for the most-specific matching scope (bed ≻ unit ≻
+  tenant), mirroring `threshold_config` resolution (§3.1a, `alert-engine.md` §6). No row for any scope
+  ⇒ the definition's default `is_active` (§4.1) — a definition is enabled unless a scope row disables it.
+- **Every enable/disable writes one immutable `audit_trail` row** (`action` `alert.enable` /
+  `alert.disable`, `actor`, `entity_id` = the `alert_enablement.id`, `reason`, before/after snapshots;
+  INV-1, §6). The append-only `alert_enablement` chain and the `audit_trail` row are redundant by
+  design — the chain *is* the state history; the audit row is the cross-entity ledger.
+- **Safety-critical non-disable is enforced twice** — the `alert_enablement_guard()` DB trigger above
+  **and** the service layer — so a `safety_critical` disable cannot land by any path without a
+  `ratify_ref` (the RATIFY escalation of `admin-config.md` §4.1 / US-25 AC5). This is the persistence
+  that makes "safety-critical alerts cannot be silently disabled" a **verifiable invariant**, not prose.
+- **Cross-reference:** `admin-config.md` §4.1 (safety-critical shown-locked, RATIFY-only), §4.2 (a
+  non-safety disable is a governed, reversible, audited supersession — still evaluated + recorded), and
+  the §4.3 governance table are the UX + policy face of this entity; this table is their **persistence
+  contract**, closing admin-config's flagged open reconciliation.
+
 ---
 
 ## 5. Algorithm versioning (INV-3) — `CON-0068`/`IMP-C-03`
@@ -315,7 +390,7 @@ CREATE TABLE audit_trail (
     event_ts      TIMESTAMPTZ NOT NULL DEFAULT now(),
     tenant_id     VARCHAR(32),
     actor         VARCHAR(255) NOT NULL,            -- IAM Identity Center subject (ADR001-C-07)
-    action        VARCHAR(48)  NOT NULL,            -- alert.acknowledge | alert.resolve | threshold.update | phi.read …
+    action        VARCHAR(48)  NOT NULL,            -- alert.acknowledge | alert.resolve | threshold.update | alert.enable | alert.disable | phi.read …
     entity_table  VARCHAR(48)  NOT NULL,
     entity_id     VARCHAR(64)  NOT NULL,
     mpi_id        VARCHAR(64),                      -- subject patient, when applicable
@@ -359,8 +434,11 @@ ALTER TABLE patient_cache
     ADD COLUMN cpf         BYTEA,                    -- NEW PHI: Brazilian tax id
     ADD COLUMN cns         BYTEA,                    -- NEW PHI: Cartão Nacional de Saúde
     ALTER COLUMN display_name TYPE BYTEA USING pgp_sym_encrypt(display_name, current_setting('app.dek')),
-    ALTER COLUMN mrn          TYPE BYTEA USING pgp_sym_encrypt(mrn,          current_setting('app.dek'));
--- birth_date kept as DATE but access-logged (INV-1); if LGPD-restricted, store encrypted too.
+    ALTER COLUMN mrn          TYPE BYTEA USING pgp_sym_encrypt(mrn,          current_setting('app.dek')),
+    -- birth_date is PHI (quasi-identifier; security-lgpd §3.1 PHI inventory + the §3 delta above).
+    -- Encrypt to BYTEA — NO plaintext DATE column remains — so the §7 DDL, the §3 delta, the security
+    -- PHI inventory, and REQ-INV-4-1 / REQ-INV-4-S1 all agree (RT1-SEC-03 reconciliation).
+    ALTER COLUMN birth_date   TYPE BYTEA USING pgp_sym_encrypt(birth_date::text, current_setting('app.dek'));
 
 -- Read path (app sets the per-tenant data-encryption key into a GUC for the transaction):
 --   SELECT pgp_sym_decrypt(display_name, current_setting('app.dek')) FROM patient_cache WHERE mpi_id = $1;
@@ -371,6 +449,14 @@ ALTER TABLE patient_cache
     ADD COLUMN mrn_bidx BYTEA;                       -- hmac(mrn, index_key) — allows equality lookup without decryption
 CREATE INDEX ix_patient_mrn_bidx ON patient_cache (mrn_bidx);
 ```
+
+**Age-derivation service (`birth_date` is now ciphertext).** Scores that need patient age never read a
+plaintext DOB. A server-side `age_derivation` helper decrypts `birth_date` per request with the tenant
+DEK, computes integer age (or the age *band* the scorer needs) **in process memory**, and emits an
+`audit_trail action='phi.read'` row (INV-1). Only the **derived age band** — non-PHI (e.g.
+`<40 | 40–64 | 65–74 | ≥75`) — is cacheable (Redis short-TTL, non-PHI, security-lgpd I8); the exact
+date and the exact age are **never** cached, logged, or written to a non-PHI column. Age-based scoring
+therefore keeps working with `birth_date` encrypted at rest (RT1-SEC-03).
 
 ---
 
@@ -394,6 +480,7 @@ CREATE INDEX ix_patient_mrn_bidx ON patient_cache (mrn_bidx);
 | `alert_definition_version` | table | ≥ 7 years (immutable) | local | append-only; retained ≥ longest referencing alert | no | INV-1, INV-3 | §4.1 |
 | `algorithm_registry` | table | indefinite (immutable) | local | append-only; retained ≥ longest referencing score | no | INV-3 | §5.1 |
 | `threshold_config` | table | indefinite (versioned) | local | superseded rows kept; changes audited | no | INV-1 | `DM-C-11`, `DM-RP` (no drop) |
+| `alert_enablement` | table | indefinite (versioned) | local | append-only; superseded rows kept; changes audited | no | INV-1 | §4.5, `admin-config.md` §4 |
 | `audit_trail` | hypertable | **7 years** (flag: CFM 20y) | local | `add_retention_policy(…, INTERVAL '7 years')`; **append-only** | yes (encrypted) | INV-1, INV-4 | `IMP-C-01`, §6 note |
 
 **Continuous aggregates (optional, deferred).** To retain *analytic* value of vitals/labs beyond 90 days without keeping raw rows, hourly continuous aggregates (`vital_sign_1h`, `lab_result_1d`) MAY be materialized and retained 7y locally — but this is **not required**, since Gold already holds the raw history (`DM-DATA-01`). Recorded as an option, not a mandate, to respect operational-only (`ADR001-C-03`).
@@ -420,10 +507,11 @@ Requirements owned by this data model. IDs are `REQ-INV-<invariant>-<k>`. (INV-2
 | **REQ-INV-1-1** | `audit_trail` exists as an **append-only** table before the first real-patient ingest; a `BEFORE UPDATE OR DELETE` trigger raises and blocks every mutation (`CON-0066`/`CON-0097`/`IMP-C-01`). | Migration test asserts trigger present; attempt `UPDATE`/`DELETE` on a seeded row → exception, row unchanged; CI integration test. | Operational DB / migrations (`audit_trail` + `trg_audit_trail_immutable`). |
 | **REQ-INV-1-2** | Every alert lifecycle transition (ack/resolve/expire), threshold edit, definition-version mint, and PHI read writes exactly one `audit_trail` row with actor, action, before/after, and OTEL `request_id` (`ADR001-C-06`). | For each mutating endpoint, integration test asserts one audit row with correct `action`/`actor`/`entity_id`; assert `request_id` ties to the OTEL trace. | API service layer (alerts, thresholds) + audit writer. |
 | **REQ-INV-1-3** | `alert_definition_version` and `algorithm_registry` are immutable once referenced — no in-place edit of a version; a change mints a new row (append-only). | Attempt to `UPDATE` a referenced version/registry row → blocked; content edited back to a prior body is deduped by `content_hash`/`spec_hash`, not a new version. | Definition/registry stores + append-only triggers. |
+| **REQ-INV-1-4** | Every alert-type **enable/disable** writes one immutable `alert_enablement` version row **and** one `audit_trail` row (`action` `alert.enable`/`alert.disable`, `actor`, `reason`, before/after); a `safety_critical` alert **cannot be disabled without a RATIFY escalation** (`ratify_ref`) — enforced by the `alert_enablement_guard()` DB trigger **and** the governance service (RT1-SEC-02; `admin-config.md` §4.1, US-25 AC5, `CON-0061`, `SYS-C-03`). | Disable a non-safety alert → a new `alert_enablement` row + audit row carrying `reason`; attempt to disable a `safety_critical` alert with `ratify_ref` NULL → rejected (trigger raises); attempt `UPDATE`/`DELETE` on any `alert_enablement` row → blocked; effective-state query returns the most-specific scope row. | `alert_enablement` + audit writer + governance service (admin-config §4). |
 | **REQ-INV-3-1** | Canonical table is `clinical_score` (singular); `algorithm_version` is `NOT NULL` and FK to `algorithm_registry` — resolves CON-SEED-02 (`IMP-C-03`/`CON-0068`). | Schema assertion: `clinical_score.algorithm_version` NOT NULL + FK exists; no table named `clinical_scores`; backfill migration leaves zero NULLs. | `clinical_score` model + `algorithm_registry`. |
 | **REQ-INV-3-2** | Every raised `alert` stamps `definition_version_id` (exact firing `alert_definition_version`); every `correlation_event` stamps its rule version — historical alerts are reproducible for 7y. | Fire an alert, bump the definition to v+1, re-query the old alert → still resolves to the original version body; version chain test. | Alert engine write path + `alert_definition_version`. |
 | **REQ-INV-3-3** | Score/alert write-back to Gold `fact_patient_score`/`fact_alert` carries the `algorithm_version`/`definition_version` so corporate analytics can partition by algorithm (`ADR001-C-04`/`CON-0004`). | Write-back integration test asserts the version column is present and populated in the Gold fact payload. | Gold write-back job (amh-integration handoff). |
-| **REQ-INV-4-1** | PHI columns `nome (display_name), CPF, CNS, MRN` in `patient_cache` are stored `pgcrypto`-encrypted (BYTEA); plaintext never persisted (`CON-0069`/`CON-0103`/`IMP-C-04`). | Inspect raw table bytes → ciphertext only; a dump contains no plaintext PHI; decrypt-round-trip unit test with a per-tenant key. | `patient_cache` + pgcrypto/key-management. |
+| **REQ-INV-4-1** | PHI columns `nome (display_name), CPF, CNS, MRN, birth_date` in `patient_cache` are stored `pgcrypto`-encrypted (BYTEA); plaintext never persisted — **no plaintext `DATE birth_date` column remains** (`CON-0069`/`CON-0103`/`IMP-C-04`; RT1-SEC-03). | Inspect raw table bytes → ciphertext only; a dump contains no plaintext PHI **and no plaintext birth_date** (`pg_dump \| grep` finds no DOB); decrypt-round-trip unit test with a per-tenant key; `age_derivation` computes age from the decrypted value server-side (§7). | `patient_cache` + pgcrypto/key-management. |
 | **REQ-INV-4-2** | Encryption keys are per-tenant, KMS-issued data keys injected per transaction (GUC), never stored in the DB or source (`ADR001-C-07`/`CON-0007`). | Grep schema/seed for embedded keys → none; verify DEK is set per session and rotated; cross-tenant decrypt with wrong key fails. | Key-management (KMS integration) + app session bootstrap. |
 | **REQ-INV-4-3** | Equality lookup on encrypted `MRN` uses a keyed HMAC blind index, not plaintext or ciphertext scan; encrypted `before/after_state` in `audit_trail` protects PHI in snapshots. | Query by `mrn_bidx` returns the row without decrypting; confirm no plaintext MRN index exists; audit snapshot bytes are ciphertext. | `patient_cache` blind index + `audit_trail` encryption. |
 
@@ -439,3 +527,4 @@ Requirements owned by this data model. IDs are `REQ-INV-<invariant>-<k>`. (INV-2
 6. **`threshold_config.bed_id` scope (§3.1a, ADOPTED pending ratification).** The nullable `bed_id` third scope + `UNIQUE (tenant_id, unit, bed_id, score_type)` and the bed ≻ unit ≻ tenant resolution are adopted from `alert-engine.md` §6 / `openapi.yaml ThresholdConfig`. Confirm at barrier C2 (data-architect + alert-engine-architect).
 7. **`alert.status` enum extension (§3.1b, ADOPTED pending ratification).** Adding `acting` + `escalated` (`alert-engine.md` §9 / `openapi.yaml AlertStatus`) vs the alternative modelling (`acting` = acknowledged + `intervention_started_at`; `escalated` = boolean flag). Includes the escalation actor (`system | clinician`, B2-002) and band-aware target (B2-003). Confirm at C2.
 8. **`alert.severity` delivery-only `normal`/`info` (§3.1c, ADOPTED pending ratification).** Adding a `normal`/`info` value so Tier-4 advisories persist as first-class alert rows, aligning `alert.severity` with `alert_definition_version.severity` (`severity-model.yaml data_model_alert_severity`) — vs formally ratifying "the `normal` band creates no alert row". Confirm at C2.
+9. **`alert_enablement` per-scope enable/disable (§4.5, RT1-SEC-02 — ADDED).** The versioned, append-only enablement entity + the `alert_enablement_guard()` safety-critical non-disable trigger resolve `admin-config.md`'s flagged open reconciliation ("confirm the enable/disable state persistence"). Confirm the `safety_critical` source-of-truth join (the `safety_critical` list lives in `ppv-ledger-draft.yaml`, `CON-0061`) and the RATIFY-escalation `ratify_ref` linkage at barrier C2 (data-architect + alerting-ux-specialist).

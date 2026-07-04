@@ -1,0 +1,134 @@
+round: 1
+lens: patient-safety
+findings:
+  - finding_id: RT1-PATIENT-SAFETY-01
+    severity: critical
+    claim: >-
+      The platform-level controls that are supposed to design OUT the systemic P0 defect CLASSES
+      (not just the 12 per-instance P0 rules) are unowned: 6 of the SYS-* class mitigations carry
+      spec_ref: null and one cites a section that does not contain the control. Specifically the
+      anti-dead/unreachable-criterion build-time coverage check (SYS-08 -> caused P0-08 SEPSE-014 and
+      P0-09 EFICIENCIA-005 silent false-negatives) and the facade-text==firing-predicate contract test
+      (SYS-04 -> caused P0-06 phantom FC>130 criterion and P0-12 PAD<90 facade drift) are asserted as
+      mitigations but specified in NO spec section. Without a specified build-time reachability/coverage
+      gate and a facade==predicate gate, the exact defect mechanisms that made P0-06/08/09/12 shippable
+      are not verifiably prevented from re-import.
+    falsifiable_check: >-
+      (1) grep 'spec_ref: null' docs/plan/_work/safety/hazard-log.yaml returns lines 261 (HAZ-016 SYS-04
+      facade contract test), 274-275 (HAZ-017 SYS-05 AST diff + OR-alternative tests), 302 (HAZ-019 SYS-07
+      band-coverage property test), 315 (HAZ-020 SYS-08 build-time reachability coverage requirement), 331
+      (HAZ-021 SYS-09 weight-parse tests), 345 (HAZ-022 SYS-10 month/DST window tests) -- i.e. the class
+      controls for SYS-04/05/07/08/09/10 have no owning spec. (2) HAZ-009 line 157 cites
+      'architecture/alert-engine.md §2 (declarative, versioned definitions — no dead code path)' as the
+      owner of 'no criterion may be defined-but-unwired; build-time coverage check that each criterion
+      contributes to aggregation', yet grep -iE 'reachab|coverage check|wired|every criterion|dead code|facade'
+      over docs/plan/architecture/alert-engine.md returns ZERO hits -- §2 (lines 44-59) only mandates
+      declarative/versioned records and never specifies a reachability or coverage gate.
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Add an explicit alert-engine section specifying two CI-failing build-time gates: (a) criterion-coverage
+      -- every declared criterion must be wired into aggregation and ship a can-fire vector proving a
+      non-empty firing input set (kills SYS-08); (b) facade==predicate -- the rendered clinician rationale,
+      units and thresholds are generated from the same AST/thresholds that fire, drift is a build failure
+      (kills SYS-04). Then repoint HAZ-009/016/017/019/020 spec_refs to that section and to the concrete
+      test artifacts; drop the bogus §2 citation on HAZ-009.
+  - finding_id: RT1-PATIENT-SAFETY-02
+    severity: major
+    claim: >-
+      The SOFA sub-score boundary test vectors that HAZ-002/HAZ-003/HAZ-019 name as the verification of the
+      P0-02 (vasopressor) and P0-03 (renal off-by-one) fixes do not exist in the alert file. The only SOFA
+      alert (ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03) tests the aggregate delta and a single FiO2 case;
+      there is no vector at creatinine exactly 5.0 mg/dL expecting 4 points, none at the norepinephrine 0.1
+      mcg/kg/min tier edge, and none at the bilirubin band edges (2.0/6.0/12.0). The P0-03 undercount (Cr 5.0
+      falling to score 0) therefore has no regression-catching test even though the corrected band is written
+      in prose -- a re-introduced strict '>5' would pass all existing vectors.
+    falsifiable_check: >-
+      Open docs/plan/_work/alerts/early-warning-scores.yaml ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03
+      test_vectors (lines 152-156): TV-1 delta +3, TV-2 delta +1, TV-3 delta +2 boundary, TV-4 FiO2 fraction.
+      No test sets creatinina, dose_vasopressor, or bilirubina to a sub-score band edge. Then read
+      hazard-log.yaml HAZ-003 line 72 ('mandatory boundary vector at creatinine exactly 5.0 mg/dL expecting 4
+      points', spec_ref '_work/alerts/early-warning-scores.yaml (boundary test_vectors)'), HAZ-002 line 58
+      ('boundary at norepi 0.1 mcg/kg/min', same file), HAZ-019 line 303 ('mandatory boundary test vector at
+      every band edge for every score'). The named artifacts are absent -> mitigation claims are unverified.
+    owning_doc: docs/plan/_work/alerts/early-warning-scores.yaml
+    proposed_fix: >-
+      Add boundary vectors to the SOFA alert exercising each corrected sub-score edge with the reference
+      expected sub-score: creatinina 5.0 -> renal 4; creatinina 4.9 -> 3; norepinephrine 0.10 -> cardio 3 and
+      0.11 -> 4; bilirubina 2.0 -> liver 2, 6.0 -> 3, 12.0 -> 4; plus a mechanical-ventilation-gated P/F 3/4
+      case. Assert expected_resp_subscore/expected_renal_subscore explicitly so the P0-02/03 regressions fail
+      the suite.
+  - finding_id: RT1-PATIENT-SAFETY-03
+    severity: major
+    claim: >-
+      Severe uncontrolled pain (NRS 7-10 / BPS 10-12) is delivered only at severity watch (2h ack SLA) and is
+      never tested at scale maximum, yet the hazard log presents the P0-04/P0-05 severe-pain-suppression
+      hazards as near-closed (residual_risk low) with a test-requirement that the design cannot satisfy.
+      HAZ-004/HAZ-005 require 'test vector at NRS 10 (BPS 12) MUST fire grade 3' pointing at
+      neuro-sedation.yaml, but ALERT-NEUROSED-PAIN-08 caps at watch, has no NRS 10 or BPS 12 vector, and the
+      domain doc itself flags relocation of severe pain out of the deterioration channel as 'the single
+      genuine clinical loss ... flagged RATIFY'. The residual_risk: low is therefore mislabeled -- this is an
+      open clinical RATIFY (severe pain under-triaged), not a mitigated hazard.
+    falsifiable_check: >-
+      docs/plan/_work/alerts/neuro-sedation.yaml ALERT-NEUROSED-PAIN-08: severity 'watch' (line 197);
+      test_vectors (lines 213-218) use NRS 6/6/4/3 and BPS 7/6 -- no NRS 10, no BPS 12, no grade-3/critical
+      expectation. docs/plan/clinical/domains/neuro-sedation.md lines 243-244 state 'the alert severity stays
+      watch (pain is not an imminent-life-threat class)'; early-warning-scores.md line 228 calls this 'the
+      single genuine clinical loss and is flagged RATIFY'. Now read hazard-log.yaml HAZ-004 line 86 and
+      HAZ-005 line 100 (test-requirement 'MUST fire grade 3', spec_ref neuro-sedation.yaml) with
+      residual_risk: low (lines 87, 101). The claimed grade-3 firing is impossible in the shipped design.
+    owning_doc: docs/plan/_work/safety/hazard-log.yaml
+    proposed_fix: >-
+      Reconcile HAZ-004/005: either (a) restore a distinct urgent/critical severe-pain escalation and add the
+      NRS 10 / BPS 12 max-value vectors so the mitigation is real, or (b) rewrite the mitigation to the
+      actually-shipped control ('NRS 10 / BPS 12 MUST fire ALERT-NEUROSED-PAIN-08 at watch on two consecutive
+      assessments') and set residual_risk to track the open RAT (should severe pain remain a deterioration
+      input) rather than 'low'. Add the two scale-maximum boundary vectors either way.
+  - finding_id: RT1-PATIENT-SAFETY-04
+    severity: major
+    claim: >-
+      The derived parameter delta_na_24h is defined two different ways in two electrolyte alerts, and the
+      divergent definition governs the catastrophic osmotic-demyelination (ODS) safety net. In
+      ALERT-ELY-SODIUM-01 it is 'sodio_atual - sodio_24h_atras' (current minus the value 24h ago); in the ODS
+      alert ALERT-ELY-SODIUM-CORRECTION-02 it is 'sodio_atual - sodio_nadir_24h' (current minus the 24h nadir).
+      For a patient whose sodium fell then was corrected, the nadir form captures the full correction swing
+      while the '24h_atras' form can under-report it. If a shared derived-value registry computes delta_na_24h
+      once (the two share the identical name and window), the overcorrection alert can inherit the wrong
+      baseline and miss an ODS-range correction -- exactly the HAZ-032 failure mode -- violating HAZ-031's
+      deterministic-baseline requirement.
+    falsifiable_check: >-
+      docs/plan/_work/alerts/electrolyte.yaml: ALERT-ELY-SODIUM-01 input delta_na_24h source line 116
+      'derived (sodio_atual - sodio_24h_atras)'; ALERT-ELY-SODIUM-CORRECTION-02 input delta_na_24h source
+      line 179 'derived (sodio_atual - sodio_nadir_24h; signed correction over 24h)'. Same name, same PT24H
+      window, different reference value. hazard-log.yaml HAZ-031 line 476 requires 'baseline selection is
+      deterministic and documented per domain'; HAZ-032 (lines 480-492, catastrophic) is the ODS net that
+      depends on this delta. No single-source-of-truth reconciliation of the two definitions exists.
+    owning_doc: docs/plan/_work/alerts/electrolyte.yaml
+    proposed_fix: >-
+      Give the two quantities distinct names -- e.g. delta_na_24h_trailing (current minus value-24h-ago) for
+      the absolute-band trend cofactor, and correcao_na_24h_from_nadir (current minus 24h nadir) for the ODS
+      safety alert -- and state in electrolyte.md that the overcorrection alert MUST use the nadir form. Add a
+      test vector where Na falls 140->120 then rises to 132 (nadir delta +12, trailing delta -8) asserting
+      CORRECTION-02 fires critical.
+  - finding_id: RT1-PATIENT-SAFETY-05
+    severity: minor
+    claim: >-
+      ALERT-SEPSIS-ORGAN-02's delta-lactate branch ('delta_lactato > 0.5 mmol/L per hour over PT6H') does not
+      specify how the per-hour rate is normalized against irregular sampling, and its own test vectors are
+      internally inconsistent about the lookback interval. A single prior sample (lactato_arterial_anterior,
+      declared as a 6h-lookback result) is used, but TV-2 treats the change as 'over 6h' while TV-6 treats it
+      as 'over 1h'. Because the rate = delta / elapsed-between-samples, a fast repeat draw (e.g. two lactates
+      15 min apart, +0.2 change = 0.8 mmol/L/h) can false-fire this CRITICAL alert, while a genuine slow rise
+      sampled 6h apart can be missed -- the HAZ-031 baseline-lookback hazard, unresolved for a critical alert.
+    falsifiable_check: >-
+      docs/plan/_work/alerts/sepsis.yaml ALERT-SEPSIS-ORGAN-02 trigger line 78 states the rate threshold but
+      no elapsed-time normalization rule; input lactato_arterial_anterior line 86 says 'prior result, 6h
+      lookback'. TV-2 (line 108) computes 'trend 0.6 mmol/L over 6h = 0.1 mmol/L/h'; TV-6 (line 112) computes
+      'delta 0.9 mmol/L over 1h lookback = 0.9 mmol/L/h'. The two vectors assume different denominators for
+      the same input, so the per-hour rate is under-specified. HAZ-031 (hazard-log line 468) names this exact
+      trend-baseline hazard.
+    owning_doc: docs/plan/_work/alerts/sepsis.yaml
+    proposed_fix: >-
+      Define the rate deterministically: rate = (lactato_atual - lactato_anterior) / max(elapsed_hours,
+      min_interval) with an explicit minimum sample spacing (e.g. ignore priors <1h apart, require >=2 samples
+      spanning >=1h), matching the HAZ-031 electrolyte/EWS trend rules. Rewrite TV-2/TV-6 to carry explicit
+      sample timestamps so the denominator is unambiguous.

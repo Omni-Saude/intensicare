@@ -439,5 +439,28 @@ lifecycle/prefill ADAPT — 013, 021, 043, 044, 045, 046, 047, 063; ADOPT-CORREC
 
 ---
 
+## 14. Accessibility gate (required by `accessibility-standard.md §8`)
+
+This is the schema-driven clinical **form engine**, not a severity-rendering surface, so several severity-specific gates are N/A here; but two gates are **core** to this deliverable: `A11Y-GATE-14` (the CPF+PIN e-signature — §8, EV-053/EV-054 — is the exact SC 3.3.8 / shared-PIN closure the standard §7 tracks) and `A11Y-GATE-16` (redundant-entry — `accessibility-standard.md §1.1` binds `form-engine-designer` to SC 3.3.7).
+
+- [x] **A11Y-GATE-01** — Every field label, value, and helper/error text meets `SC 1.4.3` (4.5:1 / large 3:1) in both themes. **N/A for AAA 1.4.6** — the engine renders clinical *documentation*, not `clinical.severity.critical` values (owned by the score/alert surfaces); no critical-scoped numeric attaches the ceiling here (`A11Y-REQ-01`).
+- [x] **A11Y-GATE-02** — Field borders, focus rings, required/invalid indicators, and the annul/void affordance meet `SC 1.4.11` (≥3:1 non-text contrast) in both themes.
+- [x] **A11Y-GATE-03** — Field state (valid / required / invalid / annulled) is encoded by icon + text + `aria-invalid`, never color alone (`A11Y-REQ-02`); the annulled/`inativo` state (§4) and error severity (validation/permission/server, ADR-0016) are text+icon/ARIA treatments (§5.4-mapping), not hues.
+- [x] **A11Y-GATE-04** — **N/A** — the engine renders no severity palette and introduces no `clinical.*` hex (severity tokens owned by `design-tokens.md`, run through the §2.2 method there).
+- [x] **A11Y-GATE-05** — **N/A for severity motion** (none); any save/validation progress indicator honors `prefers-reduced-motion` (instant) and nothing flashes >3 Hz (`A11Y-REQ-13/14`).
+- [x] **A11Y-GATE-06** — **N/A** — the form engine renders no severity chips/badges, so there is no smallest-chip legibility case; severity iconography is owned by the alert/score surfaces.
+- [x] **A11Y-GATE-07** — **N/A for clinical severity** (not rendered here); the analogous rule holds for **error severity** — validation/permission/server class is derived from the ADR-0016 classification at render, never a hardcoded `Modal.error` literal (`A11Y-REQ-19`, §5.4-equivalent).
+- [x] **A11Y-GATE-08** — Every form dialog/drawer rides the managed overlay stack: the **annul confirmation is a `role="alertdialog"` with focus on the safe default (Cancelar)**, never the destructive annul (`A11Y-REQ-11`); `Escape` closes only the topmost, back matches Esc, `aria-modal` + focus trap, depth ≤2 (`accessibility-standard §3`, `A11Y-REQ-07..11`).
+- [x] **A11Y-GATE-09** — Form save/validation results and offline-draft reconcile/conflict notices announce via `aria-live="polite"` (non-critical status) without a forced focus change (`SC 4.1.3`); the engine renders no alert-tier live regions.
+- [x] **A11Y-GATE-10** — **N/A** — the form engine renders no alert/severity elements bearing the severity→parameter→location accessible-name shape (owned by the alert surfaces); form controls follow standard label/description semantics (see `A11Y-GATE-15`).
+- [x] **A11Y-GATE-11** — Every input, checkbox, radio, `interval` slider, `list` add/remove control, `Salvar`/`Liberar`/`Assinar`, and the annul control meets the 24×24 floor; primary save/sign and any gloved-hand bedside action meet 44×44 (`A11Y-REQ-20/21`).
+- [x] **A11Y-GATE-12** — No pure `#FFFFFF`/`#000000` large form surface (`A11Y-REQ-23`); embossed field groups carrying clinical text pass the both-theme contrast check (`CON-0037`) and have a `prefers-contrast: more` flat fallback (`A11Y-REQ-24`).
+- [x] **A11Y-GATE-13** — **N/A** — no drag interactions in the form engine (state: none); a future `list`/`formList` reorder would ship a single-pointer alternative (pre-registered, `A11Y-REQ` §2.5.7).
+- [x] **A11Y-GATE-14** — **Load-bearing** — `liberar` requires a registered CPF (EV-053) and digital signing requires CPF + PIN (EV-054, §8); this e-signature step MUST offer a path that is **not a pure cognitive-function test** per `A11Y-REQ-25` / `SC 3.3.8` (password-manager-compatible entry / no paste-block, platform passkey or biometric where available, or an assisted mechanism with no arbitrary attempt-lockout). This is the accessibility half of the shared-default-PIN closure (`RULE-AUTH-USUARIOS-063`, `accessibility-standard §7`); the mechanism choice is `security-lgpd-engineer`'s.
+- [x] **A11Y-GATE-15** — Every custom field primitive (the `Campo` renderer for each of the 11 types — string/select/interval/number/boolean/checkbox/data/list/masked/multicheck/time — plus the annul control and section header) exposes an accessible name/role/state and maps `required`/`invalid`/`disabled` to ARIA (`SC 4.1.2`) — no bare `<div onClick>`.
+- [x] **A11Y-GATE-16** — **Core** — the unified visibility/nullability rule engine (§3) MUST NOT re-ask information already supplied earlier in the same multi-step/drawer flow; carry-forward/prefill (§8, EV-046/047) auto-populates from the patient's last saved form, satisfying `SC 3.3.7` (`accessibility-standard §1.1` binds `form-engine-designer` to exactly this).
+
+---
+
 *End — form-engine-designer deliverable. Peer stack-choice ADR draft (`form-engine-stack.md`) and the
 security-layer document lifecycle/signature rules are owned elsewhere and referenced above.*

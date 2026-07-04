@@ -22,7 +22,7 @@ version: 1
 status: draft
 scope: legacy-id-reconciliation-view          # B3-003: NOT the binding budget
 canonical_source: "docs/plan/_work/alerts/*.yaml — the 50-alert domain catalogs (ppv_budget.target_ppv + est_volume_per_100_beds_day) are canonical + binding for v2 (B3-003)"
-resolves_toward: [VIS-7.1-02, VIS-7.1-04, PER-CARLOS-02]     # PPV>=60%, fatigue<=10%, <3 FP/patient-day
+resolves_toward: [VIS-7.1-02, VIS-7.1-04, PER-CARLOS-02]     # PPV>=60%, fatigue<=10%, PER-CARLOS-02 as per-patient-day FP distribution (p95<3 + >3-share<=5%)
 barrier: C3
 
 # ---------------------------------------------------------------------------------------------------
@@ -31,7 +31,13 @@ barrier: C3
 fleet_targets:
   ppv: 0.60                 # VIS-7.1-02: PPV of alerts (acionaveis/total) baseline 0.35 -> goal >= 0.60
   ignored_max: 0.10         # VIS-7.1-04: taxa de alarm fatigue (alertas ignorados/total) baseline 0.25 -> goal <= 0.10
-  fp_per_patient_day_max: 3 # CON-0088 / PER-CARLOS-02: < 3 false positives / patient-day
+  # CON-0088 / PER-CARLOS-02 "<3 falsos positivos por paciente-dia" — re-operationalized as a
+  # PER-PATIENT-DAY DISTRIBUTION metric (RT1-ALARM-FATIGUE-01): a fleet mean (total FP / census
+  # patient-days) is structurally blind to FP concentration on the sickest patients. BOTH gates
+  # below must hold; the fleet mean is retained as a diagnostic trend only, never the gate.
+  fp_patient_day_p95_max: 3           # gate (i): p95 over (patient, calendar-day) cells of dispositioned-FP count < 3
+  fp_patient_day_gt3_share_max: 0.05  # gate (ii): share of patient-days with > 3 dispositioned FP <= 5%
+  fp_per_patient_day_fleet_mean_note: "false_positive / patient_days is DIAGNOSTIC ONLY — not the PER-CARLOS-02 gate (RT1-ALARM-FATIGUE-01)"
   time_to_action_p50_max: PT15M  # VIS-7.1-03: tempo medio ate acao clinica pos-alerta 42min -> <= 15min
   baseline:                 # vision sec 7.1 baselines, rendered against actuals in US-23 dashboard
     ppv: 0.35
@@ -63,7 +69,13 @@ method:
   formulas:
     ppv:            "true_positive / (true_positive + false_positive)"                # severity-model ppv_analytics.ppv; excludes pending & ignored
     ignored_rate:   "ignored / total_raised"                                          # VIS-7.1-04
-    fp_per_patient_day: "false_positive / patient_days"                               # patient_days from occupancy census (US-23 AC1 / VIS-6.2-04)
+    # PER-CARLOS-02 / CON-0088 distribution metric (RT1-ALARM-FATIGUE-01). Unit of analysis: the
+    # (mpi_id, calendar_day) patient-day cell; patient-day cells come from the occupancy census
+    # (US-23 AC1 / VIS-6.2-04). FP = dispositioned false positive per method.classification above.
+    fp_patient_day_count: "count of dispositioned false positives per (mpi_id, calendar_day) cell"
+    fp_patient_day_p95:   "p95 over patient-day cells of fp_patient_day_count — PER-CARLOS-02 gate (i): < 3"
+    fp_patient_day_gt3_share: "share of patient-day cells with fp_patient_day_count > 3 — PER-CARLOS-02 gate (ii): <= 0.05"
+    fp_per_patient_day: "false_positive / patient_days — FLEET-MEAN DIAGNOSTIC ONLY, blind to per-patient concentration; NOT the PER-CARLOS-02 gate (RT1-ALARM-FATIGUE-01)"
     alert_burden:   "total_raised / patient_days"                                     # alertas/paciente/dia (VIS-6.2-04)
     time_to_recognition: "acknowledged_at - created_at"                              # DM-T-04
     time_to_action:      "resolved_at - created_at"                                   # VIS-7.1-03, target p50 <= PT15M

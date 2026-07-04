@@ -1,0 +1,110 @@
+round: 1
+fixer: F5
+lens: ux-correlation
+findings_fixed: 3
+# Red-team fixer F5 (UX/correlation). Applied the full adjudicated proposed_fix of exactly three findings
+# from adjudicated.yaml. Did NOT touch alert-routing.md (owned by another fixer). Every file written is under
+# docs/plan/ (CONTRACTS write fence). All YAML touched re-parsed clean.
+
+fixes:
+  - finding_id: RT1-ALARM-FATIGUE-02
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/clinical/domains/correlation-engine.md
+    proposed_fix: >-
+      Specify a cross-domain shared-physiology suppression group (deterioration cluster folding concurrent
+      EWS/Sepsis/Hemo pushes into one max-severity escalation), or add the missing correlations, or justify with
+      per-patient co-fire arithmetic why the overlaps do not multiply delivered pushes.
+    disposition: APPLIED
+    approach: >-
+      Chose the deterioration-cluster folding option (option 1). Added a new cross-domain shared-physiology
+      suppression group that folds concurrent deterioration pushes (EWS + Sepsis + Hemo, EWS + Sepsis +
+      Respiratory) — the co-fires the three PAIRWISE correlations do NOT catch (Sepsis<->EWS, Sepsis<->Hemo,
+      EWS<->Hemo are not pairwise members) — into ONE deterioration-cluster notification.
+    files_changed:
+      - docs/plan/clinical/domains/correlation-engine.md
+      - docs/plan/_work/alerts/correlation-engine.yaml
+    changes:
+      - "correlation-engine.md §5 restructured into §5.1 (pairwise causal-correlation fold + amplification), §5.2 (NEW cross-domain deterioration-cluster fold), §5.3 (two safety invariants), §5.4 (honest accounting)."
+      - "§5.2 defines the grouping key = mpi_id + encounter_id AND overlapping cluster_window (default PT1H, config, RAT-CORR-01 — a CONCURRENCY window, not a causal-latency window) AND a shared physiological driver (named axes: perfusao_circulatorio, respiratorio) read from member events, no re-derivation."
+      - "§5.2 never-suppress rule: folding != suppression — every member still computed, individually dispositionable, logged to prontuário NGS-2 with parameter+value+trend+evidence intact; only the PUSH is deduplicated; cluster delivered on the highest member's tier (a critical member still pages RRT Tier-1 <5s); composes with, never overrides, the alert-engine/alert-routing never-suppress-critical/urgent invariant; HAZ-026-safe (severity = max(member severities))."
+      - "§5.2 accounting: N members folded -> 1 delivered push (delivered-push count drops by N-1); each folded member still counts individually toward PPV, so the fold feeds only the push-count/ignored-rate reduction, never inflates PPV."
+      - "§2 'Events emitted' and the domain-inputs machine block emits_events gained correlation.deterioration_cluster.detected."
+      - "correlation-engine.yaml: added top-level cross_domain_grouping construct (GROUP-CORR-DETERIORATION-CLUSTER-01) with grouping_key, drivers, membership (excludes EXAM-REDUND + normal-band per B3-004, and members with no shared axis), severity_rule, delivery, never_suppress_rule, notification_payload, fatigue_accounting, ratify_ref RAT-CORR-01, evidence (Cvach 2012 + VIS-7.1-04/VIS-4-03)."
+    verification: >-
+      correlation-engine.yaml re-parses (python yaml.safe_load): top-level keys [domain, alerts,
+      cross_domain_grouping]; alerts list intact (4 alerts unchanged). Grouping key, drivers, severity_rule and
+      fatigue metric all read back correctly.
+
+  - finding_id: RT1-ALARM-FATIGUE-03
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/clinical/domains/correlation-engine.md
+    proposed_fix: >-
+      Re-scope the engine's claimed contribution to a defensible ~1-6% push reduction; identify the actual levers
+      for the remaining reduction (PPV gates, budget coalescing, tuning loop) or mark the 25%->10% target as not
+      yet mechanistically accounted and route to C3.
+    disposition: APPLIED
+    approach: >-
+      Re-scoped the "central alarm-fatigue lever" claim to a defensible ~1-6% direct push reduction backed by the
+      engine's own arithmetic, named the five actual levers carrying 25%->10% with pointers to their owning specs,
+      and routed the fleet-target validation to C3.
+    files_changed:
+      - docs/plan/clinical/domains/correlation-engine.md
+    changes:
+      - "§1 line 15: replaced 'This is the central alarm-fatigue lever (25% -> <=10%)' with 'one alarm-fatigue lever of five, not the lever' — directly removes only ~1-6% of fleet push traffic; 25%->10% is a combined outcome of five levers (pointer to §5.4)."
+      - "§5.4 (NEW) 'Honest alarm-fatigue accounting': 3 clinical correlations fire ~4/100 beds/day, fold ~8 member pushes, net ~4 fewer delivered pushes vs a ~137/100-beds/day fleet total = gross fold ~6%, net ~1-3%; cluster fold adds more but scales with unmeasured co-fire frequency; total directly-attributable = defensible ~1-6%; explicitly NOT claimed to carry the 25%->10% swing alone."
+      - "§5.4 named-levers table: (1) per-alert PPV budgets [_work/alerts/*.yaml, ppv-ledger-draft.yaml]; (2) suppression machinery [alert-engine.md §5, alert-routing.md §4]; (3) severity-tiered delivery [severity-model.yaml, alert-triage.md §1]; (4) cross-domain folding [this engine §5]; (5) threshold tuning loop [admin-config.md §3, US-23/25/26]. 25%->10% is the combined measured outcome, routed to C3 (ppv-ledger fleet-target validation)."
+      - "§5.1 overstated 'replace ~9-10 member pushes/100 beds/day / both levers of VIS-7.1-02/04' language removed; §9 'net reduction driven by the 3 clinical correlations' re-scoped to the bounded ~1-6% with a pointer to §5.4."
+    verification: >-
+      correlation-engine.md now states the engine is one lever of five with a ~1-6% bounded contribution in §1,
+      §5.4 and §9 (three previously-overstated locations reconciled); the 25%->10% target is attributed to the
+      five-lever system and routed to C3.
+
+  - finding_id: RT1-COMP-02
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/design/accessibility-standard.md
+    proposed_fix: >-
+      Add the mandated "Accessibility gate" A11Y-GATE-NN checklist subsection (accessibility-standard.md §8) to
+      the non-compliant screen specs; each item checked off with a 1-line how, or explicit N/A + rationale.
+    task_scope_note: >-
+      Scoped by the F5 task to the six screen specs admin-config / alert-triage / clinical-forms / command-center /
+      patient-timeline / handoff (check each; command-center may already comply). alert-routing.md skipped
+      (owned by another fixer); design-tokens.md and component-library.md are out of this task's scope.
+    disposition: APPLIED
+    compliance_check:
+      already_compliant:
+        - {file: docs/plan/design/screens/command-center.md, section: "§13", gate_items: 16, note: "all 16 A11Y-GATE items checked [x]"}
+        - {file: docs/plan/design/screens/patient-timeline.md, section: "§13", gate_items: 16, note: "all 16 A11Y-GATE items present"}
+        - {file: docs/plan/design/screens/handoff.md, section: "§7", gate_items: 14, note: "Accessibility gate present; 04/06 correctly omitted as N/A for an SBAR read projection (no severity palette, no small severity chips)"}
+      gate_added:
+        - {file: docs/plan/design/screens/admin-config.md, section: "§6 (NEW)", gate_items: 16}
+        - {file: docs/plan/design/screens/alert-triage.md, section: "§8 (NEW)", gate_items: 16}
+        - {file: docs/plan/design/screens/clinical-forms.md, section: "§14 (NEW)", gate_items: 16}
+    files_changed:
+      - docs/plan/design/screens/admin-config.md
+      - docs/plan/design/screens/alert-triage.md
+      - docs/plan/design/screens/clinical-forms.md
+    changes:
+      - "admin-config.md §6: 16-item A11Y-GATE checklist; AA-scoped incidental-chrome admin forms per standard §1 (only the critical-band preview is AAA); N/A on GATE-04 (no new hex), GATE-13 (no drag), GATE-14 (RATIFY governance escalation is not a login/PIN step)."
+      - "alert-triage.md §8: 16-item checklist; AAA critical-value ceiling load-bearing (critical card, why-panel vital, mandatory-ack); N/A on GATE-04, GATE-13 (no drag), GATE-14 (no e-sign on this surface)."
+      - "clinical-forms.md §14: 16-item checklist for the schema-driven form engine; GATE-14 marked LOAD-BEARING (CPF+PIN signing EV-053/EV-054 = the SC 3.3.8 / shared-PIN closure per standard §7) and GATE-16 marked CORE (redundant-entry, §1.1 binds form-engine-designer); N/A on GATE-04/05/06/07(clinical-severity)/10/13 with per-item rationale (a form engine renders no severity chips)."
+    verification: >-
+      Each of the three added subsections lists all 16 A11Y-GATE IDs; every item is either checked with a 1-line
+      how or marked N/A with a rationale, per accessibility-standard.md §8. The three files previously had zero
+      'A11Y-GATE-' occurrences (matching the adjudicated 0/0 count); they now each carry the full gate.
+
+a11y_gate_summary:
+  files_in_scope: 6
+  files_gate_added: 3          # admin-config, alert-triage, clinical-forms
+  files_already_compliant: 3   # command-center, patient-timeline, handoff
+  files_skipped: [docs/plan/design/screens/alert-routing.md]   # owned by another fixer
+
+yaml_parse_check:
+  - {file: docs/plan/_work/alerts/correlation-engine.yaml, result: PASS}
+  - {file: docs/plan/_work/redteam/round-1/fixes-F5.yaml, result: PASS}
+
+receipt:
+  fixed: 3
+  a11y_files: 3

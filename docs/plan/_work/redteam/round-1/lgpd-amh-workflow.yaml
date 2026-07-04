@@ -1,0 +1,272 @@
+round: 1
+lens: lgpd-amh-workflow
+# Three sub-lenses: (a) LGPD/security breach paths [SEC], (b) AMH-dependency fragility [AMH],
+# (c) clinical-workflow rejection [UX]. Findings ranked most-severe first. Cap 4 per sub-lens.
+findings:
+  # ------------------------------------------------------------------ (a) LGPD / security
+  - finding_id: RT1-SEC-01
+    severity: critical
+    claim: >-
+      The RRT critical/urgent web-push payload carries clinical PHI on the device lock screen,
+      directly violating the security model's own no-PHI-in-notifications invariant. alert-routing.md
+      §5.1 (L200) specifies the push "carrying the en-route payload (score + trend + Estabelecimento
+      ▸ Setor ▸ Leito + latest vitals) so the payload is complete WITHOUT unlock-then-navigate", and
+      §1.1-R3 (L58) + journey MOT-14 ("Lock-screen payload: score, trend, patient location") confirm
+      it renders pre-authentication. Vital signs are classified "Sensitive health data" and scores
+      "Derived health data" in security-lgpd.md §3.1 (L122-123). This is health data about an
+      identifiable patient (bed+unit+time uniquely identifies the ICU patient) visible to anyone who
+      picks up an unlocked/lock-screen-previewing phone or a roamed/wrong number — an LGPD Art. 46
+      breach path over the exact push channel the security doc named as PHI-crossing (I11).
+    falsifiable_check: >-
+      Open security-lgpd.md line 101 (I11): "alert payloads carry no PHI — bed/unit + severity +
+      deep-link only, PHI shown only after in-app authN" and line 267 (REQ-INV-4-S3): "notification
+      payload → no PHI". Now open alert-routing.md line 200 and line 58, and journey-maps.md MOT-14
+      (L226 "Lock-screen payload: score, trend, patient location") and MOT-15 (L242-243) and
+      alert-triage.md §1.1.3 (L37). The two owning specs cannot both be satisfied: one forbids any
+      PHI in the notification payload, the other requires score+trend+vitals in it, rendered before
+      unlock. Vitals/scores are PHI per security-lgpd §3.1 table. Contradiction confirmed.
+    owning_doc: docs/plan/design/screens/alert-routing.md
+    proposed_fix: >-
+      Make the push payload PHI-free and non-identifying (severity band + opaque deep-link token +
+      generic "novo alerta crítico" only, per security-lgpd I11); move score/trend/vitals to render
+      ONLY inside the en-route responder view AFTER in-app OIDC authN (deep-link resolves the payload
+      server-side post-auth). Update alert-routing §5.1/§1.1-R3, alert-triage §1.1.3, and journey
+      MOT-14/15 so "complete without unlock-then-navigate" is replaced by "one authenticated tap to
+      the complete card". Reconcile PER-RAFAEL-02 to mean post-auth completeness, add a contract test
+      per REQ-INV-4-S3 asserting the VAPID push body contains no clinical fields.
+  - finding_id: RT1-SEC-02
+    severity: major
+    claim: >-
+      Alert-type enable/disable state has NO persistence entity and NO audit action defined anywhere
+      in the data model, so admin-config's load-bearing guardrail "safety-critical alerts cannot be
+      silently disabled" (§4.1) is unimplementable and a disable action is not guaranteed to be
+      audited. admin-config.md §4.2/§4.3 governs enabling/disabling alert types per scope, but its own
+      closing note (L109) admits the persistence is unresolved ("confirm the enable/disable state
+      persistence ... flagged for the data model"). data-model.md defines no `alert_enablement` table,
+      no per-scope `enabled` flag, and audit_trail's action enumeration (§6 L318:
+      "alert.acknowledge | alert.resolve | threshold.update | phi.read") contains no
+      alert.enable/alert.disable action.
+    falsifiable_check: >-
+      grep -n "enablement\|enabled\|disable" docs/plan/architecture/data-model.md → returns nothing
+      (verified: empty). Read admin-config.md §4 (L66-89) and its open-reconciliation (L109). Read
+      data-model.md §6 audit_trail schema (L313-343) and its `action VARCHAR(48)` example values
+      (L318) — no enable/disable action. There is therefore no schema on which the "shown locked /
+      RATIFY-escalation-only" behavior or its audit can be built or verified.
+    owning_doc: docs/plan/architecture/data-model.md
+    proposed_fix: >-
+      Add a versioned, append-only `alert_enablement` entity (or a per-scope `enabled` + `is_safety_critical`
+      column on the alert_definition scope join) with the same INV-1 anti-mutation treatment as
+      threshold_config; add `alert.enable`/`alert.disable` to the audit_trail action vocabulary and a
+      REQ-INV-1 row asserting every enable/disable writes one immutable audit row with before/after +
+      actor; encode the safety_critical non-disable rule as a DB/service constraint, not just UI copy.
+  - finding_id: RT1-SEC-03
+    severity: major
+    claim: >-
+      birth_date (a quasi-identifier in the PHI inventory) is left as PLAINTEXT `DATE` in the
+      data-model DDL, contradicting the security model that mandates it be pgcrypto-encrypted. The
+      data model even contradicts itself: §3 delta table (L71) says "wrap display_name, mrn,
+      birth_date under pgcrypto (INV-4)", but the actual §7 DDL (L358-363) only ALTERs display_name
+      and mrn to BYTEA and adds cpf/cns, then states "birth_date kept as DATE ... if LGPD-restricted,
+      store encrypted too" (L363); its §9 verification register REQ-INV-4-1 (L426) lists only
+      "nome (display_name), CPF, CNS, MRN" and omits birth_date entirely.
+    falsifiable_check: >-
+      security-lgpd.md line 7, line 119 (PHI inventory: birth_date → pgcrypto-encrypted), line 169
+      (§4.1 "What is encrypted: display_name, mrn, birth_date, and CPF/CNS if present"), and line 265
+      (REQ-INV-4-S1 names birth_date as pgcrypto-encrypted) all REQUIRE birth_date encrypted. Now read
+      data-model.md §7 DDL (L358-363): the ALTER encrypts only display_name+mrn; comment L363 keeps
+      birth_date plaintext DATE; §9 REQ-INV-4-1 (L426) omits birth_date. A `pg_dump` under the
+      security-doc test (REQ-INV-4-S1: "no plaintext PHI") would expose plaintext birth_date, failing
+      the security invariant while passing the data-model's own weaker one.
+    owning_doc: docs/plan/architecture/data-model.md
+    proposed_fix: >-
+      Either encrypt birth_date to BYTEA in the §7 DDL and add it to REQ-INV-4-1 (matching
+      security-lgpd REQ-INV-4-S1), or, if a plaintext DATE is genuinely required for age-band scoring,
+      make that a jointly-ratified, documented exception in BOTH docs with a stated residual-risk note
+      — do not leave the two invariant registers silently disagreeing on a PHI column.
+  - finding_id: RT1-SEC-04
+    severity: major
+    claim: >-
+      The deny-by-default role model has an unresolved hole for the hospital-wide RRT role. security
+      §2.2 (I2) and §5.3 require "tenant scope and unit scope enforced on every read/subscription,
+      never trusted from the client", binding a WebSocket subscription to the token's tenant_id+unit.
+      But the RRT (Rafael) is hospital-wide: alert-routing §3.1 RESPONDER = "on-shift RRT physician,
+      hospital-wide, location-free" and command-center §2.2 deep-links a push straight into ANY unit's
+      L3 bed detail. The security model enumerates an `rrt` role (§5.3) but never carves out its
+      cross-unit scope, so the design is internally undecided: either RRT is unit-scoped (breaks the
+      hospital-wide <5s dispatch, PER-RAFAEL-01) or RRT silently receives tenant-wide read (an
+      un-enumerated broad grant that weakens the "unit scope on every subscription" guarantee).
+    falsifiable_check: >-
+      Read security-lgpd.md §2.2 I2 (L92) and §5.3 (L231) — subscription bound to tenant_id+unit,
+      enforced server-side. Read alert-routing.md §3.1 (L107 RESPONDER hospital-wide) and
+      command-center.md §2.2 (L70, deep-link to any bed's L3). No section in security-lgpd.md defines
+      how the rrt role reads/subscribes across units within a tenant. The gap is confirmable by the
+      absence of any cross-unit/hospital-wide scope rule for `rrt` in §5.
+    owning_doc: docs/plan/architecture/security-lgpd.md
+    proposed_fix: >-
+      Add an explicit, least-privilege RRT scope to §5.3: rrt subscribes tenant-wide but only to
+      critical/urgent alert streams and the minimal bed-context needed to respond (not full unit
+      PHI feeds), still deny-by-default and fully audited (every RRT PHI read → audit_trail). State
+      that this is the one enumerated cross-unit role and that presence on the RRT rotation gates it.
+  # ------------------------------------------------------------------ (b) AMH-dependency fragility
+  - finding_id: RT1-AMH-01
+    severity: critical
+    claim: >-
+      Bed/unit assignment is treated as advisory demographics with a 24h staleness tolerance, yet it
+      is load-bearing for BOTH threshold-band resolution and alert routing — so a stale patient_cache
+      after an intra-hospital transfer silently mis-thresholds and mis-routes a critical alert to the
+      wrong unit's team, for up to 24h, with no guard. amh-freshness.yaml mpi_demographics sets
+      staleness_max_for_alerting: 24h and fallback "Demographics are advisory context, never a scoring
+      input ... never block an alert on demographics"; system-arch §4.2 repeats "never a scoring
+      input ... never blocks an alert". But alert-engine §6 resolves thresholds by
+      (tenant, unit, bed) from patient_cache (bed ≻ unit ≻ tenant), and alert-routing §3.1 resolves
+      OWNER/COVERING by the patient's setor (unit). There is no ADT/transfer source with tight
+      freshness in the register — bed/unit rides the 24h-tolerant demographics sync.
+    falsifiable_check: >-
+      amh-freshness.yaml lines 49-59 (mpi_demographics: staleness_max 24h; "never a scoring input";
+      no bed/unit-assignment freshness). alert-engine.md §6 (L108-110): threshold resolution keys on
+      unit+bed_id from patient_cache. alert-routing.md §3.1 (L104-108): OWNER/COVERING keyed on the
+      setor. Walk the scenario: patient transfers from UTI-Adulto bed 7 to Coronariana bed 3; MPI sync
+      lags (allowed up to 24h); a critical MEWS fires → thresholds resolve against the OLD unit's
+      config and the page routes to the OLD unit's OWNER/charge nurse. No spec section applies a
+      staleness badge or routing guard to a stale bed/unit assignment (the staleness machinery in
+      command-center §6 and system-arch §5.3 covers vitals/labs, not the assignment key).
+    owning_doc: docs/plan/_work/platform/amh-freshness.yaml
+    proposed_fix: >-
+      Distinguish bed/unit ASSIGNMENT from advisory demographics: give it a tight freshness target
+      (minutes, ADT-event-driven) and make routing/threshold resolution fail-safe on a stale
+      assignment — widen routing (page the responding RRT + both candidate units) and fall back to the
+      most-conservative (tenant/most-sensitive) threshold rather than the possibly-wrong unit override,
+      with a visible "leito/unidade desatualizado" flag. Add a register source for transfers and a
+      REQ asserting a critical alert is never sole-routed on a stale assignment.
+  - finding_id: RT1-AMH-02
+    severity: major
+    claim: >-
+      For the most lethal lab domain, the staleness ceiling is looser than the platform's own worst-case
+      delivery latency, so the staleness badge cannot distinguish "genuinely current" from "stale but
+      undelivered" and a fresh critical electrolyte can be invisible while a stale value reads green.
+      amh-freshness.yaml labs_electrolytes sets staleness_max_for_alerting: 1h, but Gold batch
+      freshness is p95 <30min (ADR001-F-02) and K+>6.5 is "fatal in minutes-hours" (VIS-3.6-01). A
+      value up to 1h old fires/renders UNQUALIFIED (no stale badge), and because 1h > 30min batch
+      latency, a new bedside critical K+ can be undelivered for up to ~30min while the last (say
+      45-min-old) normal value still reads inside the "fresh" band — the classic "looks stable but
+      isn't" for the highest-acuity lab. The escape hatch that would shorten this (Alternativa-B,
+      system-arch §6) is explicitly DEFERRED to Fase 4 (T5), leaving MVP unprotected.
+    falsifiable_check: >-
+      amh-freshness.yaml labs_electrolytes (L71-82): staleness_max_for_alerting "1h"; note the source
+      is Gold-batch-bound. system-architecture.md §3.2 (L137) Gold freshness p95 <30min; §6 T5 (L283)
+      defers activation to Fase 4. command-center.md §6 table (L216) lists labs_electrolytes 1h; a
+      datum is only badged stale PAST staleness_max. Therefore a 45-min-old K+ is rendered as fresh
+      (unbadged) even though it exceeds the 30-min pipeline worst case. Cross-check MOT-11 (K+ 6.8)
+      which promises "on-result latency within SLO; crítico handling <5 min" — the <5min is the human
+      action window, not the up-to-30min source delivery lag.
+    owning_doc: docs/plan/_work/platform/amh-freshness.yaml
+    proposed_fix: >-
+      Set labs_electrolytes staleness_max_for_alerting to ≤ the Gold batch freshness (≤30min, or
+      tighter for CRIT analytes) so any datum older than the pipeline's own worst case is badged; and
+      surface a distinct "possible newer result pending" state derived from expected result cadence vs
+      last-seen, so a green electrolyte tile cannot imply "verified current" during the batch window.
+      Record the residual MVP risk explicitly against MOT-11 rather than implying on-result latency.
+  - finding_id: RT1-AMH-03
+    severity: major
+    claim: >-
+      The source of truth for load-bearing lab inputs (lactate, creatinine, electrolytes) is ambiguous
+      across four docs, leaving FHIR-outage degradation of lab-driven scoring undefined. system-arch
+      §3.1 says clinical reads come ONLY from AMH Gold via Athena (ADR001-C-01), and §4.3 states FHIR
+      is enrichment "pull-on-need ... it is NOT a scoring data source". But amh-freshness.yaml
+      repeatedly sources labs "via AMH Gold / HAPI FHIR Observation + DiagnosticReport"
+      (labs_sepsis, labs_electrolytes, labs_renal, blood_gas), and data-model §4.4 says lab_result is
+      "sourced from FHIR Observation / DiagnosticReport in Gold". If sepsis lactate or AKI creatinine
+      is in fact FHIR-read, a FHIR outage degrades scoring — contradicting §4.3's promise that FHIR
+      loss only removes enrichment context. No doc specifies the degradation behavior for lab-driven
+      alerts when FHIR is down vs. when Athena/Gold is down.
+    falsifiable_check: >-
+      system-architecture.md §3.1 (L124-129, Gold/Athena-only) and §4.3 (L189-191, "FHIR ... is NOT a
+      scoring data source"). Against amh-freshness.yaml labs_sepsis/labs_electrolytes/labs_renal
+      (L60-92, "via AMH Gold / HAPI FHIR Observation") and data-model.md §4.4 (L244-246, lab_result
+      "via FHIR Observation / DiagnosticReport in Gold"). The four cannot all be true: either labs are
+      Gold/Athena-sourced (then FHIR outage is enrichment-only, but the freshness/data-model wording is
+      wrong) or FHIR-sourced (then §4.3's non-scoring claim is wrong and FHIR is a scoring dependency).
+      No FHIR-outage degradation clause exists for lab-driven domains.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Pin one read path per lab input (recommend Gold/Athena for all scoring inputs per ADR001-C-01,
+      FHIR strictly enrichment) and correct the amh-freshness and data-model wording to match. Add an
+      explicit FHIR-outage degradation clause: scoring continues on Gold, enrichment context degrades
+      visibly (why-panel "contexto FHIR indisponível"), and the dead-man's-switch covers a FHIR
+      readiness probe distinct from Athena.
+  - finding_id: RT1-AMH-04
+    severity: major
+    claim: >-
+      The Gold-schema breaking-change policy is self-contradictory on fail-closed granularity, so a
+      declared-non-breaking additive change would trigger a scoring outage. system-arch §7.2.1 says
+      every consumed table is "pinned to a schema version ... assert the expected version on start-up
+      and per-poll; a mismatch fails closed (no scoring on an unknown schema)". §7.2.2 says "Additive,
+      backward-compatible evolution (new nullable column) is non-breaking and adopted opportunistically".
+      An additive column changes the Glue schema/version; under a strict expected-version assertion
+      that is a mismatch → fails closed → NOT opportunistically adopted. The policy never defines the
+      assertion as a compatibility check rather than exact-version equality, so as written it converts
+      routine additive evolution into a domain-wide fail-closed outage.
+    falsifiable_check: >-
+      system-architecture.md §7.2 point 1 (L308) "assert the expected version ... a mismatch fails
+      closed" vs point 2 (L309) "Additive ... non-breaking and adopted opportunistically". These are
+      operationally incompatible unless the version check tolerates additive diffs, which
+      "assert the expected version / mismatch fails closed" does not describe. Confirmable by asking:
+      when AMH adds a nullable column and bumps the Glue schema version, does the reader (a) fail
+      closed per point 1, or (b) adopt per point 2? The doc supports both.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Replace exact-version equality with an explicit COMPATIBILITY assertion: fail closed only on
+      breaking diffs (drop/rename/type-narrow/unit-or-semantic change) and pass additive nullable-column
+      diffs; pin a required-columns/types contract rather than a whole-schema version hash. State the
+      contract-test (IMP-4.3-01) checks compatibility, not equality, so additive AMH evolution never
+      dark-fails a domain at the bedside.
+  # ------------------------------------------------------------------ (c) clinical-workflow rejection
+  - finding_id: RT1-UX-01
+    severity: major
+    claim: >-
+      The anchor RRT flow — the <5s critical page (PER-RAFAEL-01) — depends entirely on a roster /
+      on-call / RRT-rotation data source that "is specified in NO brief" and is unratified, so the
+      page cannot actually reach a human in MVP. alert-routing §3.2 admits roster/presence "are the
+      model's top dependency ... specified in no brief" and defaults the resolver to shadow mode; §5.3
+      (MF-04) requires the R3 rotation be "provably non-empty" with a dead-man alarm — but there is no
+      identified source, owner, or SLA for WHO is on the RRT rotation. Without it, R3 has no addressable
+      target and degrades to a unit-board broadcast, defeating the hospital-wide <5s dispatch that
+      MOT-14 and the entire Rafael persona are built around. Rafael abandons a tool whose page never
+      finds him.
+    falsifiable_check: >-
+      alert-routing.md §3.2 (L118) "Roster/presence are specified in no brief and are the model's top
+      dependency"; §5.3 (L208-214) requires a provably-non-empty rotation with no named source; open
+      reconciliation #1 (L350) "Roster / on-call source + live-presence signal — required by §3,
+      specified in no brief". journey MOT-14 (L222-232) and product-spec personas make the <5s page to
+      the on-call RRT the core promise. No doc (system-architecture, security-lgpd, data-model,
+      amh-freshness) provides an on-call/roster entity or feed. The dependency is unowned.
+    owning_doc: docs/plan/design/screens/alert-routing.md
+    proposed_fix: >-
+      Name an on-call/roster/rotation source (AMH platform service, a local rotation table, or a
+      ratified integration), assign an owner + freshness SLA, and add it to amh-freshness.yaml and the
+      data model as a first-class entity with a dead-man on an empty/stale rotation. Gate the strict
+      ladder's narrowing behavior on this source being ratified (as §3.2 says) and make the MVP
+      fallback (broadcast + audible board) an explicit, tested guarantee, not an implicit shadow mode.
+  - finding_id: RT1-UX-02
+    severity: minor
+    claim: >-
+      The command-center spec contradicts itself on whether the triggering-parameter chip is always
+      visible. §3.1 declares the chip "a hard L1 element, never hidden behind disclosure
+      (PER-ANA-02/PER-C-04, MOT-06)", but the §5 density table lists the chip only in the workstation
+      and phone presets and OMITS it from the monitor-wall preset (≥1920px: "severity · Leito ·
+      dominant score · trend arrow · staleness age"). On the night monitor wall (MOT-18) — precisely
+      Ana's ambient safety net — the parameter that fired is therefore not shown, so a glance cannot
+      answer "qual parâmetro disparou?" without walking to a workstation, contradicting PER-ANA-02's
+      "100% alerts explain themselves at a glance" intent.
+    falsifiable_check: >-
+      command-center.md §3.1 (L99) "a hard L1 element, never hidden behind disclosure"; §5 density
+      table (L192 monitor-wall row) — chip absent; (L193 workstation) "+ triggering-parameter chip".
+      The two statements disagree for the ≥1920px monitor-wall used in MOT-18 (L281-298). Confirmable
+      by comparing the two lines directly.
+    owning_doc: docs/plan/design/screens/command-center.md
+    proposed_fix: >-
+      Reconcile the wording: either keep the chip on the monitor-wall preset (short form, e.g. "FR 24"
+      at legible wall size) so "never hidden" holds, or amend §3.1 to say the chip is an L1 element in
+      workstation/phone density and is intentionally dropped at wall distance where it is illegible,
+      pointing the wall glance to the L2 peek for the parameter. Do not leave "never hidden" and a
+      density-drop both asserted.
