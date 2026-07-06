@@ -420,14 +420,20 @@ def evaluate_magnesium(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
 # ---------------------------------------------------------------------------
 # ALERT-ELY-PHOSPHATE-01: Distúrbio grave do fosfato
 # ---------------------------------------------------------------------------
+# CLINICALLY RATIFIED: RAT-ELY-01 — KDIGO phosphate management guidelines.
+# Canonical unit mmol/L. Reference bands:
+#   Hypophosphatemia:  < 0.8 mmol/L moderate (watch), < 0.3 mmol/L severe (urgent)
+#   Hyperphosphatemia: > 1.5 mmol/L moderate (watch), > 2.5 mmol/L severe (critical)
+# Reference: UpToDate / KDIGO phosphate management guidelines.
 
 
 def evaluate_phosphate(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
-    """Evaluate phosphate disturbance.
+    """Evaluate phosphate disturbance (hypophosphatemia / hyperphosphatemia).
 
-    HYPO critical: fosfato < 1.0 mg/dL;
-    HYPO urgent: fosfato < 1.5 mg/dL (and >= 1.0);
-    HYPER watch: fosfato > 7.0 mg/dL.
+    CLINICALLY RATIFIED (RAT-ELY-01). KDIGO reference bands in mmol/L.
+
+    HYPO: urgent if fosfato < 0.3 mmol/L (severe); watch if fosfato < 0.8 (moderate, >= 0.3).
+    HYPER: critical if fosfato > 2.5 mmol/L (severe); watch if fosfato > 1.5 (moderate, <= 2.5).
     """
     result = ElectrolyteAlertResult(
         alert_id="ALERT-ELY-PHOSPHATE-01",
@@ -439,23 +445,37 @@ def evaluate_phosphate(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
     if fosfato is None:
         return result
 
-    direction = None
-    band = None
+    hyper_band = None
+    hypo_band = None
 
-    # HYPO axis
-    if fosfato < 1.0:
-        direction = "hypo"
-        band = "critical"
-    elif fosfato < 1.5:
-        direction = "hypo"
-        band = "urgent"
+    # --- HYPO axis ---
+    if fosfato < 0.3:
+        hypo_band = "urgent"      # severe hypophosphatemia
+    elif fosfato < 0.8:
+        hypo_band = "watch"       # moderate hypophosphatemia
 
-    # HYPER axis
-    if fosfato > 7.0:
+    # --- HYPER axis ---
+    if fosfato > 2.5:
+        hyper_band = "critical"   # severe hyperphosphatemia
+    elif fosfato > 1.5:
+        hyper_band = "watch"      # moderate hyperphosphatemia
+
+    # Determine direction and worst band
+    if hyper_band and hypo_band:
+        band_order = {"critical": 3, "urgent": 2, "watch": 1}
+        if band_order.get(hyper_band, 0) >= band_order.get(hypo_band, 0):
+            direction = "hyper"
+            band = hyper_band
+        else:
+            direction = "hypo"
+            band = hypo_band
+    elif hyper_band:
         direction = "hyper"
-        band = "watch"  # hyperphosphatemia capped at watch
-
-    if band is None:
+        band = hyper_band
+    elif hypo_band:
+        direction = "hypo"
+        band = hypo_band
+    else:
         return result
 
     result.fired = True
@@ -464,6 +484,8 @@ def evaluate_phosphate(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
     result.severity = _band_severity(band)
     result.metadata = {
         "fosfato": fosfato,
+        "hyper_band": hyper_band,
+        "hypo_band": hypo_band,
     }
     return result
 
@@ -588,17 +610,18 @@ ELECTROLYTE_ALERT_DEFINITIONS = [
         ),
     },
     {
-        "definition_version": "ALERT-ELY-PHOSPHATE-01-f6a7b8",
+        "definition_version": "ALERT-ELY-PHOSPHATE-01-g7h8i9",
         "score_type": "PHOSPHATE",
         "semver": "1.0.0",
-        "spec_hash": "f6a7b8c9d0e1f2a3",
+        "spec_hash": "g7h8i9j0k1l2m3n4",
         "description": (
             "ALERT-ELY-PHOSPHATE-01: Distúrbio grave do fosfato — "
-            "hipofosfatemia (<1.0 crit, <1.5 urg) / "
-            "hiperfosfatemia (>7.0 watch, capped). "
-            "DEFERRED: RAT-ELY-01 — phosphate canonical unit + numeric bands "
-            "await clinical committee ratification (HANDOFF item). "
-            "Per vision §3.6 VIS-3.6-10; see docs/plan/clinical/domains/electrolyte.md §3.6."
+            "hipofosfatemia (<0.3 urg, <0.8 watch) / "
+            "hiperfosfatemia (>2.5 crit, >1.5 watch). "
+            "CLINICALLY RATIFIED: RAT-ELY-01 — KDIGO phosphate management guidelines. "
+            "Canonical unit mmol/L. "
+            "Reference: UpToDate / KDIGO phosphate management guidelines. "
+            "Per vision §3.6 VIS-3.6-10."
         ),
     },
 ]

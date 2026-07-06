@@ -8,13 +8,15 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 
 | Disposition | Count |
 |---|---:|
-| ADOPT | 371 |
+| ADOPT | 372 |
 | ADOPT-CORRECTED | 57 |
 | ADAPT | 223 |
 | SUPERSEDE | 66 |
 | RETIRE | 242 |
 | RATIFY | 0 |
-| **Total** | **959** |
+| **Total** | **960** |
+
+**RAT-ELY-01:** CLINICALLY RATIFIED 2026-07-06. Phosphate thresholds per KDIGO (mmol/L): hypo <0.3 urgent / <0.8 watch; hyper >2.5 critical / >1.5 watch. Disposition: ADOPT.
 
 | Escalation band | Items |
 |---|---:|

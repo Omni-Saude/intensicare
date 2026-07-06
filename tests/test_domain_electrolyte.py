@@ -349,54 +349,62 @@ class TestMagnesium:
 
 
 # ===================================================================
-# ALERT-ELY-PHOSPHATE-01 — 6 test vectors
+# ALERT-ELY-PHOSPHATE-01 — 7 test vectors (CLINICALLY RATIFIED RAT-ELY-01)
 # ===================================================================
 
 
 class TestPhosphate:
-    """ALERT-ELY-PHOSPHATE-01: Distúrbio grave do fosfato."""
+    """ALERT-ELY-PHOSPHATE-01: Distúrbio grave do fosfato.
+    CLINICALLY RATIFIED — RAT-ELY-01. KDIGO reference bands, mmol/L.
+    """
 
-    def test_tv1_critical_hypophosphatemia(self):
-        """TV-1: PO4 0.6 < 1.0 -> critical hypophosphatemia."""
+    def test_tv1_normal_no_fire(self):
+        """TV-1: PO4 1.0 mmol/L (normal range) -> no-fire."""
+        r = evaluate_phosphate({"fosfato": 1.0})
+        assert not r.fired
+
+    def test_tv2_moderate_hypophosphatemia_watch(self):
+        """TV-2: PO4 0.6 mmol/L (moderate hypophosphatemia, <0.8 >=0.3) -> watch."""
         r = evaluate_phosphate({"fosfato": 0.6})
         assert r.fired
         assert r.direction == "hypo"
-        assert r.band == "critical"
-        assert r.severity == SeverityLevel.CRITICAL
+        assert r.band == "watch"
+        assert r.severity == SeverityLevel.WATCH
 
-    def test_tv2_urgent(self):
-        """TV-2: PO4 1.3 < 1.5 -> urgent."""
-        r = evaluate_phosphate({"fosfato": 1.3})
+    def test_tv3_severe_hypophosphatemia_urgent(self):
+        """TV-3: PO4 0.2 mmol/L (severe hypophosphatemia, <0.3) -> urgent."""
+        r = evaluate_phosphate({"fosfato": 0.2})
         assert r.fired
         assert r.direction == "hypo"
         assert r.band == "urgent"
         assert r.severity == SeverityLevel.URGENT
 
-    def test_tv3_boundary_1_0_urgent(self):
-        """TV-3: PO4 exactly 1.0 is NOT < 1.0 (critical) but IS < 1.5 -> urgent."""
-        r = evaluate_phosphate({"fosfato": 1.0})
-        assert r.fired
-        assert r.band == "urgent"
-
-    def test_tv4_boundary_1_5_no_fire(self):
-        """TV-4: PO4 exactly 1.5 is NOT < 1.5 -> no-fire."""
-        r = evaluate_phosphate({"fosfato": 1.5})
-        assert not r.fired
-
-    def test_tv5_hyperphosphatemia_watch(self):
-        """TV-5: PO4 8.5 > 7.0 -> watch hyperphosphatemia (tumor-lysis/AKI marker)."""
-        r = evaluate_phosphate({
-            "fosfato": 8.5,
-            "creatinina": 3.0,
-        })
+    def test_tv4_moderate_hyperphosphatemia_watch(self):
+        """TV-4: PO4 1.8 mmol/L (moderate hyperphosphatemia, >1.5 <=2.5) -> watch."""
+        r = evaluate_phosphate({"fosfato": 1.8})
         assert r.fired
         assert r.direction == "hyper"
         assert r.band == "watch"
         assert r.severity == SeverityLevel.WATCH
 
-    def test_tv6_normal_no_fire(self):
-        """TV-6: PO4 3.0 -> no-fire."""
+    def test_tv5_severe_hyperphosphatemia_critical(self):
+        """TV-5: PO4 3.0 mmol/L (severe hyperphosphatemia, >2.5) -> critical."""
         r = evaluate_phosphate({"fosfato": 3.0})
+        assert r.fired
+        assert r.direction == "hyper"
+        assert r.band == "critical"
+        assert r.severity == SeverityLevel.CRITICAL
+
+    def test_tv6_boundary_0_8_no_fire(self):
+        """TV-6: PO4 exactly 0.8 — NOT < 0.8 (watch hypo) and NOT > 1.5 (watch hyper).
+        Guards the 0.8 mmol/L floor."""
+        r = evaluate_phosphate({"fosfato": 0.8})
+        assert not r.fired
+
+    def test_tv7_boundary_1_5_no_fire(self):
+        """TV-7: PO4 exactly 1.5 — NOT < 0.8 (hypo) and NOT > 1.5 (hyper).
+        Guards the 1.5 mmol/L ceiling."""
+        r = evaluate_phosphate({"fosfato": 1.5})
         assert not r.fired
 
 
@@ -438,9 +446,10 @@ class TestEvaluateAll:
             # MAGNESIUM
             ({"magnesio": 0.42}, "ALERT-ELY-MAGNESIUM-01", True),
             ({"magnesio": 1.0}, "ALERT-ELY-MAGNESIUM-01", False),
-            # PHOSPHATE
-            ({"fosfato": 0.6}, "ALERT-ELY-PHOSPHATE-01", True),
-            ({"fosfato": 3.0}, "ALERT-ELY-PHOSPHATE-01", False),
+            # PHOSPHATE (CLINICALLY RATIFIED — RAT-ELY-01, mmol/L KDIGO bands)
+            ({"fosfato": 1.0}, "ALERT-ELY-PHOSPHATE-01", False),
+            ({"fosfato": 0.2}, "ALERT-ELY-PHOSPHATE-01", True),
+            ({"fosfato": 3.0}, "ALERT-ELY-PHOSPHATE-01", True),
         ]
 
         for inputs, alert_id, expected_fire in test_cases:
@@ -535,7 +544,7 @@ class TestCritNonAutoResolve:
              })),
             ("ALERT-ELY-CALCIUM-01", evaluate_calcium({"calcio_ionizado": 0.72})),
             ("ALERT-ELY-MAGNESIUM-01", evaluate_magnesium({"magnesio": 0.42})),
-            ("ALERT-ELY-PHOSPHATE-01", evaluate_phosphate({"fosfato": 0.6})),
+            ("ALERT-ELY-PHOSPHATE-01", evaluate_phosphate({"fosfato": 3.0})),
         ]
 
         for alert_id, result in crit_alerts:
