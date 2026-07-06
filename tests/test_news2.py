@@ -104,11 +104,14 @@ class TestSpO2Scale2:
         assert score_spo2(92, hypercapnic=True) == 1
 
     def test_moderate(self):
-        """86-87 = 2, 84-85 = 2"""
-        assert score_spo2(84, hypercapnic=True) == 2
-        assert score_spo2(85, hypercapnic=True) == 2
+        """86-87 = 2"""
         assert score_spo2(86, hypercapnic=True) == 2
         assert score_spo2(87, hypercapnic=True) == 2
+
+    def test_severe_low(self):
+        """84-85 = 3 (corrected per RCP 2017 / AUDIT-002)"""
+        assert score_spo2(84, hypercapnic=True) == 3
+        assert score_spo2(85, hypercapnic=True) == 3
 
     def test_severe(self):
         """≤83 = 3"""
@@ -309,14 +312,14 @@ class TestCalculateNEWS2:
             temperature=37.0,
         )
         assert result.total_score == 0
-        assert result.algorithm_version == "NEWS2-v1.0"
+        assert result.algorithm_version == "NEWS2-v3.0.0"
         assert result.risk_category == "low"
 
     def test_high_risk_patient(self):
         """A patient with multiple deranged parameters."""
         result = calculate_news2(
             respiratory_rate=30,  # 3
-            spo2=88,  # 3 (Scale 1)
+            spo2=88,  # 1 (Scale 2 — auto via supplemental_o2=True)
             hypercapnic=False,
             supplemental_o2=True,  # 2
             systolic_bp=85,  # 3
@@ -324,7 +327,7 @@ class TestCalculateNEWS2:
             avpu="V",  # 3
             temperature=34.0,  # 3
         )
-        assert result.total_score == 20  # All maximum except temp which is 3
+        assert result.total_score == 18  # 3+1+2+3+3+3+3 = 18
         assert result.risk_category == "high"
 
     def test_hypercapnic_spo2_scale(self):
@@ -341,6 +344,38 @@ class TestCalculateNEWS2:
         )
         assert result.total_score == 1
         assert result.components.spo2 == 1
+
+    def test_auto_scale2_via_supplemental_o2(self):
+        """AUDIT-002: supplemental_o2=True forces Scale 2 for SpO₂ scoring,
+        even without explicit hypercapnic=True."""
+        # SpO₂=88 on Scale 1 = 3, but on Scale 2 = 1
+        result = calculate_news2(
+            respiratory_rate=16,  # 0
+            spo2=88,  # 1 on Scale 2 (auto)
+            hypercapnic=False,
+            supplemental_o2=True,  # 2 + forces Scale 2
+            systolic_bp=120,  # 0
+            heart_rate=75,  # 0
+            avpu="A",  # 0
+            temperature=37.0,  # 0
+        )
+        assert result.total_score == 3  # 0+1+2+0+0+0+0 = 3
+        assert result.components.spo2 == 1
+        assert result.components.supplemental_o2 == 2
+
+        # SpO₂=84 on Scale 2 = 3 (corrected per RCP 2017), on Scale 1 = 3
+        result2 = calculate_news2(
+            respiratory_rate=16,  # 0
+            spo2=84,  # 3 on Scale 2 (corrected)
+            hypercapnic=False,
+            supplemental_o2=True,  # 2
+            systolic_bp=120,  # 0
+            heart_rate=75,  # 0
+            avpu="A",  # 0
+            temperature=37.0,  # 0
+        )
+        assert result2.total_score == 5  # 0+3+2+0+0+0+0 = 5
+        assert result2.components.spo2 == 3
 
     def test_missing_values_default_to_zero(self):
         """None values should be scored as 0."""
@@ -453,14 +488,14 @@ class TestCalculateNEWS2:
         # High: >= 7
         assert (
             calculate_news2(
-                respiratory_rate=25,
-                spo2=92,
+                respiratory_rate=25,  # 3
+                spo2=86,  # 2 on Scale 2 (auto via supplemental_o2=True)
                 hypercapnic=False,
-                supplemental_o2=True,
-                systolic_bp=120,
-                heart_rate=75,
-                avpu="A",
-                temperature=37.0,
+                supplemental_o2=True,  # 2
+                systolic_bp=120,  # 0
+                heart_rate=75,  # 0
+                avpu="A",  # 0
+                temperature=37.0,  # 0
             ).risk_category
             == "high"
         )  # 3+2+2+0+0+0+0 = 7
@@ -478,7 +513,7 @@ class TestCalculateNEWS2:
         )
         result = NEWS2Result(total_score=3, components=components)
         assert result.risk_category == "low"
-        assert result.algorithm_version == "NEWS2-v1.0"
+        assert result.algorithm_version == "NEWS2-v3.0.0"
         assert result.requires_urgent_assessment is False
 
     def test_known_news2_examples(self):
@@ -489,13 +524,13 @@ class TestCalculateNEWS2:
             Total: 0
 
         Example 2: Moderate deterioration
-            RR=23 (2), SpO2=93 (2), O2=Yes (2), SBP=100 (2), HR=115 (2), AVPU=V (3), Temp=35.5 (1)
-            Total: 14
+            RR=23 (2), SpO2=93 [Scale2 auto via O2=Yes] (0), O2=Yes (2), SBP=100 (2), HR=115 (2), AVPU=V (3), Temp=35.5 (1)
+            Total: 12
 
         Example 3: Severe COPD with hypercapnia
-            RR=28 (3), SpO2=87 [Scale2] (1), O2=Yes (2), SBP=108 (1),
+            RR=28 (3), SpO2=87 [Scale2:86-87=2] (2), O2=Yes (2), SBP=108 (1),
             HR=95 (1), AVPU=A (0), Temp=38.2 (1)
-            Total: 9
+            Total: 10
         """
         # Example 1
         result = calculate_news2(
@@ -521,7 +556,7 @@ class TestCalculateNEWS2:
             avpu="V",
             temperature=35.5,
         )
-        assert result.total_score == 14, f"Expected 14, got {result.total_score}"
+        assert result.total_score == 12, f"Expected 12, got {result.total_score}"
 
         # Example 3: Severe COPD with hypercapnia
         # RR=28(3) + SpO2=87[Scale2:86-87=2] + O2(2) + SBP=108(1)

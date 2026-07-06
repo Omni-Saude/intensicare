@@ -1,4 +1,4 @@
-"""Tests for alert CRUD endpoints."""
+"""Tests for alert CRUD endpoints — AUDIT-007 wrapped response + lifecycle."""
 
 from datetime import datetime, timezone
 
@@ -29,31 +29,12 @@ async def create_test_alert(db: AsyncSession, status="active", severity="watch")
     return alert
 
 
-async def create_test_user(db: AsyncSession) -> tuple[User, str]:
-    """Create a test user and return (user, token)."""
-    user = User(
-        username="testuser",
-        email="test@test.com",
-        hashed_password=hash_password("test1234"),
-        display_name="Test User",
-        is_admin=False,
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(user)
-    await db.flush()
-    await db.refresh(user)
-
-    # We need to get a token - use the login endpoint via the client
-    return user
-
-
 class TestListAlerts:
-    """Tests for GET /api/v1/alerts."""
+    """Tests for GET /api/v1/alerts (AUDIT-007: {alerts, total} response)."""
 
     @pytest.mark.asyncio
-    async def test_list_active_alerts(self, client: AsyncClient, db_session: AsyncSession):
-        """Should list active alerts."""
+    async def test_list_active_alerts_wrapped(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return {alerts, total} instead of bare array."""
         await create_test_alert(db_session, status="active", severity="watch")
         await create_test_alert(db_session, status="acknowledged", severity="urgent")
 
@@ -61,28 +42,35 @@ class TestListAlerts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) >= 1
-        assert all(a["status"] == "active" for a in data)
+        # AUDIT-007: response is {alerts, total}, not bare array
+        assert "alerts" in data
+        assert "total" in data
+        assert isinstance(data["alerts"], list)
+        assert isinstance(data["total"], int)
+        assert data["total"] >= 1
+        assert all(a["status"] == "active" for a in data["alerts"])
 
     @pytest.mark.asyncio
     async def test_list_alerts_with_mpi_filter(self, client: AsyncClient, db_session: AsyncSession):
-        """Should filter by mpi_id."""
+        """Should filter by mpi_id and return wrapped shape."""
         await create_test_alert(db_session, status="active")
 
         response = await client.get("/api/v1/alerts?status=active&mpi_id=MPI-1001")
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) >= 1
-        assert all(a["mpi_id"] == "MPI-1001" for a in data)
+        assert "alerts" in data
+        assert data["total"] >= 1
+        assert all(a["mpi_id"] == "MPI-1001" for a in data["alerts"])
 
     @pytest.mark.asyncio
     async def test_list_alerts_empty(self, client: AsyncClient):
-        """Should return empty list when no alerts."""
+        """Should return {alerts: [], total: 0} when no alerts."""
         response = await client.get("/api/v1/alerts?status=active")
 
         assert response.status_code == 200
-        assert response.json() == []
+        data = response.json()
+        assert data == {"alerts": [], "total": 0}
 
     @pytest.mark.asyncio
     async def test_list_alerts_respects_limit(self, client: AsyncClient, db_session: AsyncSession):
@@ -103,7 +91,9 @@ class TestListAlerts:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) <= 2
+        assert len(data["alerts"]) <= 2
+        # total should be the unfiltered count
+        assert data["total"] >= 5
 
 
 class TestAcknowledgeAlert:
@@ -131,7 +121,6 @@ class TestAcknowledgeAlert:
         db_session.add(user)
         await db_session.flush()
 
-        # Login to get token
         token = create_access_token({"sub": user.username, "user_id": user.id})
 
         response = await client.post(
@@ -161,6 +150,296 @@ class TestAcknowledgeAlert:
 
         response = await client.post(
             f"/api/v1/alerts/{alert.id}/acknowledge",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_acknowledge_success(self, client: AsyncClient, db_session: AsyncSession):
+        """Should successfully acknowledge an active alert."""
+        alert = await create_test_alert(db_session, status="active")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/acknowledge",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "acknowledged"
+        assert data["acknowledged_by"] == "doctor"
+        assert data["acknowledged_at"] is not None
+
+
+class TestResolveAlert:
+    """Tests for POST /api/v1/alerts/{alert_id}/resolve (lifecycle)."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_requires_auth(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 401 without auth."""
+        alert = await create_test_alert(db_session, status="acknowledged")
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/resolve",
+            json={"resolution": "true_positive"},
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_resolve_not_found(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 404 for non-existent alert."""
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            "/api/v1/alerts/99999/resolve",
+            json={"resolution": "true_positive"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_resolve_success_acknowledged(self, client: AsyncClient, db_session: AsyncSession):
+        """Should resolve an acknowledged alert."""
+        alert = await create_test_alert(db_session, status="acknowledged")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/resolve",
+            json={"resolution": "true_positive"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "resolved"
+        assert data["resolution"] == "true_positive"
+        assert data["resolved_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_resolve_invalid_resolution(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 422 for invalid resolution value."""
+        alert = await create_test_alert(db_session, status="acknowledged")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/resolve",
+            json={"resolution": "bad_value"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_resolve_already_resolved(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 409 if already resolved."""
+        alert = await create_test_alert(db_session, status="resolved")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/resolve",
+            json={"resolution": "true_positive"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_resolve_from_active_invalid(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 409 — cannot resolve directly from active."""
+        alert = await create_test_alert(db_session, status="active")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/resolve",
+            json={"resolution": "true_positive"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 409
+
+
+class TestEscalateAlert:
+    """Tests for POST /api/v1/alerts/{alert_id}/escalate (lifecycle)."""
+
+    @pytest.mark.asyncio
+    async def test_escalate_requires_auth(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 401 without auth."""
+        alert = await create_test_alert(db_session, status="active")
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/escalate",
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_escalate_not_found(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 404 for non-existent alert."""
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            "/api/v1/alerts/99999/escalate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_escalate_success_from_active(self, client: AsyncClient, db_session: AsyncSession):
+        """Should escalate an active alert."""
+        alert = await create_test_alert(db_session, status="active")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/escalate",
+            json={"reason": "Patient deteriorating rapidly"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "escalated"
+
+    @pytest.mark.asyncio
+    async def test_escalate_success_from_acknowledged(self, client: AsyncClient, db_session: AsyncSession):
+        """Should escalate an acknowledged alert."""
+        alert = await create_test_alert(db_session, status="acknowledged")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/escalate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "escalated"
+
+    @pytest.mark.asyncio
+    async def test_escalate_already_resolved(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 409 if already resolved."""
+        alert = await create_test_alert(db_session, status="resolved")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/escalate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_escalate_already_escalated(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return 409 if already escalated."""
+        alert = await create_test_alert(db_session, status="escalated")
+        user = User(
+            username="doctor",
+            email="doctor@test.com",
+            hashed_password=hash_password("doctor1234"),
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(user)
+        await db_session.flush()
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+
+        response = await client.post(
+            f"/api/v1/alerts/{alert.id}/escalate",
             headers={"Authorization": f"Bearer {token}"},
         )
 

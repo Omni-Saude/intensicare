@@ -1,0 +1,121 @@
+---
+# =============================================================================
+# IntensiCare Alert Engine — ARQ Worker Deployment
+# =============================================================================
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "intensicare.fullname" . }}-worker
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "intensicare.workerLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount.worker }}
+  strategy:
+    {{- toYaml .Values.worker.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "intensicare.workerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intensicare.workerSelectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.worker.name }}
+      securityContext:
+        {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+
+      {{- if .Values.worker.initContainer.enabled }}
+      initContainers:
+        - name: wait-for-deps
+          image: {{ .Values.worker.initContainer.image }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Aguardando dependências..."
+              until nc -z -w5 $DB_HOST 5432; do echo "DB nao pronto..."; sleep 3; done
+              until nc -z -w5 $REDIS_HOST 6379; do echo "Redis nao pronto..."; sleep 3; done
+              echo "Dependências prontas!"
+          envFrom:
+            - secretRef:
+                name: {{ include "intensicare.fullname" . }}-secrets
+          resources:
+            {{- toYaml .Values.worker.initContainer.resources | nindent 12 }}
+      {{- end }}
+
+      containers:
+        # ---------------------------------------------------------------------
+        # ARQ Worker
+        # ---------------------------------------------------------------------
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          command: ["arq"]
+          args:
+            - "src.intensicare.services.notification_worker.WorkerSettings"
+          envFrom:
+            - configMapRef:
+                name: {{ include "intensicare.fullname" . }}-config
+            - secretRef:
+                name: {{ include "intensicare.fullname" . }}-secrets
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.worker.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.worker.readinessProbe | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.worker.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+        # ---------------------------------------------------------------------
+        # OTEL Collector Sidecar
+        # ---------------------------------------------------------------------
+        {{- if .Values.otelCollector.enabled }}
+        - name: otel-collector
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
+          args:
+            - "--config=/etc/otelcol/config.yaml"
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "intensicare.fullname" . }}-config
+                  key: OTEL_SERVICE_NAME
+          resources:
+            {{- toYaml .Values.otelCollector.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.otelCollector.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: otel-config
+              mountPath: /etc/otelcol
+              readOnly: true
+        {{- end }}
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: "100Mi"
+        - name: otel-config
+          configMap:
+            name: {{ include "intensicare.fullname" . }}-otel-config
+
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

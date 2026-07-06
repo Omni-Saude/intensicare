@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
@@ -12,6 +12,18 @@ class VitalSign(Base):
     """Sinais vitais recebidos. Hypertable em recorded_at."""
 
     __tablename__ = "vital_sign"
+    __table_args__ = (
+        # Gold-poll natural key: (mpi_id, recorded_at, source_system) identifica
+        # unicamente um conjunto de sinais vitais de uma determinada origem num
+        # determinado instante. Inclui recorded_at (partition key do TimescaleDB)
+        # para compatibilidade com hypertable constraints.
+        UniqueConstraint(
+            "mpi_id",
+            "recorded_at",
+            "source_system",
+            name="uq_vital_sign_natural_key",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

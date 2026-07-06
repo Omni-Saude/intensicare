@@ -1,0 +1,88 @@
+---
+# =============================================================================
+# IntensiCare — TLS Ingress (Internal ALB)
+# Rotas:
+#   /          → Frontend (SPA)
+#   /api/*     → API (FastAPI REST)
+#   /ws/*      → API (WebSocket)
+#   /health    → API
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: intensicare-ingress
+  namespace: intensicare
+  labels:
+    app.kubernetes.io/name: intensicare
+    app.kubernetes.io/part-of: intensicare-platform
+  annotations:
+    # =========================================================================
+    # AWS Load Balancer Controller (ALB — Internal)
+    # =========================================================================
+    alb.ingress.kubernetes.io/scheme: "internal"
+    alb.ingress.kubernetes.io/target-type: "ip"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:sa-east-1:CHANGEME:certificate/CHANGEME"
+
+    # Health check
+    alb.ingress.kubernetes.io/healthcheck-path: "/health"
+    alb.ingress.kubernetes.io/healthcheck-port: "8000"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    # WebSocket support
+    alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    alb.ingress.kubernetes.io/connection-idle-timeout: "3600"
+
+    # WAF (opcional — adicionar quando disponível)
+    # alb.ingress.kubernetes.io/waf-acl-id: "..."
+
+    # Tags
+    alb.ingress.kubernetes.io/tags: "Environment=production,Team=intensicare,CostCenter=clinical-ops"
+
+spec:
+  ingressClassName: alb
+  tls:
+    - hosts:
+        - intensicare.sa-east-1.elb.amazonaws.com
+      secretName: intensicare-tls
+
+  rules:
+    - host: intensicare.sa-east-1.elb.amazonaws.com
+      http:
+        paths:
+          # API REST
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: intensicare-api
+                port:
+                  number: 8000
+          # WebSocket
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: intensicare-api
+                port:
+                  number: 8001
+          # Health check
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: intensicare-api
+                port:
+                  number: 8000
+          # Frontend SPA (catch-all)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: intensicare-frontend
+                port:
+                  number: 80

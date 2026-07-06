@@ -42,7 +42,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: frontend
+        working-directory: frontend-v2
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: frontend-v2/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -355,20 +355,117 @@ jobs:
     timeout-minutes: 15
     needs: build
     if: |
-      github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'true'
-    # TODO(ops): declare GitHub environment 'staging' and restore the environment: block for deploy protections
-    # environment:
-    #   name: staging
-    #   url: https://staging.api.intensicare.io
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'true')
+    environment:
+      name: staging
+      url: https://staging.api.intensicare.io
 
     steps:
-      - name: Deploy placeholder
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30
+
+      - name: Authenticate to cluster (assume-role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Update kubeconfig
         run: |
-          echo "## 🚀 Deploy to Staging" >> $GITHUB_STEP_SUMMARY
-          echo "Image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo ""
-          echo "⚠️  Configure as credenciais do cluster Kubernetes e execute o deploy real."
-          echo "    - helm upgrade intensicare intensicare/platform --set image.tag=${{ needs.build.outputs.image_tag }}"
+          aws eks update-kubeconfig \
+            --region ${{ vars.AWS_REGION || 'us-east-1' }} \
+            --name ${{ vars.EKS_CLUSTER_NAME || 'intensicare-staging' }}
+
+      - name: Helm dry-run (validate)
+        run: |
+          helm upgrade --install intensicare ./platform/helm/intensicare \
+            --namespace intensicare-staging \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set environment=staging \
+            --dry-run
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install intensicare ./platform/helm/intensicare \
+            --namespace intensicare-staging \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set environment=staging \
+            --wait \
+            --timeout 5m
+
+      - name: Deployment summary
+        run: |
+          echo "## 🚀 Deploy — Staging" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster**: \`${{ vars.EKS_CLUSTER_NAME || 'intensicare-staging' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://staging.api.intensicare.io" >> $GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 6b — Deploy to Production (manual approval on main)
+  # ═══════════════════════════════════════════════════════════════════════════
+  deploy-production:
+    name: Deploy — Production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: build
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://api.intensicare.io
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30
+
+      - name: Authenticate to cluster (assume-role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ vars.AWS_REGION || 'us-east-1' }} \
+            --name ${{ vars.EKS_CLUSTER_NAME || 'intensicare-production' }}
+
+      - name: Helm dry-run (validate)
+        run: |
+          helm upgrade --install intensicare ./platform/helm/intensicare \
+            --namespace intensicare-production \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set environment=production \
+            --dry-run
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install intensicare ./platform/helm/intensicare \
+            --namespace intensicare-production \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set environment=production \
+            --wait \
+            --timeout 5m
+
+      - name: Deployment summary
+        run: |
+          echo "## 🚀 Deploy — Production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster**: \`${{ vars.EKS_CLUSTER_NAME || 'intensicare-production' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://api.intensicare.io" >> $GITHUB_STEP_SUMMARY
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Job 7 — Release (triggered by tags)
@@ -397,3 +494,196 @@ jobs:
           body_path: CHANGELOG.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 8 — Build Gates (draft-mode, não bloqueia merge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-gates:
+    name: Build Gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true  # draft-mode: não bloqueia merge
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Run build gates
+        run: |
+          echo "### 🔍 Build Gates" >> $GITHUB_STEP_SUMMARY
+          cd docs/plan/_work/scripts
+
+          for script in check_units.py check_vector_coverage.py check_tokens.py; do
+            if [ -f "$script" ]; then
+              echo "Running: $script"
+              python "$script" || echo "⚠️  $script falhou (draft-mode)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️  Script não encontrado: $script (será criado pelo WO correspondente)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 9 — Contract Testing (bloqueia merge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  contract:
+    name: Contract Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install schema tools
+        run: pip install pyyaml openapi-spec-validator
+
+      - name: Run contract tests
+        run: |
+          echo "### 📋 Contract Tests" >> $GITHUB_STEP_SUMMARY
+          bash scripts/ci/contract-tests.sh \
+            && echo "✅ Contract tests passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Contract tests failed" >> $GITHUB_STEP_SUMMARY; exit 1; }
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 10 — Accessibility Audit (draft-mode, não bloqueia merge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  a11y:
+    name: Accessibility Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true  # draft-mode: não bloqueia merge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install axe-core
+        run: npm install -g @axe-core/cli
+
+      - name: Build frontend
+        working-directory: frontend-v2
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run axe accessibility scan
+        working-directory: frontend-v2
+        run: |
+          echo "### ♿ Accessibility Audit" >> $GITHUB_STEP_SUMMARY
+          npx http-server dist -p 4173 --silent &
+          sleep 3
+          axe http://localhost:4173 --exit \
+            && echo "✅ Nenhum problema crítico de acessibilidade" >> $GITHUB_STEP_SUMMARY \
+            || echo "⚠️  Problemas de acessibilidade encontrados (draft-mode)" >> $GITHUB_STEP_SUMMARY
+          kill %1 2>/dev/null || true
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 11 — Alert Storm Test (pre-release, bloqueia merge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  storm:
+    name: Alert Storm (L6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: |
+      github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [test, security]
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Alert Storm Test (≥500 alerts/min)
+        env:
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          echo "### ⛈️  Alert Storm Test (L6)" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/ci/storm-test.py \
+            && echo "✅ Storm test passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Storm test failed" >> $GITHUB_STEP_SUMMARY; exit 1; }
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job 12 — Chaos Drills (pre-release, bloqueia merge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  drills:
+    name: Chaos Drills (L7)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: |
+      github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [test, security]
+
+    services:
+      postgres:
+        image: timescale/timescaledb:2.18.0-pg16
+        env:
+          POSTGRES_USER: intensicare
+          POSTGRES_PASSWORD: intensicare_test
+          POSTGRES_DB: intensicare_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Chaos Drills on Invariants
+        env:
+          DATABASE_URL: postgresql+asyncpg://intensicare:intensicare_test@localhost:5432/intensicare_test
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          echo "### 🌀 Chaos Drills (L7)" >> $GITHUB_STEP_SUMMARY
+          bash scripts/ci/drills-test.sh \
+            && echo "✅ Chaos drills passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Chaos drills failed" >> $GITHUB_STEP_SUMMARY; exit 1; }

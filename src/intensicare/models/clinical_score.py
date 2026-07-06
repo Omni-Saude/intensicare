@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,7 +19,12 @@ class ClinicalScore(Base):
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     score_type: Mapped[str] = mapped_column(String(16), nullable=False)
     score_value: Mapped[int] = mapped_column(Integer, nullable=False)
-    algorithm_version: Mapped[str | None] = mapped_column(String(32))
+    algorithm_version: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("algorithm_registry.algorithm_version"),
+        nullable=False,
+        index=True,
+    )
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     vital_sign_id: Mapped[int | None] = mapped_column(BigInteger)
     components: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

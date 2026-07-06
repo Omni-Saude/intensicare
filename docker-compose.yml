@@ -46,6 +46,58 @@ services:
       - intensicare-net
 
   # ---------------------------------------------------------------------------
+  # ARQ Worker — processamento assíncrono de jobs (notificações, auditoria)
+  # ---------------------------------------------------------------------------
+  arq-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: intensicare-api:dev
+    container_name: intensicare-arq-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-intensicare}:${POSTGRES_PASSWORD:-intensicare_dev}@postgres:5432/${POSTGRES_DB:-intensicare}
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./src:/app/src:delegated
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    command: arq src.intensicare.services.notification_worker.WorkerSettings
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - intensicare-net
+
+  # ---------------------------------------------------------------------------
+  # Frontend Dev — Next.js 15 com hot-reload (port 3000)
+  # ---------------------------------------------------------------------------
+  frontend-dev:
+    image: node:20-alpine
+    container_name: intensicare-frontend-dev
+    restart: unless-stopped
+    working_dir: /app
+    ports:
+      - "${FRONTEND_DEV_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    volumes:
+      - ./frontend-v2:/app:delegated
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      - api
+    networks:
+      - intensicare-net
+
+  # ---------------------------------------------------------------------------
   # PostgreSQL 16 + TimescaleDB 2.x
   # ---------------------------------------------------------------------------
   postgres:

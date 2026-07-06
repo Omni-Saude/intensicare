@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.clinical_score import ClinicalScore
@@ -12,14 +13,31 @@ from intensicare.services.alert_engine import (
     check_score_against_thresholds,
     process_clinical_score,
 )
+from intensicare.services.patient_encryption import encrypt_phi
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+_TEST_ENCRYPTION_KEY = "test-key-32-bytes-long-!!!"  # 32 bytes for pgcrypto
+
+
+async def _ensure_pgcrypto_and_key(db: AsyncSession) -> None:
+    """Ensure pgcrypto is available and set the tenant encryption key."""
+    await db.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA public"))
+    sanitized = _TEST_ENCRYPTION_KEY.replace("'", "''")
+    await db.execute(text(f"SET app.encryption_key = '{sanitized}'"))
 
 
 async def create_patient(db: AsyncSession, mpi_id="MPI-1001", tenant_id="austa", unit="ICU"):
-    """Create a test patient."""
+    """Create a test patient with encrypted display_name (BYTEA / pgcrypto)."""
+    await _ensure_pgcrypto_and_key(db)
+    encrypted_name = await encrypt_phi(db, "Test Patient")
     patient = PatientCache(
         mpi_id=mpi_id,
         tenant_id=tenant_id,
-        display_name="Test Patient",
+        display_name=encrypted_name,
         unit=unit,
         is_active=True,
     )
@@ -65,6 +83,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=5,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -86,6 +105,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=2,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -107,6 +127,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -132,6 +153,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=6,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -154,6 +176,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=8,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -177,6 +200,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -201,6 +225,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -228,6 +253,7 @@ class TestProcessClinicalScore:
             mpi_id="MPI-9999",
             score_type="MEWS",
             score_value=5,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -246,6 +272,7 @@ class TestProcessClinicalScore:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=6,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)

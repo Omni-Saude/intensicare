@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
+from uuid import uuid4
 
 from jose import JWTError, jwt  # type: ignore[import-untyped]  # python-jose ships no type stubs
 import redis.asyncio as aioredis
@@ -13,7 +14,7 @@ def create_access_token(data: dict[str, Any]) -> str:
     """Create a JWT access token with expiration."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    to_encode.update({"exp": expire, "type": "access"})
+    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid4())})
     secret = settings.secret_key.get_secret_value()
     return cast("str", jwt.encode(to_encode, secret, algorithm=settings.jwt_algorithm))
 
@@ -22,7 +23,7 @@ def create_refresh_token(data: dict[str, Any]) -> str:
     """Create a JWT refresh token with longer expiration."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expire_days)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid4())})
     secret = settings.secret_key.get_secret_value()
     return cast("str", jwt.encode(to_encode, secret, algorithm=settings.jwt_algorithm))
 

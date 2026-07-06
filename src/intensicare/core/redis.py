@@ -35,3 +35,18 @@ async def close_redis() -> None:
     if client is not None:
         await client.close()
         _redis_state.client = None
+
+
+def get_redis_connection_kwargs() -> dict[str, object]:
+    """Return Redis connection kwargs suitable for ARQ RedisSettings.
+
+    Exposes host/port/database so that ARQ can build its own connection pool
+    independently of the aioredis client managed by get_redis().
+    """
+    from intensicare.config import settings
+
+    return {
+        "host": settings.redis_host,
+        "port": settings.redis_port,
+        "database": settings.redis_db,
+    }

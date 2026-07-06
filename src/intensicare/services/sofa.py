@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-SOFA_VERSION = "SOFA-v1.0"
+SOFA_VERSION = "SOFA-v2.0.0"  # CLINICALLY RATIFIED per RAT-CLINICAL-SCORING-01/02/03
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Published SOFA thresholds (Vincent et al., Intensive Care Med 1996;22:707-710).
@@ -29,6 +29,34 @@ SOFA_VERSION = "SOFA-v1.0"
 SOFA_MORTALITY_RISK_LOW_MAX = 6
 SOFA_MORTALITY_RISK_MODERATE_MAX = 9
 SOFA_MORTALITY_RISK_HIGH_MAX = 12
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Unified SOFA sepsis mortality risk classification (single source of truth)
+# Used by both live scoring (SOFAResult.sepsis_mortality_risk) and replay
+# (vitals._get_sofa_for_vital).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def classify_sofa_mortality_risk(total_score: int) -> str:
+    """Classify sepsis mortality risk from total SOFA score.
+
+    SOFA ≥2 increase in mortality of ≈2-25%.
+    SOFA 0-6: ~<10% mortality
+    SOFA 7-9: ~15-20%
+    SOFA 10-12: ~40-50%
+    SOFA 13-14: ~50-60%
+    SOFA 15-24: ~80-90%
+    SOFA >15: ~>90%
+
+    Returns 'low', 'moderate', 'high', or 'very_high'.
+    """
+    if total_score <= SOFA_MORTALITY_RISK_LOW_MAX:
+        return "low"
+    if total_score <= SOFA_MORTALITY_RISK_MODERATE_MAX:
+        return "moderate"
+    if total_score <= SOFA_MORTALITY_RISK_HIGH_MAX:
+        return "high"
+    return "very_high"
 
 # Respiration — PaO2/FiO2 ratio (mmHg); inclusive lower bound of each score band
 SOFA_RESP_PF_NORMAL = 400  # >= 400 -> 0
@@ -103,14 +131,10 @@ class SOFAResult:
         SOFA 13-14: ~50-60%
         SOFA 15-24: ~80-90%
         SOFA >15: ~>90%
+
+        Delegates to classify_sofa_mortality_risk (single source of truth).
         """
-        if self.total_score <= SOFA_MORTALITY_RISK_LOW_MAX:
-            return "low"
-        if self.total_score <= SOFA_MORTALITY_RISK_MODERATE_MAX:
-            return "moderate"
-        if self.total_score <= SOFA_MORTALITY_RISK_HIGH_MAX:
-            return "high"
-        return "very_high"
+        return classify_sofa_mortality_risk(self.total_score)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -268,6 +292,7 @@ def score_cardiovascular(
         return (0 if map_value >= SOFA_MAP_NORMAL else 1), None
 
     # Has vasopressor — determine level
+    # NOTE: vasopressor dose is assumed in mcg/kg/min (canonical unit, CLINICALLY RATIFIED per RAT-CLINICAL-SCORING-03).
     vtype = vasopressor_type.lower().strip()
     dose = vasopressor_dose_mcg_kg_min
 
@@ -384,6 +409,7 @@ def score_renal(
     else:
         uo_score = 0
 
+    # Per SOFA-C-03: renal_score = max(creatinine_score, urine_output_score)
     return max(cr_score, uo_score), None
 
 

@@ -1,0 +1,122 @@
+---
+# =============================================================================
+# IntensiCare Helm — Values: Staging
+# =============================================================================
+
+global:
+  environment: staging
+
+namespace:
+  name: intensicare-staging
+  labels:
+    intensicare.io/tier: non-prod
+    intensicare.io/data-classification: synthetic-only
+
+replicaCount:
+  api: 2
+  worker: 1
+  frontend: 2
+
+image:
+  api:
+    tag: staging
+  frontend:
+    tag: staging
+
+# Ingress — host de staging
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/tags: "Environment=staging,Team=intensicare,CostCenter=dev-test"
+  hosts:
+    - host: intensicare-staging.sa-east-1.elb.amazonaws.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /ws
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8001
+        - path: /health
+          pathType: Exact
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-frontend
+            servicePort: 80
+  tls:
+    - secretName: intensicare-staging-tls
+      hosts:
+        - intensicare-staging.sa-east-1.elb.amazonaws.com
+
+# Config — staging values
+config:
+  environment: staging
+  logLevel: DEBUG
+
+  # Polling mais agressivo para testes
+  polling:
+    electrolytes: "120"
+    sepsisLabs: "300"
+    respiratoryAbg: "300"
+    aki: "600"
+    medication: "900"
+    delirium: "7200"
+
+  # Write-back mais frequente
+  writeBackIntervalSeconds: "600"
+
+  # MPI cache curto para testar resolução
+  mpiCacheTtlSeconds: "300"
+
+  # Staleness mais tolerante
+  staleness:
+    electrolytes: "7200"
+    vitals: "600"
+    medication: "1800"
+
+  # API workers reduzidos
+  apiWorkers: "2"
+
+# OTEL — sampling mais alto para debug
+otelCollector:
+  config:
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+    exporters:
+      logging:
+        loglevel: debug
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+# HPA menos agressivo em staging
+hpa:
+  api:
+    minReplicas: 2
+    maxReplicas: 4
+
+# Secrets — referências para AWS Secrets Manager (staging)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secrets:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: intensicare/staging/database
+        property: url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: intensicare/staging/redis
+        property: url
+    - secretKey: JWT_SECRET_KEY
+      remoteRef:
+        key: intensicare/staging/jwt
+        property: secret

@@ -7,6 +7,16 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class TripleEncodingMeta(BaseModel):
+    """Triple-encoded severity metadata for frontend rendering."""
+
+    color: str
+    icon: str
+    shape: str
+    label: str
+    description: str
+
+
 class PatientBedSummary(BaseModel):
     """Summary of a patient for the bed grid dashboard."""
 
@@ -20,7 +30,9 @@ class PatientBedSummary(BaseModel):
     mews_trend: str | None = None  # increasing, decreasing, stable
     news2_trend: str | None = None
     active_alerts_count: int = 0
-    highest_alert_severity: str | None = None  # info, warning, critical
+    # AUDIT-008 resolved: canonical severity model (normal/watch/urgent/critical)
+    highest_alert_severity: str | None = None  # normal, watch, urgent, critical
+    highest_alert_encoding: TripleEncodingMeta | None = None
     last_updated: str | None = None
 
 

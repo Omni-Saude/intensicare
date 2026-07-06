@@ -1,0 +1,192 @@
+---
+# =============================================================================
+# IntensiCare Helm — Values: Production
+# =============================================================================
+
+global:
+  environment: production
+
+namespace:
+  name: intensicare
+  labels:
+    intensicare.io/tier: prod
+    intensicare.io/data-classification: production-phi
+
+# Aumenta réplicas para produção
+replicaCount:
+  api: 4
+  worker: 2
+  frontend: 3
+
+image:
+  api:
+    tag: stable
+    pullPolicy: IfNotPresent
+  frontend:
+    tag: stable
+    pullPolicy: IfNotPresent
+
+# Ingress — host de produção
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:sa-east-1:PRODUCTION_ACCOUNT:certificate/PROD_CERT_ID"
+    alb.ingress.kubernetes.io/tags: "Environment=production,Team=intensicare,CostCenter=clinical-ops"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
+  hosts:
+    - host: intensicare.sa-east-1.elb.amazonaws.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /ws
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8001
+        - path: /health
+          pathType: Exact
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-frontend
+            servicePort: 80
+  tls:
+    - secretName: intensicare-prod-tls
+      hosts:
+        - intensicare.sa-east-1.elb.amazonaws.com
+
+# Config — production values (conforme system-architecture.md)
+config:
+  environment: production
+  logLevel: INFO
+
+  # Polling de produção (conforme §3.2)
+  polling:
+    electrolytes: "90"
+    sepsisLabs: "300"
+    respiratoryAbg: "300"
+    aki: "900"
+    medication: "900"
+    delirium: "7200"
+
+  # Write-back a cada 1h
+  writeBackIntervalSeconds: "3600"
+
+  # MPI cache de 15 min
+  mpiCacheTtlSeconds: "900"
+
+  # Staleness thresholds (conforme §5.3)
+  staleness:
+    electrolytes: "3600"
+    vitals: "300"
+    medication: "1800"
+
+  # API workers
+  apiWorkers: "4"
+  apiTimeout: "120"
+
+  # ARQ workers
+  arqConcurrency: "4"
+  arqPollInterval: "0.5"
+
+  # Backpressure
+  pollConcurrencyMax: "15"
+  pollBackpressureEnabled: "true"
+
+# OTEL — sampling conservador
+otelCollector:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+  config:
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      memory_limiter:
+        limit_mib: 512
+        spike_limit_mib: 128
+    exporters:
+      logging:
+        loglevel: warn
+        sampling_initial: 1
+        sampling_thereafter: 1000
+      prometheusremotewrite:
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+# HPA — escala mais ampla em produção
+hpa:
+  api:
+    enabled: true
+    minReplicas: 4
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# PDB
+pdb:
+  api:
+    enabled: true
+    minAvailable: 2
+
+# Pod anti-affinity para espalhar entre nós
+api:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: intensicare-api
+            topologyKey: kubernetes.io/hostname
+
+frontend:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: intensicare-frontend
+            topologyKey: kubernetes.io/hostname
+
+# External Secrets — produção
+externalSecrets:
+  enabled: true
+  refreshInterval: 30m
+  secrets:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: intensicare/production/database
+        property: url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: intensicare/production/redis
+        property: url
+    - secretKey: JWT_SECRET_KEY
+      remoteRef:
+        key: intensicare/production/jwt
+        property: secret
+    - secretKey: SSO_CLIENT_SECRET
+      remoteRef:
+        key: intensicare/production/sso
+        property: client_secret
+    - secretKey: ENCRYPTION_KEY_ARN
+      remoteRef:
+        key: intensicare/production/kms
+        property: key_arn

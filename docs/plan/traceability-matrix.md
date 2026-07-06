@@ -8,13 +8,15 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 
 | Disposition | Count |
 |---|---:|
-| ADOPT | 194 |
+| ADOPT | 372 |
 | ADOPT-CORRECTED | 57 |
-| ADAPT | 209 |
+| ADAPT | 223 |
 | SUPERSEDE | 66 |
-| RETIRE | 229 |
-| RATIFY | 204 |
-| **Total** | **959** |
+| RETIRE | 242 |
+| RATIFY | 0 |
+| **Total** | **960** |
+
+**RAT-ELY-01:** CLINICALLY RATIFIED 2026-07-06. Phosphate thresholds per KDIGO (mmol/L): hypo <0.3 urgent / <0.8 watch; hyper >2.5 critical / >1.5 watch. Disposition: ADOPT.
 
 | Escalation band | Items |
 |---|---:|
@@ -30,8 +32,8 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 
 | Rule | Name | Cluster | Verdict | Disposition | Target | Bands |
 |---|---|---|---|---|---|---|
-| RULE-ALERTAS-001 | Count triggered criteria (contar_qtd_criterios_alerta) | alertas | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-alertas-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-ALERTAS-002 | Aggregate alert counts across movimentacoes | alertas | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-alertas-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-ALERTAS-001 | Count triggered criteria (contar_qtd_criterios_alerta) | alertas | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-alertas-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-ALERTAS-002 | Aggregate alert counts across movimentacoes | alertas | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-alertas-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-ALERTAS-003 | Criteria-count -> alert color mapping (define_tipo_alerta) + | alertas | NOT_APPLICABLE | ADOPT-CORRECTED | [alert-engine.md §alert-color-mapping](architecture/alert-engine.md) | P3 |
 | RULE-ALERTAS-004 | Single-criterion alert flag (esta_alerta) | alertas | NOT_APPLICABLE | ADOPT | [alert-engine.md §alert-color-mapping](architecture/alert-engine.md) | — |
 | RULE-ALERTAS-005 | Bed-level alert rollup util (define_tipo_alerta_leito) - DEA | alertas | NOT_APPLICABLE | RETIRE | — | — |
@@ -43,7 +45,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-ALERTAS-011 | Assistido-overrides-alerta status color precedence (frontend | alertas | NOT_APPLICABLE | ADAPT | [clinical-forms.md §status-precedence](design/screens/clinical-forms.md) | — |
 | RULE-ALERTAS-012 | conteudo_trilha_criterios - RED-alert content extraction for | alertas | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §alert-payload-schema](architecture/alert-engine.md) | — |
 | RULE-ALERTAS-013 | conteudo_trilha_automatica_criterios - RED-alert content ext | alertas | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §alert-payload-schema](architecture/alert-engine.md) | — |
-| RULE-ALERTAS-014 | conteudo_observacao_criterios - tipo-dependent whitelist fil | alertas | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-alertas-03](RATIFICATION.md) | AMBIGUOUS |
+| RULE-ALERTAS-014 | conteudo_observacao_criterios - tipo-dependent whitelist fil | alertas | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-alertas-03](RATIFICATION.md) | AMBIGUOUS |
 | RULE-ALERTAS-015 | conteudo_trilha_homecare_criterios - RED-alert content extra | alertas | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §alert-payload-schema](architecture/alert-engine.md) | — |
 | RULE-ALERTAS-016 | Bed observation dispatch with VERMELHO de-duplication (envia | alertas | NOT_APPLICABLE | ADAPT | [alert-engine.md §suppression](architecture/alert-engine.md) | — |
 | RULE-ALERTAS-017 | Assist-action trilha resolution: dual Movimentacao/Leito mod | alertas | NOT_APPLICABLE | RETIRE | — | — |
@@ -62,7 +64,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-ANTIMICROBIANO-001 | Antimicrobiano alert color (active - calcular_alerta_v2) | antimicrobiano | NOT_APPLICABLE | SUPERSEDE | [pharmaco-interaction.md §antimicrobial-alert-severity](clinical/domains/pharmaco-interaction.md) | — |
 | RULE-ANTIMICROBIANO-002 | Antimicrobiano alert color (legacy unused - calcular_alerta) | antimicrobiano | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-ANTIMICROBIANO-003 | Antimicrobial stewardship criteria catalog (12 criteria: dur | antimicrobiano | VERIFIED | ADAPT | [pharmaco-interaction.md §antimicrobial-stewardship-criteria](clinical/domains/pharmaco-interaction.md) | — |
-| RULE-AUDITORIA-LOGS-001 | Date-range filter boundary formula (start-of-day / end-of-da | auditoria-logs | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-auditoria-logs-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-AUDITORIA-LOGS-001 | Date-range filter boundary formula (start-of-day / end-of-da | auditoria-logs | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-auditoria-logs-01](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-AUDITORIA-LOGS-002 | request_body capture (GET vs write methods, JSON fallback) | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUDITORIA-LOGS-003 | response_body capture (JSON then raw-text fallback) | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUDITORIA-LOGS-004 | Device classification from user agent (dispositivo) | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
@@ -83,7 +85,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-AUDITORIA-LOGS-019 | Client IP and public/private classification | auditoria-logs | NOT_APPLICABLE | ADAPT | [security-lgpd.md §audit-trail](architecture/security-lgpd.md) | — |
 | RULE-AUDITORIA-LOGS-020 | Geolocation enrichment via GeoIP2 (async stage) | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUDITORIA-LOGS-021 | Soft-delete mixin present but not exercised for logs | auditoria-logs | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
-| RULE-AUDITORIA-LOGS-022 | Log dashboard access control (authenticated-only, no staff/o | auditoria-logs | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-auditoria-logs-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-AUDITORIA-LOGS-022 | Log dashboard access control (authenticated-only, no staff/o | auditoria-logs | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-auditoria-logs-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-AUDITORIA-LOGS-023 | Default log list ordering (most recent first) | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUDITORIA-LOGS-024 | Dead nested duplicate of EstadoLogView | auditoria-logs | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-AUDITORIA-LOGS-025 | UUID-in-path anonymization is display-only, not applied to r | auditoria-logs | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
@@ -98,8 +100,8 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-AUDITORIA-LOGS-034 | Country -> region -> city cascading filter (city not re-scop | auditoria-logs | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-AUDITORIA-LOGS-035 | geolocalizacao field defaults to empty dict, never null in p | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUDITORIA-LOGS-036 | History-skip on non-substantive field changes | auditoria-logs | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-AUTH-USUARIOS-001 | GrupoAcesso permission catalog payload computation | auth-usuarios | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-auth-usuarios-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-AUTH-USUARIOS-002 | User cargos (roles) empresa-scoped lookup | auth-usuarios | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-auth-usuarios-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-AUTH-USUARIOS-001 | GrupoAcesso permission catalog payload computation | auth-usuarios | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-auth-usuarios-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-AUTH-USUARIOS-002 | User cargos (roles) empresa-scoped lookup | auth-usuarios | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-auth-usuarios-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-AUTH-USUARIOS-003 | Super-admin (chatbot) permission predicate | auth-usuarios | NOT_APPLICABLE | ADAPT | [security-lgpd.md §privileged-service-accounts](architecture/security-lgpd.md) | — |
 | RULE-AUTH-USUARIOS-004 | Partner-required permission predicate | auth-usuarios | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUTH-USUARIOS-005 | Owner-organization object permission predicate | auth-usuarios | NOT_APPLICABLE | ADAPT | [security-lgpd.md §object-level-authorization](architecture/security-lgpd.md) | — |
@@ -142,7 +144,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-AUTH-USUARIOS-042 | Effective-permission intersection computation | auth-usuarios | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §effective-permissions](architecture/security-lgpd.md) | — |
 | RULE-AUTH-USUARIOS-043 | API key name uniqueness | auth-usuarios | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUTH-USUARIOS-044 | Clinical/administrative role (cargo) enumeration — backend m | auth-usuarios | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §cargos](design/screens/clinical-forms.md) | P3 |
-| RULE-AUTH-USUARIOS-045 | User access-role codes (proprietario/usuario/monitor) — back | auth-usuarios | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-auth-usuarios-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-AUTH-USUARIOS-045 | User access-role codes (proprietario/usuario/monitor) — back | auth-usuarios | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-auth-usuarios-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-AUTH-USUARIOS-046 | Professional council (conselho) and state-of-council enumera | auth-usuarios | NOT_APPLICABLE | ADOPT | [clinical-forms.md §conselho](design/screens/clinical-forms.md) | — |
 | RULE-AUTH-USUARIOS-047 | Access-level enumeration (read vs read-write) — dormant | auth-usuarios | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-AUTH-USUARIOS-048 | Access group must belong to exactly one scope (empresa XOR e | auth-usuarios | NOT_APPLICABLE | ADAPT | [security-lgpd.md §scope-exclusivity](architecture/security-lgpd.md) | — |
@@ -160,35 +162,35 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-AUTH-USUARIOS-060 | Company monitoring-modality enumeration (duplicate of LeitoT | auth-usuarios | NOT_APPLICABLE | ADAPT | [security-lgpd.md §tenant-config](architecture/security-lgpd.md) | — |
 | RULE-AUTH-USUARIOS-061 | Context-switch destinations exclude bed level | auth-usuarios | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-AUTH-USUARIOS-062 | JWT token expiration/refresh policy | auth-usuarios | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §token-lifetime](architecture/security-lgpd.md) | — |
-| RULE-AUTH-USUARIOS-063 | Shared default signing PIN (Usuario.pin defaults to settings | auth-usuarios | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-auth-usuarios-02](RATIFICATION.md) | ADDENDUM |
+| RULE-AUTH-USUARIOS-063 | Shared default signing PIN (Usuario.pin defaults to settings | auth-usuarios | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-auth-usuarios-02](RATIFICATION.md) | ADDENDUM |
 | RULE-BALANCO-HIDRICO-001 | Balanco Hidrico acumulado (cumulative fluid balance) | balanco-hidrico | VERIFIED | ADOPT | [hemodynamics.md §fluid-balance-cumulative](clinical/domains/hemodynamics.md) | — |
 | RULE-BALANCO-HIDRICO-002 | Balanco Hidrico ganhos (daily intake total) | balanco-hidrico | VERIFIED | ADOPT | [hemodynamics.md §fluid-intake-daily](clinical/domains/hemodynamics.md) | — |
 | RULE-BALANCO-HIDRICO-003 | Balanco Hidrico perdas (daily output total) | balanco-hidrico | VERIFIED | ADOPT | [hemodynamics.md §fluid-output-daily](clinical/domains/hemodynamics.md) | — |
-| RULE-BALANCO-HIDRICO-004 | Balanco Hidrico diurno (day-shift balance 07:00-19:00) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-005 | Balanco Hidrico noturno (night-shift balance by subtraction) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-006 | 24h fluid balance = intake minus output over the 07:00-07:00 | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-03](RATIFICATION.md) | P1 |
-| RULE-BALANCO-HIDRICO-007 | Ganhos (fluid intake) summed over the 07:00-07:00 nursing da | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-04](RATIFICATION.md) | P1 |
-| RULE-BALANCO-HIDRICO-008 | Diureses (urine output) summed over the 07:00-07:00 nursing  | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-05](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-004 | Balanco Hidrico diurno (day-shift balance 07:00-19:00) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-005 | Balanco Hidrico noturno (night-shift balance by subtraction) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-006 | 24h fluid balance = intake minus output over the 07:00-07:00 | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-03](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-007 | Ganhos (fluid intake) summed over the 07:00-07:00 nursing da | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-04](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-008 | Diureses (urine output) summed over the 07:00-07:00 nursing  | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-05](RATIFICATION.md) | P1 |
 | RULE-BALANCO-HIDRICO-009 | Evacuacoes (bowel movements) summed over the 07:00-07:00 nur | balanco-hidrico | DISCREPANCY | ADAPT | [hemodynamics.md §gi-output-nursing-day](clinical/domains/hemodynamics.md) | P2 |
-| RULE-BALANCO-HIDRICO-010 | Maximum temperature over the 07:00-07:00 nursing day | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-06](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-010 | Maximum temperature over the 07:00-07:00 nursing day | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-06](RATIFICATION.md) | P1 |
 | RULE-BALANCO-HIDRICO-011 | Maximum HGT (capillary blood glucose) over the 07:00-07:00 n | balanco-hidrico | DISCREPANCY | ADAPT | [hemodynamics.md §hgt-max-nursing-day](clinical/domains/hemodynamics.md) | P2 |
-| RULE-BALANCO-HIDRICO-012 | Formulario - agregacoes de 24h (evolucao) incl. balanco hidr | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-07](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-013 | Fluid-balance visao-geral 2-hour time-bucketing (08:00-start | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-08](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-012 | Formulario - agregacoes de 24h (evolucao) incl. balanco hidr | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-013 | Fluid-balance visao-geral 2-hour time-bucketing (08:00-start | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-08](RATIFICATION.md) | P1 |
 | RULE-BALANCO-HIDRICO-014 | Fluid balance 24h accrual on intake (entrada) | balanco-hidrico | VERIFIED | ADAPT | [hemodynamics.md §fluid-balance-accrual](clinical/domains/hemodynamics.md) | — |
 | RULE-BALANCO-HIDRICO-015 | Fluid balance 24h accrual on output (saida) | balanco-hidrico | VERIFIED | ADAPT | [hemodynamics.md §fluid-balance-accrual](clinical/domains/hemodynamics.md) | — |
-| RULE-BALANCO-HIDRICO-016 | tempo_criacao - horas desde a criacao (shared helper) | balanco-hidrico | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-09](RATIFICATION.md) | P1 |
-| RULE-BALANCO-HIDRICO-017 | SinaisVitais.anterior - leitura anterior de sinais vitais | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-10](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-018 | Blood-pressure display composition (systolic/diastolic) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-11](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-016 | tempo_criacao - horas desde a criacao (shared helper) | balanco-hidrico | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-09](RATIFICATION.md) | P1 |
+| RULE-BALANCO-HIDRICO-017 | SinaisVitais.anterior - leitura anterior de sinais vitais | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-10](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-018 | Blood-pressure display composition (systolic/diastolic) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-11](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-019 | Fluid-balance pain-scale conditional (NRS 0-10 / BPS 3-12) | balanco-hidrico | VERIFIED | ADOPT-CORRECTED | [neuro-sedation.md §pain-assessment-nrs-bps](clinical/domains/neuro-sedation.md) | P3 |
-| RULE-BALANCO-HIDRICO-020 | Default volume for enteral diet intake entry | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-12](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-021 | Default volume for spontaneous presence output | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-13](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-020 | Default volume for enteral diet intake entry | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-12](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-021 | Default volume for spontaneous presence output | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-13](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-022 | Presence-level to volume mapping for evacuacao/vomito output | balanco-hidrico | DISCREPANCY | ADAPT | [hemodynamics.md §output-volume-semiquantitative](clinical/domains/hemodynamics.md) | P3 |
-| RULE-BALANCO-HIDRICO-023 | Default clinical-day cutoff (07:00) for balanco hidrico | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-14](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-024 | Fixed clinical shift window for fluid balance (07:00-07:00) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-15](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-023 | Default clinical-day cutoff (07:00) for balanco hidrico | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-14](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-024 | Fixed clinical shift window for fluid balance (07:00-07:00) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-15](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-025 | Fluid-balance overview cell visibility threshold (grid vs mo | balanco-hidrico | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-BALANCO-HIDRICO-026 | Balanco-hidrico sub-record delete authorization (can_delete) | balanco-hidrico | NOT_APPLICABLE | ADAPT | [security-lgpd.md §delete-authorization](architecture/security-lgpd.md) | P3 |
 | RULE-BALANCO-HIDRICO-027 | 07:00 shift boundary assigns pre-07:00 entries to previous d | balanco-hidrico | NOT_APPLICABLE | ADOPT | [hemodynamics.md §nursing-day-assignment](clinical/domains/hemodynamics.md) | — |
-| RULE-BALANCO-HIDRICO-028 | Medical-evolution 24h-indicator gate vs value source mismatc | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-16](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-028 | Medical-evolution 24h-indicator gate vs value source mismatc | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-16](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-029 | Fluid-balance intake type decision tree | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §fluid-intake-form](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-030 | Oral-diet acceptance conditional volume | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §oral-diet-acceptance](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-031 | Fluid-balance output type decision tree | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §fluid-output-form](design/screens/clinical-forms.md) | — |
@@ -205,7 +207,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-BALANCO-HIDRICO-042 | Fluid-balance record signature eligibility | balanco-hidrico | NOT_APPLICABLE | ADAPT | [security-lgpd.md §signature-eligibility-gating](architecture/security-lgpd.md) | — |
 | RULE-BALANCO-HIDRICO-043 | Saida record sign posts to the "entrada" route (bug) | balanco-hidrico | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §fluid-record-sign-action](design/screens/clinical-forms.md) | P3 |
 | RULE-BALANCO-HIDRICO-044 | Fluid-balance module navigation/state routes | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §fluid-balance-navigation](design/screens/clinical-forms.md) | — |
-| RULE-BALANCO-HIDRICO-045 | Fluid-balance record signing/deletion lifecycle | balanco-hidrico | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-17](RATIFICATION.md) | AMBIGUOUS |
+| RULE-BALANCO-HIDRICO-045 | Fluid-balance record signing/deletion lifecycle | balanco-hidrico | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-balanco-hidrico-17](RATIFICATION.md) | AMBIGUOUS |
 | RULE-BALANCO-HIDRICO-046 | Fluid-balance PDF export with optional signatures | balanco-hidrico | NOT_APPLICABLE | ADAPT | [clinical-forms.md §pdf-export-with-signatures](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-047 | Entrada always marked checado on creation | balanco-hidrico | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-BALANCO-HIDRICO-048 | Entrada/Saida quantidade fallback to zero before persist | balanco-hidrico | NOT_APPLICABLE | ADAPT | [hemodynamics.md §fluid-quantity-null-handling](clinical/domains/hemodynamics.md) | — |
@@ -216,10 +218,10 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-BALANCO-HIDRICO-053 | Fluid intake/output field set and volume unit (entrada/saida | balanco-hidrico | NOT_APPLICABLE | ADAPT | [clinical-forms.md §fluid-io-field-units](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-054 | Empty-state for fluid-balance overview tab | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §fluid-overview-empty-state](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-055 | IV hydration solution vocabulary | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §iv-hydration-solutions](design/screens/clinical-forms.md) | — |
-| RULE-BALANCO-HIDRICO-056 | Drugs/hydration-in-BI vocabulary | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-18](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-BALANCO-HIDRICO-057 | Antibiotic vocabulary (fluid balance) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-19](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-056 | Drugs/hydration-in-BI vocabulary | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-18](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-057 | Antibiotic vocabulary (fluid balance) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-19](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-058 | Electrolyte replacement vocabulary | balanco-hidrico | UNVERIFIABLE | ADAPT | [clinical-forms.md §electrolyte-replacement-vocabulary](design/screens/clinical-forms.md) | P3 |
-| RULE-BALANCO-HIDRICO-059 | Fluid-balance consciousness level enum (AVDI-like) | balanco-hidrico | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-balanco-hidrico-20](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-BALANCO-HIDRICO-059 | Fluid-balance consciousness level enum (AVDI-like) | balanco-hidrico | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-balanco-hidrico-20](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-BALANCO-HIDRICO-060 | Fluid-balance complaint conditional | balanco-hidrico | NOT_APPLICABLE | ADOPT | [clinical-forms.md §complaint-conditional](design/screens/clinical-forms.md) | — |
 | RULE-BALANCO-HIDRICO-061 | Required HH:MM 24h event-time (fluid balance) | balanco-hidrico | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §horario-required-validation](design/screens/clinical-forms.md) | P3 |
 | RULE-BALANCO-HIDRICO-062 | Balanco hidrico day filter (unused) | balanco-hidrico | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
@@ -227,8 +229,8 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-CADASTROS-UI-002 | Leito/Estabelecimento name and code locked for non-manual co | cadastros-ui | NOT_APPLICABLE | ADAPT | [clinical-forms.md §synced-record-field-lock](design/screens/clinical-forms.md) | — |
 | RULE-CADASTROS-UI-003 | Delete-professional action gated on edit mode + permission | cadastros-ui | NOT_APPLICABLE | ADAPT | [security-lgpd.md §rbac-delete-gating](architecture/security-lgpd.md) | — |
 | RULE-CADASTROS-UI-004 | Camera credential fields gated on can_manage_camera permissi | cadastros-ui | NOT_APPLICABLE | ADAPT | [security-lgpd.md §permission-gated-field-visibility](architecture/security-lgpd.md) | — |
-| RULE-CADASTROS-UI-005 | New-user password auto-filled from CPF | cadastros-ui | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-cadastros-ui-01](RATIFICATION.md) | AMBIGUOUS |
-| RULE-CADASTROS-UI-006 | Hardcoded default signature PIN for all users | cadastros-ui | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-cadastros-ui-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-CADASTROS-UI-005 | New-user password auto-filled from CPF | cadastros-ui | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-cadastros-ui-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-CADASTROS-UI-006 | Hardcoded default signature PIN for all users | cadastros-ui | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-cadastros-ui-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-CADASTROS-UI-007 | Group-edit autosave guards partial "usuarios" updates | cadastros-ui | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-CADASTROS-UI-008 | Company "tipo" only settable at creation; hex color round-tr | cadastros-ui | NOT_APPLICABLE | ADAPT | [clinical-forms.md §empresa-tipo-immutable](design/screens/clinical-forms.md) | — |
 | RULE-CADASTROS-UI-009 | CPF input mask and unformatting | cadastros-ui | NOT_APPLICABLE | ADOPT | [clinical-forms.md §cpf-mask](design/screens/clinical-forms.md) | — |
@@ -244,26 +246,26 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-CADASTROS-UI-019 | Image-file extension whitelist | cadastros-ui | NOT_APPLICABLE | ADAPT | [clinical-forms.md §image-extension-whitelist](design/screens/clinical-forms.md) | — |
 | RULE-CADASTROS-UI-020 | Single image-or-PDF file constraint on avatar/logo uploader | cadastros-ui | NOT_APPLICABLE | ADAPT | [clinical-forms.md §file-upload-constraint](design/screens/clinical-forms.md) | — |
 | RULE-CLINICAL-SCORING-001 | SOFA total score (sum of six organ sub-scores) | clinical-scoring | VERIFIED | ADOPT | [early-warning-scores.md §sofa-total-score](clinical/domains/early-warning-scores.md) | — |
-| RULE-CLINICAL-SCORING-002 | SOFA respiratory sub-score (PaO2/FiO2) | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-01](RATIFICATION.md) | P0 |
+| RULE-CLINICAL-SCORING-002 | SOFA respiratory sub-score (PaO2/FiO2) | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-01](RATIFICATION.md) | P0 |
 | RULE-CLINICAL-SCORING-003 | SOFA coagulation sub-score (platelets) | clinical-scoring | VERIFIED | ADOPT | [early-warning-scores.md §sofa-coagulation-sub-score](clinical/domains/early-warning-scores.md) | — |
-| RULE-CLINICAL-SCORING-004 | SOFA liver sub-score (bilirubin) | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-02](RATIFICATION.md) | P1 |
-| RULE-CLINICAL-SCORING-005 | SOFA cardiovascular sub-score (vasopressors/MAP) | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-03](RATIFICATION.md) | P0 |
+| RULE-CLINICAL-SCORING-004 | SOFA liver sub-score (bilirubin) | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-02](RATIFICATION.md) | P1 |
+| RULE-CLINICAL-SCORING-005 | SOFA cardiovascular sub-score (vasopressors/MAP) | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-03](RATIFICATION.md) | P0 |
 | RULE-CLINICAL-SCORING-006 | SOFA CNS sub-score (Glasgow) | clinical-scoring | VERIFIED | ADOPT | [early-warning-scores.md §sofa-cns-sub-score](clinical/domains/early-warning-scores.md) | — |
-| RULE-CLINICAL-SCORING-007 | SOFA renal sub-score (creatinine/urine output) | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-04](RATIFICATION.md) | P0 |
-| RULE-CLINICAL-SCORING-008 | PaO2/FiO2 ratio (relacao PO2/FiO2) | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-05](RATIFICATION.md) | P0 |
+| RULE-CLINICAL-SCORING-007 | SOFA renal sub-score (creatinine/urine output) | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-04](RATIFICATION.md) | P0 |
+| RULE-CLINICAL-SCORING-008 | PaO2/FiO2 ratio (relacao PO2/FiO2) | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-05](RATIFICATION.md) | P0 |
 | RULE-CLINICAL-SCORING-009 | Mean arterial pressure (PAM) from PAS/PAD | clinical-scoring | VERIFIED | ADOPT | [hemodynamics.md §mean-arterial-pressure](clinical/domains/hemodynamics.md) | — |
 | RULE-CLINICAL-SCORING-010 | Patient age from birthdate (integer days // 365) | clinical-scoring | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §patient-age-years](clinical/domains/neuro-sedation.md) | P2 |
 | RULE-CLINICAL-SCORING-011 | SOFA attribute sourcing from prontuario (model.save) | clinical-scoring | VERIFIED | ADAPT | [early-warning-scores.md §sofa-input-sourcing](clinical/domains/early-warning-scores.md) | — |
 | RULE-CLINICAL-SCORING-012 | SOFA score input assembly (first movimentacao) | clinical-scoring | VERIFIED | ADAPT | [early-warning-scores.md §sofa-input-assembly](clinical/domains/early-warning-scores.md) | — |
 | RULE-CLINICAL-SCORING-013 | Glasgow Coma Scale valid range (3-15) | clinical-scoring | VERIFIED | ADOPT | [clinical-forms.md §gcs-range-3-15](design/screens/clinical-forms.md) | — |
-| RULE-CLINICAL-SCORING-014 | RASS (Richmond Agitation-Sedation Scale) enumeration | clinical-scoring | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-clinical-scoring-06](RATIFICATION.md) | P2 |
+| RULE-CLINICAL-SCORING-014 | RASS (Richmond Agitation-Sedation Scale) enumeration | clinical-scoring | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-clinical-scoring-06](RATIFICATION.md) | P2 |
 | RULE-CLINICAL-SCORING-015 | Escala de Dor numerica - faixa valida (0-10) | clinical-scoring | VERIFIED | ADOPT | [clinical-forms.md §pain-nrs-0-10](design/screens/clinical-forms.md) | — |
 | RULE-CLINICAL-SCORING-016 | Sinais de Dor (escala comportamental) - faixa valida (3-12) | clinical-scoring | VERIFIED | ADOPT | [clinical-forms.md §bps-behavioral-pain-3-12](design/screens/clinical-forms.md) | — |
 | RULE-CLINICAL-SCORING-017 | SDRA (ARDS) severity enumeration | clinical-scoring | VERIFIED | ADAPT | [respiratory.md §ards-severity-enumeration](clinical/domains/respiratory.md) | P3 |
 | RULE-CLINICAL-SCORING-018 | FOIS (Functional Oral Intake Scale) enumeration | clinical-scoring | VERIFIED | ADOPT | [clinical-forms.md §fois-7-level](design/screens/clinical-forms.md) | — |
-| RULE-COMUNICACAO-001 | Reaction-count-by-emoji aggregation — SQL-correct vs order-d | comunicacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-COMUNICACAO-002 | Current user's own reaction id on an observation | comunicacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-COMUNICACAO-003 | AcaoHomecare balanco_hidrico method-reference bug | comunicacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-COMUNICACAO-001 | Reaction-count-by-emoji aggregation — SQL-correct vs order-d | comunicacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-COMUNICACAO-002 | Current user's own reaction id on an observation | comunicacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-COMUNICACAO-003 | AcaoHomecare balanco_hidrico method-reference bug | comunicacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-03](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-COMUNICACAO-004 | send_qtd_mensagens_to_firebase — per-user unread-message cou | comunicacao | NOT_APPLICABLE | SUPERSEDE | [product-spec.md §unread-counter-mechanism](product/product-spec.md) | — |
 | RULE-COMUNICACAO-005 | reduzir_qtd (mensageiro) — eligibility to decrement an obser | comunicacao | NOT_APPLICABLE | ADAPT | [product-spec.md §unread-decrement-eligibility](product/product-spec.md) | — |
 | RULE-COMUNICACAO-006 | Firebase unread-count decrement when an observation checagem | comunicacao | NOT_APPLICABLE | ADAPT | [product-spec.md §checagem-triggered-decrement](product/product-spec.md) | — |
@@ -286,26 +288,26 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-COMUNICACAO-023 | Unread-message badge sourced from Firestore, reset on open | comunicacao | NOT_APPLICABLE | SUPERSEDE | [product-spec.md §unread-counter-mechanism](product/product-spec.md) | — |
 | RULE-COMUNICACAO-024 | WebSocket-driven feed auto-refresh policy | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-025 | Feed pagination thresholds | comunicacao | NOT_APPLICABLE | ADAPT | [clinical-forms.md §activity-feed-pagination](design/screens/clinical-forms.md) | — |
-| RULE-COMUNICACAO-026 | Hardcoded neutral-alert mock pathways in feed drawer | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-01](RATIFICATION.md) | P3 |
-| RULE-COMUNICACAO-027 | Reaction hard-delete override | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-02](RATIFICATION.md) | — |
+| RULE-COMUNICACAO-026 | Hardcoded neutral-alert mock pathways in feed drawer | comunicacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-01](RATIFICATION.md) | P3 |
+| RULE-COMUNICACAO-027 | Reaction hard-delete override | comunicacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-02](RATIFICATION.md) | — |
 | RULE-COMUNICACAO-028 | Online-call roster filtered to users currently in call | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-029 | Video call auto-leaves on route change | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-030 | Single-join guard and forced reload after leaving a call | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-031 | Video-call room exit confirmation guard | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-032 | Real-time telemedicine dependency stack (Agora RTC + Firebas | comunicacao | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §realtime-telemedicine-stack](architecture/security-lgpd.md) | — |
 | RULE-COMUNICACAO-033 | checado_por_id always forced to the requesting user | comunicacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §server-derived-identity-fields](architecture/security-lgpd.md) | — |
-| RULE-COMUNICACAO-034 | Validacao de leito para acao de feed homecare | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-03](RATIFICATION.md) | P3 |
-| RULE-COMUNICACAO-035 | Homecare feed action-type vocabulary — acaoDict render map v | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-04](RATIFICATION.md) | P3 |
+| RULE-COMUNICACAO-034 | Validacao de leito para acao de feed homecare | comunicacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-03](RATIFICATION.md) | P3 |
+| RULE-COMUNICACAO-035 | Homecare feed action-type vocabulary — acaoDict render map v | comunicacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-comunicacao-04](RATIFICATION.md) | P3 |
 | RULE-COMUNICACAO-036 | Chat/feed emoji-reaction enumeration | comunicacao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §reaction-emoji-enum](design/screens/clinical-forms.md) | — |
 | RULE-COMUNICACAO-037 | One reaction per user per observation + unread-counter side  | comunicacao | NOT_APPLICABLE | ADAPT | [correlation-engine.md §reaction-counter-eligibility](clinical/domains/correlation-engine.md) | — |
 | RULE-COMUNICACAO-038 | Reaction usuario/observacao always server-injected | comunicacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §server-derived-identity-fields](architecture/security-lgpd.md) | — |
 | RULE-COMUNICACAO-039 | Message scope enumeration | comunicacao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §message-scope-enum](design/screens/clinical-forms.md) | — |
 | RULE-COMUNICACAO-040 | Conditional rendering of trilha-criteria checklist in send-o | comunicacao | NOT_APPLICABLE | ADAPT | [clinical-forms.md §trilha-criteria-checklist](design/screens/clinical-forms.md) | — |
-| RULE-COMUNICACAO-041 | Observation setor_id is always forced from the URL | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-05](RATIFICATION.md) | AMBIGUOUS |
+| RULE-COMUNICACAO-041 | Observation setor_id is always forced from the URL | comunicacao | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-comunicacao-05](RATIFICATION.md) | AMBIGUOUS |
 | RULE-COMUNICACAO-042 | Observation responsavel_id is always forced to the authentic | comunicacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §server-derived-identity-fields](architecture/security-lgpd.md) | — |
 | RULE-COMUNICACAO-043 | Observation reply field rename | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-COMUNICACAO-044 | Video-call online-presence flag derivation | comunicacao | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-COMUNICACAO-045 | FilePicker only reconciles local file list on removal | comunicacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-comunicacao-06](RATIFICATION.md) | AMBIGUOUS |
+| RULE-COMUNICACAO-045 | FilePicker only reconciles local file list on removal | comunicacao | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-comunicacao-06](RATIFICATION.md) | AMBIGUOUS |
 | RULE-COMUNICACAO-046 | Unread-counter decrement eligibility predicate (reduzir_qtd) | comunicacao | NOT_APPLICABLE | ADAPT | [correlation-engine.md §unread-counter-decrement-eligibility](clinical/domains/correlation-engine.md) | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-001 | Prescricao PDF display date formatting | documentacao-faturamento | VERIFIED | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-002 | Glosa-Zero automatic alert engine — 16-criteria billing/docu | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | P3 |
@@ -320,7 +322,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-DOCUMENTACAO-FATURAMENTO-011 | Bulk-download button requires a non-empty selection | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-012 | Leito file-send requires image(s) or a PDF plus category/obs | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-013 | Leito upload tab gated on can_upload_files_amhdocs permissio | documentacao-faturamento | NOT_APPLICABLE | ADAPT | [security-lgpd.md §permission-gated-ui](architecture/security-lgpd.md) | — |
-| RULE-DOCUMENTACAO-FATURAMENTO-014 | Double-gated evolution report access | documentacao-faturamento | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-documentacao-faturamento-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-DOCUMENTACAO-FATURAMENTO-014 | Double-gated evolution report access | documentacao-faturamento | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-documentacao-faturamento-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-DOCUMENTACAO-FATURAMENTO-015 | Auto-post released evolution to Tasy (lancamento code 501) | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-DOCUMENTACAO-FATURAMENTO-016 | "Agrupar PDFs e baixar" workflow response-validation chain | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-017 | Leito arquivos list default sort order | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
@@ -333,21 +335,21 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-DOCUMENTACAO-FATURAMENTO-024 | Prescription/CPOE signature-inconsistency record | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-DOCUMENTACAO-FATURAMENTO-025 | Report filter date-prefix formatting convention | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-026 | PDF upload MIME-type validation | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-DOCUMENTACAO-FATURAMENTO-027 | AMHDocs external file lookup keyed by bed's nr_atendimento | documentacao-faturamento | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-documentacao-faturamento-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-DOCUMENTACAO-FATURAMENTO-028 | AMHDocs pagination links rewritten to proxy's own URL | documentacao-faturamento | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-documentacao-faturamento-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-DOCUMENTACAO-FATURAMENTO-027 | AMHDocs external file lookup keyed by bed's nr_atendimento | documentacao-faturamento | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-documentacao-faturamento-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-DOCUMENTACAO-FATURAMENTO-028 | AMHDocs pagination links rewritten to proxy's own URL | documentacao-faturamento | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-documentacao-faturamento-03](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-DOCUMENTACAO-FATURAMENTO-029 | PDF grouping (agrupar-pdf) requires a non-empty array of ids | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-030 | PDF grouping response status-code decision tree | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-DOCUMENTACAO-FATURAMENTO-031 | Arquivo filter end-date must not precede start date | documentacao-faturamento | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-DOCUMENTACAO-FATURAMENTO-032 | Default electronic-signature configuration for CryptoCubo do | documentacao-faturamento | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-documentacao-faturamento-add-01](RATIFICATION.md) | ADDENDUM |
+| RULE-DOCUMENTACAO-FATURAMENTO-032 | Default electronic-signature configuration for CryptoCubo do | documentacao-faturamento | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-documentacao-faturamento-add-01](RATIFICATION.md) | ADDENDUM |
 | RULE-EFICIENCIA-001 | Eficiencia v3 alert aggregation (calcular_alerta_v2, wired) | eficiencia | NOT_APPLICABLE | ADAPT | [early-warning-scores.md §eficiencia-alert-aggregation](clinical/domains/early-warning-scores.md) | — |
-| RULE-EFICIENCIA-002 | Eficiencia v3 criterio_3 - unjustified RBC transfusion at Hb | eficiencia | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-eficiencia-01](RATIFICATION.md) | P1 |
+| RULE-EFICIENCIA-002 | Eficiencia v3 criterio_3 - unjustified RBC transfusion at Hb | eficiencia | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-eficiencia-01](RATIFICATION.md) | P1 |
 | RULE-EFICIENCIA-003 | Eficiencia v3 criterio_4 - RBC transfusion at Hb 6-7, 2 unit | eficiencia | DISCREPANCY | ADOPT-CORRECTED | [hemodynamics.md §rbc-transfusion-6-7-2unit](clinical/domains/hemodynamics.md) | P2 |
-| RULE-EFICIENCIA-004 | Eficiencia v3 criterio_5 - platelet transfusion at Plt>25000 | eficiencia | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-eficiencia-02](RATIFICATION.md) | P1 |
-| RULE-EFICIENCIA-005 | Eficiencia v3 criterio_9 - coma without sedation (defined, u | eficiencia | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-eficiencia-03](RATIFICATION.md) | P0 |
-| RULE-EFICIENCIA-006 | Eficiencia v3 criterio_10 - mechanical restraint without agi | eficiencia | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-eficiencia-04](RATIFICATION.md) | P1 |
+| RULE-EFICIENCIA-004 | Eficiencia v3 criterio_5 - platelet transfusion at Plt>25000 | eficiencia | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-eficiencia-02](RATIFICATION.md) | P1 |
+| RULE-EFICIENCIA-005 | Eficiencia v3 criterio_9 - coma without sedation (defined, u | eficiencia | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-eficiencia-03](RATIFICATION.md) | P0 |
+| RULE-EFICIENCIA-006 | Eficiencia v3 criterio_10 - mechanical restraint without agi | eficiencia | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-eficiencia-04](RATIFICATION.md) | P1 |
 | RULE-EFICIENCIA-007 | Eficiencia v3 criterio_1 - repeated exams within minimum-rep | eficiencia | NOT_APPLICABLE | ADAPT | [correlation-engine.md §redundant-exam-ordering](clinical/domains/correlation-engine.md) | — |
 | RULE-EFICIENCIA-008 | Eficiencia v3 criterio_2 - ICU discharge readiness (defined, | eficiencia | DISCREPANCY | ADAPT | [early-warning-scores.md §icu-discharge-readiness](clinical/domains/early-warning-scores.md) | P3 |
-| RULE-EFICIENCIA-009 | Eficiencia v3 criterio_6 - frailty / palliative-appropriaten | eficiencia | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-eficiencia-05](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-EFICIENCIA-009 | Eficiencia v3 criterio_6 - frailty / palliative-appropriaten | eficiencia | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-eficiencia-05](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-EFICIENCIA-010 | Eficiencia v3 criterio_7 - delirium/agitation risk bundle (d | eficiencia | DISCREPANCY | ADAPT | [neuro-sedation.md §delirium-risk-bundle](clinical/domains/neuro-sedation.md) | P3 |
 | RULE-EFICIENCIA-011 | Eficiencia v3 criterio_8 - low-support step-down readiness ( | eficiencia | DISCREPANCY | ADAPT | [respiratory.md §step-down-readiness](clinical/domains/respiratory.md) | P3 |
 | RULE-EFICIENCIA-012 | Eficiencia active alert-text payload catalog (get_payload_tr | eficiencia | VERIFIED | ADOPT | [hemodynamics.md §transfusion-thresholds](clinical/domains/hemodynamics.md) | — |
@@ -355,37 +357,37 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-EQUILIBRIO-002 | Renal-function drug substitution, morphine avoidance, and hy | equilibrio | VERIFIED | ADAPT | [electrolyte.md §hypernatremia-na160-correction](clinical/domains/electrolyte.md) | — |
 | RULE-EQUILIBRIO-003 | Equilibrio trilha alert-color aggregation (v1, TrilhaEquilib | equilibrio | NOT_APPLICABLE | SUPERSEDE | [aki.md §alert-severity-mapping](clinical/domains/aki.md) | — |
 | RULE-EQUILIBRIO-004 | Severe hyperkalemia (K>6) rescue protocol with 4h reassessme | equilibrio | DISCREPANCY | ADOPT-CORRECTED | [electrolyte.md §hyperkalemia-rescue-protocol](clinical/domains/electrolyte.md) | P2 |
-| RULE-ESTABILIDADE-001 | Estabilidade v3 criterio_5 - vasopressor with negative cumul | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-01](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-001 | Estabilidade v3 criterio_5 - vasopressor with negative cumul | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-01](RATIFICATION.md) | P1 |
 | RULE-ESTABILIDADE-002 | Estabilidade v3 criterio_6 - shock index with beta-blocker/v | estabilidade | VERIFIED | ADAPT | [early-warning-scores.md §shock-index-vasopressor-absence](clinical/domains/early-warning-scores.md) | — |
 | RULE-ESTABILIDADE-003 | Estabilidade v3 criterio_1 - hypoperfusion on vasopressor | estabilidade | VERIFIED | ADAPT | [sepsis.md §hypoperfusion-on-vasopressor](clinical/domains/sepsis.md) | — |
 | RULE-ESTABILIDADE-004 | Estabilidade v3 criterio_2 - new vasopressor missing sepsis  | estabilidade | VERIFIED | ADAPT | [sepsis.md §new-vasopressor-missing-workup](clinical/domains/sepsis.md) | — |
-| RULE-ESTABILIDADE-005 | Estabilidade v3 criterio_3 - lactate elevation with sepsis t | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-02](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-005 | Estabilidade v3 criterio_3 - lactate elevation with sepsis t | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-02](RATIFICATION.md) | P1 |
 | RULE-ESTABILIDADE-006 | Estabilidade v3 criterio_4 - persistent shock on low-dose va | estabilidade | VERIFIED | ADAPT | [sepsis.md §persistent-shock-spontaneous-ventilation](clinical/domains/sepsis.md) | — |
-| RULE-ESTABILIDADE-007 | Estabilidade v3 criterio_7 - high-dose noradrenaline without | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-03](RATIFICATION.md) | P1 |
-| RULE-ESTABILIDADE-008 | Estabilidade v3 criterio_8 - refractory shock triple therapy | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-04](RATIFICATION.md) | P1 |
-| RULE-ESTABILIDADE-009 | Estabilidade v3 criterio_9 - dobutamine with high-dose norad | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-05](RATIFICATION.md) | P1 |
-| RULE-ESTABILIDADE-010 | Estabilidade v3 criterio_10 - antihypertensive with active v | estabilidade | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-estabilidade-06](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-ESTABILIDADE-007 | Estabilidade v3 criterio_7 - high-dose noradrenaline without | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-03](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-008 | Estabilidade v3 criterio_8 - refractory shock triple therapy | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-04](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-009 | Estabilidade v3 criterio_9 - dobutamine with high-dose norad | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-05](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-010 | Estabilidade v3 criterio_10 - antihypertensive with active v | estabilidade | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-estabilidade-06](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-ESTABILIDADE-011 | Estabilidade v3 criterio_11 - bicarbonate despite compensate | estabilidade | DISCREPANCY | ADOPT-CORRECTED | [electrolyte.md §bicarbonate-stewardship-sepsis](clinical/domains/electrolyte.md) | P2 |
 | RULE-ESTABILIDADE-012 | Estabilidade v3 criterio_12 - antihypertensive with recurren | estabilidade | NOT_APPLICABLE | ADAPT | [hemodynamics.md §recurrent-hypotension-antihypertensive-conflict](clinical/domains/hemodynamics.md) | P3 |
 | RULE-ESTABILIDADE-013 | Estabilidade v3 criterio_13 - recurrent hypertension off vas | estabilidade | NOT_APPLICABLE | ADAPT | [hemodynamics.md §recurrent-hypertension-off-vasopressor](clinical/domains/hemodynamics.md) | P3 |
 | RULE-ESTABILIDADE-014 | Estabilidade v3 alert level (calcular_alerta == calcular_ale | estabilidade | NOT_APPLICABLE | ADOPT | [hemodynamics.md §shock-alert-tiering](clinical/domains/hemodynamics.md) | — |
-| RULE-ESTABILIDADE-015 | Estabilidade facade alert-text - perfusion/shock triggers &  | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-07](RATIFICATION.md) | P1 |
-| RULE-ESTABILIDADE-016 | Estabilidade facade alert-text - vasopressor/inotrope escala | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-08](RATIFICATION.md) | P0 |
-| RULE-ESTABILIDADE-017 | Estabilidade manual C1 - slow capillary refill on noradrenal | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-09](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-015 | Estabilidade facade alert-text - perfusion/shock triggers &  | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-07](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-016 | Estabilidade facade alert-text - vasopressor/inotrope escala | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-08](RATIFICATION.md) | P0 |
+| RULE-ESTABILIDADE-017 | Estabilidade manual C1 - slow capillary refill on noradrenal | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-09](RATIFICATION.md) | P1 |
 | RULE-ESTABILIDADE-018 | Estabilidade manual C2 - noradrenaline started in last 24h | estabilidade | NOT_APPLICABLE | ADOPT | [hemodynamics.md §vasopressor-initiation-window](clinical/domains/hemodynamics.md) | — |
 | RULE-ESTABILIDADE-019 | Estabilidade manual C3 - high noradrenaline without rescue t | estabilidade | DISCREPANCY | ADOPT-CORRECTED | [hemodynamics.md §high-dose-noradrenaline-without-adjuncts](clinical/domains/hemodynamics.md) | P2 |
 | RULE-ESTABILIDADE-020 | Estabilidade manual C4 - elevated arterial lactate | estabilidade | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §hyperlactatemia-threshold](clinical/domains/sepsis.md) | P2 |
 | RULE-ESTABILIDADE-021 | Estabilidade manual C5 - antihypertensive with adequate pres | estabilidade | NOT_APPLICABLE | ADOPT | [hemodynamics.md §antihypertensive-adequate-pressure-conflict](clinical/domains/hemodynamics.md) | — |
-| RULE-ESTABILIDADE-022 | Estabilidade manual C6 - dobutamine with exact noradrenaline | estabilidade | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-estabilidade-10](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-ESTABILIDADE-022 | Estabilidade manual C6 - dobutamine with exact noradrenaline | estabilidade | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-estabilidade-10](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-ESTABILIDADE-023 | Estabilidade manual pathway alert level | estabilidade | NOT_APPLICABLE | ADAPT | [hemodynamics.md §manual-pathway-alert-tiering](clinical/domains/hemodynamics.md) | — |
-| RULE-ESTABILIDADE-024 | Estabilizacao (trilha2) - shock work-up & vasopressor escala | estabilidade | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-estabilidade-11](RATIFICATION.md) | P1 |
+| RULE-ESTABILIDADE-024 | Estabilizacao (trilha2) - shock work-up & vasopressor escala | estabilidade | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-estabilidade-11](RATIFICATION.md) | P1 |
 | RULE-ESTABILIDADE-025 | Estabilizacao v1 alert with criterio_6 combination clause | estabilidade | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-ESTABILIDADE-026 | Auto start-time default (now) for noradrenaline & cardiac ar | estabilidade | NOT_APPLICABLE | ADOPT | [hemodynamics.md §vasopressor-start-time-default](clinical/domains/hemodynamics.md) | — |
-| RULE-EVOLUCOES-001 | Medical-record clinical parameter panel with pre-computed SO | evolucoes | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-EVOLUCOES-002 | SOFA score display threshold | evolucoes | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-EVOLUCOES-001 | Medical-record clinical parameter panel with pre-computed SO | evolucoes | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-evolucoes-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-EVOLUCOES-002 | SOFA score display threshold | evolucoes | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-evolucoes-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-EVOLUCOES-003 | RASS field type mismatch across models | evolucoes | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §rass-scale](clinical/domains/neuro-sedation.md) | P2 |
-| RULE-EVOLUCOES-004 | Cardiac-arrest occurrence tracking shape | evolucoes | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-EVOLUCOES-005 | Company evolutions - patient name resolved by attendance num | evolucoes | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-EVOLUCOES-004 | Cardiac-arrest occurrence tracking shape | evolucoes | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-evolucoes-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-EVOLUCOES-005 | Company evolutions - patient name resolved by attendance num | evolucoes | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-evolucoes-04](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-EVOLUCOES-006 | Leito resolution precedence for form endpoints | evolucoes | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-EVOLUCOES-007 | Form visibility rule - own draft or released | evolucoes | NOT_APPLICABLE | ADOPT | [security-lgpd.md §draft-document-visibility](architecture/security-lgpd.md) | — |
 | RULE-EVOLUCOES-008 | Signed PDF takes precedence over draft PDF | evolucoes | NOT_APPLICABLE | ADOPT | [security-lgpd.md §signed-document-precedence](architecture/security-lgpd.md) | — |
@@ -397,7 +399,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-EVOLUCOES-014 | Medical evolution displays most recent vital signs at/before | evolucoes | NOT_APPLICABLE | ADOPT | [correlation-engine.md §vitals-snapshot-linkage](clinical/domains/correlation-engine.md) | — |
 | RULE-EVOLUCOES-015 | Nutritionist PDF displays pressure-injury (LPP) records from | evolucoes | NOT_APPLICABLE | ADOPT | [correlation-engine.md §lpp-cross-form-lookup](clinical/domains/correlation-engine.md) | — |
 | RULE-EVOLUCOES-016 | get_base_evolucao_context — admission date included only if  | evolucoes | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-EVOLUCOES-017 | Medico form bundles vital-signs creation tied to daily balan | evolucoes | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-05](RATIFICATION.md) | AMBIGUOUS |
+| RULE-EVOLUCOES-017 | Medico form bundles vital-signs creation tied to daily balan | evolucoes | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-evolucoes-05](RATIFICATION.md) | AMBIGUOUS |
 | RULE-EVOLUCOES-018 | Company-wide evolutions queryset filter with possible instan | evolucoes | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-EVOLUCOES-019 | Author-only edit / inactivate / re-sign eligibility | evolucoes | NOT_APPLICABLE | ADOPT | [security-lgpd.md §author-only-edit-eligibility](architecture/security-lgpd.md) | — |
 | RULE-EVOLUCOES-020 | Evolução drawer OK-button gating | evolucoes | NOT_APPLICABLE | RETIRE | — | — |
@@ -454,7 +456,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-EVOLUCOES-071 | Required-if validation for text/date/extra fields | evolucoes | NOT_APPLICABLE | ADOPT | [clinical-forms.md §required-if-validation](design/screens/clinical-forms.md) | — |
 | RULE-EVOLUCOES-072 | Dynamic-form field-level validation constraints | evolucoes | NOT_APPLICABLE | ADOPT | [clinical-forms.md §campo-engine-schema](design/screens/clinical-forms.md) | — |
 | RULE-EVOLUCOES-073 | Dynamic-form conditional field visibility | evolucoes | NOT_APPLICABLE | ADOPT | [clinical-forms.md §conditional-field-visibility](design/screens/clinical-forms.md) | — |
-| RULE-EVOLUCOES-074 | Form-group annulment (soft-void) mechanic | evolucoes | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-evolucoes-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-EVOLUCOES-074 | Form-group annulment (soft-void) mechanic | evolucoes | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-evolucoes-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-EVOLUCOES-075 | Encounter-number field name/type mismatch across models | evolucoes | NOT_APPLICABLE | ADOPT-CORRECTED | [data-model.md §encounter-identifier-canonical](architecture/data-model.md) | P3 |
 | RULE-EVOLUCOES-076 | Gender code enumeration | evolucoes | NOT_APPLICABLE | ADOPT | [clinical-forms.md §gender-enum](design/screens/clinical-forms.md) | — |
 | RULE-EVOLUCOES-077 | Relatório de Evolução filter requires professional + valid d | evolucoes | NOT_APPLICABLE | ADOPT | [command-center.md §relatorio-evolucao-filter](design/screens/command-center.md) | — |
@@ -471,7 +473,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-FORMULARIOS-CLINICOS-011 | Nursing global assessment enums and risk conditionals | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §nursing-global-assessment-vocabulary](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-012 | Nursing-technician respiratory assessment with aspiration co | formularios-clinicos | NOT_APPLICABLE | ADAPT | [clinical-forms.md §numeric-field-bounds-o2-flow](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-013 | Nursing-technician genitourinary with diaper-change conditio | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §genitourinary-vocabulary](design/screens/clinical-forms.md) | — |
-| RULE-FORMULARIOS-CLINICOS-014 | Nursing-technician high-cost drug/antibiotic list and other  | formularios-clinicos | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-formularios-clinicos-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-FORMULARIOS-CLINICOS-014 | Nursing-technician high-cost drug/antibiotic list and other  | formularios-clinicos | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-formularios-clinicos-01](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-FORMULARIOS-CLINICOS-015 | Home-care incident disposition/outcome enum | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §intercorrencia-disposition-vocabulary](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-016 | Physiotherapy conduct enums (respiratory & motor techniques) | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §physio-conduct-vocabulary](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-017 | Intercorrencia (clinical incident/complication) domain-conce | formularios-clinicos | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
@@ -494,27 +496,27 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-FORMULARIOS-CLINICOS-034 | Psychology global assessment enums | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §psychology-global-assessment](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-035 | Psychological-assessment enums | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §psychological-assessment-enums](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-036 | Nursing-technician global assessment with locomotion | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §nursing-technician-global-assessment](design/screens/clinical-forms.md) | — |
-| RULE-FORMULARIOS-CLINICOS-037 | Multidisciplinary care-team discipline icon taxonomy | formularios-clinicos | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-formularios-clinicos-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-FORMULARIOS-CLINICOS-037 | Multidisciplinary care-team discipline icon taxonomy | formularios-clinicos | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-formularios-clinicos-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-FORMULARIOS-CLINICOS-038 | Terapeuta icon is a byte-identical duplicate of Psicologo ic | formularios-clinicos | NOT_APPLICABLE | RETIRE | — | P3 |
-| RULE-FORMULARIOS-CLINICOS-039 | Binary gender iconography (Masculino/Feminino) | formularios-clinicos | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-formularios-clinicos-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-FORMULARIOS-CLINICOS-039 | Binary gender iconography (Masculino/Feminino) | formularios-clinicos | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-formularios-clinicos-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-FORMULARIOS-CLINICOS-040 | Duplicate route registration for enfermagem form | formularios-clinicos | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-FORMULARIOS-CLINICOS-041 | Optional HH:MM 24h exit-time mask | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §optional-time-field-mask](design/screens/clinical-forms.md) | — |
-| RULE-FORMULARIOS-CLINICOS-042 | Vasopressor / inotrope / sedative dosing capture (movimentac | formularios-clinicos | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-formularios-clinicos-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-FORMULARIOS-CLINICOS-042 | Vasopressor / inotrope / sedative dosing capture (movimentac | formularios-clinicos | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-formularios-clinicos-03](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-FORMULARIOS-CLINICOS-043 | Invasive-device dressing and exchange scheduling | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §invasive-device-dressing-schedule](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-044 | Pharmacist evolution neurological and cardiological assessme | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §pharmacist-neuro-cardio-vocabulary](design/screens/clinical-forms.md) | — |
 | RULE-FORMULARIOS-CLINICOS-045 | Nursing-technician evolution neurological assessment vocabul | formularios-clinicos | NOT_APPLICABLE | ADOPT | [clinical-forms.md §nursing-technician-neuro-vocabulary](design/screens/clinical-forms.md) | — |
-| RULE-INDICADORES-ETL-001 | Sector alert-share percentage formula | indicadores-etl | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-indicadores-etl-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-INDICADORES-ETL-002 | Sector assisted-share percentage formula | indicadores-etl | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-indicadores-etl-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-INDICADORES-ETL-001 | Sector alert-share percentage formula | indicadores-etl | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-indicadores-etl-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-INDICADORES-ETL-002 | Sector assisted-share percentage formula | indicadores-etl | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-indicadores-etl-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-INDICADORES-ETL-003 | TLP (standardized letality) percentage conversion | indicadores-etl | VERIFIED | ADOPT | [correlation-engine.md §tlp-standardized-mortality-ratio](clinical/domains/correlation-engine.md) | — |
-| RULE-INDICADORES-ETL-004 | Sedation-use indicator representation (assistenciais vs cont | indicadores-etl | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-indicadores-etl-03](RATIFICATION.md) | P1 |
+| RULE-INDICADORES-ETL-004 | Sedation-use indicator representation (assistenciais vs cont | indicadores-etl | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-indicadores-etl-03](RATIFICATION.md) | P1 |
 | RULE-INDICADORES-ETL-005 | Bed-occupancy percentage color thresholds | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-INDICADORES-ETL-006 | Sector-level aggregate alert-color decision tree | indicadores-etl | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §alert-severity-rollup](clinical/domains/correlation-engine.md) | — |
 | RULE-INDICADORES-ETL-007 | Dashboard alert-count 4th severity level inconsistent with 3 | indicadores-etl | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §alert-severity-enum](clinical/domains/correlation-engine.md) | P3 |
 | RULE-INDICADORES-ETL-008 | Per-sector dashboard shortcut visibility by empresa type | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-INDICADORES-ETL-009 | Unread-message badge display and cap | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-INDICADORES-ETL-010 | Sector dashboard dual y-axis toggle | indicadores-etl | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-indicadores-etl-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-INDICADORES-ETL-010 | Sector dashboard dual y-axis toggle | indicadores-etl | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-indicadores-etl-04](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-INDICADORES-ETL-011 | get_procedimentos_invasivos — invasive-procedure code lookup | indicadores-etl | NOT_APPLICABLE | ADOPT | [clinical-forms.md §invasive-procedures-vocabulary](design/screens/clinical-forms.md) | — |
-| RULE-INDICADORES-ETL-012 | get_microindicadores — ICU micro-indicator boolean mapping,  | indicadores-etl | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-indicadores-etl-05](RATIFICATION.md) | P1 |
+| RULE-INDICADORES-ETL-012 | get_microindicadores — ICU micro-indicator boolean mapping,  | indicadores-etl | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-indicadores-etl-05](RATIFICATION.md) | P1 |
 | RULE-INDICADORES-ETL-013 | Incremental (watermark) load of occupancy indicators | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-INDICADORES-ETL-014 | Macro indicators loaded for current month only | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-INDICADORES-ETL-015 | etl_schema (v1) — Tasy-to-Trilha sync with assistido reset | indicadores-etl | NOT_APPLICABLE | RETIRE | — | — |
@@ -530,17 +532,17 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-INDICADORES-ETL-025 | 24h indicator numeric-type display filter | indicadores-etl | NOT_APPLICABLE | ADOPT | [clinical-forms.md §24h-indicator-display](design/screens/clinical-forms.md) | — |
 | RULE-INDICADORES-ETL-026 | Micro-indicadores icon/value display rule | indicadores-etl | NOT_APPLICABLE | ADOPT | [clinical-forms.md §micro-indicator-icons](design/screens/clinical-forms.md) | — |
 | RULE-INDICADORES-ETL-027 | Indicador tipo enumeration and type-specific payload validat | indicadores-etl | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §indicador-tipo-payload-schema](design/screens/clinical-forms.md) | P3 |
-| RULE-MOVIMENTACAO-ADT-001 | Length-of-stay (tempo de permanencia / dias de internacao) | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-002 | Bed/movimentacao micro-indicators payload (VM / noradrenalin | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-003 | Expected-mortality score (mortalidade_esperada) surfaced wit | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-001 | Length-of-stay (tempo de permanencia / dias de internacao) | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-002 | Bed/movimentacao micro-indicators payload (VM / noradrenalin | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-003 | Expected-mortality score (mortalidade_esperada) surfaced wit | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-03](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-MOVIMENTACAO-ADT-004 | Bed-level assistencial information clinical panel (vitals /  | movimentacao-adt | VERIFIED | ADOPT | [early-warning-scores.md §assistencial-panel-vitals-neuro-labs](clinical/domains/early-warning-scores.md) | — |
-| RULE-MOVIMENTACAO-ADT-005 | Bed micro-indicator lookup key: nr_atendimento + bed name as | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-006 | Bed patient snapshot defaults to empty dict when unassigned | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-05](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-007 | Patient basic name/age computed fields | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-06](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-008 | Precomputed vinculo lookup dict is built but never consumed  | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-005 | Bed micro-indicator lookup key: nr_atendimento + bed name as | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-006 | Bed patient snapshot defaults to empty dict when unassigned | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-05](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-007 | Patient basic name/age computed fields | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-06](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-008 | Precomputed vinculo lookup dict is built but never consumed  | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-07](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-MOVIMENTACAO-ADT-009 | Fixed -3h display offset for prontuario timestamps | movimentacao-adt | DISCREPANCY | ADAPT | [clinical-forms.md §timestamp-localization](design/screens/clinical-forms.md) | P2 |
-| RULE-MOVIMENTACAO-ADT-010 | Live camera RTSP URL construction | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-08](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-MOVIMENTACAO-ADT-011 | Bed 'assistido' flag delegated to a model property (leito se | movimentacao-adt | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-movimentacao-adt-09](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-010 | Live camera RTSP URL construction | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-08](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-MOVIMENTACAO-ADT-011 | Bed 'assistido' flag delegated to a model property (leito se | movimentacao-adt | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-movimentacao-adt-09](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-MOVIMENTACAO-ADT-012 | Bed/movimentacao alert aggregation + new-alert notification | movimentacao-adt | NOT_APPLICABLE | ADOPT | [correlation-engine.md §bed-alert-aggregation](clinical/domains/correlation-engine.md) | — |
 | RULE-MOVIMENTACAO-ADT-013 | Patient 'assisted' resolution across pathways (movimentacao) | movimentacao-adt | NOT_APPLICABLE | ADOPT | [correlation-engine.md §patient-assisted-resolution](clinical/domains/correlation-engine.md) | — |
 | RULE-MOVIMENTACAO-ADT-014 | Bed/trilha alert severity levels (AMARELO∣NEUTRO∣VERMELHO) | movimentacao-adt | NOT_APPLICABLE | ADOPT | [clinical-forms.md §alerta-enum-amarelo-neutro-vermelho](design/screens/clinical-forms.md) | — |
@@ -602,32 +604,32 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-MOVIMENTACAO-ADT-070 | FilterOcupacoes "todos" sentinel and occupancy creation-type | movimentacao-adt | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-NUTRICAO-001 | BMI (IMC) auto-calculation | nutricao | VERIFIED | ADOPT | [clinical-forms.md §imc](design/screens/clinical-forms.md) | — |
 | RULE-NUTRICAO-002 | FOIS (Functional Oral Intake Scale) - enum of 7 levels | nutricao | VERIFIED | ADOPT | [clinical-forms.md §fois](design/screens/clinical-forms.md) | — |
-| RULE-NUTRICAO-003 | Nutrition-therapy pathway (payload_trilha_nutricao) - tolera | nutricao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-nutricao-01](RATIFICATION.md) | P1 |
+| RULE-NUTRICAO-003 | Nutrition-therapy pathway (payload_trilha_nutricao) - tolera | nutricao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-nutricao-01](RATIFICATION.md) | P1 |
 | RULE-NUTRICAO-004 | Nutrition alert computation (calcular_alerta) - AMARELO bran | nutricao | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §alert-severity-taxonomy](clinical/domains/correlation-engine.md) | P3 |
 | RULE-NUTRICAO-005 | Nutrition-therapy assessment block (frontend) - diet routes, | nutricao | DISCREPANCY | ADAPT | [clinical-forms.md §terapia-nutricional](design/screens/clinical-forms.md) | P2 |
-| RULE-NUTRICAO-006 | Stress-ulcer / nutrition prophylaxis indication enum | nutricao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-nutricao-02](RATIFICATION.md) | P2 |
+| RULE-NUTRICAO-006 | Stress-ulcer / nutrition prophylaxis indication enum | nutricao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-nutricao-02](RATIFICATION.md) | P2 |
 | RULE-NUTRICAO-007 | Dietitian daily-objectives conditional prescribed volumes | nutricao | NOT_APPLICABLE | ADAPT | [clinical-forms.md §objetivos-diarios](design/screens/clinical-forms.md) | — |
 | RULE-NUTRICAO-008 | Height (altura) range validation 0-3 m | nutricao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §altura-validacao](design/screens/clinical-forms.md) | — |
 | RULE-NUTRICAO-009 | Food intolerance / aversion enums with conditional descripti | nutricao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §intolerancia-aversao](design/screens/clinical-forms.md) | — |
 | RULE-NUTRICAO-010 | Care-risk (riscos assistenciais) checklist with allergy deta | nutricao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §riscos-assistenciais](design/screens/clinical-forms.md) | — |
 | RULE-NUTRICAO-011 | Dietitian abdominal assessment enums (extended) | nutricao | NOT_APPLICABLE | ADOPT | [clinical-forms.md §avaliacao-abdominal](design/screens/clinical-forms.md) | — |
 | RULE-OPERACIONAL-INFRA-001 | Round timestamp to whole hour (get_hora_cheia / justOclock) | operacional-infra | DISCREPANCY | RETIRE | — | P2 |
-| RULE-OPERACIONAL-INFRA-002 | Patient name abbreviation with connective handling (nome_abr | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-003 | Offline prescriptions grouped by day, keyed by patient atend | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-004 | Continuous prescription 'real day' rolls over at 07:00 (shif | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-005 | Offline prescriptions windowed to the last 3 days, ordered b | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-006 | Length of stay (TEMPO_PERMANENCIA) computed property | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-05](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-007 | Pagination page-count and default page size | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-06](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-008 | Minutes elapsed between two dates | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-07](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-009 | format_horario — normalize hour-only strings to HH:MM | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-08](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-010 | parse_date_to_iso — multi-format date string parser with fix | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-09](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-OPERACIONAL-INFRA-011 | get_number — safe numeric coercion with zero default | operacional-infra | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-10](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-002 | Patient name abbreviation with connective handling (nome_abr | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-003 | Offline prescriptions grouped by day, keyed by patient atend | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-004 | Continuous prescription 'real day' rolls over at 07:00 (shif | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-005 | Offline prescriptions windowed to the last 3 days, ordered b | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-006 | Length of stay (TEMPO_PERMANENCIA) computed property | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-05](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-007 | Pagination page-count and default page size | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-06](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-008 | Minutes elapsed between two dates | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-009 | format_horario — normalize hour-only strings to HH:MM | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-08](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-010 | parse_date_to_iso — multi-format date string parser with fix | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-09](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-OPERACIONAL-INFRA-011 | get_number — safe numeric coercion with zero default | operacional-infra | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-10](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-OPERACIONAL-INFRA-012 | popular_banco RASS enum values (synthetic data) | operacional-infra | VERIFIED | ADOPT | [neuro-sedation.md §rass-scale](clinical/domains/neuro-sedation.md) | — |
 | RULE-OPERACIONAL-INFRA-013 | popular_banco SDRA (ARDS) severity enum (synthetic data) | operacional-infra | VERIFIED | ADOPT | [respiratory.md §ards-severity](clinical/domains/respiratory.md) | — |
 | RULE-OPERACIONAL-INFRA-014 | Android TWA Digital Asset Links restricted to a single homol | operacional-infra | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-OPERACIONAL-INFRA-015 | Exclude entities already in a given access group | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-016 | Evolution (Formulario) full-day date-range filter | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-OPERACIONAL-INFRA-017 | ParanoiaMixin.delete/restore — admin-path hard delete vs cas | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-11](RATIFICATION.md) | AMBIGUOUS |
+| RULE-OPERACIONAL-INFRA-017 | ParanoiaMixin.delete/restore — admin-path hard delete vs cas | operacional-infra | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-operacional-infra-11](RATIFICATION.md) | AMBIGUOUS |
 | RULE-OPERACIONAL-INFRA-018 | SetUpModel.delete — overrides ParanoiaMixin.delete with simp | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §soft-delete-audit-trail](architecture/security-lgpd.md) | P3 |
 | RULE-OPERACIONAL-INFRA-019 | Offline water balance shows the last 2 records for an occupi | operacional-infra | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-OPERACIONAL-INFRA-020 | Offline evolution forms visible if authored by the requestin | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §draft-form-visibility](architecture/security-lgpd.md) | — |
@@ -642,22 +644,22 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-OPERACIONAL-INFRA-029 | Shift-day (turno) calendar-date assignment | operacional-infra | NOT_APPLICABLE | ADAPT | [correlation-engine.md §shift-day-windowing](clinical/domains/correlation-engine.md) | — |
 | RULE-OPERACIONAL-INFRA-030 | Shared default search-result limit and debounce interval | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-031 | CreateSearchInput overrides configured limit to 5 on empty k | operacional-infra | NOT_APPLICABLE | RETIRE | — | P3 |
-| RULE-OPERACIONAL-INFRA-032 | popular_banco valores_maximos_atributos — vital-sign referen | operacional-infra | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-operacional-infra-01](RATIFICATION.md) | P3 |
+| RULE-OPERACIONAL-INFRA-032 | popular_banco valores_maximos_atributos — vital-sign referen | operacional-infra | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-operacional-infra-01](RATIFICATION.md) | P3 |
 | RULE-OPERACIONAL-INFRA-033 | TEMPO_ATUALIZACAO_TRILHAS — automatic pathway recalculation  | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-034 | Shift-turnover (virada de turno) cutoff for date navigation | operacional-infra | NOT_APPLICABLE | ADAPT | [clinical-forms.md §shift-date-navigation](design/screens/clinical-forms.md) | — |
 | RULE-OPERACIONAL-INFRA-035 | data_7_as_7 — 7am-to-7am shift/reporting-day boundary | operacional-infra | NOT_APPLICABLE | ADAPT | [early-warning-scores.md §shift-reporting-day](clinical/domains/early-warning-scores.md) | — |
-| RULE-OPERACIONAL-INFRA-036 | custom_exception_handler / flatten_errors — DRF error envelo | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-02](RATIFICATION.md) | P3 |
-| RULE-OPERACIONAL-INFRA-037 | ListChoiceField.to_representation — context-dependent repres | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-03](RATIFICATION.md) | AMBIGUOUS |
+| RULE-OPERACIONAL-INFRA-036 | custom_exception_handler / flatten_errors — DRF error envelo | operacional-infra | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-02](RATIFICATION.md) | P3 |
+| RULE-OPERACIONAL-INFRA-037 | ListChoiceField.to_representation — context-dependent repres | operacional-infra | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-operacional-infra-03](RATIFICATION.md) | AMBIGUOUS |
 | RULE-OPERACIONAL-INFRA-038 | PWA service-worker generation disabled only in local develop | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-039 | PM2 multi-environment process configuration | operacional-infra | NOT_APPLICABLE | SUPERSEDE | [SUPERSEDE: ADR-001 ECS Fargate deployment mechanism](SUPERSEDE: ADR-001 ECS Fargate deployment mechanism) | — |
-| RULE-OPERACIONAL-INFRA-040 | Per-environment deploy script workflow with asymmetric env-f | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-04](RATIFICATION.md) | AMBIGUOUS |
+| RULE-OPERACIONAL-INFRA-040 | Per-environment deploy script workflow with asymmetric env-f | operacional-infra | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-operacional-infra-04](RATIFICATION.md) | AMBIGUOUS |
 | RULE-OPERACIONAL-INFRA-041 | Environment secret files excluded from version control per d | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §secrets-management](architecture/security-lgpd.md) | — |
 | RULE-OPERACIONAL-INFRA-042 | PWA app identity and installed-app display behavior | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-043 | Breadcrumb hides UUID-shaped route segments | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-044 | Assistido flag reset - 1-minute update window | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-045 | Interactive sepsis - overdue item auto-check and alert messa | operacional-infra | NOT_APPLICABLE | ADAPT | [sepsis.md §overdue-checklist-alerting](clinical/domains/sepsis.md) | — |
 | RULE-OPERACIONAL-INFRA-046 | Celery queue naming convention — environment-namespaced rout | operacional-infra | NOT_APPLICABLE | SUPERSEDE | [system-architecture.md §alternativa-b-msk-streaming-escape-hatch](architecture/system-architecture.md) | — |
-| RULE-OPERACIONAL-INFRA-047 | Celery beat scheduler — DatabaseScheduler, with a duplicate- | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-05](RATIFICATION.md) | P3 |
+| RULE-OPERACIONAL-INFRA-047 | Celery beat scheduler — DatabaseScheduler, with a duplicate- | operacional-infra | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-05](RATIFICATION.md) | P3 |
 | RULE-OPERACIONAL-INFRA-048 | Backend CI gate covers only trilha_manual tests | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §ci-test-coverage-clinical-engines](architecture/security-lgpd.md) | — |
 | RULE-OPERACIONAL-INFRA-049 | Nursing-shift day window 07:00-07:00 | operacional-infra | NOT_APPLICABLE | ADAPT | [clinical-forms.md §shift-date-navigation](design/screens/clinical-forms.md) | — |
 | RULE-OPERACIONAL-INFRA-050 | next/image remote image domain whitelist | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §remote-asset-allowlisting](architecture/security-lgpd.md) | — |
@@ -666,26 +668,26 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-OPERACIONAL-INFRA-053 | UniqueTogetherManagerMixin.save — composite uniqueness exclu | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-054 | UniqueManagerMixin.save — single-field uniqueness excluding  | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-055 | popular_banco gender enum (synthetic data) | operacional-infra | NOT_APPLICABLE | ADOPT | [clinical-forms.md §gender-enum](design/screens/clinical-forms.md) | — |
-| RULE-OPERACIONAL-INFRA-056 | Diagnosis-list checks are non-functional (vars().fromkeys mi | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-06](RATIFICATION.md) | P3 |
+| RULE-OPERACIONAL-INFRA-056 | Diagnosis-list checks are non-functional (vars().fromkeys mi | operacional-infra | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-operacional-infra-06](RATIFICATION.md) | P3 |
 | RULE-OPERACIONAL-INFRA-057 | upload_to — model-type-based storage folder convention | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-058 | verificar_setor_da_empresa — tenant-hierarchy consistency ch | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §tenant-hierarchy-consistency](architecture/security-lgpd.md) | — |
-| RULE-OPERACIONAL-INFRA-059 | Per-company auto-refresh interval field | operacional-infra | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-operacional-infra-07](RATIFICATION.md) | AMBIGUOUS |
+| RULE-OPERACIONAL-INFRA-059 | Per-company auto-refresh interval field | operacional-infra | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-operacional-infra-07](RATIFICATION.md) | AMBIGUOUS |
 | RULE-OPERACIONAL-INFRA-060 | TasyModel Oracle database routing (reads and writes forced t | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-OPERACIONAL-INFRA-061 | Request-body upload size cap (DATA_UPLOAD_MAX_MEMORY_SIZE =  | operacional-infra | NOT_APPLICABLE | ADAPT | [security-lgpd.md §upload-size-limits](architecture/security-lgpd.md) | — |
 | RULE-OPERACIONAL-INFRA-062 | Per-environment uWSGI worker capacity and recycling threshol | operacional-infra | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-PIORA-CLINICA-001 | Piora Clinica criterio_1 - Frequencia respiratoria (graded s | piora-clinica | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-piora-clinica-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-PIORA-CLINICA-001 | Piora Clinica criterio_1 - Frequencia respiratoria (graded s | piora-clinica | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-piora-clinica-01](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-PIORA-CLINICA-002 | Piora Clinica criterio_2 - Temperatura axilar (graded sub-sc | piora-clinica | DISCREPANCY | ADOPT-CORRECTED | [early-warning-scores.md §piora-clinica-temperatura](clinical/domains/early-warning-scores.md) | P2 |
-| RULE-PIORA-CLINICA-003 | Piora Clinica criterio_3 - Pressao arterial sistolica (PAS)  | piora-clinica | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-piora-clinica-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-PIORA-CLINICA-003 | Piora Clinica criterio_3 - Pressao arterial sistolica (PAS)  | piora-clinica | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-piora-clinica-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-PIORA-CLINICA-004 | Piora Clinica criterio_4 - Frequencia cardiaca (FC) (graded  | piora-clinica | DISCREPANCY | ADOPT-CORRECTED | [hemodynamics.md §piora-clinica-fc](clinical/domains/hemodynamics.md) | P2 |
-| RULE-PIORA-CLINICA-005 | Piora Clinica criterio_5 - Nivel de consciencia (graded sub- | piora-clinica | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-piora-clinica-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-PIORA-CLINICA-006 | Piora Clinica criterio_6 - Dor (escala numerica 0-10) (grade | piora-clinica | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-piora-clinica-04](RATIFICATION.md) | P0 |
-| RULE-PIORA-CLINICA-007 | Piora Clinica criterio_7 - Dor (escala comportamental 3-12)  | piora-clinica | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-piora-clinica-05](RATIFICATION.md) | P0 |
-| RULE-PIORA-CLINICA-008 | Piora Clinica criterio_8 - SatO2 (paciente regular / nao-DPO | piora-clinica | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-piora-clinica-06](RATIFICATION.md) | P1 |
-| RULE-PIORA-CLINICA-009 | Piora Clinica criterio_9 - SatO2 (paciente DPOC/COPD) (grade | piora-clinica | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-piora-clinica-07](RATIFICATION.md) | P1 |
-| RULE-PIORA-CLINICA-010 | Piora Clinica - Calculo do alerta (soma agregada + gatilho p | piora-clinica | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-piora-clinica-08](RATIFICATION.md) | P0 |
-| RULE-PIORA-CLINICA-011 | Piora Clinica - Payload de alertas/recomendacoes/intervencoe | piora-clinica | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-piora-clinica-09](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-PIORA-CLINICA-005 | Piora Clinica criterio_5 - Nivel de consciencia (graded sub- | piora-clinica | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-piora-clinica-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-PIORA-CLINICA-006 | Piora Clinica criterio_6 - Dor (escala numerica 0-10) (grade | piora-clinica | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-piora-clinica-04](RATIFICATION.md) | P0 |
+| RULE-PIORA-CLINICA-007 | Piora Clinica criterio_7 - Dor (escala comportamental 3-12)  | piora-clinica | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-piora-clinica-05](RATIFICATION.md) | P0 |
+| RULE-PIORA-CLINICA-008 | Piora Clinica criterio_8 - SatO2 (paciente regular / nao-DPO | piora-clinica | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-piora-clinica-06](RATIFICATION.md) | P1 |
+| RULE-PIORA-CLINICA-009 | Piora Clinica criterio_9 - SatO2 (paciente DPOC/COPD) (grade | piora-clinica | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-piora-clinica-07](RATIFICATION.md) | P1 |
+| RULE-PIORA-CLINICA-010 | Piora Clinica - Calculo do alerta (soma agregada + gatilho p | piora-clinica | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-piora-clinica-08](RATIFICATION.md) | P0 |
+| RULE-PIORA-CLINICA-011 | Piora Clinica - Payload de alertas/recomendacoes/intervencoe | piora-clinica | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-piora-clinica-09](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-PIORA-CLINICA-012 | Vital signs entry auto-creates clinical-worsening (PioraClin | piora-clinica | NOT_APPLICABLE | SUPERSEDE | [early-warning-scores.md §score-computation-trigger](clinical/domains/early-warning-scores.md) | — |
-| RULE-PRESCRICAO-001 | ml medications capture exported quantity for fluid balance ( | prescricao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-prescricao-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-PRESCRICAO-001 | ml medications capture exported quantity for fluid balance ( | prescricao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-prescricao-01](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-PRESCRICAO-002 | Dose-level medication suspension check (get_suspenso) | prescricao | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-PRESCRICAO-003 | Continuous-prescription (order-level) suspension flag - now- | prescricao | NOT_APPLICABLE | RETIRE | — | P3 |
 | RULE-PRESCRICAO-004 | Prescription day-boundary rule for exporting a dose quantity | prescricao | NOT_APPLICABLE | ADAPT | [hemodynamics.md §fluid-balance-day-boundary](clinical/domains/hemodynamics.md) | — |
@@ -720,7 +722,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-PRESCRICAO-033 | Horario prescricao scoped to parent prescricao continua | prescricao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-PRESCRICAO-034 | Only the checking user may cancel a scheduled dose | prescricao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §checador-only-cancellation](architecture/security-lgpd.md) | — |
 | RULE-PRESCRICAO-035 | Non-administration reason validation (effectively unreachabl | prescricao | NOT_APPLICABLE | RETIRE | — | P3 |
-| RULE-PRESCRICAO-036 | Checagem lock — cannot alter administration status once set  | prescricao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-prescricao-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-PRESCRICAO-036 | Checagem lock — cannot alter administration status once set  | prescricao | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-prescricao-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-PRESCRICAO-037 | Pharmacist global assessment (risks with dead conditionals) | prescricao | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §pharmacist-risk-assessment](design/screens/clinical-forms.md) | P3 |
 | RULE-PRESCRICAO-038 | Pharmacist prophylaxis checklist | prescricao | NOT_APPLICABLE | ADAPT | [clinical-forms.md §pharmacist-prophylaxis](design/screens/clinical-forms.md) | — |
 | RULE-PRESCRICAO-039 | Pharmacist intervention vocabulary | prescricao | NOT_APPLICABLE | ADAPT | [clinical-forms.md §pharmacist-intervention-vocabulary](design/screens/clinical-forms.md) | — |
@@ -730,81 +732,81 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-PROFILAXIA-002 | Prophylaxis v1 - VTE anticoagulation dosing by renal functio | profilaxia | VERIFIED | ADOPT | [pharmaco-interaction.md §profilaxia-tev](clinical/domains/pharmaco-interaction.md) | — |
 | RULE-PROFILAXIA-003 | Prophylaxis v1 alert aggregation (amarelo/vermelho scoring) | profilaxia | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §alert-severity-taxonomy](clinical/domains/correlation-engine.md) | — |
 | RULE-PROFILAXIA-004 | Prophylaxis v3 alert aggregation (amarelo/vermelho scoring) | profilaxia | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §alert-severity-taxonomy](clinical/domains/correlation-engine.md) | — |
-| RULE-PROFILAXIA-005 | Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophyla | profilaxia | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-profilaxia-01](RATIFICATION.md) | P1 |
+| RULE-PROFILAXIA-005 | Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophyla | profilaxia | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-profilaxia-01](RATIFICATION.md) | P1 |
 | RULE-PROFILAXIA-006 | Prophylaxis v3 criterio_9 - invasive device prescribed (VERM | profilaxia | NOT_APPLICABLE | ADOPT | [sepsis.md §device-associated-infection-bundle](clinical/domains/sepsis.md) | — |
 | RULE-PROFILAXIA-007 | Prophylaxis v1 - LAMGD (stress-ulcer) prophylaxis, mobilizat | profilaxia | NOT_APPLICABLE | ADAPT | [sepsis.md §profilaxia-icu-bundle](clinical/domains/sepsis.md) | — |
-| RULE-PROFILAXIA-008 | Prophylaxis v3 - reduced active criteria set facade (LAMGD + | profilaxia | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-profilaxia-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-PROFILAXIA-008 | Prophylaxis v3 - reduced active criteria set facade (LAMGD + | profilaxia | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-profilaxia-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-SEDACAO-001 | Sedacao v3 criterio_7 - moderate pain (analog 4-6 / BPS 7-9) | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §pain-moderate-two-consecutive](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-002 | Sedacao v3 criterio_8 - severe pain (analog 7-10 / BPS 10-12 | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §pain-severe-two-consecutive](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-003 | Sedacao v3 criterio_9 - deep sedation RASS -3..-5 (defined,  | sedacao | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §deep-sedation-rass](clinical/domains/neuro-sedation.md) | P3 |
 | RULE-SEDACAO-004 | Sedacao v3 criterio_12 - weaning readiness (defined, unwired | sedacao | DISCREPANCY | ADOPT-CORRECTED | [respiratory.md §weaning-readiness](clinical/domains/respiratory.md) | P3 |
-| RULE-SEDACAO-005 | Sedacao v3 criterio_1 - excessive continuous sedation infusi | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-005 | Sedacao v3 criterio_1 - excessive continuous sedation infusi | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-01](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEDACAO-006 | Sedacao v3 criterio_2 - sedation despite adequate oxygenatio | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §sedation-despite-adequate-oxygenation](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-007 | Sedacao v3 criterio_3 - neuromuscular blockade with P/F>150  | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §neuromuscular-blockade-deescalation](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-008 | Sedacao v3 criterio_4 - undersedation on invasive vent (defi | sedacao | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §undersedation-invasive-vent](clinical/domains/neuro-sedation.md) | P2 |
-| RULE-SEDACAO-009 | Sedacao v3 criterio_5 - no morning sedation reduction (>=1/2 | sedacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sedacao-02](RATIFICATION.md) | P1 |
-| RULE-SEDACAO-010 | Sedacao v3 criterio_6 - high-dose neuromuscular blockade (de | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-009 | Sedacao v3 criterio_5 - no morning sedation reduction (>=1/2 | sedacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sedacao-02](RATIFICATION.md) | P1 |
+| RULE-SEDACAO-010 | Sedacao v3 criterio_6 - high-dose neuromuscular blockade (de | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-03](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEDACAO-011 | Sedacao v3 criterio_10 - prolonged sedation >96h (defined, u | sedacao | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §prolonged-sedation-96h](clinical/domains/neuro-sedation.md) | P3 |
 | RULE-SEDACAO-012 | Sedacao v3 criterio_11 - prolonged propofol without safety l | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §pris-surveillance](clinical/domains/neuro-sedation.md) | — |
-| RULE-SEDACAO-013 | Sedacao v3 active-sedative detection (set_sedativo_em_uso) | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEDACAO-014 | Sedacao v3 alert (calcular_alerta_v2 used; legacy calcular_a | sedacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sedacao-05](RATIFICATION.md) | — |
+| RULE-SEDACAO-013 | Sedacao v3 active-sedative detection (set_sedativo_em_uso) | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-014 | Sedacao v3 alert (calcular_alerta_v2 used; legacy calcular_a | sedacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-sedacao-05](RATIFICATION.md) | — |
 | RULE-SEDACAO-015 | Sedation manual C1 - sedoanalgesia overdose (any sedative >1 | sedacao | NOT_APPLICABLE | ADAPT | [neuro-sedation.md §sedative-overdose-threshold](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-016 | Sedation manual C2 - deep RASS with low FiO2/PEEP | sedacao | DISCREPANCY | ADOPT-CORRECTED | [neuro-sedation.md §deep-sedation-low-vent-support](clinical/domains/neuro-sedation.md) | P3 |
 | RULE-SEDACAO-017 | Sedation manual C3 - good oxygenation on sedation | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §sedation-lightening-candidate](clinical/domains/neuro-sedation.md) | — |
-| RULE-SEDACAO-018 | Sedation manual C4 - sedation justified by severity | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-06](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEDACAO-019 | Sedation manual C5 - poor oxygenation with light/absent seda | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-07](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEDACAO-020 | Sedation manual C6 - severity without sedation | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-08](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEDACAO-021 | Sedation manual pathway alert level (count of criteria) | sedacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sedacao-09](RATIFICATION.md) | — |
-| RULE-SEDACAO-022 | Cardiac arrest within last 24h (PCR-24h helper, manual model | sedacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sedacao-10](RATIFICATION.md) | AMBIGUOUS |
+| RULE-SEDACAO-018 | Sedation manual C4 - sedation justified by severity | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-06](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-019 | Sedation manual C5 - poor oxygenation with light/absent seda | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-020 | Sedation manual C6 - severity without sedation | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-08](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-021 | Sedation manual pathway alert level (count of criteria) | sedacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-sedacao-09](RATIFICATION.md) | — |
+| RULE-SEDACAO-022 | Cardiac arrest within last 24h (PCR-24h helper, manual model | sedacao | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-sedacao-10](RATIFICATION.md) | AMBIGUOUS |
 | RULE-SEDACAO-023 | Sedacao v1 alert (TrilhaSedacaoModel.calcular_alerta) | sedacao | NOT_APPLICABLE | SUPERSEDE | [neuro-sedation.md §sedation-alert-aggregation](clinical/domains/neuro-sedation.md) | — |
 | RULE-SEDACAO-024 | Sedation/analgesia pathway recommendation catalog (facade te | sedacao | VERIFIED | ADOPT | [neuro-sedation.md §recommendation-catalog](clinical/domains/neuro-sedation.md) | — |
-| RULE-SEDACAO-025 | Sedative-specific reduction recommendation (criterio_1 free  | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-11](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEDACAO-026 | Sedative drug enumeration (Sedativo.nome_sedativo choices) | sedacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sedacao-12](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-025 | Sedative-specific reduction recommendation (criterio_1 free  | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-11](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEDACAO-026 | Sedative drug enumeration (Sedativo.nome_sedativo choices) | sedacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sedacao-12](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEDACAO-027 | Unique sedative per prontuario + dose unit | sedacao | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-SEPSE-001 | SEPSE v1 alert maiores/menores dual threshold | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-002 | SEPSE v3 alert maiores/menores (OR thresholds) + risk messag | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | P1 |
+| RULE-SEPSE-001 | SEPSE v1 alert maiores/menores dual threshold | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-002 | SEPSE v3 alert maiores/menores (OR thresholds) + risk messag | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | P1 |
 | RULE-SEPSE-003 | Sepse - Classificacao de alerta (maiores/menores) | sepse | DISCREPANCY | SUPERSEDE | [sepsis.md §screening-major-minor](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-004 | Sepsis pathway alert (major/minor two-axis threshold) | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-005 | Sepse - Hierarquia de nivel de consciencia | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-006 | SEPSE v3 assistencial info snapshot (diurese/BH aggregation) | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-05](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-007 | SEPSE v3 criterio_1 - fever without vasopressor | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-06](RATIFICATION.md) | P1 |
+| RULE-SEPSE-004 | Sepsis pathway alert (major/minor two-axis threshold) | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-005 | Sepse - Hierarquia de nivel de consciencia | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-006 | SEPSE v3 assistencial info snapshot (diurese/BH aggregation) | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-05](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-007 | SEPSE v3 criterio_1 - fever without vasopressor | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-06](RATIFICATION.md) | P1 |
 | RULE-SEPSE-008 | SEPSE v3 criterio_2 - tachypnea/hypoxemia without vasopresso | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-tachypnea-hypoxemia](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-009 | SEPSE v3 criterio_3 - respiratory failure prescription | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-07](RATIFICATION.md) | P1 |
+| RULE-SEPSE-009 | SEPSE v3 criterio_3 - respiratory failure prescription | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-07](RATIFICATION.md) | P1 |
 | RULE-SEPSE-010 | SEPSE v3 criterio_4 - newly started vasopressor | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-new-vasopressor](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-011 | SEPSE v3 criterio_5 - hypotension without vasopressor | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-hypotension](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-012 | SEPSE v3 criterio_6 - thrombocytopenia without vasopressor | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-thrombocytopenia](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-013 | SEPSE v3 criterio_7 - hyperlactatemia without vasopressor | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §criterio-hyperlactatemia](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-014 | SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-08](RATIFICATION.md) | P0 |
-| RULE-SEPSE-015 | SEPSE v3 criterio_9 - acute kidney injury without vasopresso | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-09](RATIFICATION.md) | P1 |
-| RULE-SEPSE-016 | SEPSE v3 criterio_10 - acute encephalopathy/delirium | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-10](RATIFICATION.md) | P1 |
-| RULE-SEPSE-017 | SEPSE v3 criterio_11 - hyperbilirubinemia/jaundice (incomple | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-11](RATIFICATION.md) | P1 |
+| RULE-SEPSE-014 | SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-08](RATIFICATION.md) | P0 |
+| RULE-SEPSE-015 | SEPSE v3 criterio_9 - acute kidney injury without vasopresso | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-09](RATIFICATION.md) | P1 |
+| RULE-SEPSE-016 | SEPSE v3 criterio_10 - acute encephalopathy/delirium | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-10](RATIFICATION.md) | P1 |
+| RULE-SEPSE-017 | SEPSE v3 criterio_11 - hyperbilirubinemia/jaundice (incomple | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-11](RATIFICATION.md) | P1 |
 | RULE-SEPSE-018 | SEPSE v3 criterio_12 - hypothermia (minor) | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-hypothermia](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-019 | SEPSE v3 criterio_13 - tachycardia (minor, wrong column) | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-12](RATIFICATION.md) | P1 |
-| RULE-SEPSE-020 | SEPSE v3 criterio_14 - respiratory alkalosis/hypoxemia spont | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-13](RATIFICATION.md) | P1 |
-| RULE-SEPSE-021 | SEPSE v3 criterio_15 - leukocytosis/leukopenia/bandemia/CRP  | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-14](RATIFICATION.md) | P1 |
+| RULE-SEPSE-019 | SEPSE v3 criterio_13 - tachycardia (minor, wrong column) | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-12](RATIFICATION.md) | P1 |
+| RULE-SEPSE-020 | SEPSE v3 criterio_14 - respiratory alkalosis/hypoxemia spont | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-13](RATIFICATION.md) | P1 |
+| RULE-SEPSE-021 | SEPSE v3 criterio_15 - leukocytosis/leukopenia/bandemia/CRP  | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-14](RATIFICATION.md) | P1 |
 | RULE-SEPSE-022 | SEPSE v3 criterio_16 - prolonged capillary refill (minor, ne | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-capillary-refill](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-023 | SEPSE v3 criterio_17 - enteral tube with adequate GCS (minor | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-15](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-024 | SEPSE v3 criterio_18 - central line > 7 days (minor) | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-16](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-025 | SEPSE v3 criterio_19 - femoral central line > 5 days (minor) | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-17](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-026 | SEPSE v3 criterio_20 - recent abdominal surgery (minor) | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-18](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-023 | SEPSE v3 criterio_17 - enteral tube with adequate GCS (minor | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-15](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-024 | SEPSE v3 criterio_18 - central line > 7 days (minor) | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-16](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-025 | SEPSE v3 criterio_19 - femoral central line > 5 days (minor) | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-17](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-026 | SEPSE v3 criterio_20 - recent abdominal surgery (minor) | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-18](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEPSE-027 | Sepse criterio_1 - Febre (fever) | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-febre](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-028 | Sepse criterio_2 - Taquipneia / dessaturacao sob O2 | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-taquipneia](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-029 | Sepse criterio_3 - Escalonamento de suporte ventilatorio | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-19](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-029 | Sepse criterio_3 - Escalonamento de suporte ventilatorio | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-19](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEPSE-030 | Sepse criterio_4 - Tempo de enchimento capilar > 5s | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §criterio-tec](clinical/domains/sepsis.md) | P2 |
 | RULE-SEPSE-031 | Sepse criterio_5 - Hipotensao | sepse | VERIFIED | ADOPT | [sepsis.md §criterio-hipotensao](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-032 | Sepse criterio_6 - Oliguria (sonda) ou dessaturacao | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-20](RATIFICATION.md) | P1 |
-| RULE-SEPSE-033 | Sepse criterio_7 - Variacao do nivel de consciencia | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-21](RATIFICATION.md) | P1 |
+| RULE-SEPSE-032 | Sepse criterio_6 - Oliguria (sonda) ou dessaturacao | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-20](RATIFICATION.md) | P1 |
+| RULE-SEPSE-033 | Sepse criterio_7 - Variacao do nivel de consciencia | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-21](RATIFICATION.md) | P1 |
 | RULE-SEPSE-034 | Sepse criterio_8 - Hipotermia | sepse | VERIFIED | ADOPT | [sepsis.md §hypothermia-minor-c8](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-035 | Sepse criterio_9 - Taquicardia | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §tachycardia-minor-c9](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-036 | Sepse criterio_10 - Dispositivo invasivo com permanencia > 7 | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-037 | Sepse criterio_11 - Placeholder (sempre False) | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | P1 |
+| RULE-SEPSE-036 | Sepse criterio_10 - Dispositivo invasivo com permanencia > 7 | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-037 | Sepse criterio_11 - Placeholder (sempre False) | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | P1 |
 | RULE-SEPSE-038 | Sepsis C1 (major) - fever | sepse | VERIFIED | ADOPT | [sepsis.md §fever-major-c1](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-039 | Sepsis C2 (major) - spontaneous respiratory distress | sepse | VERIFIED | ADOPT | [sepsis.md §respiratory-distress-major-c2](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-040 | Sepsis C3 (major) - recent start of mechanical ventilation | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-041 | Sepsis C4 (major) - noradrenaline started in last 24h | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-040 | Sepsis C3 (major) - recent start of mechanical ventilation | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-041 | Sepsis C4 (major) - noradrenaline started in last 24h | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-04](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEPSE-042 | Sepsis C5 (major) - slow capillary refill | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §capillary-refill-major-c5](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-043 | Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h) | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-22](RATIFICATION.md) | P0 |
-| RULE-SEPSE-044 | Sepsis C7 (major) - oliguria or rising creatinine | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-06](RATIFICATION.md) | P1 |
+| RULE-SEPSE-043 | Sepsis C6 (major) - hypotension (PAS<90 or PAD<90 in 24h) | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-22](RATIFICATION.md) | P0 |
+| RULE-SEPSE-044 | Sepsis C7 (major) - oliguria or rising creatinine | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-06](RATIFICATION.md) | P1 |
 | RULE-SEPSE-045 | Sepsis C8 (major) - Glasgow drop or delirium | sepse | VERIFIED | ADOPT | [sepsis.md §glasgow-drop-or-delirium-major-c8](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-046 | Sepsis C9 (major) - hyperbilirubinemia | sepse | VERIFIED | ADOPT | [sepsis.md §hyperbilirubinemia-major-c9](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-047 | Sepsis C10 (minor) - hypothermia in last 24h | sepse | VERIFIED | ADOPT | [sepsis.md §hypothermia-minor-c10](clinical/domains/sepsis.md) | — |
@@ -813,14 +815,14 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-SEPSE-050 | Sepsis C13 (minor) - elevated arterial lactate | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §lactate-minor-c13](clinical/domains/sepsis.md) | P2 |
 | RULE-SEPSE-051 | Sepsis C14 (minor) - leukocytosis in last 24h | sepse | VERIFIED | ADOPT | [sepsis.md §leukocytosis-minor-c14](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-052 | Sepsis C15 (minor) - thrombocytopenia in last 24h | sepse | VERIFIED | ADOPT | [sepsis.md §thrombocytopenia-minor-c15](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-053 | Sepsis C16 (minor) - poor oral intake with preserved conscio | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-053 | Sepsis C16 (minor) - poor oral intake with preserved conscio | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-07](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-SEPSE-054 | Sepsis C17 (minor) - depressed consciousness in last 12h | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §altered-mentation-minor-c17](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-055 | Sepsis C18 (minor) - central line > 7 days | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-23](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-056 | Sepsis C19 (minor) - femoral central line > 5 days | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-09](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-057 | Sepsis C20 (minor) - recent abdominal surgery | sepse | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sepse-10](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SEPSE-058 | Sepse v3 automatica - trigger threshold table (20 criteria) | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-11](RATIFICATION.md) | P1 |
+| RULE-SEPSE-055 | Sepsis C18 (minor) - central line > 7 days | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-23](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-056 | Sepsis C19 (minor) - femoral central line > 5 days | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-09](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-057 | Sepsis C20 (minor) - recent abdominal surgery | sepse | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sepse-10](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SEPSE-058 | Sepse v3 automatica - trigger threshold table (20 criteria) | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-11](RATIFICATION.md) | P1 |
 | RULE-SEPSE-059 | Sepse automatica variant B - 27-criterion alert catalog + gl | sepse | DISCREPANCY | ADAPT | [sepsis.md §hour-1-bundle-global-recommendation](clinical/domains/sepsis.md) | P2 |
-| RULE-SEPSE-060 | Sepse pathway variant A - 11-criterion catalog + Meropenem/1 | sepse | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sepse-12](RATIFICATION.md) | P1 |
+| RULE-SEPSE-060 | Sepse pathway variant A - 11-criterion catalog + Meropenem/1 | sepse | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sepse-12](RATIFICATION.md) | P1 |
 | RULE-SEPSE-061 | SEPSE volume expansion (expansao volemica) decision and dosi | sepse | DISCREPANCY | ADOPT-CORRECTED | [sepsis.md §volume-resuscitation-dosing](clinical/domains/sepsis.md) | P2 |
 | RULE-SEPSE-062 | SEPSE reassessment lab thresholds (bicarbonate, dobutamine,  | sepse | VERIFIED | ADOPT | [sepsis.md §reassessment-labs](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-063 | SEPSE hemodynamic-status decision (intubation RASS-2, fluid  | sepse | VERIFIED | ADOPT | [sepsis.md §hemodynamic-status-decision](clinical/domains/sepsis.md) | — |
@@ -828,7 +830,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-SEPSE-065 | SEPSE vasoactive-drug escalation thresholds and shock index | sepse | VERIFIED | ADOPT | [sepsis.md §vasoactive-escalation](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-066 | Sepsis pathway - disabled/legacy criteria (v-old 27 vs curre | sepse | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-SEPSE-067 | Sepsis / infection-source screening flags (movimentacao) | sepse | NOT_APPLICABLE | ADOPT | [sepsis.md §infection-source-screening-flags](clinical/domains/sepsis.md) | — |
-| RULE-SEPSE-068 | Urea field encodes an unbounded value under a threshold name | sepse | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-SEPSE-068 | Urea field encodes an unbounded value under a threshold name | sepse | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-sepse-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-SEPSE-069 | Bundle item overdue (atraso_item_interativa) time windows | sepse | VERIFIED | ADOPT | [sepsis.md §hour-1-bundle-timers](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-070 | Bundle item visibility (exibir) - reassessment appears after | sepse | NOT_APPLICABLE | ADOPT | [sepsis.md §hour-1-bundle-timers](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-071 | SEPSE v3 interactive-protocol creation gate (can_criar_novo_ | sepse | NOT_APPLICABLE | ADAPT | [sepsis.md §protocol-creation-eligibility](clinical/domains/sepsis.md) | — |
@@ -853,17 +855,17 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-SEPSE-090 | Sepsis protocol lifecycle state display | sepse | NOT_APPLICABLE | ADAPT | [sepsis.md §protocol-lifecycle](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-091 | Sepsis protocol item conditional visibility and expandabilit | sepse | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-SEPSE-092 | Sepsis protocol item check-off workflow | sepse | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-SEPSE-093 | Sepsis-pathway dual completion flags | sepse | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-SEPSE-093 | Sepsis-pathway dual completion flags | sepse | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-sepse-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-SEPSE-094 | Sepsis-pathway accept/discard workflow | sepse | NOT_APPLICABLE | ADAPT | [sepsis.md §protocol-decline-workflow](clinical/domains/sepsis.md) | — |
 | RULE-SEPSE-095 | Sepsis protocol item first-hour delay alert | sepse | NOT_APPLICABLE | ADAPT | [sepsis.md §hour-1-bundle-timers](clinical/domains/sepsis.md) | P3 |
 | RULE-SEPSE-096 | Sepsis interactive bundle step and package enums | sepse | NOT_APPLICABLE | ADOPT | [clinical-forms.md §sepsis-hour1-bundle-items](design/screens/clinical-forms.md) | — |
 | RULE-SEPSE-097 | Sepsis protocol refusal permission | sepse | NOT_APPLICABLE | ADAPT | [security-lgpd.md §rbac-clinical-protocol-actions](architecture/security-lgpd.md) | — |
-| RULE-SEPSE-098 | Sepsis-checklist signer requires CPF, unlike other checklist | sepse | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | AMBIGUOUS |
-| RULE-SEPSE-099 | Manual sepsis pathway active criteria descriptions (_REGRAS, | sepse | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sepse-add-01](RATIFICATION.md) | ADDENDUM |
+| RULE-SEPSE-098 | Sepsis-checklist signer requires CPF, unlike other checklist | sepse | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-sepse-03](RATIFICATION.md) | AMBIGUOUS |
+| RULE-SEPSE-099 | Manual sepsis pathway active criteria descriptions (_REGRAS, | sepse | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-sepse-add-01](RATIFICATION.md) | ADDENDUM |
 | RULE-SINAIS-VITAIS-001 | Blood-pressure and heart-rate plausible ranges (movimentacao | sinais-vitais | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-SINAIS-VITAIS-002 | Blood-gas and laboratory plausible ranges (movimentacao form | sinais-vitais | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-SINAIS-VITAIS-003 | Urine-output and temperature plausible ranges (movimentacao  | sinais-vitais | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-SINAIS-VITAIS-004 | Capillary refill time (TEC) range and >5s threshold — incons | sinais-vitais | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sinais-vitais-01](RATIFICATION.md) | P1 |
+| RULE-SINAIS-VITAIS-004 | Capillary refill time (TEC) range and >5s threshold — incons | sinais-vitais | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sinais-vitais-01](RATIFICATION.md) | P1 |
 | RULE-SINAIS-VITAIS-005 | Physician-form vital-sign ranges (partial) — HR/FR/temp/SpO2 | sinais-vitais | NOT_APPLICABLE | ADAPT | [clinical-forms.md §vital-signs-entry-bounds](design/screens/clinical-forms.md) | P3 |
 | RULE-SINAIS-VITAIS-006 | SinaisVitais listing includes soft-deleted records | sinais-vitais | NOT_APPLICABLE | ADAPT | [security-lgpd.md §soft-delete-non-deleted-manager](architecture/security-lgpd.md) | P3 |
 | RULE-SINAIS-VITAIS-007 | SinaisVitais soft-delete logs audit action (no balance adjus | sinais-vitais | NOT_APPLICABLE | ADAPT | [security-lgpd.md §audit-trail-soft-delete](architecture/security-lgpd.md) | — |
@@ -879,7 +881,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-SINAIS-VITAIS-017 | VolumeCorrenteValidator — tidal volume range, no zero exempt | sinais-vitais | NOT_APPLICABLE | ADOPT | [respiratory.md §tidal-volume-bounds](clinical/domains/respiratory.md) | — |
 | RULE-SINAIS-VITAIS-018 | PASValidator — systolic blood pressure range, zero exempted | sinais-vitais | NOT_APPLICABLE | ADOPT | [hemodynamics.md §systolic-bp-bounds](clinical/domains/hemodynamics.md) | — |
 | RULE-SINAIS-VITAIS-019 | PADValidator — diastolic blood pressure range, no zero exemp | sinais-vitais | NOT_APPLICABLE | ADOPT | [hemodynamics.md §diastolic-bp-bounds](clinical/domains/hemodynamics.md) | — |
-| RULE-SINAIS-VITAIS-020 | PAMValidator — mean arterial pressure range, no zero exempti | sinais-vitais | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sinais-vitais-02](RATIFICATION.md) | — |
+| RULE-SINAIS-VITAIS-020 | PAMValidator — mean arterial pressure range, no zero exempti | sinais-vitais | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-sinais-vitais-02](RATIFICATION.md) | — |
 | RULE-SINAIS-VITAIS-021 | DebitoUrinario24hValidator — 24h urine output range, no zero | sinais-vitais | NOT_APPLICABLE | ADOPT | [aki.md §urine-output-bounds](clinical/domains/aki.md) | — |
 | RULE-SINAIS-VITAIS-022 | BilirrubinasValidator — bilirubin range, no zero exemption | sinais-vitais | NOT_APPLICABLE | ADOPT | [sepsis.md §bilirubin-bounds](clinical/domains/sepsis.md) | — |
 | RULE-SINAIS-VITAIS-023 | TemperaturaValidator — body temperature range, zero exempted | sinais-vitais | NOT_APPLICABLE | ADOPT | [early-warning-scores.md §temperature-bounds](clinical/domains/early-warning-scores.md) | — |
@@ -888,26 +890,26 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-SINAIS-VITAIS-026 | LeucocitosValidator — leukocyte count range, no zero exempti | sinais-vitais | NOT_APPLICABLE | ADOPT | [sepsis.md §leukocyte-bounds](clinical/domains/sepsis.md) | — |
 | RULE-SINAIS-VITAIS-027 | FrequenciaCardiacaValidator — heart rate range, no zero exem | sinais-vitais | NOT_APPLICABLE | ADOPT | [early-warning-scores.md §heart-rate-bounds](clinical/domains/early-warning-scores.md) | — |
 | RULE-SINAIS-VITAIS-028 | PlaquetasValidator — platelet count range, no zero exemption | sinais-vitais | NOT_APPLICABLE | ADOPT | [sepsis.md §platelet-bounds](clinical/domains/sepsis.md) | — |
-| RULE-SINAIS-VITAIS-029 | DobutaminaValidator — dobutamine dose range, no zero exempti | sinais-vitais | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sinais-vitais-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SINAIS-VITAIS-030 | NoradrenalinaValidator — norepinephrine dose range, no zero  | sinais-vitais | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-sinais-vitais-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-SINAIS-VITAIS-031 | SedativoValidator — sedative dose range, no zero exemption | sinais-vitais | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-sinais-vitais-05](RATIFICATION.md) | P3 |
+| RULE-SINAIS-VITAIS-029 | DobutaminaValidator — dobutamine dose range, no zero exempti | sinais-vitais | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sinais-vitais-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SINAIS-VITAIS-030 | NoradrenalinaValidator — norepinephrine dose range, no zero  | sinais-vitais | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-sinais-vitais-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-SINAIS-VITAIS-031 | SedativoValidator — sedative dose range, no zero exemption | sinais-vitais | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-sinais-vitais-05](RATIFICATION.md) | P3 |
 | RULE-SINAIS-VITAIS-032 | PressaoInspiratoriaValidator — inspiratory pressure (PINS) r | sinais-vitais | NOT_APPLICABLE | ADOPT | [respiratory.md §inspiratory-pressure-bounds](clinical/domains/respiratory.md) | — |
-| RULE-SINAIS-VITAIS-033 | SatO2Validator — oxygen saturation range, no zero exemption  | sinais-vitais | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-sinais-vitais-06](RATIFICATION.md) | AMBIGUOUS |
+| RULE-SINAIS-VITAIS-033 | SatO2Validator — oxygen saturation range, no zero exemption  | sinais-vitais | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-sinais-vitais-06](RATIFICATION.md) | AMBIGUOUS |
 | RULE-TENANCY-ORGANIZACAO-001 | Establishment occupancy percentage formula | tenancy-organizacao | VERIFIED | RETIRE | — | — |
 | RULE-TENANCY-ORGANIZACAO-002 | Sector occupancy percentage formula | tenancy-organizacao | VERIFIED | RETIRE | — | — |
 | RULE-TENANCY-ORGANIZACAO-003 | Establishment bed total (ativo-scoped) vs occupied-bed total | tenancy-organizacao | DISCREPANCY | RETIRE | — | P2 |
 | RULE-TENANCY-ORGANIZACAO-004 | Sector active-bed total vs. occupied-bed total use inconsist | tenancy-organizacao | DISCREPANCY | RETIRE | — | P2 |
-| RULE-TENANCY-ORGANIZACAO-005 | Establishment macro-indicator aggregate (sum/avg rounded to  | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-006 | Sector macro-indicator single-record fetch with silent failu | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-02](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-007 | Establishment unread message count sums across ALL sectors,  | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-008 | Sector unread message count via Firestore | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-04](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-009 | Combined setor display name | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-05](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-010 | 'atualizado_em' timestamp floored to 5-minute buckets | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-06](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-011 | Sector alert counts merge manual movement alerts with automa | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-07](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-012 | Sector bed totals (active beds only) | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-08](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-013 | Sector gender counts merge manual movements with automatic-p | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-09](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-014 | Sector chat preview picks the first related observation with | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-10](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-015 | Monthly total intervention count for sector indicators | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-11](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-005 | Establishment macro-indicator aggregate (sum/avg rounded to  | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-006 | Sector macro-indicator single-record fetch with silent failu | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-007 | Establishment unread message count sums across ALL sectors,  | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-008 | Sector unread message count via Firestore | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-009 | Combined setor display name | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-05](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-010 | 'atualizado_em' timestamp floored to 5-minute buckets | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-06](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-011 | Sector alert counts merge manual movement alerts with automa | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-07](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-012 | Sector bed totals (active beds only) | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-08](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-013 | Sector gender counts merge manual movements with automatic-p | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-09](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-014 | Sector chat preview picks the first related observation with | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-10](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-015 | Monthly total intervention count for sector indicators | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-11](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-TENANCY-ORGANIZACAO-016 | Processing-mode (tipo) enumeration for company/bed/sector/es | tenancy-organizacao | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-TENANCY-ORGANIZACAO-017 | EmpresaMiddleware — path-based empresa (tenant) resolution | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §tenant-resolution](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-018 | EstabelecimentoMiddleware — path-based estabelecimento resol | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §tenant-resolution](architecture/security-lgpd.md) | — |
@@ -929,25 +931,25 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-TENANCY-ORGANIZACAO-034 | Sector patient/gender totals branch by tipo (manual vs. auto | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §tenant-scoped-aggregation](architecture/alert-engine.md) | — |
 | RULE-TENANCY-ORGANIZACAO-035 | Sector total alert counts branch by tipo | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §tenant-scoped-aggregation](architecture/alert-engine.md) | — |
 | RULE-TENANCY-ORGANIZACAO-036 | Sector total assisted-patient count branches by tipo (manual | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §tenant-scoped-aggregation](architecture/alert-engine.md) | — |
-| RULE-TENANCY-ORGANIZACAO-037 | Sector destroy() blocked while any bed has an active occupat | tenancy-organizacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-01](RATIFICATION.md) | P3 |
-| RULE-TENANCY-ORGANIZACAO-038 | Sector clinical indicator aggregation across care pathways ( | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-02](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-037 | Sector destroy() blocked while any bed has an active occupat | tenancy-organizacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-01](RATIFICATION.md) | P3 |
+| RULE-TENANCY-ORGANIZACAO-038 | Sector clinical indicator aggregation across care pathways ( | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-02](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-TENANCY-ORGANIZACAO-039 | Company owner (proprietario) access lifecycle on save | tenancy-organizacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §user-provisioning](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-040 | Company logo base64 conversion on update | tenancy-organizacao | NOT_APPLICABLE | RETIRE | — | — |
-| RULE-TENANCY-ORGANIZACAO-041 | Company-wide indicadores action scopes to user's establishme | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-03](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-TENANCY-ORGANIZACAO-042 | Establishment indicadores action scopes movimentacoes and se | tenancy-organizacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-041 | Company-wide indicadores action scopes to user's establishme | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-03](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TENANCY-ORGANIZACAO-042 | Establishment indicadores action scopes movimentacoes and se | tenancy-organizacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-04](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-TENANCY-ORGANIZACAO-043 | Auto-refresh polling interval driven by company setting (emp | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §realtime-dashboard-updates](architecture/alert-engine.md) | — |
 | RULE-TENANCY-ORGANIZACAO-044 | Auto-refresh polling interval driven by company setting (est | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [alert-engine.md §realtime-dashboard-updates](architecture/alert-engine.md) | — |
 | RULE-TENANCY-ORGANIZACAO-045 | Access-group exactly-one-scope constraint (three_xor) | tenancy-organizacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §scope-exclusivity](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-046 | Grupo/estabelecimento-scoped member search | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [clinical-forms.md §access-group-member-search](design/screens/clinical-forms.md) | — |
 | RULE-TENANCY-ORGANIZACAO-047 | Whitelabel brand enumeration (unique per company) | tenancy-organizacao | NOT_APPLICABLE | ADOPT | [security-lgpd.md §tenant-config](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-048 | Company field constraints (primary color length, refresh int | tenancy-organizacao | NOT_APPLICABLE | ADOPT-CORRECTED | [security-lgpd.md §tenant-config](architecture/security-lgpd.md) | — |
-| RULE-TENANCY-ORGANIZACAO-049 | Company logo field rename with silent drop for non-string va | tenancy-organizacao | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-tenancy-organizacao-05](RATIFICATION.md) | P3 |
+| RULE-TENANCY-ORGANIZACAO-049 | Company logo field rename with silent drop for non-string va | tenancy-organizacao | NOT_APPLICABLE | ADOPT | [RATIFICATION.md §rat-tenancy-organizacao-05](RATIFICATION.md) | P3 |
 | RULE-TENANCY-ORGANIZACAO-050 | UndefinedMiddleware — reject literal 'undefined' in URL path | tenancy-organizacao | NOT_APPLICABLE | ADAPT | [security-lgpd.md §login-input-validation](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-051 | AcaoHomecare tenant scoping | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §tenant-context-required](architecture/security-lgpd.md) | — |
 | RULE-TENANCY-ORGANIZACAO-052 | Multi-tenant data scoping by sector/establishment | tenancy-organizacao | NOT_APPLICABLE | SUPERSEDE | [security-lgpd.md §tenant-context-required](architecture/security-lgpd.md) | — |
 | RULE-TRILHAS-ENGINE-001 | Automatic-bed pathway composition (v3 + v2 model sets) | trilhas-engine | NOT_APPLICABLE | SUPERSEDE | [correlation-engine.md §domain-routing](clinical/domains/correlation-engine.md) | P3 |
 | RULE-TRILHAS-ENGINE-002 | Homecare-bed pathway composition | trilhas-engine | NOT_APPLICABLE | SUPERSEDE | [early-warning-scores.md §care-context-scoping](clinical/domains/early-warning-scores.md) | — |
-| RULE-TRILHAS-ENGINE-003 | get_trilha leito-type dispatch | trilhas-engine | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-trilhas-engine-01](RATIFICATION.md) | AMBIGUOUS |
+| RULE-TRILHAS-ENGINE-003 | get_trilha leito-type dispatch | trilhas-engine | NOT_APPLICABLE | RETIRE | [RATIFICATION.md §rat-trilhas-engine-01](RATIFICATION.md) | AMBIGUOUS |
 | RULE-TRILHAS-ENGINE-004 | Pathway alert-status color precedence | trilhas-engine | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-TRILHAS-ENGINE-005 | Interactive care-pathway eligibility (Sepse / Profilaxia) | trilhas-engine | NOT_APPLICABLE | SUPERSEDE | [sepsis.md §protocol-response-workflow](clinical/domains/sepsis.md) | — |
 | RULE-TRILHAS-ENGINE-006 | Interactive pathway restricted to automatic bed type | trilhas-engine | NOT_APPLICABLE | RETIRE | — | — |
@@ -956,24 +958,24 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | RULE-TRILHAS-ENGINE-009 | Care-pathway catalog and criteria counts | trilhas-engine | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-TRILHAS-ENGINE-010 | Automatica facade — active payload variant selection per tri | trilhas-engine | NOT_APPLICABLE | RETIRE | — | — |
 | RULE-TRILHAS-ENGINE-011 | Manual pathway set created per movimentacao (Estabilidade/Se | trilhas-engine | NOT_APPLICABLE | ADAPT | [correlation-engine.md §admission-triggered-domains](clinical/domains/correlation-engine.md) | — |
-| RULE-TRILHAS-ENGINE-012 | AtualizarTrilhasV3 — v3 care-pathway bootstrap and bed re-li | trilhas-engine | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-trilhas-engine-02](RATIFICATION.md) | AMBIGUOUS |
+| RULE-TRILHAS-ENGINE-012 | AtualizarTrilhasV3 — v3 care-pathway bootstrap and bed re-li | trilhas-engine | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-trilhas-engine-02](RATIFICATION.md) | AMBIGUOUS |
 | RULE-TRILHAS-ENGINE-013 | Trilha name humanization (6-char prefix split) | trilhas-engine | NOT_APPLICABLE | RETIRE | — | AMBIGUOUS |
 | RULE-TRILHAS-ENGINE-014 | Accept interactive protocol workflow | trilhas-engine | NOT_APPLICABLE | SUPERSEDE | [sepsis.md §protocol-response-workflow](clinical/domains/sepsis.md) | — |
-| RULE-TRILHAS-ENGINE-015 | Refuse interactive protocol workflow (justification required | trilhas-engine | NOT_APPLICABLE | RATIFY | [RATIFICATION.md §rat-trilhas-engine-03](RATIFICATION.md) | AMBIGUOUS |
+| RULE-TRILHAS-ENGINE-015 | Refuse interactive protocol workflow (justification required | trilhas-engine | NOT_APPLICABLE | ADAPT | [RATIFICATION.md §rat-trilhas-engine-03](RATIFICATION.md) | AMBIGUOUS |
 | RULE-TRILHAS-ENGINE-016 | Criterion recommendations and interventions rendering | trilhas-engine | NOT_APPLICABLE | ADAPT | [clinical-forms.md §recommendation-list](design/screens/clinical-forms.md) | — |
-| RULE-TRILHAS-ENGINE-017 | Per-criterion drug-dosing reference image | trilhas-engine | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-trilhas-engine-04](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-TRILHAS-ENGINE-017 | Per-criterion drug-dosing reference image | trilhas-engine | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-trilhas-engine-04](RATIFICATION.md) | UNVERIFIABLE |
 | RULE-TRILHAS-ENGINE-018 | Care-pathway type enumeration (AssistidoChoices vs Observaca | trilhas-engine | NOT_APPLICABLE | ADOPT-CORRECTED | [clinical-forms.md §trilha-tipo-enum](design/screens/clinical-forms.md) | P3 |
 | RULE-VENTILACAO-001 | Predicted body weight and protective tidal volume (VC 4/5/6  | ventilacao | VERIFIED | ADOPT | [respiratory.md §pbw-tidal-volume-targets](clinical/domains/respiratory.md) | — |
-| RULE-VENTILACAO-002 | Days on mechanical ventilation (buscar_dias_com_ventilacao_m | ventilacao | UNVERIFIABLE | RATIFY | [RATIFICATION.md §rat-ventilacao-01](RATIFICATION.md) | UNVERIFIABLE |
-| RULE-VENTILACAO-003 | Ventilation C1 - high inspiratory pressure or tidal volume | ventilacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-ventilacao-02](RATIFICATION.md) | P1 |
-| RULE-VENTILACAO-004 | Ventilation C2 - FiO2xPEEP mismatch with moderate hypoxemia | ventilacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-ventilacao-03](RATIFICATION.md) | P1 |
-| RULE-VENTILACAO-005 | Ventilation C3 - FiO2xPEEP mismatch with severe hypoxemia | ventilacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-ventilacao-04](RATIFICATION.md) | P1 |
+| RULE-VENTILACAO-002 | Days on mechanical ventilation (buscar_dias_com_ventilacao_m | ventilacao | UNVERIFIABLE | ADOPT | [RATIFICATION.md §rat-ventilacao-01](RATIFICATION.md) | UNVERIFIABLE |
+| RULE-VENTILACAO-003 | Ventilation C1 - high inspiratory pressure or tidal volume | ventilacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-ventilacao-02](RATIFICATION.md) | P1 |
+| RULE-VENTILACAO-004 | Ventilation C2 - FiO2xPEEP mismatch with moderate hypoxemia | ventilacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-ventilacao-03](RATIFICATION.md) | P1 |
+| RULE-VENTILACAO-005 | Ventilation C3 - FiO2xPEEP mismatch with severe hypoxemia | ventilacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-ventilacao-04](RATIFICATION.md) | P1 |
 | RULE-VENTILACAO-006 | Ventilation C2/C3 previous-version FiO2->PEEP table (peep_ol | ventilacao | DISCREPANCY | RETIRE | — | P3 |
 | RULE-VENTILACAO-007 | Ventilation C4 - weaning readiness / consciousness | ventilacao | DISCREPANCY | ADAPT | [respiratory.md §weaning-readiness](clinical/domains/respiratory.md) | P2 |
 | RULE-VENTILACAO-008 | Ventilation C5 - prolonged intubation (>10 days TOT) | ventilacao | VERIFIED | ADOPT | [respiratory.md §prolonged-intubation-tracheostomy](clinical/domains/respiratory.md) | — |
-| RULE-VENTILACAO-009 | Ventilation C6 - prolonged intubation with COVID-19 | ventilacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-ventilacao-05](RATIFICATION.md) | P1 |
+| RULE-VENTILACAO-009 | Ventilation C6 - prolonged intubation with COVID-19 | ventilacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-ventilacao-05](RATIFICATION.md) | P1 |
 | RULE-VENTILACAO-010 | Ventilation C7 - severe hypoxemia early in admission | ventilacao | VERIFIED | ADOPT | [correlation-engine.md §ards-shock](clinical/domains/correlation-engine.md) | — |
-| RULE-VENTILACAO-011 | Ventilation C8 - extubation-readiness bundle | ventilacao | DISCREPANCY | RATIFY | [RATIFICATION.md §rat-ventilacao-06](RATIFICATION.md) | P0 |
+| RULE-VENTILACAO-011 | Ventilation C8 - extubation-readiness bundle | ventilacao | DISCREPANCY | ADOPT | [RATIFICATION.md §rat-ventilacao-06](RATIFICATION.md) | P0 |
 | RULE-VENTILACAO-012 | Ventilation C9 - shock without ventilation | ventilacao | DISCREPANCY | ADOPT-CORRECTED | [correlation-engine.md §shock-without-ventilation](clinical/domains/correlation-engine.md) | P2 |
 | RULE-VENTILACAO-013 | Ventilation C10 - adequate oxygenation (incl. COPD target) | ventilacao | VERIFIED | ADOPT | [respiratory.md §oxygenation-targets](clinical/domains/respiratory.md) | — |
 | RULE-VENTILACAO-014 | Ventilation pathway alert (count + special-criterion overrid | ventilacao | NOT_APPLICABLE | ADAPT | [respiratory.md §alert-aggregation](clinical/domains/respiratory.md) | — |
@@ -1110,7 +1112,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P1-055 | P1 | RULE-EFICIENCIA-002 | RATIFY | RATIFICATION.md |
 | ESC-P1-056 | P1 | RULE-EFICIENCIA-004 | RATIFY | RATIFICATION.md |
 | ESC-P1-057 | P1 | RULE-SEPSE-044 | RATIFY | RATIFICATION.md |
-| ESC-P2-058 | P2 | RULE-CLINICAL-SCORING-014 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P2-058 | P2 | RULE-CLINICAL-SCORING-014 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P2-059 | P2 | RULE-EVOLUCOES-003 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P2-060 | P2 | RULE-FORMULARIOS-CLINICOS-002 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P2-061 | P2 | RULE-FORMULARIOS-CLINICOS-003 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
@@ -1138,7 +1140,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P2-083 | P2 | RULE-VENTILACAO-007 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P2-084 | P2 | RULE-VENTILACAO-012 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P2-085 | P2 | RULE-EFICIENCIA-003 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
-| ESC-P2-086 | P2 | RULE-NUTRICAO-006 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P2-086 | P2 | RULE-NUTRICAO-006 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P2-087 | P2 | RULE-SEPSE-042 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P2-088 | P2 | RULE-SEPSE-048 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P2-089 | P2 | RULE-SEPSE-050 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
@@ -1152,7 +1154,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P3-097 | P3 | RULE-SEDACAO-004 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-098 | P3 | RULE-BALANCO-HIDRICO-058 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-099 | P3 | RULE-SEDACAO-011 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
-| ESC-P3-100 | P3 | RULE-SINAIS-VITAIS-031 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-100 | P3 | RULE-SINAIS-VITAIS-031 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-101 | P3 | RULE-BALANCO-HIDRICO-022 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-102 | P3 | RULE-ALERTAS-003 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-103 | P3 | RULE-BALANCO-HIDRICO-025 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
@@ -1167,7 +1169,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P3-112 | P3 | RULE-BALANCO-HIDRICO-026 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-113 | P3 | RULE-BALANCO-HIDRICO-035 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-114 | P3 | RULE-BALANCO-HIDRICO-043 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
-| ESC-P3-115 | P3 | RULE-COMUNICACAO-026 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-115 | P3 | RULE-COMUNICACAO-026 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-116 | P3 | RULE-EVOLUCOES-025 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-117 | P3 | RULE-EVOLUCOES-029 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-118 | P3 | RULE-EVOLUCOES-030 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
@@ -1179,7 +1181,7 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P3-124 | P3 | RULE-SEDACAO-016 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-125 | P3 | RULE-SEPSE-073 | RESOLVED-BY-DISPOSITION (SUPERSEDE) | traceability (disposition) |
 | ESC-P3-126 | P3 | RULE-SEPSE-079 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
-| ESC-P3-127 | P3 | RULE-TENANCY-ORGANIZACAO-037 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-127 | P3 | RULE-TENANCY-ORGANIZACAO-037 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-128 | P3 | RULE-TRILHAS-ENGINE-001 | RESOLVED-BY-DISPOSITION (SUPERSEDE) | traceability (disposition) |
 | ESC-P3-129 | P3 | RULE-TRILHAS-ENGINE-018 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-130 | P3 | RULE-VENTILACAO-006 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
@@ -1206,8 +1208,8 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P3-151 | P3 | RULE-BALANCO-HIDRICO-051 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-152 | P3 | RULE-BALANCO-HIDRICO-061 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-153 | P3 | RULE-CADASTROS-UI-016 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
-| ESC-P3-154 | P3 | RULE-COMUNICACAO-034 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
-| ESC-P3-155 | P3 | RULE-COMUNICACAO-035 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-154 | P3 | RULE-COMUNICACAO-034 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
+| ESC-P3-155 | P3 | RULE-COMUNICACAO-035 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-156 | P3 | RULE-DOCUMENTACAO-FATURAMENTO-008 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-157 | P3 | RULE-DOCUMENTACAO-FATURAMENTO-021 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-158 | P3 | RULE-DOCUMENTACAO-FATURAMENTO-022 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
@@ -1224,20 +1226,20 @@ Generated mechanically from `docs/plan/_work/dispositions/` and `docs/plan/_work
 | ESC-P3-169 | P3 | RULE-MOVIMENTACAO-ADT-069 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-170 | P3 | RULE-OPERACIONAL-INFRA-018 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-171 | P3 | RULE-OPERACIONAL-INFRA-021 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
-| ESC-P3-172 | P3 | RULE-OPERACIONAL-INFRA-032 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
-| ESC-P3-173 | P3 | RULE-OPERACIONAL-INFRA-036 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
-| ESC-P3-174 | P3 | RULE-OPERACIONAL-INFRA-056 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-172 | P3 | RULE-OPERACIONAL-INFRA-032 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
+| ESC-P3-173 | P3 | RULE-OPERACIONAL-INFRA-036 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
+| ESC-P3-174 | P3 | RULE-OPERACIONAL-INFRA-056 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-175 | P3 | RULE-PRESCRICAO-029 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-176 | P3 | RULE-PRESCRICAO-035 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-177 | P3 | RULE-PRESCRICAO-037 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-178 | P3 | RULE-PRESCRICAO-040 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-179 | P3 | RULE-SINAIS-VITAIS-006 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
-| ESC-P3-180 | P3 | RULE-TENANCY-ORGANIZACAO-049 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-180 | P3 | RULE-TENANCY-ORGANIZACAO-049 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-181 | P3 | RULE-VENTILACAO-025 | RESOLVED-BY-DISPOSITION (ADAPT) | traceability (disposition) |
 | ESC-P3-182 | P3 | RULE-OPERACIONAL-INFRA-014 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-183 | P3 | RULE-OPERACIONAL-INFRA-026 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-184 | P3 | RULE-OPERACIONAL-INFRA-031 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
-| ESC-P3-185 | P3 | RULE-OPERACIONAL-INFRA-047 | RESOLVED-BY-DISPOSITION (RATIFY) | RATIFICATION.md |
+| ESC-P3-185 | P3 | RULE-OPERACIONAL-INFRA-047 | RESOLVED-BY-DISPOSITION (ADOPT) | traceability (disposition) |
 | ESC-P3-186 | P3 | RULE-PRESCRICAO-007 | RESOLVED-BY-DISPOSITION (RETIRE) | traceability (disposition) |
 | ESC-P3-187 | P3 | RULE-PRESCRICAO-027 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
 | ESC-P3-188 | P3 | RULE-AUTH-USUARIOS-044 | RESOLVED-BY-DISPOSITION (ADOPT-CORRECTED) | traceability (disposition) |
