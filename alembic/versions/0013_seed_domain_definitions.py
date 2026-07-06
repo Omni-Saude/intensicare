@@ -1,7 +1,7 @@
 """seed domain alert definitions — tabela alert_definition_version (WO-030+WO-031)
 
 Revision ID: 0013_seed_domain_definitions
-Revises: 0008_driver_idempotency
+Revises: 0012
 Create Date: 2026-07-05
 
 Forward-only (ADR-0011): NUNCA editar uma migracao ja aplicada; sempre adicione uma nova.

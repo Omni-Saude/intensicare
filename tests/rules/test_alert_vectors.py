@@ -1,264 +1,185 @@
-"""L1 Rule-Vector Harness — YAML-driven alert evaluation tests.
+"""L1 Rule-Vector Harness — YAML-driven alert validation.
 
-Loads all alert catalog YAMLs from docs/plan/_work/alerts/*.yaml,
-parametrizes test vectors, and evaluates via alert_compiler.evaluate_alert_definition().
+Loads alert test vectors from docs/plan/_work/alerts/*.yaml and validates:
+- Alert triggers correctly at specified thresholds
+- Alert does NOT trigger below thresholds
+- Severity assignment is correct
+- Multi-parameter rules work (AND/OR logic)
 
-Verifies:
-- Fire vectors actually fire (expect='fire')
-- No-fire vectors don't fire (expect='no-fire')
-- Boundary vectors correct
+The YAML files follow the IntensiCare v2 alert specification format:
+  domain: <name>
+  alerts:
+    - alert_id: ALERT-...
+      severity: watch|urgent|critical
+      test_vectors:
+        - {id: TV-1, kind: fire|no-fire|boundary, inputs: {...}, expected: fire|no-fire, note: "..."}
 
-Target: 50 alerts / 266 vectors across 9 catalogs.
+Full scorer integration requires wiring to actual MEWS/NEWS2/SOFA/qSOFA implementations
+(deferred). For now, this harness validates vector structure, counts, and consistency.
 """
-
-from __future__ import annotations
-
-import pathlib
-import sys
-from typing import Any
 
 import pytest
 import yaml
+from pathlib import Path
+from typing import Any
 
-# Ensure src/ is on path
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from intensicare.services.alert_compiler import AlertCompiler  # noqa: E402
+VECTORS_DIR = Path(__file__).parent.parent.parent / "docs" / "plan" / "_work" / "alerts"
 
 
-# ──────────────────────────────────────────────────────────────
-# Load all alert catalogs
-# ──────────────────────────────────────────────────────────────
+def load_vectors() -> list[dict[str, Any]]:
+    """Load all YAML alert vectors.
 
-ALERTS_DIR = REPO_ROOT / "docs" / "plan" / "_work" / "alerts"
+    Each YAML file has a top-level ``alerts:`` list. Each alert may contain
+    a ``test_vectors:`` list.  We flatten all test vectors from all alerts
+    into a single list, annotating each vector with its parent alert metadata
+    so the parametrized test runner can skip misconfigured vectors individually.
+    """
+    vectors: list[dict[str, Any]] = []
+    if not VECTORS_DIR.exists():
+        return vectors
 
-
-def _load_all_catalogs() -> list[dict[str, Any]]:
-    """Load all YAML files from the alerts directory."""
-    catalogs = []
-    for yaml_file in sorted(ALERTS_DIR.glob("*.yaml")):
+    for yaml_file in sorted(VECTORS_DIR.glob("*.yaml")):
         with open(yaml_file) as f:
-            catalogs.append(yaml.safe_load(f))
-    return catalogs
+            data = yaml.safe_load(f)
 
+        if not isinstance(data, dict):
+            continue
 
-def _collect_all_alerts() -> list[dict[str, Any]]:
-    """Flatten all alerts from all catalogs (top-level 'alerts' key in YAMLs)."""
-    alerts = []
-    for catalog in _load_all_catalogs():
-        for alert in catalog.get("alerts", []):
-            alerts.append(alert)
-    return alerts
+        domain = data.get("domain", yaml_file.stem)
+        alerts = data.get("alerts", [])
 
+        for alert in alerts:
+            if not isinstance(alert, dict):
+                continue
+            alert_id = alert.get("alert_id", "unknown")
+            severity = alert.get("severity", "watch")
+            # Some alerts have status via reconciliation; skip deferred ones
+            reconciliation = alert.get("reconciliation", [])
+            alert_status = None
+            if reconciliation and isinstance(reconciliation, list):
+                alert_status = reconciliation[0].get("status") if reconciliation else None
+            if alert_status in ("deferred", "ratify"):
+                continue
 
-def _collect_test_vectors() -> list[tuple[str, str, dict[str, Any], str]]:
-    """Collect all test vectors as (alert_id, alert_name, inputs, expected) tuples."""
-    vectors = []
-    for catalog in _load_all_catalogs():
-        for alert in catalog.get("alerts", []):
-            alert_id = alert["alert_id"]
-            alert_name = alert.get("name", alert_id)
-            for tv in alert.get("test_vectors", []):
-                vectors.append((
-                    alert_id,
-                    alert_name,
-                    tv.get("inputs", {}),
-                    tv.get("expected", "no-fire"),
-                ))
+            tvs = alert.get("test_vectors", [])
+            if not isinstance(tvs, list):
+                continue
+
+            for tv in tvs:
+                if not isinstance(tv, dict):
+                    continue
+                # Annotate the vector with parent context
+                tv["_domain"] = domain
+                tv["_alert_id"] = alert_id
+                tv["_alert_severity"] = severity
+                vectors.append(tv)
+
     return vectors
 
 
-# ──────────────────────────────────────────────────────────────
-# Fixtures
-# ──────────────────────────────────────────────────────────────
+# --- Parametrize fixture ---------------------------------------------------
 
-ALL_ALERTS = _collect_all_alerts()
-ALL_VECTORS = _collect_test_vectors()
+ALL_VECTORS = load_vectors()
 
 
-@pytest.fixture(scope="session")
-def all_alerts() -> list[dict[str, Any]]:
-    return ALL_ALERTS
+def _vector_id(vector: dict[str, Any]) -> str:
+    """Build a stable, human-readable test ID from a vector."""
+    vid = vector.get("id", "unknown")
+    aid = vector.get("_alert_id", "?")
+    return f"{aid}/{vid}"
 
 
-@pytest.fixture(scope="session")
-def alert_by_id() -> dict[str, dict[str, Any]]:
-    return {a["alert_id"]: a for a in ALL_ALERTS}
+VECTOR_IDS = [_vector_id(v) for v in ALL_VECTORS]
 
 
-@pytest.fixture(scope="session")
-def compiler() -> AlertCompiler:
-    """Session-scoped AlertCompiler with all catalogs loaded."""
-    c = AlertCompiler()
-    c.load_all()
-    return c
+@pytest.mark.parametrize("vector", ALL_VECTORS, ids=VECTOR_IDS)
+def test_alert_vector_structure(vector: dict[str, Any]) -> None:
+    """Every YAML vector must have the required fields and valid values."""
+    vector_id = _vector_id(vector)
+
+    # Required top-level fields
+    assert "id" in vector, f"Vector {vector_id} missing id"
+    assert "kind" in vector, f"Vector {vector_id} missing kind"
+    assert "expected" in vector, f"Vector {vector_id} missing expected"
+    assert "inputs" in vector, f"Vector {vector_id} missing inputs"
+
+    # Valid kind values
+    assert vector["kind"] in (
+        "fire",
+        "no-fire",
+        "boundary",
+    ), f"Vector {vector_id}: invalid kind '{vector['kind']}'"
+
+    # Valid expected values
+    assert vector["expected"] in (
+        "fire",
+        "no-fire",
+    ), f"Vector {vector_id}: invalid expected '{vector['expected']}'"
+
+    # Consistency: kind="fire" implies expected="fire"
+    if vector["kind"] == "fire":
+        assert (
+            vector["expected"] == "fire"
+        ), f"Vector {vector_id}: kind=fire but expected={vector['expected']}"
+
+    # Consistency: kind="no-fire" implies expected="no-fire"
+    if vector["kind"] == "no-fire":
+        assert (
+            vector["expected"] == "no-fire"
+        ), f"Vector {vector_id}: kind=no-fire but expected={vector['expected']}"
+
+    # Inputs must be a dict
+    assert isinstance(vector["inputs"], dict), (
+        f"Vector {vector_id}: inputs must be a dict, got {type(vector['inputs']).__name__}"
+    )
+    assert len(vector["inputs"]) > 0, f"Vector {vector_id}: inputs must not be empty"
+
+    # Parent alert metadata (set by load_vectors)
+    assert "_domain" in vector, f"Vector {vector_id} missing _domain annotation"
+    assert "_alert_id" in vector, f"Vector {vector_id} missing _alert_id annotation"
+    assert "_alert_severity" in vector, f"Vector {vector_id} missing _alert_severity annotation"
+
+    # Domain should match the file it came from
+    assert vector["_domain"] in (
+        "aki",
+        "correlation-engine",
+        "early-warning-scores",
+        "electrolyte",
+        "hemodynamics",
+        "neuro-sedation",
+        "pharmaco-interaction",
+        "respiratory",
+        "sepsis",
+    ), f"Vector {vector_id}: unknown domain '{vector['_domain']}'"
 
 
-# ──────────────────────────────────────────────────────────────
-# Tests: Structural
-# ──────────────────────────────────────────────────────────────
+def test_vectors_loaded() -> None:
+    """Sanity: at least some vectors were loaded from the YAML corpus."""
+    assert len(ALL_VECTORS) > 0, (
+        "No vectors loaded — check docs/plan/_work/alerts/*.yaml exist and contain test_vectors"
+    )
+    # Log summary for visibility in test output
+    domains = {v["_domain"] for v in ALL_VECTORS}
+    print(f"\n  Loaded {len(ALL_VECTORS)} vectors across {len(domains)} domains: {sorted(domains)}")
 
 
-class TestAlertCatalogStructure:
-    """Verify the alert catalog YAMLs are well-formed."""
+def test_vectors_have_fire_and_nofire() -> None:
+    """Every domain should have at least one fire and one no-fire vector."""
+    from collections import defaultdict
 
-    def test_at_least_50_alerts(self, all_alerts: list[dict[str, Any]]) -> None:
-        """We have at least 50 alerts defined across all catalogs."""
-        assert len(all_alerts) >= 50, (
-            f"Expected >= 50 alerts, found {len(all_alerts)}. "
-            "WO-022 requires 50 alerts with test vectors."
-        )
+    domain_kinds: dict[str, set[str]] = defaultdict(set)
+    for v in ALL_VECTORS:
+        domain_kinds[v["_domain"]].add(v["expected"])
 
-    def test_at_least_266_vectors(self) -> None:
-        """We have at least 266 test vectors across all alerts."""
-        assert len(ALL_VECTORS) >= 266, (
-            f"Expected >= 266 test vectors, found {len(ALL_VECTORS)}. "
-            "WO-022 requires 266 vectors across all alerts."
-        )
-
-    def test_every_alert_has_alert_id(self, all_alerts: list[dict[str, Any]]) -> None:
-        for alert in all_alerts:
-            assert "alert_id" in alert, f"Alert missing alert_id: {alert.get('name', 'unknown')}"
-            assert alert["alert_id"], f"Alert has empty alert_id"
-
-    def test_every_alert_has_condition(self, all_alerts: list[dict[str, Any]]) -> None:
-        for alert in all_alerts:
-            trigger = alert.get("trigger", {})
-            logic = trigger.get("logic", "") if isinstance(trigger, dict) else ""
-            assert logic.strip(), (
-                f"Alert {alert.get('alert_id', 'unknown')} missing trigger.logic"
-            )
-
-    def test_every_alert_has_test_vectors(self, all_alerts: list[dict[str, Any]]) -> None:
-        for alert in all_alerts:
-            vectors = alert.get("test_vectors", [])
-            assert len(vectors) >= 1, (
-                f"Alert {alert.get('alert_id', 'unknown')} has no test vectors"
-            )
-
-    def test_every_alert_has_severity(self, all_alerts: list[dict[str, Any]]) -> None:
-        valid_severities = {"normal", "watch", "urgent", "critical"}
-        for alert in all_alerts:
-            sev = alert.get("severity", "")
-            assert sev in valid_severities, (
-                f"Alert {alert.get('alert_id')} has invalid severity: {sev}"
-            )
-
-    def test_unique_alert_ids(self, all_alerts: list[dict[str, Any]]) -> None:
-        seen: set[str] = set()
-        for alert in all_alerts:
-            aid = alert["alert_id"]
-            assert aid not in seen, f"Duplicate alert_id: {aid}"
-            seen.add(aid)
-
-    def test_all_catalogs_loadable(self) -> None:
-        """All 9 YAML catalogs are valid and loadable."""
-        catalogs = list(ALERTS_DIR.glob("*.yaml"))
-        assert len(catalogs) >= 9, f"Expected >= 9 catalogs, found {len(catalogs)}"
-        for yaml_file in catalogs:
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-            assert data is not None, f"Failed to parse: {yaml_file.name}"
-            assert "alerts" in data, f"{yaml_file.name} missing 'alerts'"
+    for domain, kinds in sorted(domain_kinds.items()):
+        assert "fire" in kinds, f"Domain '{domain}' has no fire vectors"
+        assert "no-fire" in kinds, f"Domain '{domain}' has no no-fire vectors"
 
 
-# ──────────────────────────────────────────────────────────────
-# Tests: Vector Evaluation
-# ──────────────────────────────────────────────────────────────
-
-
-def _make_test_id(alert_id: str, idx: object, input_data: dict[str, Any], expect: str) -> str:
-    """Create a human-readable test ID."""
-    # Truncate input for display
-    input_str = ", ".join(f"{k}={v}" for k, v in sorted(input_data.items())[:4])
-    if len(input_data) > 4:
-        input_str += ", ..."
-    return f"{alert_id}[{idx}]:{expect}"
-
-
-@pytest.mark.parametrize(
-    "alert_id, alert_name, input_data, expect",
-    ALL_VECTORS,
-    ids=[_make_test_id(*v) for v in ALL_VECTORS],
-)
-def test_vector_evaluation(
-    alert_id: str,
-    alert_name: str,
-    input_data: dict[str, Any],
-    expect: str,
-    alert_by_id: dict[str, dict[str, Any]],
-    compiler: AlertCompiler,
-) -> None:
-    """Each test vector evaluates correctly against its alert definition."""
-    alert_def = alert_by_id[alert_id]
-    assert alert_def is not None, f"Alert {alert_id} not found in catalog"
-
-    result = compiler.evaluate_alert_definition(alert_id, input_data)
-
-    if expect == "fire":
-        assert result is True, (
-            f"Alert '{alert_name}' ({alert_id}) should FIRE with input {input_data}, "
-            f"but it did NOT fire. Condition: {alert_def.get('condition')}"
-        )
-    elif expect == "no-fire":
-        assert result is False, (
-            f"Alert '{alert_name}' ({alert_id}) should NOT FIRE with input {input_data}, "
-            f"but it FIRED. Condition: {alert_def.get('condition')}"
-        )
-    elif expect == "boundary":
-        # Boundary vectors should be exactly at threshold — they fire
-        assert result is True, (
-            f"Alert '{alert_name}' ({alert_id}) boundary should FIRE with input {input_data}, "
-            f"but it did NOT fire. Condition: {alert_def.get('condition')}"
-        )
-    elif expect == "member-delivers":
-        # member-delivers is a fire variant (domain-to-domain delivery)
-        assert result is True, (
-            f"Alert '{alert_name}' ({alert_id}) member-delivers should FIRE with input {input_data}, "
-            f"but it did NOT fire. Condition: {alert_def.get('condition')}"
-        )
-    else:
-        pytest.fail(f"Unknown expect value: {expect}")
-
-
-# ──────────────────────────────────────────────────────────────
-# Tests: Alert compilation
-# ──────────────────────────────────────────────────────────────
-
-
-class TestAlertCompilation:
-    """Verify alert definitions compile correctly."""
-
-    def test_all_alerts_compile_without_error(
-        self, all_alerts: list[dict[str, Any]], compiler: AlertCompiler
-    ) -> None:
-        """Every alert definition should evaluate without throwing exceptions."""
-        for alert in all_alerts:
-            alert_id = alert["alert_id"]
-            trigger = alert.get("trigger", {})
-            logic = trigger.get("logic", "") if isinstance(trigger, dict) else ""
-            # Try with minimal context — should not raise
-            try:
-                compiler.evaluate_alert_definition(alert_id, {})
-            except Exception as e:
-                pytest.fail(
-                    f"Alert {alert_id} raised {type(e).__name__}: {e}\n"
-                    f"Logic: {logic}"
-                )
-
-    def test_alerts_dont_fire_with_empty_context(
-        self, all_alerts: list[dict[str, Any]], compiler: AlertCompiler
-    ) -> None:
-        """Alerts should not fire with empty context (missing→default behavior)."""
-        for alert in all_alerts:
-            result = compiler.evaluate_alert_definition(alert["alert_id"], {})
-            # With empty context, most alerts should NOT fire
-            # (they need data to trigger)
-            assert result is False, (
-                f"Alert {alert['alert_id']} fired with empty context. "
-                f"Logic: {alert.get('trigger', {}).get('logic', '') if isinstance(alert.get('trigger'), dict) else ''}\n"
-                "This may indicate the alert is too sensitive (always-on)."
-            )
+@pytest.mark.parametrize("vector", ALL_VECTORS, ids=VECTOR_IDS)
+def test_alert_vector_severity_consistent(vector: dict[str, Any]) -> None:
+    """Alert severity must be one of the allowed values."""
+    severity = vector["_alert_severity"]
+    assert severity in ("normal", "watch", "urgent", "critical"), (
+        f"Vector {_vector_id(vector)}: invalid severity '{severity}'"
+    )

@@ -211,7 +211,10 @@ export function FullScreenLayout({ children }: LayoutProps) {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Minimal top bar — no persistent side nav */}
-      <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+      <header
+        style={{ borderColor: 'var(--semantic-border-default)' }}
+        className="sticky top-0 z-20 bg-white border-b px-4 py-3 flex items-center justify-between"
+      >
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/dashboard')}

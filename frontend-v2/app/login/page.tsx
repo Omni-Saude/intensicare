@@ -83,7 +83,10 @@ function LoginForm() {
           <h2 className="text-lg font-semibold text-white mb-6">Sign In</h2>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            <div
+              style={{ backgroundColor: 'var(--clinical-severity-critical-wash)' }}
+              className="mb-4 p-3 border border-red-500/30 rounded-lg text-red-400 text-sm"
+            >
               {error}
             </div>
           )}
@@ -100,7 +103,8 @@ function LoginForm() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 placeholder="Enter your username"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                className="w-full px-4 py-2.5 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
               />
             </div>
 
@@ -116,7 +120,8 @@ function LoginForm() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   placeholder="Enter your password"
-                  className="w-full px-4 py-2.5 pr-10 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                  style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                  className="w-full px-4 py-2.5 pr-10 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
                 />
                 <button
                   type="button"

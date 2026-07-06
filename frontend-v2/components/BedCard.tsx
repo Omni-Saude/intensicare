@@ -6,36 +6,37 @@ interface BedCardProps {
 }
 
 function TrendIcon({ trend }: { trend: string | null }) {
-  if (!trend) return <span className="text-gray-400">→</span>;
-  if (trend === 'increasing') return <span className="text-red-500 font-bold">↑</span>;
-  if (trend === 'decreasing') return <span className="text-green-500 font-bold">↓</span>;
-  return <span className="text-gray-500">→</span>;
+  if (!trend) return <span style={{ color: 'var(--semantic-text-secondary)' }}>→</span>;
+  if (trend === 'increasing') return <span className="font-bold" style={{ color: 'var(--clinical-severity-critical-on-surface)' }}>↑</span>;
+  if (trend === 'decreasing') return <span className="font-bold" style={{ color: 'var(--clinical-severity-normal-on-surface)' }}>↓</span>;
+  return <span style={{ color: 'var(--semantic-text-secondary)' }}>→</span>;
 }
 
 function AlertBadge({ severity }: { severity: string | null }) {
-  if (!severity) return <span className="inline-block w-3 h-3 rounded-full bg-green-400" />;
+  if (!severity) return <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--clinical-severity-normal-signal)' }} />;
   if (severity === 'critical')
-    return <span className="inline-block w-3 h-3 rounded-full bg-red-500 animate-pulse" />;
+    return <span className="inline-block w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: 'var(--clinical-severity-critical-signal)' }} />;
   if (severity === 'warning')
-    return <span className="inline-block w-3 h-3 rounded-full bg-yellow-500" />;
-  return <span className="inline-block w-3 h-3 rounded-full bg-blue-400" />;
+    return <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--clinical-severity-watch-signal)' }} />;
+  return <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--clinical-severity-urgent-signal)' }} />;
 }
 
 function ScoreValue({ score, risk, label }: { score: number | null; risk: string | null; label: string }) {
   if (score === null || score === undefined)
-    return <span className="text-gray-400 text-xs">--</span>;
+    return <span className="text-xs" style={{ color: 'var(--semantic-text-secondary)' }}>--</span>;
 
-  let color = 'text-gray-700';
+  let colorVar = 'var(--semantic-text-primary)';
+  let fontWeight = '';
   if (label === 'MEWS') {
-    if (score >= 5) color = 'text-red-600 font-bold';
-    else if (score >= 3) color = 'text-yellow-600 font-semibold';
+    if (score >= 5) { colorVar = 'var(--clinical-severity-critical-on-surface)'; fontWeight = 'font-bold'; }
+    else if (score >= 3) { colorVar = 'var(--clinical-severity-watch-on-surface)'; fontWeight = 'font-semibold'; }
   } else {
-    if (risk === 'high') color = 'text-red-600 font-bold';
-    else if (risk === 'medium') color = 'text-yellow-600 font-semibold';
+    if (risk === 'high') { colorVar = 'var(--clinical-severity-critical-on-surface)'; fontWeight = 'font-bold'; }
+    else if (risk === 'medium') { colorVar = 'var(--clinical-severity-watch-on-surface)'; fontWeight = 'font-semibold'; }
   }
 
   return (
-    <span className={`text-sm ${color}`}>
+    <span className={`text-sm ${fontWeight}`} style={{ color: colorVar }}>
       {score}
       {risk && risk !== 'low' && (
         <span className="text-xs ml-1 opacity-70">({risk})</span>
@@ -47,16 +48,24 @@ function ScoreValue({ score, risk, label }: { score: number | null; risk: string
 export default function BedCard({ patient, onClick }: BedCardProps) {
   const hasAlerts = patient.active_alerts_count > 0;
 
+  const cardStyle: React.CSSProperties = {};
+  let borderClass = 'border-gray-200';
+
+  if (patient.highest_alert_severity === 'critical') {
+    cardStyle.backgroundColor = 'var(--clinical-severity-critical-wash)';
+    cardStyle.borderColor = 'var(--clinical-severity-critical-signal)';
+    borderClass = '';
+  } else if (hasAlerts) {
+    cardStyle.backgroundColor = 'var(--clinical-severity-watch-wash)';
+    cardStyle.borderColor = 'var(--clinical-severity-watch-signal)';
+    borderClass = '';
+  }
+
   return (
     <button
       onClick={() => onClick(patient.mpi_id)}
-      className={`w-full text-left bg-white rounded-lg border-2 p-4 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-        patient.highest_alert_severity === 'critical'
-          ? 'border-red-300 bg-red-50'
-          : hasAlerts
-            ? 'border-yellow-300 bg-yellow-50'
-            : 'border-gray-200'
-      }`}
+      style={cardStyle}
+      className={`w-full text-left bg-white rounded-lg border-2 p-4 hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-500 ${borderClass}`}
     >
       <div className="flex items-center justify-between mb-2">
         <div>
@@ -72,7 +81,7 @@ export default function BedCard({ patient, onClick }: BedCardProps) {
           </div>
         </div>
         {patient.active_alerts_count > 0 && (
-          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--clinical-severity-critical-fill)', color: 'var(--clinical-severity-critical-on-fill)' }}>
             {patient.active_alerts_count}
           </span>
         )}

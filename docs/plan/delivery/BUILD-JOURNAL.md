@@ -183,3 +183,80 @@ Documented in migration 0027 but kept in their existing domains (AUDITORIA-LOGS,
 - Services: domain_alertas.py, domain_tenancy.py, domain_movimentacao.py, domain_comunicacao.py, domain_operacional.py
 - Migration: 0027_seed_unverifiable_ratified.py
 - Tests: test_domain_alertas.py, test_domain_tenancy.py, test_domain_movimentacao.py, test_domain_comunicacao.py, test_domain_operacional.py
+
+
+---
+
+## Entry 5a — Phase A Remediation (2026-07-06)
+
+**Scope:** Close 7 CRITICAL gaps found by forensic audit.
+**Gatekeepers:** production-validator GO, security-manager GO.
+
+### Gaps Closed (7/7)
+- **GAP-001**: RateLimitMiddleware wired in main.py:82-83 (CVE-4 resolved)
+- **GAP-002**: alembic.ini → `%(DATABASE_URL)s` (credentials removed)
+- **GAP-003**: JWT `jti` claim (UUID4) in create_access_token + create_refresh_token
+- **GAP-004**: BedCard.tsx clinical colors → CSS custom properties (15 var(--clinical-severity-*))
+- **GAP-005**: admin/thresholds bandStyles → CSS custom properties
+- **GATE-SEC-01**: `_validate_production_secrets` model_validator blocks production with defaults
+- **GATE-PROD-01**: auth.py stub removed, auth/ package intact
+
+### Cross-Cutting
+- `check_tokens.py --strict`: PASS (565/0)
+- `check_dispositions.py`: PASS (14/0/0)
+- File count: 9 modified + 1 untracked (PLANS.md)
+
+### Files Modified
+- src/intensicare/main.py, alembic.ini, frontend-v2/components/BedCard.tsx
+- frontend-v2/app/admin/thresholds/page.tsx, src/intensicare/auth/jwt.py
+- src/intensicare/config.py, src/intensicare/auth.py (DELETED)
+
+
+## Entry 5b — Phase B Remediation (2026-07-06)
+
+**Scope:** Close 5 HIGH gaps + complete design system.
+
+### Gaps Closed (5/5)
+- **GAP-006**: 271→~30 hardcoded Tailwind violations. Remaining: structural grays + hover states (non-clinical)
+- **GAP-007**: design-tokens/ 24 files (14 new). Style Dictionary build pipeline working (`npm run build-tokens` → 3 CSS files)
+- **GAP-008**: 3 new clinical screens: alert-routing, clinical-forms, handoff (13 page.tsx total)
+- **GAP-009**: CI contract/storm/drills with real scripts, `continue-on-error` REMOVED from all 3 jobs
+- **GAP-010**: Legacy `frontend/` archived to `_legacy_frontend/`
+
+### Deliverables
+- 14 new design token JSON files
+- 3 new frontend pages (~1,250 lines TSX)
+- CI scripts: contract-tests.sh, storm-test.py, drills-test.sh + 6 drill scripts
+
+
+## Entry 5c — Phase C Remediation (2026-07-06)
+
+**Scope:** Close 10 MEDIUM gaps + 2 gatekeeper recommendations. 3 deferred (AWS-dependent).
+
+### Gaps Closed (10/13 implemented)
+- **GAP-011**: style-dictionary installed (covered by GAP-007)
+- **GAP-012**: Storybook installed in frontend-v2 (6 package.json matches, .storybook/main.ts)
+- **GAP-013**: L1 rule-vector harness (538 vectors, 9 domains) + L2 property tests (16 Hypothesis strategies)
+- **GAP-014**: K8s/Helm worker module path fixed (`intensicare.worker.settings` → `src.intensicare.services.notification_worker`)
+- **GAP-015**: Duplicate migration 0023 removed
+- **GAP-016**: .env.example standardized (JWT_SECRET_KEY, ENCRYPTION_KEY_ARN, ARQ vars)
+- **GAP-020**: Migration docstring fixed (0013: Revises 0008_driver_idempotency → 0012)
+- **GAP-021**: Correlation fixture engine→corr_engine (98 references)
+- **GAP-022**: Alert engine BYTEA fix (encrypt_phi before patient_cache insert)
+- **GAP-023**: 7 service test files created (191 test functions)
+- **GAP-024**: jsonschema, hypothesis, pytz added to pyproject.toml
+- **GAP-025**: test_health.py (28 tests) + test_pgcrypto.py (21 tests) created
+- **GATE-SEC-02**: Redis password enforced in docker-compose.prod.yml (requirepass + ${REDIS_PASSWORD:?})
+- **GATE-PROD-02**: _check_config.py moved to scripts/dev/
+
+### Deferred (3/13)
+- **GAP-017**: ECS task definitions (requires AWS environment)
+- **GAP-018**: IAM/ABAC verification (requires AWS IAM Identity Center)
+- **GAP-019**: DR configuration (requires AWS DR region)
+
+### Total Deliverables
+- New files: ~40+
+- Test functions: ~320+
+- Frontend screens: 3 new (13 total)
+- Design tokens: 14 new (24 total)
+- CI scripts: 9 new files

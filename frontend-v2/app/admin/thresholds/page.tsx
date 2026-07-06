@@ -397,14 +397,26 @@ function ThresholdBandInput({
   onChange: (v: number) => void;
   band: 'watch' | 'urgent' | 'critical';
 }) {
-  const colors: Record<string, string> = {
-    watch: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-    urgent: 'bg-orange-50 border-orange-200 text-orange-800',
-    critical: 'bg-red-50 border-red-200 text-red-800',
+  const bandStyles: Record<string, React.CSSProperties> = {
+    watch: {
+      backgroundColor: 'var(--clinical-severity-watch-wash)',
+      borderColor: 'var(--clinical-severity-watch-signal)',
+      color: 'var(--clinical-severity-watch-on-fill)',
+    },
+    urgent: {
+      backgroundColor: 'var(--clinical-severity-urgent-wash)',
+      borderColor: 'var(--clinical-severity-urgent-signal)',
+      color: 'var(--clinical-severity-urgent-on-fill)',
+    },
+    critical: {
+      backgroundColor: 'var(--clinical-severity-critical-wash)',
+      borderColor: 'var(--clinical-severity-critical-signal)',
+      color: 'var(--clinical-severity-critical-on-fill)',
+    },
   };
 
   return (
-    <div className={`${colors[band]} rounded-lg p-2.5 border`}>
+    <div style={bandStyles[band]} className="rounded-lg p-2.5 border">
       <label className="text-[10px] font-semibold uppercase tracking-wider mb-1 block opacity-70">
         {label}
       </label>

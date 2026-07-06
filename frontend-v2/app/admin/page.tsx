@@ -78,13 +78,17 @@ export default function AdminPage() {
         {statCards.map((stat) => (
           <div
             key={stat.label}
-            className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm"
+            style={{ borderColor: 'var(--semantic-border-default)' }}
+            className="bg-white rounded-xl border p-5 shadow-sm"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500 font-medium">{stat.label}</p>
                 {loading ? (
-                  <div className="h-8 w-16 bg-slate-100 rounded animate-pulse mt-1" />
+                  <div
+                    style={{ backgroundColor: 'var(--semantic-surface-canvas)' }}
+                    className="h-8 w-16 rounded animate-pulse mt-1"
+                  />
                 ) : error ? (
                   <p className="text-2xl font-bold text-red-400 mt-0.5">!</p>
                 ) : (
@@ -106,7 +110,8 @@ export default function AdminPage() {
           <button
             key={card.href}
             onClick={() => router.push(card.href)}
-            className="group text-left bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all hover:border-slate-300"
+            style={{ borderColor: 'var(--semantic-border-default)' }}
+            className="group text-left bg-white rounded-xl border p-6 shadow-sm hover:shadow-md transition-all hover:border-slate-300"
           >
             <div className="flex items-start gap-4">
               <div
@@ -126,7 +131,10 @@ export default function AdminPage() {
       </div>
 
       {/* System info */}
-      <div className="mt-8 bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+      <div
+        style={{ borderColor: 'var(--semantic-border-default)' }}
+        className="mt-8 bg-white rounded-xl border p-6 shadow-sm"
+      >
         <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
           System Information
         </h3>

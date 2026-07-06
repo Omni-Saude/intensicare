@@ -81,16 +81,16 @@ export default function PatientTimelinePage() {
 
   const getScoreColor = (type: string, value: number) => {
     if (type === 'mews') {
-      if (value >= 5) return 'text-red-600';
-      if (value >= 3) return 'text-yellow-600';
-      return 'text-green-600';
+      if (value >= 5) return 'var(--clinical-severity-critical-on-surface)';
+      if (value >= 3) return 'var(--clinical-severity-watch-on-surface)';
+      return 'var(--clinical-severity-normal-on-surface)';
     }
     if (type === 'news2') {
-      if (value >= 7) return 'text-red-600';
-      if (value >= 5) return 'text-yellow-600';
-      return 'text-green-600';
+      if (value >= 7) return 'var(--clinical-severity-critical-on-surface)';
+      if (value >= 5) return 'var(--clinical-severity-watch-on-surface)';
+      return 'var(--clinical-severity-normal-on-surface)';
     }
-    return 'text-slate-600';
+    return 'var(--semantic-text-secondary)';
   };
 
   if (loading) {
@@ -106,10 +106,20 @@ export default function PatientTimelinePage() {
   if (error || !data) {
     return (
       <Layout>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-          <h2 className="font-semibold text-red-700">Error</h2>
-          <p className="text-sm mt-1 text-red-600">{error || 'Patient not found'}</p>
-          <button onClick={() => router.back()} className="mt-3 text-sm underline text-red-600">
+        <div
+          style={{
+            backgroundColor: 'var(--clinical-severity-critical-wash)',
+            borderColor: 'var(--clinical-severity-critical-wash)',
+          }}
+          className="border rounded-xl p-6"
+        >
+          <h2 style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="font-semibold">Error</h2>
+          <p style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="text-sm mt-1">{error || 'Patient not found'}</p>
+          <button
+            onClick={() => router.back()}
+            style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
+            className="mt-3 text-sm underline"
+          >
             Go back
           </button>
         </div>
@@ -152,7 +162,13 @@ export default function PatientTimelinePage() {
           </div>
           <div className="flex items-center gap-2">
             {data.active_alerts.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-medium">
+              <span
+                style={{
+                  backgroundColor: 'var(--clinical-severity-critical-wash)',
+                  color: 'var(--clinical-severity-critical-on-surface)',
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium"
+              >
                 <Bell className="w-4 h-4" />
                 {data.active_alerts.length} active alert{data.active_alerts.length !== 1 ? 's' : ''}
               </span>
@@ -160,7 +176,8 @@ export default function PatientTimelinePage() {
             <button
               onClick={loadData}
               disabled={loading}
-              className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50"
+              style={{ borderColor: 'var(--semantic-border-default)' }}
+              className="p-2 rounded-lg border bg-white hover:bg-slate-50"
             >
               <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -170,7 +187,10 @@ export default function PatientTimelinePage() {
 
       {/* Latest vitals card */}
       {latestVitals && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-6">
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="bg-white rounded-xl border p-6 shadow-sm mb-6"
+        >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
             Latest Vitals
           </h3>
@@ -234,7 +254,10 @@ export default function PatientTimelinePage() {
       {/* Score timeline */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* MEWS History */}
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="bg-white rounded-xl border p-6 shadow-sm"
+        >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
             MEWS History
           </h3>
@@ -255,7 +278,10 @@ export default function PatientTimelinePage() {
         </div>
 
         {/* NEWS2 History */}
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="bg-white rounded-xl border p-6 shadow-sm"
+        >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
             NEWS2 History
           </h3>
@@ -292,7 +318,10 @@ export default function PatientTimelinePage() {
 
       {/* Vitals Timeline */}
       {data.vitals_history.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="bg-white rounded-xl border p-6 shadow-sm"
+        >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
             Vitals Timeline (24h)
           </h3>
@@ -315,12 +344,22 @@ export default function PatientTimelinePage() {
                     </span>
                   )}
                   {point.spo2 !== null && (
-                    <span className={`${(point.spo2 || 100) < 92 ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>
+                    <span
+                      style={{
+                        color: (point.spo2 || 100) < 92 ? 'var(--clinical-severity-critical-on-surface)' : undefined,
+                        fontWeight: (point.spo2 || 100) < 92 ? 'bold' : undefined,
+                      }}
+                    >
                       SpO₂: {point.spo2}%
                     </span>
                   )}
                   {point.temperature !== null && (
-                    <span className={`${(point.temperature || 0) > 38 ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>
+                    <span
+                      style={{
+                        color: (point.temperature || 0) > 38 ? 'var(--clinical-severity-critical-on-surface)' : undefined,
+                        fontWeight: (point.temperature || 0) > 38 ? 'bold' : undefined,
+                      }}
+                    >
                       Temp: {point.temperature}°C
                     </span>
                   )}
@@ -365,12 +404,26 @@ function VitalItem({
       (warnLow !== undefined && value <= warnLow));
 
   return (
-    <div className={`p-3 rounded-lg ${isWarn ? 'bg-red-50' : 'bg-slate-50'}`}>
+    <div
+      style={{
+        backgroundColor: isWarn
+          ? 'var(--clinical-severity-critical-wash)'
+          : 'var(--semantic-surface-canvas)',
+      }}
+      className="p-3 rounded-lg"
+    >
       <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
         {icon}
         {label}
       </div>
-      <div className={`text-lg font-bold ${isWarn ? 'text-red-600' : 'text-slate-800'}`}>
+      <div
+        style={{
+          color: isWarn
+            ? 'var(--clinical-severity-critical-on-surface)'
+            : 'var(--semantic-text-primary)',
+        }}
+        className="text-lg font-bold"
+      >
         {value !== null && value !== undefined ? (
           <>
             {value}
@@ -398,7 +451,7 @@ function ScoreTimelineRow({
     <div className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
       <span className="text-xs text-slate-400">{formatDate(point.calculated_at)}</span>
       <div className="flex items-center gap-2">
-        <span className={`text-lg font-bold ${getScoreColor(point.score_type, point.score_value)}`}>
+        <span className="text-lg font-bold" style={{ color: getScoreColor(point.score_type, point.score_value) }}>
           {point.score_value}
         </span>
         {point.trend === 'increasing' && <TrendingUp className="w-3.5 h-3.5 text-red-500" />}

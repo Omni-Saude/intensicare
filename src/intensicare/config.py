@@ -2,10 +2,11 @@
 Configuração centralizada da aplicação usando pydantic-settings.
 """
 
+import logging
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import PostgresDsn, SecretStr, computed_field
+from pydantic import PostgresDsn, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -169,6 +170,36 @@ class Settings(BaseSettings):
                 "redis://" + self.redis_host + ":" + str(self.redis_port) + "/" + str(self.redis_db)
             )
         return url
+
+
+    @model_validator(mode='after')
+    def _validate_production_secrets(self) -> 'Settings':
+        """Block production startup with default/insecure secrets."""
+        if self.environment == "production":
+            if self.secret_key.get_secret_value() == "change-me-in-production":
+                raise ValueError(
+                    "SECRET_KEY must be set via environment variable in production. "
+                    "Default 'change-me-in-production' is not acceptable."
+                )
+            if self.postgres_password.get_secret_value() == "intensicare_dev":
+                raise ValueError(
+                    "POSTGRES_PASSWORD must be set via environment variable in production. "
+                    "Default 'intensicare_dev' is not acceptable."
+                )
+            if self.redis_password.get_secret_value() == "":
+                raise ValueError(
+                    "REDIS_PASSWORD must be set via environment variable in production. "
+                    "Empty password is not acceptable."
+                )
+        if self.environment in ("staging", "production"):
+            if self.redis_password.get_secret_value() == "":
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "REDIS_PASSWORD is empty in %s environment. "
+                    "Redis authentication is recommended.",
+                    self.environment,
+                )
+        return self
 
 
 @lru_cache

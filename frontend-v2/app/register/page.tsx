@@ -53,13 +53,19 @@ export default function RegisterPage() {
           <h2 className="text-lg font-semibold text-white mb-6">Register</h2>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            <div
+              style={{ backgroundColor: 'var(--clinical-severity-critical-wash)' }}
+              className="mb-4 p-3 border border-red-500/30 rounded-lg text-red-400 text-sm"
+            >
               {error}
             </div>
           )}
 
           {success && (
-            <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg text-green-400 text-sm">
+            <div
+              style={{ backgroundColor: 'var(--clinical-severity-normal-wash)' }}
+              className="mb-4 p-3 border border-green-500/30 rounded-lg text-green-400 text-sm"
+            >
               Account created successfully! Redirecting to login...
             </div>
           )}
@@ -77,7 +83,8 @@ export default function RegisterPage() {
                 required
                 minLength={3}
                 placeholder="Choose a username"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                className="w-full px-4 py-2.5 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
               />
             </div>
 
@@ -92,7 +99,8 @@ export default function RegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="you@hospital.com"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                className="w-full px-4 py-2.5 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
               />
             </div>
 
@@ -106,7 +114,8 @@ export default function RegisterPage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Dr. Smith"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                className="w-full px-4 py-2.5 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
               />
             </div>
 
@@ -122,7 +131,8 @@ export default function RegisterPage() {
                 required
                 minLength={8}
                 placeholder="At least 8 characters"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
+                style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
+                className="w-full px-4 py-2.5 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-colors"
               />
             </div>
 

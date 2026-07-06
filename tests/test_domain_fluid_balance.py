@@ -449,3 +449,171 @@ class Test2HBuckets:
             assert label in buckets
             assert "intake" in buckets[label]
             assert "output" in buckets[label]
+
+
+# ===========================================================================
+# Additional edge-case tests (GAP-023 coverage enhancement)
+# ===========================================================================
+
+
+class TestFluidBalanceResult:
+    """Tests for FluidBalanceResult dataclass."""
+
+    def test_result_creation(self):
+        """Should create a valid FluidBalanceResult."""
+        from intensicare.services.domain_fluid_balance import FluidBalanceResult
+
+        result = FluidBalanceResult(
+            total_intake_ml=1000.0,
+            total_output_ml=500.0,
+            net_balance_ml=500.0,
+            urine_output_ml=300.0,
+            max_temperature=37.5,
+        )
+        assert result.total_intake_ml == 1000.0
+        assert result.total_output_ml == 500.0
+        assert result.urine_output_ml == 300.0
+        assert result.net_balance_ml == 500.0
+
+    def test_result_with_none_temperature(self):
+        """Temperature can be None when no readings."""
+        from intensicare.services.domain_fluid_balance import FluidBalanceResult
+
+        result = FluidBalanceResult(
+            total_intake_ml=0.0,
+            total_output_ml=0.0,
+            net_balance_ml=0.0,
+            urine_output_ml=0.0,
+            max_temperature=None,
+        )
+        assert result.max_temperature is None
+
+
+class TestNursingDayWindowModel:
+    """Tests for NursingDayWindow dataclass."""
+
+    def test_window_creation(self):
+        from intensicare.services.domain_fluid_balance import NursingDayWindow
+        from datetime import datetime, timezone
+
+        w = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        assert w.nursing_date == "2026-07-06"
+        assert w.duration_hours() == 24.0
+
+
+class TestFluidBalanceEmptyEntries:
+    """Edge cases with empty entries lists."""
+
+    def test_empty_entries_return_zero_balance(self):
+        """No entries at all should return zero balance."""
+        from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import NursingDayWindow, compute_24h_fluid_balance
+
+        window = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        result = compute_24h_fluid_balance([], [], window)
+        assert result.total_intake_ml == 0.0
+        assert result.total_output_ml == 0.0
+        assert result.net_balance_ml == 0.0
+        assert result.urine_output_ml == 0.0
+
+    def test_negative_quantidade_is_accepted(self):
+        """Negative quantities should be summed (correction entries)."""
+        from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import NursingDayWindow, compute_24h_fluid_balance
+
+        window = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        entradas = [
+            {"quantidade": 500, "data_hora": datetime(2026, 7, 6, 8, 0, 0, tzinfo=timezone.utc)},
+            {"quantidade": -100, "data_hora": datetime(2026, 7, 6, 9, 0, 0, tzinfo=timezone.utc)},
+        ]
+        result = compute_24h_fluid_balance(entradas, [], window)
+        assert result.total_intake_ml == 400.0
+
+    def test_null_handling_in_compute_max_temperature(self):
+        """compute_max_temperature with no readings returns None."""
+        from intensicare.services.domain_fluid_balance import compute_max_temperature
+
+        result = compute_max_temperature([])
+        assert result is None
+
+    def test_max_temperature_with_multiple_readings(self):
+        """Should return the maximum temperature."""
+        from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import (
+            NursingDayWindow,
+            compute_max_temperature,
+        )
+
+        window = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        temps = [
+            {"valor": 37.0, "data_hora": datetime(2026, 7, 6, 8, 0, 0, tzinfo=timezone.utc)},
+            {"valor": 38.5, "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)},
+            {"valor": 37.2, "data_hora": datetime(2026, 7, 6, 16, 0, 0, tzinfo=timezone.utc)},
+        ]
+        result = compute_max_temperature(temps, window)
+        assert result == 38.5
+
+
+class TestFluidBalanceComputeFunctions:
+    """Tests for individual compute functions used by the domain."""
+
+    def test_compute_ganhos_sums_intake(self):
+        """compute_ganhos should sum all intake entries in the window."""
+        from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import (
+            NursingDayWindow,
+            compute_ganhos,
+        )
+
+        window = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        entradas = [
+            {"quantidade": 250, "data_hora": datetime(2026, 7, 6, 8, 0, 0, tzinfo=timezone.utc)},
+            {"quantidade": 250, "data_hora": datetime(2026, 7, 6, 20, 0, 0, tzinfo=timezone.utc)},
+        ]
+        result = compute_ganhos(entradas, window)
+        assert result == 500.0
+
+    def test_compute_diureses_sums_urine_only(self):
+        """compute_diureses should sum only urine-related output."""
+        from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import (
+            NursingDayWindow,
+            compute_diureses,
+        )
+
+        window = NursingDayWindow(
+            start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 7, 7, 7, 0, 0, tzinfo=timezone.utc),
+            nursing_date="2026-07-06",
+        )
+        saidas = [
+            {"quantidade": 300, "data_hora": datetime(2026, 7, 6, 10, 0, 0, tzinfo=timezone.utc), "tipo": "diurese_sonda"},
+            {"quantidade": 200, "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc), "tipo": "evacuacao"},
+        ]
+        result = compute_diureses(saidas, window)
+        assert result == 300.0

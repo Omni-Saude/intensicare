@@ -529,13 +529,12 @@ jobs:
           done
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Job 9 — Contract Testing (draft-mode, não bloqueia merge)
+  # Job 9 — Contract Testing (bloqueia merge)
   # ═══════════════════════════════════════════════════════════════════════════
   contract:
     name: Contract Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    continue-on-error: true  # draft-mode: não bloqueia merge
     needs: lint
 
     steps:
@@ -548,28 +547,14 @@ jobs:
           cache: pip
 
       - name: Install schema tools
-        run: pip install openapi-spec-validator
+        run: pip install pyyaml openapi-spec-validator
 
-      - name: Validate OpenAPI spec
+      - name: Run contract tests
         run: |
           echo "### 📋 Contract Tests" >> $GITHUB_STEP_SUMMARY
-          if [ -f docs/plan/architecture/api/openapi.yaml ]; then
-            openapi-spec-validator docs/plan/architecture/api/openapi.yaml \
-              && echo "✅ OpenAPI válido" >> $GITHUB_STEP_SUMMARY \
-              || echo "⚠️  OpenAPI inválido (draft-mode)" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️  openapi.yaml não encontrado" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Validate AsyncAPI spec
-        run: |
-          if [ -f docs/plan/architecture/api/asyncapi.yaml ]; then
-            python3 -c 'import yaml, sys; spec = yaml.safe_load(open("docs/plan/architecture/api/asyncapi.yaml")); assert "asyncapi" in spec, "Missing asyncapi version"; assert "channels" in spec, "Missing channels"; print("OK")' \
-              && echo "✅ AsyncAPI válido" >> $GITHUB_STEP_SUMMARY \
-              || echo "⚠️  AsyncAPI inválido (draft-mode)" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️  asyncapi.yaml não encontrado" >> $GITHUB_STEP_SUMMARY
-          fi
+          bash scripts/ci/contract-tests.sh \
+            && echo "✅ Contract tests passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Contract tests failed" >> $GITHUB_STEP_SUMMARY; exit 1; }
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Job 10 — Accessibility Audit (draft-mode, não bloqueia merge)
@@ -609,13 +594,12 @@ jobs:
           kill %1 2>/dev/null || true
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Job 11 — Alert Storm Test (pre-release, draft-mode)
+  # Job 11 — Alert Storm Test (pre-release, bloqueia merge)
   # ═══════════════════════════════════════════════════════════════════════════
   storm:
     name: Alert Storm (L6)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    continue-on-error: true  # draft-mode: não bloqueia merge
     if: |
       github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [test, security]
@@ -640,24 +624,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[test]"
 
-      - name: Alert Storm Test (>500 alerts/min)
+      - name: Alert Storm Test (≥500 alerts/min)
         env:
           REDIS_URL: redis://localhost:6379/0
         run: |
           echo "### ⛈️  Alert Storm Test (L6)" >> $GITHUB_STEP_SUMMARY
-          echo "Target: >500 alerts/min sustained for 5 min" >> $GITHUB_STEP_SUMMARY
-          # Placeholder: será implementado pelo WO de alert-storm
-          echo "⚠️  Storm test é placeholder (draft-mode)" >> $GITHUB_STEP_SUMMARY
-          echo "ℹ️  Implementação pendente — WO-XXX (alert-engine stress)" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/ci/storm-test.py \
+            && echo "✅ Storm test passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Storm test failed" >> $GITHUB_STEP_SUMMARY; exit 1; }
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Job 12 — Chaos Drills (pre-release, draft-mode)
+  # Job 12 — Chaos Drills (pre-release, bloqueia merge)
   # ═══════════════════════════════════════════════════════════════════════════
   drills:
     name: Chaos Drills (L7)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    continue-on-error: true  # draft-mode: não bloqueia merge
     if: |
       github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [test, security]
@@ -702,7 +684,6 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: |
           echo "### 🌀 Chaos Drills (L7)" >> $GITHUB_STEP_SUMMARY
-          echo "Drills: DB kill, Redis kill, network-split, CPU-spike" >> $GITHUB_STEP_SUMMARY
-          # Placeholder: será implementado pelo WO de chaos-engineering
-          echo "⚠️  Chaos drills são placeholder (draft-mode)" >> $GITHUB_STEP_SUMMARY
-          echo "ℹ️  Implementação pendente — WO-XXX (chaos-engineering)" >> $GITHUB_STEP_SUMMARY
+          bash scripts/ci/drills-test.sh \
+            && echo "✅ Chaos drills passed" >> $GITHUB_STEP_SUMMARY \
+            || { echo "❌ Chaos drills failed" >> $GITHUB_STEP_SUMMARY; exit 1; }

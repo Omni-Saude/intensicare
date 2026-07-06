@@ -78,6 +78,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Rate limiting — prevents brute-force attacks on auth endpoints
+    from intensicare.core.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+
     # Health check — redirect /health to /api/v1/health for backward compat
     from fastapi.responses import RedirectResponse
 

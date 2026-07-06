@@ -172,23 +172,25 @@ export default function AdminUsersPage() {
       <div className="mb-6">
         <button
           onClick={() => router.push('/admin')}
-          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-3 transition-colors"
+          style={{ color: 'var(--semantic-text-secondary)' }}
+          className="inline-flex items-center gap-1.5 text-sm mb-3 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Admin
         </button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">User Management</h1>
-            <p className="text-slate-500 text-sm mt-1">
+            <h1 style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">User Management</h1>
+            <p style={{ color: 'var(--semantic-text-secondary)' }} className="text-sm mt-1">
               {total} user{total !== 1 ? 's' : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={loadUsers}
+              style={{ borderColor: 'var(--semantic-border-default)', color: 'var(--semantic-text-secondary)' }}
+              className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-slate-50"
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -206,7 +208,14 @@ export default function AdminUsersPage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm mb-4">
+        <div
+          style={{
+            backgroundColor: 'var(--clinical-severity-critical-wash)',
+            borderColor: 'var(--clinical-severity-critical-signal)',
+            color: 'var(--clinical-severity-critical-on-surface)',
+          }}
+          className="border rounded-xl p-3 text-sm mb-4"
+        >
           {error}
         </div>
       )}
@@ -214,15 +223,25 @@ export default function AdminUsersPage() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
+          <RefreshCw className="w-6 h-6 animate-spin" style={{ color: 'var(--semantic-text-secondary)' }} />
         </div>
       )}
 
       {/* Users table */}
       {!loading && users.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="bg-white rounded-xl border shadow-sm overflow-hidden"
+        >
           {/* Table header */}
-          <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <div
+            style={{
+              backgroundColor: 'var(--semantic-surface-canvas)',
+              borderColor: 'var(--semantic-border-default)',
+              color: 'var(--semantic-text-secondary)',
+            }}
+            className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 border-b text-xs font-semibold uppercase tracking-wider"
+          >
             <div className="col-span-2">User</div>
             <div className="col-span-2">Email</div>
             <div className="col-span-2 text-center">ABAC Role</div>
@@ -251,7 +270,7 @@ export default function AdminUsersPage() {
                         {user.display_name?.[0]?.toUpperCase() || user.username[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-medium text-slate-800 text-sm truncate">
+                        <div style={{ color: 'var(--semantic-text-primary)' }} className="font-medium text-sm truncate">
                           {user.display_name || user.username}
                           {isSelf && (
                             <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
@@ -259,14 +278,14 @@ export default function AdminUsersPage() {
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-slate-400">@{user.username}</div>
+                        <div style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs">@{user.username}</div>
                       </div>
                     </div>
                   </div>
 
                   {/* Email */}
-                  <div className="md:col-span-2 flex items-center gap-1.5 text-sm text-slate-600">
-                    <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                  <div style={{ color: 'var(--semantic-text-secondary)' }} className="md:col-span-2 flex items-center gap-1.5 text-sm">
+                    <Mail className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--semantic-text-secondary)' }} />
                     <span className="truncate">{user.email}</span>
                   </div>
 
@@ -277,7 +296,8 @@ export default function AdminUsersPage() {
                         value={user.role || 'viewer'}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
                         disabled={isUpdating || isSelf}
-                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none disabled:opacity-40"
+                        style={{ borderColor: 'var(--semantic-border-default)' }}
+                        className="px-2 py-1 text-xs border rounded-lg bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none disabled:opacity-40"
                       >
                         {ABAC_ROLES.map((r) => (
                           <option key={r.value} value={r.value}>
@@ -302,10 +322,14 @@ export default function AdminUsersPage() {
                   {/* Admin badge */}
                   <div className="md:col-span-1 flex justify-center">
                     <span
+                      style={{
+                        backgroundColor: user.is_admin ? undefined : 'var(--semantic-surface-canvas)',
+                        color: user.is_admin ? undefined : 'var(--semantic-text-secondary)',
+                      }}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                         user.is_admin
                           ? 'bg-purple-100 text-purple-700'
-                          : 'bg-slate-100 text-slate-500'
+                          : ''
                       }`}
                     >
                       <Shield className="w-3 h-3" />
@@ -316,11 +340,15 @@ export default function AdminUsersPage() {
                   {/* Status */}
                   <div className="md:col-span-1 flex justify-center">
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        user.is_active
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-red-100 text-red-700'
-                      }`}
+                      style={{
+                        backgroundColor: user.is_active
+                          ? 'var(--clinical-severity-normal-wash)'
+                          : 'var(--clinical-severity-critical-wash)',
+                        color: user.is_active
+                          ? 'var(--clinical-severity-normal-on-surface)'
+                          : 'var(--clinical-severity-critical-on-surface)',
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
                     >
                       {user.is_active ? (
                         <UserCheck className="w-3 h-3" />
@@ -332,7 +360,7 @@ export default function AdminUsersPage() {
                   </div>
 
                   {/* Created date */}
-                  <div className="md:col-span-2 flex justify-center items-center gap-1 text-xs text-slate-400">
+                  <div style={{ color: 'var(--semantic-text-secondary)' }} className="md:col-span-2 flex justify-center items-center gap-1 text-xs">
                     <Clock className="w-3 h-3 flex-shrink-0" />
                     <span className="truncate">{formatDate(user.created_at)}</span>
                   </div>
@@ -342,7 +370,8 @@ export default function AdminUsersPage() {
                     <button
                       onClick={() => handleAdminToggle(user.id, user.is_admin)}
                       disabled={isUpdating || isSelf}
-                      className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                      style={{ borderColor: 'var(--semantic-border-default)' }}
+                      className="px-2.5 py-1 text-xs rounded-lg border hover:bg-slate-50 disabled:opacity-40 transition-colors"
                       title={isSelf ? 'Cannot change your own admin status' : user.is_admin ? 'Remove admin' : 'Make admin'}
                     >
                       {isUpdating ? '...' : user.is_admin ? 'Demote' : 'Promote'}
@@ -350,10 +379,18 @@ export default function AdminUsersPage() {
                     <button
                       onClick={() => handleActiveToggle(user.id, user.is_active)}
                       disabled={isUpdating || isSelf}
+                      style={{
+                        borderColor: user.is_active
+                          ? 'var(--clinical-severity-critical-signal)'
+                          : 'var(--clinical-severity-normal-signal)',
+                        color: user.is_active
+                          ? 'var(--clinical-severity-critical-on-surface)'
+                          : 'var(--clinical-severity-normal-on-surface)',
+                      }}
                       className={`px-2.5 py-1 text-xs rounded-lg border transition-colors disabled:opacity-40 ${
                         user.is_active
-                          ? 'border-red-200 text-red-600 hover:bg-red-50'
-                          : 'border-green-200 text-green-600 hover:bg-green-50'
+                          ? 'hover:bg-red-50'
+                          : 'hover:bg-green-50'
                       }`}
                       title={isSelf ? 'Cannot deactivate yourself' : ''}
                     >
@@ -369,9 +406,12 @@ export default function AdminUsersPage() {
 
       {/* Empty state */}
       {!loading && users.length === 0 && (
-        <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
-          <Shield className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 font-medium">No users found</p>
+        <div
+          style={{ borderColor: 'var(--semantic-border-default)' }}
+          className="text-center py-20 bg-white rounded-xl border"
+        >
+          <Shield className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--semantic-text-secondary)', opacity: 0.4 }} />
+          <p style={{ color: 'var(--semantic-text-secondary)' }} className="font-medium">No users found</p>
         </div>
       )}
 
@@ -385,81 +425,94 @@ export default function AdminUsersPage() {
         >
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <h2 style={{ color: 'var(--semantic-text-primary)' }} className="text-lg font-semibold flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-blue-600" />
                 Create New User
               </h2>
               <button
                 onClick={() => setShowCreate(false)}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
+                style={{ color: 'var(--semantic-text-secondary)' }}
+                className="hover:text-slate-600 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {createError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm mb-4">
+              <div
+                style={{
+                  backgroundColor: 'var(--clinical-severity-critical-wash)',
+                  borderColor: 'var(--clinical-severity-critical-signal)',
+                  color: 'var(--clinical-severity-critical-on-surface)',
+                }}
+                className="border rounded-lg p-3 text-sm mb-4"
+              >
                 {createError}
               </div>
             )}
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                <label style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs font-semibold uppercase tracking-wider block mb-1">
                   Username *
                 </label>
                 <input
                   type="text"
                   value={createForm.username}
                   onChange={(e) => setCreateForm((f) => ({ ...f, username: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                  style={{ borderColor: 'var(--semantic-border-default)' }}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                   placeholder="johndoe"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                <label style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs font-semibold uppercase tracking-wider block mb-1">
                   Email *
                 </label>
                 <input
                   type="email"
                   value={createForm.email}
                   onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                  style={{ borderColor: 'var(--semantic-border-default)' }}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                   placeholder="john@hospital.com"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                <label style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs font-semibold uppercase tracking-wider block mb-1">
                   Password * (min 8 chars)
                 </label>
                 <input
                   type="password"
                   value={createForm.password}
                   onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                  style={{ borderColor: 'var(--semantic-border-default)' }}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                   placeholder="••••••••"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                <label style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs font-semibold uppercase tracking-wider block mb-1">
                   Display Name
                 </label>
                 <input
                   type="text"
                   value={createForm.display_name}
                   onChange={(e) => setCreateForm((f) => ({ ...f, display_name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                  style={{ borderColor: 'var(--semantic-border-default)' }}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                   placeholder="Dr. John Doe"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                <label style={{ color: 'var(--semantic-text-secondary)' }} className="text-xs font-semibold uppercase tracking-wider block mb-1">
                   ABAC Role
                 </label>
                 <select
                   value={createForm.role}
                   onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as AbacRole }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                  style={{ borderColor: 'var(--semantic-border-default)' }}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                 >
                   {ABAC_ROLES.map((r) => (
                     <option key={r.value} value={r.value}>
@@ -475,14 +528,15 @@ export default function AdminUsersPage() {
                   onChange={(e) => setCreateForm((f) => ({ ...f, is_admin: e.target.checked }))}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-700">Grant admin privileges</span>
+                <span style={{ color: 'var(--semantic-text-primary)' }} className="text-sm">Grant admin privileges</span>
               </label>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowCreate(false)}
-                className="flex-1 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                style={{ color: 'var(--semantic-text-secondary)', borderColor: 'var(--semantic-border-default)' }}
+                className="flex-1 px-4 py-2 text-sm font-medium bg-white border rounded-lg hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
