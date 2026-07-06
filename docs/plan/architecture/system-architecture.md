@@ -29,7 +29,7 @@ This document specifies the **C4 Levels 1–3** of IntensiCare v2 under the sing
 
 ## 1. C4 Level 1 — System Context
 
-IntensiCare sits **inside** the AMH landscape, not beside it. Its only clinical-data path is the AMH Data Platform; its only identity source is the MPI; its only enrichment path is HAPI FHIR; its only analytical sink is the Gold layer. The bedside monitor / HL7 v2 MLLP feed (`VIS-2-05`) is the **one** exception discussed in §3.3 / §6 — it exists to satisfy `VIS-C-09` and is precisely the boundary ADR-001 flags for the Alternativa-B decision.
+IntensiCare sits **inside** the AMH landscape, not beside it. Its only **analytical** clinical-data path is the AMH Data Platform (Gold via Athena); its only identity source is the MPI; its only enrichment path is HAPI FHIR; its only analytical sink is the Gold layer. The bedside monitor / HL7 v2 MLLP feed (`VIS-2-05`) is the **one sanctioned sub-batch operational-ingress path** (§3.3) — *operational telemetry, not an analytical read*: it exists to satisfy `VIS-C-09`, its scope relative to `ADR001-C-01` is clarified in `_work/adrs/operational-vitals-ingress.md` (RAT-INGRESS-01, pending platform-team ratification), and it is the boundary ADR-001 flags for the Alternativa-B decision (§6).
 
 ```mermaid
 flowchart TB
@@ -149,15 +149,82 @@ Two numbers govern everything:
 | Medication events | ~15 min | on order/admin (`VIS-4.2-07`) | Event-triggered; batch fine. |
 | Delirium (RASS/CAM-ICU) | ~1–4h | per shift, 4–12h (`VIS-4.2-05`) | Slow documentation cadence. |
 | **Early-warning scores (vitals)** | **N/A via Gold** | **score <30s, alert <5s (`IMP-2.2-02/03`, `VIS-C-09`)** | **Gold batch cannot meet <30s — routes to §3.3 / §6.** |
+| **Bed/unit assignment (ADT movement events)** | **N/A via Gold** | **~2 min of an admit/transfer/discharge event (`RT1-AMH-01` routing/threshold safety)** | **Gold batch (~30 min) cannot meet a ~2 min ADT target — routes to §3.3.1 (operational-ingress extension, `RT2-AMH-02`).** |
 
-### 3.3 The one place Gold-only is insufficient (routes to §6)
+### 3.3 Vitals operational ingress — the one sanctioned sub-batch path (ADR-clarified)
 
-Bedside early-warning scores (MEWS/NEWS2/qSOFA) and the continuous-monitor components of the hemodynamic/respiratory domains need a **sub-batch feed** — the "local TimescaleDB source … streaming via HL7 ORU / invasive monitor" in `VIS-4.2-01/03/04`. On a strict reading of `ADR001-C-01`, a 30-min Gold batch cannot deliver `VIS-C-09` (<30s). This is the exact seam ADR-001 left open ("insuficiente para o caso de uso de UTI", ADR-001 open-question 1). Two lawful ways to close it, both surfaced in the decision table of **§6**:
+Bedside early-warning scores (MEWS/NEWS2/qSOFA) and the continuous-monitor components of the hemodynamic/respiratory domains need a **sub-batch feed** — the "local TimescaleDB source … streaming via HL7 ORU / invasive monitor" in `VIS-4.2-01/03/04`. A 30-min Gold batch cannot deliver `VIS-C-09` (<30s); ADR-001 named this exact seam ("insuficiente para o caso de uso de UTI", ADR-001 open-question 1).
 
-1. **MLLP path** into the operational store (`VIS-2-05`) — vitals arrive sub-batch, scores compute NRT, Gold remains the analytical/replay source. This keeps `ADR001-C-01` intact for *clinical analytics* (Gold is still the canonical store) while acknowledging the operational feed.
-2. **Alternativa B** — ADR-001's own escape hatch: one dedicated **MSK streaming topic** feeding IntensiCare directly, bypassing the batch pipeline (`ADR001-F-08`).
+**Resolution — one story, replacing the earlier "unresolved / routed" framing.** Bedside-monitor vitals reach the **operational** store via the **existing Phase-1 HL7 v2 MLLP listener** (ORU-R01, `VIS-2-05`) — *operational ingress*, idempotent on `MSH-10` per INV-2 (`alert-engine.md §4.1`). This does **not** breach `ADR001-C-01`. That constraint's "no own ingestion / Athena-only" is scoped to **analytical and clinical-context data** — labs, medications, demographics/identity, cultures, documents — which reach IntensiCare **only** from Gold via Athena (§3.1) or the existing HAPI FHIR server (§4.3). Vitals are **operational telemetry**, not an analytical read; and **the same vitals are ALSO delivered to Gold and replayed from Gold for retrospective/analytical scoring and the `fact_*` write-back (§5)** — so **Gold remains the sole analytical source**. The operational MLLP feed is a live-scoring accelerator, not a second system of record; the operational store never becomes analytical (`ADR001-C-03`). No new ingestion stack is introduced — NiFi/Kafka/Debezium remain excluded (`ADR001-F-10`).
 
-The `alert-engine.md §1.2` explicitly hands this decision to this document. **§6 supplies the quantified trigger ADR-001 left qualitative.**
+This scope clarification of `ADR001-C-01` is formalized in **`_work/adrs/operational-vitals-ingress.md`** (**RAT-INGRESS-01**) — a **proposed clarification of ADR-001, pending platform-team ratification** (CTO Office + AMH Engineering, `ADR001-F-09`). It is the **working design of record**; if the platform team rejects the scope reading, the fallback is either the pure-batch reading (with a hazard-log entry for the ~30-min early-warning latency it reintroduces) or an accelerated Alternativa-B decision (§6).
+
+**Why not Alternativa B now.** Alternativa B — one dedicated **MSK streaming topic** feeding IntensiCare directly (`ADR001-F-08`) — remains ADR-001's **Fase-4** escape hatch, activated only if the operational MLLP path itself cannot close `VIS-C-09` (the quantified §6 **T1** trigger). The MLLP listener already exists; a new broker is unjustified for MVP. **§6 supplies the quantified trigger ADR-001 left qualitative.**
+
+### 3.3.1 ADT movement events — extending the operational-ingress scope (RT2-AMH-02)
+
+`bed_unit_assignment` (`_work/platform/amh-freshness.yaml`) carries a **~2-min, ADT-event-driven**
+freshness target — `patient_cache.bed_id`/`unit` current within ~2 min of an admit/transfer/
+discharge event — because a stale assignment silently mis-thresholds **and** mis-routes unit-level
+delivery after an intra-hospital transfer (`RT1-AMH-01`). That target had no sanctioned read path
+stated anywhere: it was absent from the §3.4 Athena poll-concurrency budget, and a ~2-min **Gold
+poll** cannot deliver it — Gold's own batch freshness is p95 < 30 min (`ADR001-F-02`), and per §3.2
+**cadence never beats source freshness**: polling a 30-min-fresh batch every 2 minutes does not make
+the data 2-minutes fresh, it only wastes an Athena query. Naming this an Athena poll would
+contradict this document's own §3.2 argument.
+
+**Resolution — ADT events are a second operational-ingress class, alongside vitals.** ADT movement
+events (admit/transfer/discharge) are, like bedside vitals, **real-time operational telemetry about
+current facility state** — not retrospective analytical/clinical-context data — so the same scope
+reasoning §3.3 applies to `vitals_operational` applies here: `ADR001-C-01`'s "no own ingestion /
+Athena-only" clause governs **analytical and clinical-context data** (labs, medications,
+demographics/identity, cultures, documents), which is why `mpi_demographics` stays on the 24 h,
+Athena/Gold-synced path. **Bed/unit assignment is split out of that demographics sync precisely
+because it is operational, not advisory** (`amh-freshness.yaml` `bed_unit_assignment` description)
+— its natural home is the **same sanctioned operational-ingress path** already carrying vitals
+(§3.3), not a new ingestion stack (`ADR001-F-10` remains respected: this is a second message class
+on the existing MLLP-class operational listener, not a new broker or pipeline).
+
+This **extends the `_work/adrs/operational-vitals-ingress.md` (RAT-INGRESS-01) scope clarification**
+to cover ADT movement events as a second sanctioned operational-telemetry class — pending the same
+platform-team ratification already sought for vitals (tracked as a distinct open item, OQ-6, §10).
+Concretely: the ADT source (`movimentacao-adt` cluster, HL7 ADT^A01/A02/A03-class events) is
+consumed by the operational listener alongside ORU-R01 vitals, idempotent on its own message key
+(mirroring `INV-2`'s MSH-10 idempotency), and resolved via MPI into `patient_cache.bed_id`/`unit` —
+**never** carried on the 24 h demographics sync. If RAT-INGRESS-01 (as extended) is **rejected**,
+`bed_unit_assignment`'s ~2-min SLO reverts to **best-effort** and that reversion is recorded here
+rather than left unsourced — the same fallback discipline §3.3 already applies to vitals if the
+vitals clarification itself is rejected.
+
+**Budget accounting (§3.4).** Because ADT events ride the operational-ingress path, they consume
+**zero Athena poll-concurrency budget** — see the added row in §3.4's table. Their cost sits instead
+in the operational listener's connection/message-rate budget (the same class as MLLP vitals
+traffic), bounded by ADT event volume (admits/transfers/discharges per bed-hour) — several orders
+of magnitude below continuous vitals traffic — and is not a scarce-quota resource the way Athena
+concurrency is.
+
+### 3.4 Athena poll-concurrency budget (240-bed / 4-hospital tier)
+
+The per-domain Gold poll cadences in §3.2 (electrolytes ~1–2 min expedited, sepsis/ABG ~5 min, AKI ~15–30 min, meds ~15 min, delirium ~1–4h) are only deliverable if IntensiCare's **peak concurrent Athena query count** stays inside the AMH DP's regional Athena concurrency quota. That headroom was previously deferred to AMH-DP without a number; this section quantifies it so the cadence commitments are honest.
+
+**Concurrency scales with domains × workgroups, not beds.** A domain poll scans a whole unit/tenant partition, so it is one query per (domain, tenant) per cadence tick — **not** one query per bed. Peak concurrency is therefore `Σ_domains (poll_duration ÷ poll_interval) × tenants`, effectively independent of bed count. Estimated at the production tier (4 hospitals × ~2 ICUs × ~30 beds ≈ 240 beds / 8 ICUs — the stepped-wedge footprint, cf. `observability-slo.md §6`):
+
+| Domain | Poll cadence | Poll duration (p95, est.) | Duty cycle → concurrent-query contribution |
+|---|---|---|---|
+| Electrolytes (expedited) | ~1–2 min | ~3–8 s | highest — up to ~1 in-flight per tenant near-continuously |
+| Sepsis labs / respiratory ABG | ~5 min | ~3–8 s | intermittent |
+| AKI, medication events | ~15–30 min | ~3–8 s | low duty cycle |
+| Delirium | ~1–4h | ~3–8 s | negligible |
+
+Summed across ~8 polling domains and ~4 tenant partitions, **expected steady-state concurrency is ~5–15 in-flight Athena queries**, bursting to **~20–30** when expedited electrolyte polls across all tenants align. Athena's default per-account/Region concurrent-DML quota is on the order of the **low tens** (a soft, raise-able limit); at 4-hospital scale the burst envelope sits close enough to that default that it **must be treated as a negotiated dependency, not an assumption**.
+
+**Consolidation strategy (keeps peak inside quota):**
+
+1. **Per-domain query batching** — one poll query scans all patients/beds in a unit (or tenant) per domain per cadence tick, never one query per bed; expedited electrolyte polls batch all CRIT-band patients in a tenant into a single partition scan.
+2. **Workgroup isolation** — a dedicated per-tenant Athena **workgroup** (Lake Formation ABAC, `ADR001-C-07`) with its own concurrency and bytes-scanned/DPU limits, so IntensiCare's polling cannot starve — or be starved by — other AMH DP consumers, and a runaway tenant is blast-contained.
+3. **Cadence backpressure** — if the row-0 gold-availability metric or Athena queue depth (`observability-slo.md §3`) shows queuing, the poller widens cadence for low-acuity domains first (delirium, meds), never the CRIT electrolyte or vitals paths.
+
+**Negotiated AMH dependency (OQ-5).** The required concurrent-query quota and the per-tenant workgroup partitioning are an **AMH-DP-side capacity commitment** (owned via `CON-0001`, escalated through §7's platform-team channel). The expedited ~1–2 min electrolyte cadence (§3.2) is committed **only** to the extent this headroom is proven at the 240-bed tier; absent the quota it is **best-effort**, and the electrolyte CRIT band falls back to the Alternativa-B trigger (§6 **T2**) as its mitigation.
 
 ---
 
@@ -276,7 +343,7 @@ ADR-001 left the Alternativa-B trigger **qualitative** ("reconsidered in Fase 4 
 
 | # | Condition (observed in Fase 2/3 production telemetry) | Threshold breached | Verdict | Rationale |
 |---|---|---|---|---|
-| **T1** | Vitals-driven early-warning **ingest→alert p95** measured against the vitals-driven path | **> 30s** (`VIS-C-09`) **and** the MLLP path (§3.3 option 1) cannot close it | **ACTIVATE Alternativa B** | This is the quantified trigger ADR-001 left open: the vitals early-warning promise is the hard sub-batch requirement. |
+| **T1** | Vitals-driven early-warning **ingest→alert p95** with the operational MLLP path (§3.3) **enabled and healthy** | **"MLLP cannot close it"** is now telemetry-observable — trigger on **either**: (a) vitals **end-to-end bedside→alert p95** — `source_freshness` (NRT path: monitor/ORU timestamp → operational-store queryable, `_work/budgets/latency.yaml`) **+** the owned-pipeline stage Σ (`poll_nrt` + `normalize` + `evaluate` + `persist` + `deliver`) — **> 30s** (`VIS-C-09`) sustained over a **rolling 7-day window** while the MLLP feed is healthy; **or** (b) MLLP feed **unavailable > 0.5% of monitored bed-hours** over the same 7-day window (mirrors the inherited 99.5% availability floor, `ADR001-C-10` — the operational path itself is then unreliable enough that it cannot be counted on to close the gap) | **ACTIVATE Alternativa B** | The quantified trigger ADR-001 left open — condition (a) corrected per `RT2-LAT-01`: the owned-pipeline stage histograms alone (`poll_nrt`/`normalize`/`evaluate`/`persist`/`deliver`, `observability-slo.md §3`) cover **only** the controllable pipeline (Σ ≈ 9s p95, NRT path) and, by construction, cannot exceed that sum regardless of how stale the upstream monitor feed is — they do **not** observe the NRT `source_freshness` leg (`_work/budgets/latency.yaml` row 0, `included_in_slo: false`, no histogram today), which is exactly what a chronically slow-but-live MLLP feed degrades. Condition (a) is therefore the **sum** stated in column 2, not the owned-pipeline stages alone. Instrumenting `source_freshness` as its own AMP histogram (mirroring `amh_gold_freshness_seconds`) is an `observability-slo.md`-owned build gap, flagged as a cross-doc dependency rather than silently assumed (OQ-1); until it ships, the nearest live proxy is the per-bed `vital_staleness_seconds` gauge (`observability-slo.md §4.3`) — coarser than a dedicated ingest-lag histogram, but sufficient to detect a sustained multi-minute lag. Condition (b) is unaffected: `healthcheck_probe_result` + MLLP-listener liveness (`observability-slo.md §4`) already observe feed availability directly. Presumes the §3.3 operational-ingress clarification is ratified (RAT-INGRESS-01); if it is **rejected**, condition (a) is met by construction and Alternativa B is the remedy. |
 | **T2** | High-acuity **electrolyte / hemodynamic** source age at alert time (CRIT band) | source freshness **> `staleness_max_for_alerting`** (1h electrolytes / 5min monitor, `amh-freshness.yaml`) **sustained** | **ACTIVATE for that source only** | Strongest micro-batch escape-hatch candidate per alert-engine §1.1; scope the new MSK topic to that partition. |
 | **T3** | Gold batch freshness itself | AMH Gold **p95 ≥ 30 min sustained** (breaches `ADR001-F-02`) | **ESCALATE to AMH platform team first** | The batch SLO breach is AMH's to fix; only if AMH cannot restore p95 < 30 min does Alternativa B become IntensiCare's remedy. |
 | **T4** | Availability | Gold/Athena **< 99.5%** sustained (`ADR001-C-10`) | **ESCALATE, do NOT self-provision** | Availability is inherited; a dedicated MSK topic does not fix a platform-availability problem — surface via §5.3 banner. |
@@ -378,10 +445,12 @@ flowchart TB
 
 **ADR-001 constraints exercised:** `ADR001-C-01` (§3, §6), `-C-02` (§4), `-C-03` (§2, §7, §9), `-C-04` (§5), `-C-05` (§4.3), `-C-06` (§2, §5.3, §8), `-C-07` (§3.1, §4, §8), `-C-08` (§8), `-C-09` (§7), `-C-10` (§5.3, §6). **ADR-001 facts:** `-F-02` (freshness baseline), `-F-04` (sa-east-1), `-F-05` (fact names), `-F-07` (MPI linking), `-F-08` (MSK topic), `-F-09` (stakeholders/owner), `-F-10` (excluded ingestion tech).
 
-**Ledger:** resolves `CON-SEED-04` (§9); consumes the resolution of the NRT-vs-Athena conflict routed by `alert-engine.md §1.2` (§3.3, §6); depends on `CON-0001`, `CON-0002`, `CON-0003`, `CON-0004`, `CON-0026`, `CON-0027`, `CON-0028`.
+**Ledger:** resolves `CON-SEED-04` (§9); **resolves** the NRT-vs-Athena conflict previously routed by `alert-engine.md §1.2` — reconciled here in §3.3 via the operational-ingress clarification `_work/adrs/operational-vitals-ingress.md` (**RAT-INGRESS-01**, pending platform-team ratification), so vitals are operational-ingress telemetry while Gold stays the sole analytical source (§3.3, §6); depends on `CON-0001`, `CON-0002`, `CON-0003`, `CON-0004`, `CON-0026`, `CON-0027`, `CON-0028`.
 
 **Open questions (carried, not silently answered):**
-- **OQ-1 (from ADR-001 OQ-1, now quantified but pending signoff):** the numeric Alternativa-B trigger is set at `VIS-C-09` p95 < 30s for vitals-driven scores (§6 T1). Requires **barrier-C3 latency signoff** to become binding.
+- **OQ-1 (from ADR-001 OQ-1, now quantified but pending signoff):** the numeric Alternativa-B trigger is fully specified in §6 T1 — vitals **end-to-end bedside→alert p95** (`source_freshness` + owned-pipeline Σ, not the owned-pipeline stages alone — `RT2-LAT-01`) **> 30s over a rolling 7-day window with MLLP healthy**, or MLLP feed **unavailable > 0.5% of monitored bed-hours** over the same window. Requires **barrier-C3 latency signoff** to become binding, presumes ratification of the §3.3 operational-ingress clarification (**RAT-INGRESS-01**), and depends on an `observability-slo.md`-owned NRT `source_freshness` histogram (mirroring `amh_gold_freshness_seconds`) that does not yet exist — flagged as a cross-doc instrumentation gap, not silently assumed.
+- **OQ-6 (new, `RT2-AMH-02`):** extending `_work/adrs/operational-vitals-ingress.md` (RAT-INGRESS-01) to cover ADT movement events as a second sanctioned operational-ingress class (alongside vitals, §3.3.1) is a **new pending platform-team ratification item**, not yet formally requested; until ratified, `bed_unit_assignment`'s ~2 min freshness target (§3.3.1) is designed-for but not yet a committed SLA. Owner: amh-integration-architect.
+- **OQ-5 (Athena poll-concurrency quota):** the per-tenant Athena **concurrent-query quota + workgroup partitioning** that the §3.4 poll-cadence budget depends on is an AMH-DP-side capacity commitment, not yet agreed. Until it is proven at the 240-bed tier, the expedited ~1–2 min electrolyte cadence (§3.2) is best-effort with the §6 T2 Alternativa-B trigger as its mitigation.
 - **OQ-2 (from data-model OQ):** exact write-back cadence to `fact_patient_score`/`fact_alert` (real-time vs hourly vs daily) is not fixed by any brief — proposed periodic-batch, to be confirmed with the AMH platform team (§5, §7).
 - **OQ-3 (from ADR-001 OQ-2, partially resolved):** Fase-4 Alternativa-B activation ownership is set to amh-integration-architect + CTO Office + AMH engineering (§6.2); the **MSK-topic provisioning SLA** remains to be agreed with the platform team.
 - **OQ-4:** `patient_cache` primary-key definition (natural key `mpi_id` vs surrogate) — deferred to data-architect (data-model OQ).

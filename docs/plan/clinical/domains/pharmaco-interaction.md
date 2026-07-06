@@ -67,8 +67,9 @@ inline lookups (§3.6, CON-0139). PT-BR vocabularies `VERMELHO/AMARELO/NEUTRO`, 
 
 ## 2. Typed, unit-checked inputs
 
-Every input unit is the canonical from `_work/units/registry.yaml`, **except `crcl` (mL/min)**, which is **missing**
-from the registry and used as the **mission canonical** pending its addition (§7, OQ-PHARMACO-01). Drug presence is
+Every input unit is the canonical from `_work/units/registry.yaml`, including creatinine clearance, which is the
+registered parameter **`clearance_creatinina`** (canonical **`mL/min`**, Cockcroft-Gault, dosing-only; display alias
+"CrCl"), explicitly distinct from the BSA-normalized `taxa_filtracao_glomerular`/eGFR per the registry's own note. Drug presence is
 represented as a **`boolean`** flag or a **`count`** over the versioned KB (§3), never as a raw dose — this keeps the
 domain clear of the SYS-02 vasopressor and sedative dose-unit hazards.
 
@@ -89,7 +90,7 @@ domain clear of the SYS-02 vasopressor and sedative dose-unit hazards.
 | `temperatura` | body_temperature | `degC` | Observation LOINC 8310-5 / monitor | PT6H |
 | `rass` | richmond_agitation_sedation_scale | `points` (−5..+4) | neuro-sedation / Observation LOINC 75826-6 | PT4H |
 | `creatinina` | serum_creatinine | `mg/dL` | lab_result LOINC 2160-0 | PT24H |
-| `crcl` | creatinine_clearance | **`mL/min`** *(missing from registry — §7)* | derived Cockcroft-Gault (creatinina+peso+idade+sex) | PT24H |
+| `clearance_creatinina` *(display: CrCl)* | creatinine_clearance | `mL/min` | derived Cockcroft-Gault (creatinina+peso+idade+sex) | PT24H |
 | `idade` | age | `years` | Patient (MPI demographics) | static |
 | `peso` | body_weight | `kg` | Observation LOINC 29463-7 (validated; SYS-09) | P7D |
 | `clonus` / `hiperreflexia` / `sudorese` | dimensionless | `boolean` | Observation / nursing exam | PT12H |
@@ -190,9 +191,9 @@ OR rass>+1)`. **Evidence:** Devlin PADIS 2018; Korak-Leiter 2005; vision §3.7 (
 neuro-sedation `neurosed.prolonged_sedation.flagged` (§5). Boundary: exactly 7 d → `gt_7d` flag false.
 
 ### 4.6 `ALERT-PHARMACO-RENALADJ-06` — Antimicrobiano sem ajuste renal (urgent)
-`antimicrobiano_eliminacao_renal_ativo AND crcl < 30 mL/min AND dose_excede_ajuste_renal AND drug NOT IN exception KB`.
+`antimicrobiano_eliminacao_renal_ativo AND clearance_creatinina < 30 mL/min AND dose_excede_ajuste_renal AND drug NOT IN exception KB`.
 **Evidence:** Rybak 2020; Matzke 2011; KDIGO DIKI 2023; vision §3.7 (VIS-3.7-08); `RULE-ANTIMICROBIANO-003` (ADAPT,
-versioned dose table §3.6). Boundary: CrCl = 30 is *not* <30. `crcl` unit is `mL/min` (missing from registry — §7).
+versioned dose table §3.6). Boundary: CrCl = 30 is *not* <30. `clearance_creatinina` (display "CrCl") is canonical `mL/min` per the registry (Cockcroft-Gault, dosing-only).
 
 ### 4.7 `ALERT-PHARMACO-STEWARDSHIP-07` — Revisão de antimicrobiano (watch) — *adapted stewardship timer*
 `antimicrobiano_ativo AND ( antimicrobiano_duracao_gt_7d OR (espectro_amplo AND NOT cultura_solicitada_48h) OR
@@ -251,12 +252,12 @@ weight-dependent value, CrCl (Cockcroft-Gault), inherits the SYS-09 `peso` guard
 
 ## 7. Open questions
 
-1. **`crcl` (creatinine clearance) unit missing from `_work/units/registry.yaml`** (OQ-PHARMACO-01). Renal-dose
-   mismatch (§4.6) and stewardship renal-adjust reasoning need Cockcroft-Gault CrCl. **Mission canonical assumed:
-   `mL/min`** (non-indexed Cockcroft-Gault, matching vision §3.7 "CrCl < 30 mL/min"). eGFR variants (CKD-EPI,
-   mL/min/1.73m²) are *not* interchangeable for drug dosing — the registry entry, when added, must distinguish
-   `creatinine_clearance` (mL/min, Cockcroft-Gault, for dosing) from indexed eGFR. Flagged per CONTRACTS "use the
-   mission canonical + open question" rule.
+1. **Creatinine clearance is registered — RESOLVED (was OQ-PHARMACO-01).** Renal-dose mismatch (§4.6) and
+   stewardship renal-adjust reasoning consume the registered parameter **`clearance_creatinina`** (canonical
+   `mL/min`, Cockcroft-Gault, dosing-only), matching vision §3.7 "CrCl < 30 mL/min". Per the registry's own note it
+   is explicitly **distinct** from the BSA-normalized `taxa_filtracao_glomerular`/eGFR (`mL/min/1.73m²`, CKD-EPI),
+   which is *not* interchangeable for drug dosing — so the two renal measures are never conflated. "CrCl" is kept
+   only as a display alias; the parameter identity every downstream spec uses is `clearance_creatinina`.
 2. **Time-duration primitives** (`h` / `d`) are used only inside *derived boolean* exposure flags
    (`*_gt_7d`, dwell days) — no numeric clinical threshold uses a raw time unit at a computation boundary, consistent
    with the sibling neuro-sedation domain's use of `h`. Confirm whether the registry should add explicit `h`/`d`.
@@ -294,7 +295,7 @@ inputs:
   - {name: temperatura, type: quantity, unit: "degC", source: "AMH Gold Observation LOINC 8310-5 / monitor"}
   - {name: rass, type: quantity, unit: "points", source: "neuro-sedation / AMH Gold Observation LOINC 75826-6 (signed -5..+4)"}
   - {name: creatinina, type: quantity, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0"}
-  - {name: crcl, type: quantity, unit: "mL/min", source: "derived Cockcroft-Gault; UNIT MISSING from registry — mission canonical mL/min (§7 OQ-PHARMACO-01)"}
+  - {name: clearance_creatinina, type: quantity, unit: "mL/min", source: "derived Cockcroft-Gault (creatinina+peso+idade+sex); canonical mL/min per registry clearance_creatinina (display alias CrCl; dosing-only, distinct from taxa_filtracao_glomerular/eGFR)"}
   - {name: idade, type: quantity, unit: "years", source: "MPI demographics (Patient)"}
   - {name: peso, type: quantity, unit: "kg", source: "AMH Gold Observation LOINC 29463-7 (validated peso; SYS-09)"}
   - {name: clonus, type: boolean, unit: "boolean", source: "AMH Gold Observation / nursing exam"}
@@ -348,5 +349,5 @@ interfaces:
     - {quantity: serum_potassium, unit: "mmol/L", source: "electrolyte domain"}
     - {quantity: serum_magnesium, unit: "mmol/L", source: "electrolyte domain"}
     - {quantity: richmond_agitation_sedation_scale, unit: "points", source: "neuro-sedation domain"}
-    - {quantity: creatinine_clearance, unit: "mL/min", source: "derived Cockcroft-Gault (unit missing from registry, §7)"}
+    - {quantity: creatinine_clearance, unit: "mL/min", source: "derived Cockcroft-Gault; registered parameter clearance_creatinina (display alias CrCl)"}
 ```

@@ -1,0 +1,1491 @@
+shard: sepse-p3
+cluster: sepse
+rule_count: 33
+rules_with_escalations: 8
+rules:
+- id: RULE-SEPSE-067
+  name: Sepsis / infection-source screening flags (movimentacao)
+  category: triage-eligibility
+  type: threshold
+  status: OK
+  verify: false
+  description: Boolean flags capturing time-windowed infection/device exposures and vasoactive/steroid use, forming
+    sepsis and device-associated-infection screening criteria.
+  inputs:
+  - antibiotico_em_24hrs (boolean)
+  - presenca_cvc_cdl_svd_10_dias (boolean)
+  - cvc_regiao_femoral_7_dias (boolean)
+  - hidrocortisona / vasopressina / anti_hipertensivo / delirium (boolean)
+  outputs:
+  - screening flags (boolean set)
+  logic: 'antibiotico_em_24hrs: "Antibiótico iniciado nas últimas 24h?"
+
+    presenca_cvc_cdl_svd_10_dias: "CVC, CDL ou SVD nos últimos 10 dias?"
+
+    cvc_regiao_femoral_7_dias: "CVC na região femoral nos últimos 7 dias?"
+
+    hidrocortisona, vasopressina (adjunct sepsis therapy), anti_hipertensivo, delirium: booleans.
+
+    '
+  edge_cases: The 10-day (any central line/urinary catheter) and 7-day (femoral CVC) windows are device-associated-infection
+    surveillance thresholds.
+  confidence: high
+  related:
+  - RULE-SEPSE-004
+  - RULE-SEPSE-066
+  - RULE-SEPSE-068
+  merged_from:
+  - RULE-sepsis-FE-01-026
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 67-71,100-109,213-232
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: These booleans plus RULE-024 labs are classic inputs for a sepsis/CLABSI/CAUTI screening engine.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-068
+  name: Urea field encodes an unbounded value under a threshold name
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: The urea input is stored as a plain number with no bounds although its field key implies a ">50 in
+    24h" threshold.
+  inputs:
+  - ureia_maior_50_24hrs (number, mg/dL)
+  outputs:
+  - urea value (number, mg/dL)
+  logic: 'label "Uréia"; nome ["dados_prontuario","ureia_maior_50_24hrs"]; type number; NO min/max.
+
+    '
+  edge_cases: Field name suggests a boolean threshold (urea > 50 within 24h) but the input is a free numeric value
+    with no validation.
+  confidence: medium
+  related:
+  - RULE-SEPSE-067
+  merged_from:
+  - RULE-sepsis-FE-01-027
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormMovimentacao.ts
+    lines: 180-184
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: AMBIGUOUS = key vs type mismatch; a downstream consumer may (mis)interpret whether this holds a raw value
+    or a >50 flag.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-337
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Urea field encodes an unbounded value under a threshold name
+- id: RULE-SEPSE-069
+  name: Bundle item overdue (atraso_item_interativa) time windows
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: true
+  description: 'A bundle item is overdue when unchecked past its package deadline relative to protocol creation:
+    1h for primeira_hora, 3h for reavaliacao.
+
+    '
+  inputs:
+  - pacote, trilha_interativa.criado_em, checado (string / datetime / bool)
+  outputs:
+  - atraso_item_interativa (boolean)
+  logic: 'if pacote == "primeira_hora": return (now - 1h > criado_em) and not checado
+
+    elif pacote == "reavaliacao": return (now - 3h > criado_em) and not checado
+
+    # else: returns None (implicit)
+
+    '
+  edge_cases: Returns None for any other pacote value; time via django.utils.timezone.now().
+  confidence: high
+  related:
+  - RULE-SEPSE-070
+  - RULE-SEPSE-075
+  - RULE-SEPSE-095
+  merged_from:
+  - RULE-interativa-BE-03-131
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/item_trilha_interativa.py
+    lines: 34-44
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Surviving Sepsis Campaign Hour-1 Bundle (Levy MM, Evans LE, Rhodes A. The Surviving Sepsis Campaign
+      Bundle: 2018 update. Crit Care Med 2018;46:997) - initial sepsis interventions to begin within the first hour.
+      The exact overdue-flag windows (1h primeira_hora, 3h reavaliacao) are internal operational parameters.'
+    detail_file: sepse-batch13.yaml
+  escalations: []
+- id: RULE-SEPSE-070
+  name: Bundle item visibility (exibir) - reassessment appears after 2h
+  category: scheduling-operational
+  type: threshold
+  status: OK
+  verify: false
+  description: Reassessment (reavaliacao) items are hidden until 2h after protocol creation; all others always shown.
+  inputs:
+  - pacote, trilha_interativa.criado_em (string / datetime)
+  outputs:
+  - exibir (boolean)
+  logic: 'if pacote == "reavaliacao": return (now - 2h > criado_em)
+
+    return True
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-091
+  merged_from:
+  - RULE-interativa-BE-03-132
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/item_trilha_interativa.py
+    lines: 46-52
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-071
+  name: SEPSE v3 interactive-protocol creation gate (can_criar_novo_protocolo)
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'A new interactive sepsis protocol may be created only when no open interactive trilha exists, the
+    last concluded one is >3 days old (or none), the alert is not NEUTRO, and not already assisted.
+
+    '
+  inputs:
+  - trilha_interativa_pk (open protocol), ultima_concluida.concluido_em, self.alerta, self.assistido (object / datetime
+    / string / bool)
+  outputs:
+  - can_criar_novo_protocolo (boolean)
+  logic: "ultima_concluida = trilhas_interativas_sepse.filter(concluida=True).last()\nreturn True if (\n  not trilha_interativa_pk\n\
+    \  and (ultima_concluida.concluido_em < now - 3 days if ultima_concluida else True)\n  and self.alerta != \"\
+    NEUTRO\"\n  and not self.assistido\n) else False\n"
+  edge_cases: 3-day cooldown between concluded protocols; open protocol = trilhas_interativas_sepse.filter(finalizado=False).first().
+  confidence: high
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-097
+  - RULE-SEPSE-083
+  merged_from:
+  - RULE-sepse-BE-03-121
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 323-338
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Depends on serializer import (api.v1.serializers) - cross-module.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-072
+  name: SEPSE protocol acceptance workflow and orange alert
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Creating an interactive SEPSE trilha with aceito=true stamps the acceptance time, sets the parent
+    TrilhaSepseV3 alert to "LARANJA" (orange), generates the 7 bundle items, and posts an audit observation recording
+    protocol opening by the acting user.
+
+    '
+  inputs:
+  - aceito (boolean)
+  - trilha (parent SepseV3 pk) (identifier)
+  outputs:
+  - alerta_trilha_interativa (enum, {LARANJA})
+  - horario_registro_aceitacao (datetime)
+  logic: "if validated_data[\"aceito\"]:\n    validated_data[\"horario_registro_aceitacao\"] = now()\n    ti = create(validated_data)\n\
+    \    TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa=\"LARANJA\")\n    criar_itens_trilha_interativa_sepse(ti.get_pk)\
+    \   # 7 items (RULE-sepse-BE-02-008)\n    post_observation(\"Realizada a abertura do Protocolo de SEPSE as <ts>\
+    \ por <user>\")\n"
+  edge_cases: 'Timestamp formatted as %d/%m/%Y as %H:%M:%S in local tz (astimezone()).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-073
+  - RULE-SEPSE-074
+  - RULE-SEPSE-075
+  - RULE-SEPSE-076
+  - RULE-SEPSE-096
+  merged_from:
+  - RULE-sepse-BE-02-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 48-65
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Alert color state machine — accepted=LARANJA (see -010 rejected=NEUTRO, -012 completed=None).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-073
+  name: SEPSE protocol rejection workflow and neutral alert
+  category: care-pathway
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: 'Creating an interactive SEPSE trilha with aceito falsy marks it finalized, sets the parent TrilhaSepseV3
+    alert to "NEUTRO" and assistido=true, and posts a "rejection" observation.
+
+    '
+  inputs:
+  - aceito (boolean)
+  outputs:
+  - alerta_trilha_interativa (enum, {NEUTRO})
+  - assistido (boolean)
+  - finalizado (boolean)
+  logic: "else:  # not aceito\n    validated_data[\"finalizado\"] = True\n    ti = create(validated_data)\n    TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa=\"\
+    NEUTRO\", assistido=True)\n    post_observation(\"Abertura do Protocolo de SEPSE Recusada as \"\n          \
+    \           + ti.horario_registro_aceitacao.astimezone().strftime(...) + \" por <user>\")\n"
+  edge_cases: 'In the rejection branch horario_registro_aceitacao is never assigned, so the message builds from
+    ti.horario_registro_aceitacao which is None/unset -> None.astimezone() raises AttributeError. The DB writes
+    (finalizado, NEUTRO, assistido) run before the message, but the observation post and serializer return would
+    fail.
+
+    '
+  confidence: medium
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-074
+  divergence: 'DISCREPANCY: rejection message dereferences an unset horario_registro_aceitacao (likely NoneType.astimezone
+    crash) unlike the acceptance/closure branches which set it to now(). Recorded verbatim; behavior depends on
+    the model default for that field.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-02-010
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 66-81
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: rejection message dereferences an unset horario_registro_aceitacao (likely NoneType.astimezone
+    crash) unlike the acceptance/closure branches which set it to now(). Recorded verbatim; behavior depends on
+    the model default for that field.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-125
+    band: P3
+    title: care-pathway
+    excerpt: 'DISCREPANCY: rejection message dereferences an unset horario_registro_aceitacao (likely NoneType.astimezone
+      crash) unlike the acceptance/closure branches which set it to now(). Recorded verbatim; behavior depends on
+      the model default for…'
+- id: RULE-SEPSE-074
+  name: SEPSE protocol closure (accepted -> encerrado) workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Updating an interactive SEPSE trilha that was previously accepted so that aceito becomes falsy closes
+    the protocol: sets encerrado=true, finalizado=true, re-stamps horario_registro_aceitacao=now, sets the parent
+    alert to "NEUTRO" and assistido=true, and posts a closure observation. Any other update passes through unchanged.
+
+    '
+  inputs:
+  - instance.aceito (boolean)
+  - validated_data.aceito (boolean)
+  outputs:
+  - encerrado (boolean)
+  - alerta_trilha_interativa (enum, {NEUTRO})
+  logic: "if instance.aceito and not validated_data.get(\"aceito\"):\n    validated_data[\"encerrado\"] = True\n\
+    \    validated_data[\"finalizado\"] = True\n    validated_data[\"horario_registro_aceitacao\"] = now()\n   \
+    \ ti = update(instance, validated_data)\n    TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(alerta_trilha_interativa=\"\
+    NEUTRO\", assistido=True)\n    post_observation(\"Protocolo de SEPSE foi encerrado as <ts> por <user>\")\nelse:\n\
+    \    return update(instance, validated_data)   # no side effects\n"
+  edge_cases: 'Transition guard is specifically was-accepted -> now-not-accepted; toggling other fields while aceito
+    stays true takes the passthrough branch.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-073
+  - RULE-SEPSE-097
+  merged_from:
+  - RULE-sepse-BE-02-011
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 83-105
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Closure requires can_recusar_protocolo_sepse permission (RULE-sepse-BE-02-020).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-075
+  name: SEPSE item check / uncheck and protocol completion state machine
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Checking a SEPSE item (transition not-checado -> checado) stamps horario_checagem=now and posts
+    an item-specific documentation observation, appending a late-check flag when the item is overdue. Unchecking
+    (checado -> not-checado) clears checado_por and horario_checagem. When an update checks an item and no unchecked
+    items remain, the interactive trilha is concluded (finalizado=true, concluida=true, concluido_em=now, aceito=false)
+    and the parent TrilhaSepseV3 is set assistido=true with alert cleared to null.
+
+    '
+  inputs:
+  - instance.checado (boolean)
+  - validated_data.checado (boolean)
+  - instance.nome_item (enum, {solicitacao_exames, inicio_escalonamento_antimicrobiano, realizacao_expansao_volemica,
+    exames, status_hemodinamico, dispositivos_invasivos, drogas_vasoativas})
+  - atraso_item_interativa (boolean)
+  outputs:
+  - horario_checagem (datetime)
+  - trilha_interativa.concluida (boolean)
+  - alerta_trilha_interativa
+  logic: "agora = now()\nif not instance.checado and validated_data.get(\"checado\"):\n    instance.horario_checagem\
+    \ = agora\n    atraso_suffix = \"- !! Item checado em atraso\" if instance.atraso_item_interativa else \"\"\n\
+    \    # message template selected by nome_item:\n    #   solicitacao_exames / inicio_escalonamento_antimicrobiano\
+    \ / realizacao_expansao_volemica\n    #        -> \"Intervencao realizada por <user @ ts><atraso>\"\n    # \
+    \  exames               -> \"Reavaliacao dos resultados de exames por <user @ ts>-<atraso>\"\n    #   status_hemodinamico\
+    \  -> \"Reavaliacao do status hemodinamico por <user @ ts>-<atraso>\"\n    #   dispositivos_invasivos -> \"\
+    Reavaliacao dos dispositivos invasivos por<user @ ts>-<atraso>\"\n    #   drogas_vasoativas    -> \"Reavaliacao\
+    \ das drogas vasoativas por <user @ ts>-<atraso>\"\n    post_observation(message, tipo_trilha=\"sepse\", responsavel=checado_por_id)\n\
+    elif instance.checado and not validated_data.get(\"checado\"):\n    instance.checado_por = None\n    instance.horario_checagem\
+    \ = None\ninstance = super().update(instance, validated_data)\nif validated_data.get(\"checado\") and not instance.trilha_interativa.itens_trilha_interativa.filter(checado=False):\n\
+    \    ti = instance.trilha_interativa\n    ti.finalizado = True; ti.concluida = True; ti.concluido_em = agora;\
+    \ ti.aceito = False; ti.save()\n    TrilhaSepseV3Model.filter(pk=ti.trilha.get_pk).update(assistido=True, alerta_trilha_interativa=None)\n\
+    \    post_observation(\"Trilha interativa concluida e finalizada por <user @ ts>\")\n"
+  edge_cases: 'Completion is evaluated AFTER super().update() persists the current item, so the just-checked item
+    counts toward "no remaining unchecked". On completion aceito is forced False. create() of an item calls checagem_envio_automatico(item)
+    (out of partition). checado_por_id is auto-set to the acting user upstream (RULE-sepse-BE-02-022).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-076
+  - RULE-SEPSE-077
+  - RULE-SEPSE-090
+  - RULE-SEPSE-093
+  merged_from:
+  - RULE-sepse-BE-02-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py
+    lines: 40-167
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Note the message-string micro-differences between items (e.g. "por<user>" missing space for dispositivos_invasivos,
+    "{msg}{atraso}" vs "{msg}-{atraso}" separators) are as-implemented.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-076
+  name: SEPSE interactive protocol bundle (hour-1 vs reassessment items)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Accepting the SEPSE protocol instantiates exactly seven checklist items in two bundles. The "primeira_hora"
+    (hour-1) bundle: request labs, start/escalate antimicrobials, perform volume expansion. The "reavaliacao" (reassessment)
+    bundle: labs review, hemodynamic status, invasive devices, vasoactive drugs.
+
+    '
+  inputs:
+  - trilha_interativa (identifier)
+  outputs:
+  - items (list[{nome_item, pacote}])
+  logic: "itens = [\n  {nome_item: \"solicitacao_exames\",                  pacote: \"primeira_hora\"},\n  {nome_item:\
+    \ \"inicio_escalonamento_antimicrobiano\", pacote: \"primeira_hora\"},\n  {nome_item: \"realizacao_expansao_volemica\"\
+    ,        pacote: \"primeira_hora\"},\n  {nome_item: \"exames\",                              pacote: \"reavaliacao\"\
+    },\n  {nome_item: \"status_hemodinamico\",                 pacote: \"reavaliacao\"},\n  {nome_item: \"dispositivos_invasivos\"\
+    ,              pacote: \"reavaliacao\"},\n  {nome_item: \"drogas_vasoativas\",                   pacote: \"\
+    reavaliacao\"},\n]\n# each item gets trilha_interativa set, then bulk-validated and saved\n"
+  edge_cases: 'Items are created via the item serializer (many=True) with is_valid(raise_exception=True); creation
+    triggers checagem_envio_automatico per item (core.utils, out of partition).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-096
+  - RULE-SEPSE-078
+  - RULE-SEPSE-072
+  merged_from:
+  - RULE-sepse-BE-02-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/serializers/trilha_interativa_sepse.py
+    lines: 107-143
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Mirrors the Surviving-Sepsis "hour-1 bundle" concept. Item ordering elsewhere is by (pacote, nome_item).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-077
+  name: SEPSE item checker auto-attribution
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When a SEPSE checklist item is submitted as checado=true, the checker identity (checado_por_id)
+    is automatically set to the authenticated request user, overriding any client-supplied value.
+
+    '
+  inputs:
+  - data.checado (boolean)
+  - request.user (user)
+  outputs:
+  - checado_por_id (uuid)
+  logic: "data = super().manage_data(request, ...)\nif data.get(\"checado\"):\n    data[\"checado_por_id\"] = request.user.get_pk\n"
+  edge_cases: Only applied when checado is truthy; unchecking does not set the attribution here (the serializer
+    clears checado_por on uncheck).
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-098
+  merged_from:
+  - RULE-sepse-BE-02-022
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/item_trilha_interativa_sepse.py
+    lines: 31-37
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ItemViewSet requires ManageDataRequiredMixin; items listed filtered by trilha_interativa pk, ordered by
+    (pacote, nome_item).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-078
+  name: Sepsis first-hour auto-check guard
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Automatic dispatch only fires for interactive-sepsis checklist items belonging to the 'first hour'
+    bundle that are not yet checked; runs repeatedly (per docstring, every 1 min until 1h after protocol opening).
+  inputs:
+  - item.pacote (string, 'primeira_hora' | other)
+  - item.checado (boolean, true|false)
+  - item.nome_item (string, solicitacao_exame | inicio_escalonamento_antimicrobiano | realizacao_expansao_volemica)
+  outputs:
+  - side_effect (dispatch)
+  logic: "if item.pacote == \"primeira_hora\" and not item.checado:\n    system_user = Usuario.objects.get(username=\"\
+    sistema\").get_pk\n    dispatch on item.nome_item -> RULE-003 / RULE-004 / RULE-005\n# else: no-op\n"
+  edge_cases: 'Requires an existing Usuario with username=="sistema" (DoesNotExist would raise). Any nome_item outside
+    the three handled values does nothing. Docstring states cadence of 1 min for up to 1 hour post-opening; the
+    cadence itself is scheduled elsewhere (task checagem_trilha_interativa iterates items and calls this).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-079
+  - RULE-SEPSE-080
+  - RULE-SEPSE-081
+  merged_from:
+  - RULE-CAREPATH-BE-12-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 214-220
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Callers - trilha_automatica/tasks/checagem_trilha_interativa.py and trilha_automatica/api/v1/serializers/item_trilha_interativa_sepse.py.
+    ''trilha'' = sepsis care pathway; ''primeira_hora'' = the 1-hour sepsis bundle.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-079
+  name: Sepsis 1h bundle - exam solicitation auto-check
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: Auto-marks the 'solicitacao_exame' first-hour item as done when the bed's first CPOE record carries
+    a sepsis protocol, and posts a system observation.
+  inputs:
+  - cpoe.protocolo_sepse (any, truthy => sepsis protocol prescribed)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: "if item.nome_item == \"solicitacao_exame\":\n    cpoe = item.trilha_interativa.trilha.cpoe_leito.first()\n\
+    \    if cpoe.protocolo_sepse:\n        item.checado = True; item.save()\n        mensagem = f\"solicitados Exames\
+    \ na 1a hora, prescrito por {cpoe_first.nm_protocolo_sepse} as {cpoe_first.dt_protocolo_sepse}\"\n        enviar_observacao_trilha_interativa(mensagem,\
+    \ tipo_trilha=\"sepse\", trilha_interativa=item.trilha_interativa, responsavel=system_user)\n"
+  edge_cases: 'Uses cpoe_leito.first() (no ordering guarantee). If cpoe_leito.first() is None, cpoe.protocolo_sepse
+    raises AttributeError. Message re-queries cpoe_leito.first() for name/date fields.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-076
+  - RULE-SEPSE-096
+  divergence: Auto-check dispatch (core/utils.py) matches item.nome_item == 'solicitacao_exame' (SINGULAR), but
+    the bundle item is created and enumerated as 'solicitacao_exames' (PLURAL) in RULE-SEPSE-076 (creation list)
+    and RULE-SEPSE-096 (choices enum). The names never match, so this exam first-hour auto-check branch is dead
+    code and never fires; only antimicrobial (RULE-SEPSE-080) and volume (RULE-SEPSE-081) auto-checks can trigger.
+  merged_from:
+  - RULE-CAREPATH-BE-12-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 221-235
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Truthiness (not equality) test on protocolo_sepse. Message text has 1a-hour attribution to prescriber.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-126
+    band: P3
+    title: care-pathway
+    excerpt: Auto-check dispatch (core/utils.py) matches item.nome_item == 'solicitacao_exame' (SINGULAR), but the
+      bundle item is created and enumerated as 'solicitacao_exames' (PLURAL) in RULE-SEPSE-076 (creation list) and
+      RULE-SEPSE-096 (choices en…
+- id: RULE-SEPSE-080
+  name: Sepsis 1h bundle - antimicrobial escalation auto-check (24h window)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Auto-marks 'inicio_escalonamento_antimicrobiano' done when a CPOE updated within the 24h preceding
+    the interactive pathway's creation time has a non-null day-0 antibiotic; posts a system observation naming the
+    antibiotic.
+  inputs:
+  - cpoe.dt_atualizacao_cpoe (datetime, >= trilha_interativa.criado_em - 24h)
+  - cpoe.ds_antibiotico_d0 (string, not null)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: "elif item.nome_item == \"inicio_escalonamento_antimicrobiano\":\n    cpoe_24 = trilha.cpoe_leito.filter(dt_atualizacao_cpoe__gte\
+    \ = trilha_interativa.criado_em - timedelta(hours=24))\n    if cpoe_24.filter(ds_antibiotico_d0__isnull=False).exists():\n\
+    \        item.checado = True; item.save()\n        mensagem = f\"Iniciado novo ciclo de {cpoe_leito.first().ds_antibiotico_d0}\"\
+    \n        enviar_observacao_trilha_interativa(mensagem, \"sepse\", item.trilha_interativa, system_user)\n"
+  edge_cases: 'Window boundary is inclusive (__gte). Filter reference time is trilha_interativa.criado_em (pathway
+    open time), NOT now. Message uses cpoe_leito.first().ds_antibiotico_d0 which may differ from the record that
+    satisfied the filter.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-080
+  merged_from:
+  - RULE-CAREPATH-BE-12-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 237-251
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 24-hour lookback threshold. isnull=False => antibiotic present.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-081
+  name: Sepsis 1h bundle - volume expansion auto-check (4h window)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Auto-marks 'realizacao_expansao_volemica' done when an ADEP administration record updated within
+    the 4h preceding pathway creation shows lactated-Ringer OR 0.9% saline volume > 0; posts observation with the
+    administering professional.
+  inputs:
+  - adep.dt_atualizacao_adep (datetime, >= trilha_interativa.criado_em - 4h)
+  - adep.soro_lactato (number, mL, > 0)
+  - adep.soro_09 (number, mL, > 0)
+  outputs:
+  - item.checado (boolean)
+  - observacao (text)
+  logic: "elif item.nome_item == \"realizacao_expansao_volemica\":\n    adep_4h = trilha.adep_leito.filter(dt_atualizacao_adep__gte\
+    \ = trilha_interativa.criado_em - timedelta(hours=4))\n    if adep_4h.filter(Q(soro_lactato__gt=0) | Q(soro_09__gt=0)).exists():\n\
+    \        item.checado = True; item.save()\n        profissional = adep_leito.first().ds_soro_lactato or adep_leito.first().ds_soro_09\n\
+    \        mensagem = f\"Realizada reposicao volemica na 1a hora. Administrado por {profissional}\"\n        enviar_observacao_trilha_interativa(mensagem,\
+    \ \"sepse\", item.trilha_interativa, system_user)\n"
+  edge_cases: '4-hour inclusive lookback (__gte) from pathway creation time. Condition is soro_lactato>0 OR soro_09>0
+    (strict >0). Professional attribution = ds_soro_lactato else ds_soro_09 (from adep_leito.first(), not necessarily
+    the matched row).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-078
+  - RULE-SEPSE-061
+  merged_from:
+  - RULE-CAREPATH-BE-12-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 252-270
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Distinct 4h window here vs 24h for antibiotics (RULE-004) and no window for exams (RULE-003).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-082
+  name: Vital signs entry auto-creates sepsis-screening (Sepse) record linked to latest evolution
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Every time a SinaisVitais record is created, the system automatically creates a linked Sepse (sepsis-screening)
+    record for the same encounter, associated with the most recently created Formulario (clinical evolution document)
+    for that encounter, or with no evolution if none exists yet.
+
+    '
+  inputs:
+  - sinais_vitais (created instance) (object reference)
+  - nr_atendimento (string/integer (encounter number))
+  - most recent Formulario for nr_atendimento (object reference (nullable))
+  outputs:
+  - Sepse record (object)
+  logic: "formulario = Formulario.objects\n    .filter(nr_atendimento=sinais_vitais.balanco.nr_atendimento)\n  \
+    \  .order_by(\"-criado_em\")\n    .first()\nSepse.objects.create(\n    sinais_vitais=self.sinais_vitais,\n \
+    \   nr_atendimento=self.sinais_vitais.balanco.nr_atendimento,\n    evolucao=formulario if formulario else None,\n\
+    )\n"
+  edge_cases: '"Most recent" is determined purely by Formulario.criado_em descending, with no filter on tipo or
+    status — a Formulario of ANY professional type/status (even a still-draft one) can be linked as the "evolucao"
+    for the new Sepse record. The actual sepsis scoring/threshold logic (if any) lives on the Sepse model, out of
+    this partition''s scope; only the creation trigger and the evolution-linking rule are visible here. A bare leito.save()
+    call immediately follows (lines 146-149) with no field changes, presumably to bump a cache/signal — not itself
+    a business rule.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-082
+  merged_from:
+  - RULE-sepse-BE-07-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/sinais_vitais.py
+    lines: 134-145
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This is the key "trilha" (care-pathway) trigger for sepsis screening in the homecare module: it fires
+    unconditionally on every vital-signs submission, not gated by any vital-sign threshold visible in this file.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-083
+  name: Interactive sepsis trail filtered by bed
+  category: care-pathway
+  type: threshold
+  status: OK
+  verify: false
+  description: TrilhaInterativaViewSet.get_queryset returns TrilhaSepseV3Model rows whose leito matches the 'ocupacoes__pk'
+    URL kwarg directly (treated as a Leito pk).
+  inputs:
+  - kwargs.ocupacoes__pk (uuid)
+  outputs:
+  - queryset (queryset of TrilhaSepseV3Model)
+  logic: 'return TrilhaSepseV3Model.objects.filter(leito=kwargs.get("ocupacoes__pk"))
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-071
+  merged_from:
+  - RULE-trilhainterativa-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/trilha_interativa.py
+    lines: 19-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-084
+  name: Active sepsis care-pathway selection
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Given the loaded occupancy (ocupacao) record, the sepsis page selects the applicable care-pathway
+    (trilha) as the first element of ocupacao.trilhas whose tipo equals "sepse".
+
+    '
+  inputs:
+  - ocupacao.trilhas (array of Trilha objects)
+  outputs:
+  - trilhaSepse (Trilha | undefined)
+  logic: 'trilhaSepse = ocupacao.trilhas.find(trilha => trilha.tipo === "sepse")
+
+    '
+  edge_cases: If no trilha with tipo === "sepse" exists, trilhaSepse is undefined and the page falls to the "no
+    protocols" empty state (RULE-sepse-FE-08-005).
+  confidence: high
+  related:
+  - RULE-SEPSE-084
+  merged_from:
+  - RULE-sepse-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 50-68
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-085
+  name: Interactive sepsis pathway completion transition
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A "trilha interativa" (interactive checklist instance) attached to the current sepsis pathway is
+    considered finished, and is moved from "current" to "historical", only when BOTH its concluida (concluded) flag
+    AND finalizado (finalized) flag are true, and only for the instance matching the id currently tracked as active.
+
+    '
+  inputs:
+  - data.id (string)
+  - data.concluida (boolean)
+  - data.finalizado (boolean)
+  - trilhaInterativaAtual.id (string | undefined)
+  outputs:
+  - trilhaInterativaAtual (object | undefined)
+  logic: "if (data.id === trilhaInterativaAtual?.id && data.concluida && data.finalizado) {\n  trilhaInterativaAtual\
+    \ = undefined\n  refresh historical list (_getTrilhasInterativasHistoricos)\n  refresh ocupacao (_getOcupacao)\n\
+    }\n"
+  edge_cases: 'If only one of concluida/finalizado is true, the instance remains "current" (both flags are required,
+    AND logic, not OR).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-090
+  - RULE-SEPSE-093
+  merged_from:
+  - RULE-sepse-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 98-143
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-086
+  name: Historical sepsis pathway instances filtered by aceito=false
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'The list of "previous" (trilhasInterativasAnteriores) interactive sepsis pathway instances, shown
+    as dated history tabs, is fetched with an explicit filter {aceito: false} (i.e. "not accepted").
+
+    '
+  inputs:
+  - aceito (query filter) (boolean, false (hardcoded))
+  outputs:
+  - trilhasInterativasAnteriores (array)
+  logic: 'data = getTrilhasInterativasSepse(..., { aceito: false })
+
+    trilhasInterativasAnteriores = data
+
+    '
+  confidence: medium
+  related:
+  - RULE-SEPSE-073
+  - RULE-SEPSE-094
+  merged_from:
+  - RULE-sepse-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 70-96
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Best interpretation: "aceito" likely denotes whether a clinician has formally accepted/signed-off a pathway
+    instance into the permanent record, and the "historical" tab intentionally shows instances still pending acceptance/review
+    rather than fully archived ones. This reading is inferred, not confirmed by any comment or type definition in
+    this partition''s scope; recorded verbatim per ground rules.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-305
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Historical sepsis pathway instances filtered by aceito=false
+- id: RULE-SEPSE-087
+  name: Sepsis page "back" navigation preserves drawer context
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The back button on the sepsis interactive-pathway page navigates to the parent sector page with
+    query parameters that identify the sepsis trilha, occupancy id, and bed name, so the parent page can reopen
+    the recommendations drawer in the correct context.
+
+    '
+  inputs:
+  - id_empresa, id_estabelecimento, id_setor (string (route params))
+  - ocupacao.id (string)
+  - ocupacao.leito.nome (string)
+  outputs:
+  - destination URL (string)
+  logic: "router.replace(\n  `/empresa/${id_empresa}/estabelecimento/${id_estabelecimento}/setor/${id_setor}` +\n\
+    \  `?trilha=sepse&ocupacao=${ocupacao.id}&leito=${ocupacao.leito.nome}`\n)\n"
+  edge_cases: If ocupacao is not yet loaded, the button click is a no-op (guarded by `if (ocupacao)`).
+  confidence: high
+  merged_from:
+  - RULE-sepse-FE-08-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 205-211
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-088
+  name: Empty-state for absent sepsis protocols
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'The sepsis page shows an "no protocols" empty state unless there is either a current active interactive
+    pathway instance, or at least one historical instance.
+
+    '
+  inputs:
+  - trilhaInterativaAtual (object | undefined)
+  - trilhasInterativasAnteriores (array | undefined)
+  outputs:
+  - rendered content (enum)
+  logic: "if (trilhaInterativaAtual || (trilhasInterativasAnteriores && trilhasInterativasAnteriores.length > 0))\
+    \ {\n  render Tabs (current + historical)\n} else {\n  render Empty(\"Não há protocolos de sepse para este paciente\"\
+    )\n}\n"
+  confidence: high
+  merged_from:
+  - RULE-sepse-FE-08-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 261-298
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-089
+  name: Current protocol tab requires non-empty checklist items
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: 'The "Protocolo Atual" tab is only rendered if trilhaInterativaAtual exists AND its itens_trilha_interativa
+    (checklist items) field is truthy/non-empty; otherwise only historical tabs (if any) are shown.
+
+    '
+  inputs:
+  - trilhaInterativaAtual.itens_trilha_interativa (array)
+  outputs:
+  - tab visibility (boolean)
+  logic: "if (trilhaInterativaAtual && trilhaInterativaAtual.itens_trilha_interativa) {\n  render Tabs.TabPane \"\
+    Protocolo Atual\"\n}\n"
+  confidence: medium
+  merged_from:
+  - RULE-sepse-FE-08-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor]/leito/[id_leito]/ocupacao/[id_ocupacao]/sepse/[id_trilha]/index.tsx
+    lines: 269-278
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-090
+  name: Sepsis protocol lifecycle state display
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Renders the state of an accepted sepsis interactive protocol (trilha interativa). It always shows
+    who accepted it and the acceptance timestamp. If concluida it shows "Concluida"; otherwise if finalizado it
+    shows "Finalizada" with an optional refusal-reason popover (motivo_descartado). If neither, only acceptance
+    info is shown (in-progress).
+
+    '
+  inputs:
+  - trilhaInterativa.registrado_por.nome (string)
+  - trilhaInterativa.horario_registro_aceitacao (datetime)
+  - trilhaInterativa.concluida (boolean)
+  - trilhaInterativa.finalizado (boolean)
+  - trilhaInterativa.motivo_descartado (string)
+  outputs:
+  - status label (enum {Concluida, Finalizada, (in-progress)})
+  logic: "header:\n  \"Aceito por: <registrado_por.nome>\"\n  clock icon + format(horario_registro_aceitacao, \"\
+    DD/MM/YYYY HH:mm\")\nif (concluida):\n  show check icon + \"Concluida\"\nelse if (finalizado):\n  show close\
+    \ icon + \"Finalizada\"\n  popover.content = motivo_descartado ? (\"Motivo Recusa: \" + motivo_descartado) :\
+    \ null\n// else: in progress, only acceptance info shown\n// Data source: if trilhaInterativaId provided, fetch\
+    \ via getTrilhaIterativa;\n//   else use trilhaInterativaAtual directly.\n"
+  edge_cases: 'concluida takes precedence over finalizado (checked first). If both false the protocol is treated
+    as in-progress. Refusal reason popover content is null when motivo_descartado is empty. Timestamp formatted
+    with moment in DD/MM/YYYY HH:mm.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-093
+  - RULE-SEPSE-085
+  merged_from:
+  - RULE-sepse-FE-03-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ProtocoloSepseContent.tsx
+    lines: 44-114
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: '"Finalizada" here corresponds to a refused/closed-without-completion protocol (motivo_descartado = refusal
+    reason), distinct from "Concluida" (completed). Acceptance/refusal are driven by TrilhaInterativa (RULE-trilha-FE-03-003/004).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-091
+  name: Sepsis protocol item conditional visibility and expandability
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A sepsis protocol step is rendered only when item.exibir is true. A shown step is expandable (collapsible)
+    only when it has a description (descricao_item) or a checker (checado_por); otherwise the panel is non-expandable.
+
+    '
+  inputs:
+  - item.exibir (boolean)
+  - item.descricao_item (object {texto, link})
+  - item.checado_por (object {nome})
+  outputs:
+  - item rendered / expandable (boolean)
+  logic: "if (!item.exibir) render nothing\nelse:\n  collapsible = (item.descricao_item || item.checado_por) ? \"\
+    header\" : \"disabled\"\n  showArrow   = (item.descricao_item || item.checado_por) ? true : false\n  // Expanded\
+    \ body shows:\n  //   if (checado_por && horario_checagem): \"Checado por: <nome>\" + date\n  //   if (descricao_item.texto):\
+    \ description text\n  //   if (descricao_item.link): image + open-in-new-tab button\n"
+  edge_cases: 'Steps with exibir=false are entirely hidden (conditional pathway branching). A step with neither
+    description nor checker is displayed but not expandable.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-070
+  - RULE-SEPSE-092
+  merged_from:
+  - RULE-sepse-FE-03-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 17-118
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'item.exibir encodes conditional care-pathway branching (which steps apply); the branching rule that sets
+    exibir is server-side (out of partition).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-092
+  name: Sepsis protocol item check-off workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Each sepsis protocol step can be checked off. The checkbox is interactive only when an onCheck handler
+    is supplied (otherwise read-only). Toggling calls onCheck(item.id, checked). Label reads "Checado" if already
+    checked, else "Checar". A checked item records checado_por and horario_checagem.
+
+    '
+  inputs:
+  - item.checado (boolean)
+  - onCheck (function|undefined)
+  outputs:
+  - onCheck(item.id, checked) (side-effect)
+  logic: "checkbox.disabled = onCheck ? false : true\ncheckbox.defaultChecked = item.checado || false\nonClick(e):\n\
+    \  stopPropagation()\n  setChecado(e.target.checked)\n  if (onCheck) onCheck(item.id, e.target.checked)\nlabel\
+    \ = item.checado ? \"Checado\" : \"Checar\"\n"
+  edge_cases: 'With no onCheck the checkbox is disabled (view-only mode, e.g. history). e.stopPropagation prevents
+    the click from toggling the Collapse panel.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-077
+  merged_from:
+  - RULE-sepse-FE-03-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 55-66
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'The onCheck callback wiring to the backend PATCH is provided by the parent page (out of partition); ProtocoloSepseContent
+    passes it through unchanged (lines 101-106).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-093
+  name: Sepsis-pathway dual completion flags
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: The sepsis interactive-pathway record (TrilhaInterativa.Sepse) carries two distinct boolean completion-related
+    flags — "finalizado" and "concluida" — with only "concluida" having an associated "concluida_em" completion
+    timestamp; the exact distinction between the two flags is not defined by any logic present in this partition.
+  inputs:
+  - finalizado (boolean)
+  - concluida (boolean)
+  - concluida_em (string (datetime), optional)
+  outputs:
+  - pathway completion state (derived)
+  logic: '// best interpretation, not confirmed by code in this partition:
+
+    finalizado = true  -> the interactive pathway session has ended/closed (regardless of outcome)
+
+    concluida  = true  -> the pathway was completed successfully (e.g. all required bundle items checked)
+
+    concluida_em = timestamp of the concluida transition
+
+    '
+  edge_cases: No boolean-combination validation is present (e.g. whether concluida=true implies finalizado=true).
+  confidence: low
+  related:
+  - RULE-SEPSE-075
+  - RULE-SEPSE-073
+  - RULE-SEPSE-074
+  - RULE-SEPSE-085
+  - RULE-SEPSE-090
+  merged_from:
+  - RULE-sepse-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 3-14
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: A verifier should check the backend partition for the actual state-machine definition distinguishing finalizado
+    vs concluida.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-306
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Sepsis-pathway dual completion flags
+- id: RULE-SEPSE-094
+  name: Sepsis-pathway accept/discard workflow
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: A sepsis care-pathway (trilha) can be either accepted (aceito=true) or discarded with a mandatory
+    reason (motivo_descartado), with the deciding actor (registrado_por) and decision timestamp (horario_registro_aceitacao)
+    recorded at both the bed-occupancy Trilha level and the dedicated TrilhaInterativa.Sepse record level. Discarding
+    is gated elsewhere by the can_recusar_protocolo_sepse permission.
+  inputs:
+  - aceito (boolean)
+  - motivo_descartado (string, optional, required when aceito=false (implied by shape, not enforced in this partition))
+  outputs:
+  - pathway acceptance state (derived)
+  logic: "if aceito == true:\n  motivo_descartado not expected/used\nelse:  // discarded\n  motivo_descartado should\
+    \ be populated (reason for refusing the sepsis protocol)\n// gated by Permission \"can_recusar_protocolo_sepse\"\
+    \ (enforcement not present in this partition)\n"
+  edge_cases: motivo_descartado is optional at the type level even when aceito is false, so nothing prevents an
+    empty/undefined reason from being submitted per the frontend types alone.
+  confidence: medium
+  related:
+  - RULE-SEPSE-072
+  - RULE-SEPSE-073
+  - RULE-SEPSE-097
+  merged_from:
+  - RULE-sepse-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 3-24
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Permission cross-reference at src/@types/models/Permissions.d.ts line 17 ("can_recusar_protocolo_sepse");
+    mirrored shape also at src/@types/models/Ocupacao.d.ts lines 94-103 (Trilha.trilha_interativa).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-095
+  name: Sepsis protocol item first-hour delay alert
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: false
+  description: 'A sepsis protocol step that was completed/handled late relative to its first-hour target is visually
+    flagged with a red clock-alert icon. The flag itself (atraso_primeira_hora) is computed server-side; the client
+    renders the alert when it is true.
+
+    '
+  inputs:
+  - item.atraso_primeira_hora (boolean)
+  outputs:
+  - first-hour-delay icon shown? (boolean)
+  logic: "if (item.atraso_primeira_hora):\n  render red clock-alert icon (mdiClockAlert, color \"#e84748\") next\
+    \ to\n  item.nome_item_humanizado\n"
+  edge_cases: 'Purely presence-driven; no numeric threshold is evaluated client-side. Icon wrapped in an empty Popover
+    (no explanatory content is passed).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-069
+  - RULE-SEPSE-070
+  divergence: 'Cross-implementation field-name mismatch: the backend item serializer exposes the first-hour delay
+    flag as ''atraso_item_interativa'' (computed by RULE-SEPSE-069), but the frontend type (TrilhaInterativa.d.ts)
+    and component (ItemProtocoloSepse.tsx) read ''item.atraso_primeira_hora''. There is no ''atraso_primeira_hora''
+    in the backend and no ''atraso_item_interativa'' in the frontend, so the red first-hour-delay icon is bound
+    to an always-undefined field and never renders.'
+  merged_from:
+  - RULE-sepse-FE-03-002
+  - RULE-sepse-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ProtocoloSepseContent/ItemProtocoloSepse/ItemProtocoloSepse.tsx
+    lines: 42-50
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 26-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: "Encodes the sepsis \"first-hour bundle\" concept (atraso primeira hora = delay in the first hour). The\
+    \ threshold logic that sets atraso_primeira_hora is in the backend (out of partition) and should be captured\
+    \ there; here only the alert rendering exists.\n || MERGED FE type-decl + render: RULE-sepse-FE-07-002: Aligns\
+    \ with the Surviving Sepsis Campaign \"hour-1 bundle\" concept; exact threshold-computation logic is out of\
+    \ scope (likely backend)."
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-110
+    band: P3
+    title: alert-threshold
+    excerpt: 'Cross-implementation field-name mismatch: the backend item serializer exposes the first-hour delay
+      flag as ''atraso_item_interativa'' (computed by RULE-SEPSE-069), but the frontend type (TrilhaInterativa.d.ts)
+      and component (ItemProtocoloS…'
+- id: RULE-SEPSE-096
+  name: Sepsis interactive bundle step and package enums
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Enumerates the interactive sepsis protocol packages (primeira_hora = first hour; reavaliacao = reassessment)
+    and the bundle item names, including the Surviving-Sepsis 1-hour actions.
+
+    '
+  inputs:
+  - pacote choice, nome_item choice (string enum)
+  outputs:
+  - allowed choices (enum)
+  logic: "pacote() = [(\"primeira_hora\",\"Primeira hora\"), (\"reavaliacao\",\"Reavaliacao\")]\nnome_item() = [\n\
+    \  (\"solicitacao_exames\", \"Solicitacao de exames laboratoriais e culturas para bacterias e fungos em ate\
+    \ 1 hora\"),\n  (\"inicio_escalonamento_antimicrobiano\", \"Inicio ou escalonamento antimicrobiano e realizar\
+    \ controle de foco em ate 1 hora\"),\n  (\"realizacao_expansao_volemica\", \"Realizacao de expansao volemica\
+    \ com cristaloides em ate 1 hora\"),\n  (\"exames\",\"Exames\"), (\"status_hemodinamico\",\"Status hemodinamico\"\
+    ),\n  (\"dispositivos_invasivos\",\"Dispositivos invasivos\"), (\"drogas_vasoativas\",\"Drogas vasoativas\"\
+    ),\n]\n"
+  edge_cases: First three item labels encode the 1-hour SSC bundle deadlines textually.
+  confidence: high
+  related:
+  - RULE-SEPSE-076
+  - RULE-SEPSE-079
+  merged_from:
+  - RULE-interativa-BE-03-130
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/choices/trilha_interativa.py
+    lines: 4-35
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Choices applied to ItemTrilhaInterativaSpese.pacote and .nome_item fields.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-097
+  name: Sepsis protocol refusal permission
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Custom Django permission gating who may refuse (recusar) the sepsis protocol.
+  inputs:
+  - user permission (permission)
+  outputs:
+  - can_recusar_protocolo_sepse (permission)
+  logic: 'Meta.permissions = (("can_recusar_protocolo_sepse", "Pode recusar protocolo de sepse"),)
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-074
+  - RULE-SEPSE-071
+  merged_from:
+  - RULE-interativa-BE-03-133
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilhas_interativas/trilha_interativa_sepse.py
+    lines: 22-28
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Lifecycle flags on TrilhaInterativaSpese (encerrado, finalizado, concluida, aceito) drive can_criar_novo_protocolo
+    (RULE-sepse-BE-03-121).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-SEPSE-098
+  name: Sepsis-checklist signer requires CPF, unlike other checklist types
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: The "checado_por" (checked-by) actor on a sepsis-pathway checklist item includes a "cpf" (Brazilian
+    tax ID) field, whereas the equivalent "checked-by"/"filled-by" actor shapes elsewhere in the codebase (Prescricao.ChecadoPor,
+    BalancoHidrico.PreenchidoPor/DeletadoPor, Chat.ChecadoPor) only capture id and nome, without cpf.
+  inputs:
+  - checado_por.cpf (string)
+  outputs:
+  - checado_por (object)
+  logic: 'TrilhaInterativa.Sepse.ChecadoPor = { id: string, nome: string, cpf: string }
+
+    // vs. Prescricao.ChecadoPor = { id: string, nome: string }
+
+    // vs. BalancoHidrico.PreenchidoPor / DeletadoPor = { id: string, nome: string }
+
+    // vs. Chat.ChecadoPor = { nome: string, id: string }
+
+    '
+  edge_cases: None demonstrated in this partition beyond the shape difference itself.
+  confidence: low
+  related:
+  - RULE-SEPSE-077
+  merged_from:
+  - RULE-sepse-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/TrilhaInterativa.d.ts
+    lines: 45-49
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Best interpretation is that sepsis-protocol checklist items carry a stronger medical-legal accountability
+    requirement (CPF-verified signature) than other checklist types, given the severity/liability profile of sepsis-bundle
+    compliance; not confirmed by any explicit validation code in this partition.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-338
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Sepsis-checklist signer requires CPF, unlike other checklist types
+- id: RULE-SEPSE-099
+  name: Manual sepsis pathway active criteria descriptions (_REGRAS, 20 criteria) with criterio_8 key-typo
+  category: triage-eligibility
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'The active _REGRAS dict on TrilhaSepse (manual pathway) defines total_criterios=20 and the human-readable
+    clinical description text for criteria criterio_1..criterio_20; each descricao_criterio_N CharField default
+    is _REGRAS.get("criterio_N"). DISCREPANCY: line 114 reads _REGRAS.get("criterio8") (missing underscore) instead
+    of "criterio_8", so descricao_criterio_8 always defaults to None, silently dropping the stored/displayed description
+    for the Glasgow-decline/delirium sepsis criterion.'
+  inputs:
+  - _REGRAS dict (criterion key -> description text)
+  - descricao_criterio_N field defaults (default=_REGRAS.get('criterio_N'))
+  outputs:
+  - descricao_criterio_1..20 CharField defaults (criterio_8 -> None due to the typo)
+  logic: "_REGRAS = {\n  \"total_criterios\": 20,\n  \"criterio_1\":  \"Temperatura > 38,3ºC\",\n  \"criterio_2\"\
+    :  \"Ventilação Espontânea E (Frequência Respiratória > 20ipm OU SatO2 < 96 ) E ausência de ventilação mecânica\"\
+    ,\n  \"criterio_3\":  \"Início de ventilação mecânica há menos que 1 dia\",\n  \"criterio_4\":  \"Iniciada fusão\
+    \ de noradrenalina nas últimas 24h\",\n  \"criterio_5\":  \"Tempo de enchimento capilar - TEC > 5 segundos\"\
+    ,\n  \"criterio_6\":  \"Presença de Pressão arterial sistólica (PAS) < 90 mmHg OU Pressão arterial sistólica\
+    \ (PAD) < 60 mmHg nas últimas 24h\",\n  \"criterio_7\":  \"debito urinario <=1200ml nas ultimas 24h OU (Presença\
+    \ de valor de creatinina >2mg/dL E ausência de hemodiálise)\",\n  \"criterio_8\":  \"Presença de redução numérica\
+    \ da escala de coma de Glasgow em dois pontos ou mais nas últimas 24 horas (comparar com o ultimo checklist)\
+    \ OU presença de delirium\",\n  \"criterio_9\":  \"Presença de valor de bilirrubina > 2mg/dl\",\n  \"criterio_10\"\
+    : \"Presença de Temperatura < 36oC verificado na evolução médica ou no balanço hídrico nas últimas 24h\",\n\
+    \  \"criterio_11\": \"Presença de Frequência cardíaca > 100 bpm nas últimas 12h verificado na evolução médica\
+    \ ou no balanço hídrico nas últimas 24h\",\n  \"criterio_12\": \"Presença de PaCO2 < 32 mmHg E ventilação espontânea\
+    \ ... OU presença de valor de PaO2/FiO2 < 300 ...\",\n  \"criterio_13\": \"Presença de valor de Lactato arterial\
+    \ ≥ 2,5 mmol/L\",\n  \"criterio_14\": \"Presença de valores de Leucócitos > 12.000/mm3 nas últimas 24h verificados\
+    \ na evolução médica\",\n  \"criterio_15\": \"Presença de valores de plaquetas < 100.000/mm3 nas últimas 24h\"\
+    ,\n  \"criterio_16\": \"presença de “Baixa aceitação de Dieta VO” e valor de escala de coma de Glasgow >=13\"\
+    ,\n  \"criterio_17\": \"Presença de valor de escala de coma de Glasgow <=13 nas últimas 12h\",\n  \"criterio_18\"\
+    : \"Presença de CVC OU CDL há mais de 7 dias\",\n  \"criterio_19\": \"Presença de CVC OU CDL E região femoral\
+    \ E há mais de 5 dias\",\n  \"criterio_20\": \"Presença de cirurgia abdominal recente\",\n}\n\ndescricao_criterio_1\
+    \  default = _REGRAS.get(\"criterio_1\")\n...\ndescricao_criterio_8  default = _REGRAS.get(\"criterio8\")  \
+    \ # BUG (line 114): key \"criterio8\" absent -> None\n...\ndescricao_criterio_20 default = _REGRAS.get(\"criterio_20\"\
+    )\n"
+  edge_cases: descricao_criterio_8 is always None because line 114 looks up "criterio8" (no underscore) rather than
+    "criterio_8"; the boolean criterio_8 field itself still functions, only its description text is dropped wherever
+    it is read/exposed. All descricao_criterio_N defaults are captured at class/migration time and seed the CharField
+    default for new rows. _ANTIGAS_REGRAS (27 criteria, lines 13-42) is the deprecated superseded ruleset; _REGRAS
+    (20) is the active one.
+  confidence: high
+  related:
+  - RULE-SEPSE-066
+  divergence: 'Line 114 default=_REGRAS.get("criterio8") diverges from the criterio_1..7,9..20 pattern default=_REGRAS.get("criterio_N"):
+    the mismatched key silently resolves to None, so the Glasgow-decline/delirium criterion (criterio_8) is stored/displayed
+    with no description. Preserved as-is (NOT corrected).'
+  merged_from:
+  - RULE-gap6-06
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 44-68,113-115
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'The active _REGRAS dict was never cited by any rule (only the deprecated _ANTIGAS_REGRAS block and dead
+    commented-out criteria at 13-42/204-210/427-456/491-524 are grouped under RULE-SEPSE-066). Escalation-worthy:
+    the criterio_8 key typo at line 114 is a live, silent bug that drops one criterion''s clinical description.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-ADDENDUM-349
+    band: ADDENDUM
+    title: Manual sepsis pathway active criteria descriptions (_REGRAS, 20 criteria) with criterio_8 key-typo
+    excerpt: '*Cluster:* `sepse` · *Category:* `triage-eligibility` · *Extraction:* DISCREPANCY · *Verification:*
+      NOT_APPLICABLE · *Suggested band:* P2 (low clinical impact)  - **Legacy:** The active `_REGRAS` dict on `TrilhaSepse`
+      (manual sepsis pathway) defines `total_criterios=20` and the human-readable clinical description text for
+      criteria `criterio_1`..`criterio_20`; each `descricao_criterio_N` CharField '

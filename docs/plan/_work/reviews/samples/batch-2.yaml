@@ -1,0 +1,734 @@
+batch: 2
+clusters:
+- antimicrobiano
+- comunicacao
+- formularios-clinicos
+- prescricao
+- trilhas-engine
+n_items: 15
+items:
+- rule_id: RULE-ANTIMICROBIANO-001
+  cluster: antimicrobiano
+  catalog_rule:
+    id: RULE-ANTIMICROBIANO-001
+    name: Antimicrobiano alert color (active - calcular_alerta_v2)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: 'Active antimicrobial severity/color alert wired into TrilhaAntimicrobianoModel.save() (line 102:
+      self.alerta = self.calcular_alerta_v2()). Maps a subset of the boolean stewardship criteria flags to VERMELHO/AMARELO/NEUTRO.
+      When NEUTRO, save() also resets assistido=False (lines 103-104).
+
+      '
+    logic: "amarelo  = [criterio_3, criterio_5, criterio_6].count(True)\nvermelho = [criterio_4, criterio_8].count(True)\n\
+      if vermelho >= 1:\n    return \"VERMELHO\"\nelif amarelo >= 1:\n    return \"AMARELO\"\nelse:\n    return\
+      \ \"NEUTRO\"\n# In save(): self.alerta = calcular_alerta_v2(); if alerta == \"NEUTRO\": self.assistido = False\n"
+    edge_cases: 'Uses .count(True); Django IntegerField values of 1 equal True in Python so 1-flags count. save()
+      forces assistido=False on NEUTRO. Only criteria 3,4,5,6,8 feed this alert (the criterios_mensagem property
+      lists criterio_4 and criterio_8 as the red-driving ones).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ANTIMICROBIANO-001
+    cluster: antimicrobiano
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: amarelo  = [criterio_3, criterio_5, criterio_6].count(True)
+    disposition: SUPERSEDE
+    justification: The active calcular_alerta_v2 VERMELHO/AMARELO/NEUTRO mapping (vermelho on criterio_4/8, amarelo
+      on criterio_3/5/6) is legacy trilha-model alerting plumbing scoped to only 5 of the 12 stewardship criteria;
+      v2's unified Alert Engine severity scale (normal/watch/urgent/critical) replaces this Django-model-specific
+      enum, and criteria scope must be reconciled against the full stewardship catalog (RULE-ANTIMICROBIANO-003)
+      rather than silently inheriting the legacy 3,4,5,6,8 subset.
+    evidence:
+    - RULE-ANTIMICROBIANO-001
+    - RULE-ANTIMICROBIANO-003
+    target: clinical/domains/pharmaco-interaction.md#antimicrobial-alert-severity
+    supersedes_note:
+      replaced_by: v2 Alert Engine severity scale (normal|watch|urgent|critical) driven by the full 12-criterion
+        stewardship catalog
+      lost: legacy VERMELHO/AMARELO/NEUTRO enum restricted to criteria 3,4,5,6,8 and the save()-side assistido reset
+        on NEUTRO
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-ANTIMICROBIANO-002
+  cluster: antimicrobiano
+  catalog_rule:
+    id: RULE-ANTIMICROBIANO-002
+    name: Antimicrobiano alert color (legacy unused - calcular_alerta)
+    category: alert-threshold
+    type: decision-tree
+    status: AMBIGUOUS
+    description: 'Legacy antimicrobial severity/color alert (calcular_alerta) with a third weighted criterion group
+      ("criterios"). Not called by save() - dead in the active path. Kept as a version variant of RULE-ANTIMICROBIANO-001,
+      not merged.
+
+      '
+    logic: "amarelo   = [criterio_1, criterio_2, criterio_3].count(1)\ncriterios = [criterio_4, criterio_6, criterio_8,\
+      \ criterio_9,\n             criterio_11, criterio_12, criterio_13, criterio_14].count(1)\nvermelho  = [criterio_5,\
+      \ criterio_7, criterio_10].count(1)\nif vermelho >= 1 or criterios > 3:\n    return \"VERMELHO\"\nelif amarelo\
+      \ >= 1 or (0 < criterios <= 2):\n    return \"AMARELO\"\nelse:\n    return \"NEUTRO\"\n"
+    edge_cases: 'criterios == 3 exactly falls through BOTH branches to NEUTRO (gap between the <=2 AMARELO condition
+      and the >3 VERMELHO condition) - a latent defect if this code were reactivated. Uses .count(1) (literal 1)
+      rather than .count(True); behaves identically to _v2 for 1-valued IntegerFields since 1 == True in Python.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-295
+      band: AMBIGUOUS
+      title: alert-threshold
+      excerpt: Antimicrobiano alert color (legacy unused - calcular_alerta)
+  disposition_record:
+    rule_id: RULE-ANTIMICROBIANO-002
+    cluster: antimicrobiano
+    category: alert-threshold
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: criterios == 3 exactly falls through BOTH branches to NEUTRO
+    disposition: RETIRE
+    justification: Legacy calcular_alerta (criterios 1-14 weighted count) is dead code never called by save() --
+      TrilhaAntimicrobianoModel uses calcular_alerta_v2 exclusively -- and carries a latent defect where criterios==3
+      falls through both the <=2 AMARELO and >3 VERMELHO branches to NEUTRO; retiring rather than reviving avoids
+      reintroducing an unreachable, defective severity path into the v2 Alert Engine.
+    evidence:
+    - RULE-ANTIMICROBIANO-002
+    - RULE-ANTIMICROBIANO-001
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-295
+      band: AMBIGUOUS
+    ratify_ref: null
+- rule_id: RULE-ANTIMICROBIANO-003
+  cluster: antimicrobiano
+  catalog_rule:
+    id: RULE-ANTIMICROBIANO-003
+    name: 'Antimicrobial stewardship criteria catalog (12 criteria: duration, spectrum, weight/renal dose, CVC,
+      candidemia, cultures, CAP/COVID)'
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: 'Antimicrobial stewardship pathway payload (payload_trilha_antimicrobiano, aliased as payload_antimicrobiano_automatica):
+      12 stewardship criteria, each an alerta label plus one or more recomendacoes, covering antibiotic duration,
+      spectrum de-/escalation, weight- and renal-function dose adjustment, CVC-related infection, empiric candidemia,
+      culture solicitation, and CAP/COVID de-escalation. Consumed by get_detalhe() to render triggered criteria.
+
+      '
+    logic: "criterio_1  mesmo antibiotico ha > 7 dias -> considerar suspensao.\ncriterio_2  antibiotico de curto\
+      \ espectro iniciado com internacao > 48h ->\n            suspender OU escalonar (Tazocin/Cefepime) + parecer\
+      \ infectologia.\ncriterio_3  ajuste de dose pelo PESO (tabela via imagem S3). SEM ajuste renal:\n        \
+      \    Polimixina B, Linezolida, Oxacilina, Tigeciclina, Clindamicina.\ncriterio_4  ajuste de dose pela FUNCAO\
+      \ RENAL / clearence reduzido (tabela via imagem S3);\n            mesmas excecoes de nao-ajuste renal que\
+      \ criterio_3.\ncriterio_5  reavaliar duracao (suspender por tempo/melhora clinica; se refratario ->\n    \
+      \        avaliar falencia, coletar todas as culturas, imagem e escalonar espectro).\ncriterio_6  atraso na\
+      \ administracao -> acionar enfermeiro(a)/plantonista.\ncriterio_7  CVC > 7 dias evoluindo com febre -> avaliar\
+      \ retirada/troca + hemocultura\n            bacterias x2; avaliar integridade e sinais flogisticos.\ncriterio_8\
+      \  Febre > 38,3 degC + considerar retirada de CVC (> 7 dias) -> avaliar\n            integridade/sinais flogisticos,\
+      \ retirada/troca + hemocultura bacterias x2.\ncriterio_9  risco de candidemia -> equinocandina (Anidulafungina/Micafungina/Caspofungina)\n\
+      \            + parecer infectologia + culturas: sangue bacterias x2, secrecao traqueal,\n            urina,\
+      \ RX torax, EAS.\ncriterio_10 risco de candidemia -> equinocandina + parecer infectologia + 2 amostras de\n\
+      \            cultura de sangue para FUNGOS.\ncriterio_11 iniciado antimicrobiano -> avaliar solicitar culturas\
+      \ (sangue bacterias x2,\n            secrecao traqueal, urina, RX torax, EAS).\ncriterio_12 antibioticoterapia\
+      \ para PAC com PCR < 100 OU COVID-19 confirmado ->\n            considerar suspensao; considerar DPOC/congestao\
+      \ pulmonar/broncoaspiracao.\n"
+    edge_cases: 'Numeric cutoffs: same-antibiotic > 7d (criterio_1); short-spectrum start with internacao > 48h
+      (criterio_2); CVC > 7d (criterio_7, criterio_8); fever > 38,3 degC (criterio_8); PCR < 100 (criterio_12).
+      criterio_9 and criterio_10 carry the IDENTICAL alerta label ("Paciente grave com risco de candidemia") but
+      differ in workup: criterio_9 = full bacterial+fungal workup (blood x2, tracheal, urine, chest X-ray, EAS);
+      criterio_10 = fungi-only, 2 blood samples. Dose-adjustment tables for criterio_3 (weight) and criterio_4 (renal)
+      are external S3 PNG images, not inline values. get_detalhe() on TrilhaAntimicrobianoModel surfaces only criteria
+      3,4,5,6,8; TrilhaCincoSintetico.get_detalhe iterates criteria 1..12.
+
+      '
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'IDSA 2016 Clinical Practice Guideline for the Management of Candidiasis (Pappas et al., Clin Infect
+        Dis 2016;62:e1-e50) for empiric echinocandin therapy; IDSA 2009 Guidelines for Diagnosis and Management
+        of Intravascular Catheter-Related Infection (Mermel et al., Clin Infect Dis 2009;49:1-45) for CVC removal
+        + paired blood cultures; Surviving Sepsis Campaign 2021 (Evans et al., Intensive Care Med 2021;47:1181-1247)
+        for shorter antibiotic duration + daily de-escalation + procalcitonin/biomarker-guided discontinuation.
+        Fever 38.3 degC threshold per IDSA febrile-neutropenia single-measurement definition.
+
+        '
+      detail_file: antimicrobiano-batch1.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ANTIMICROBIANO-003
+    cluster: antimicrobiano
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: Dose-adjustment tables for criterio_3 (weight) and criterio_4 (renal) are external S3 PNG images,
+      not inline values.
+    disposition: ADAPT
+    justification: The 12-criterion stewardship catalog (antibiotic duration >7d, short-spectrum+internacao>48h,
+      weight/renal dosing, CVC>7d+fever 38.3C, empiric echinocandin for candidemia, culture solicitation, PCR<100
+      CAP de-escalation) is VERIFIED against IDSA/SSC-2021, but the weight/renal dose tables are external S3 PNG
+      images, not version-controlled, and get_detalhe() surfaces only 5 of 12 criteria -- v2 must migrate dose tables
+      to versioned inline lookups and define authoritative rendering scope while preserving all 12 criteria's clinical
+      content verbatim.
+    evidence:
+    - IDSA 2016 Candidiasis Guideline, Pappas et al., Clin Infect Dis 2016;62:e1-e50
+    - IDSA 2009 Intravascular Catheter-Related Infection Guideline, Mermel et al., Clin Infect Dis 2009;49:1-45
+    - Surviving Sepsis Campaign 2021, Evans et al., Intensive Care Med 2021;47:1181-1247
+    - RULE-ANTIMICROBIANO-003
+    target: clinical/domains/pharmaco-interaction.md#antimicrobial-stewardship-criteria
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-COMUNICACAO-006
+  cluster: comunicacao
+  catalog_rule:
+    id: RULE-COMUNICACAO-006
+    name: Firebase unread-count decrement when an observation checagem is checked off
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: When a ChecagemObservacao is updated and its 'checado' field becomes truthy, and reduzir_qtd(observacao)
+      confirms the shared unread-count was decremented, a Firebase update is pushed asynchronously to zero out the
+      pending/unread flags for the observation's setor+responsavel.
+    logic: "instance = super().update(instance, validated_data)\nobservacao = instance.observacao\nif validated_data.get(\"\
+      checado\") and reduzir_qtd(observacao):\n    send_qtd_mensagens_to_firebase.apply_async(\n        args=[observacao.setor.get_pk,\
+      \ observacao.responsavel.get_pk, False, True]\n    )\nreturn instance\n"
+    edge_cases: If checado is falsy in this update call, or reduzir_qtd returns falsy, no Firebase call is made.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-COMUNICACAO-006
+    cluster: comunicacao
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: its 'checado' field becomes truthy, and reduzir_qtd(observacao) confirms the shared unread-count
+      was decremented
+    disposition: ADAPT
+    justification: The trigger condition (checklist item checked off AND eligibility confirmed) for firing an unread-count
+      decrement is a reusable workflow rule distinct from RULE-COMUNICACAO-005's pure eligibility predicate; it
+      must be re-wired against whatever counter primitive replaces the superseded Firestore call in RULE-COMUNICACAO-004.
+    evidence:
+    - RULE-COMUNICACAO-006
+    - RULE-COMUNICACAO-005
+    target: design/screens/collaboration.md#checagem-triggered-decrement
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-COMUNICACAO-021
+  cluster: comunicacao
+  catalog_rule:
+    id: RULE-COMUNICACAO-021
+    name: Chat message list pagination
+    category: data-validation
+    type: workflow
+    status: OK
+    description: 'The sector chat loads messages in fixed pages of 20, newest-first from the API but reversed for
+      display (oldest-at-top of each page); a "load more" control is shown only while at least 20 messages are currently
+      loaded and the next offset has not yet reached the total count, and each additional load advances the offset
+      by 20.
+
+      '
+    logic: "// initial/refresh fetch: offset=0, limit=20\nif (offset === 0 && limit === 20) {\n  mensagens = data.results.reverse()\n\
+      \  count = data.count\n  nextOffset = 20\n} else {\n  mensagens = [...data.results.reverse(), ...mensagens]\
+      \   // prepend older page\n  nextOffset += 20\n}\nshowLoadMore = mensagens.length >= 20 && nextOffset <= count\n"
+    edge_cases: Page size (20) is hardcoded, not configurable from the UI; reaction/checagem actions re-fetch using
+      the *current* nextOffset as the limit (so the whole loaded window is refreshed, not just the new page).
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-COMUNICACAO-021
+    cluster: comunicacao
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: loads messages in fixed pages of 20, newest-first from the API but reversed for display
+    disposition: RETIRE
+    justification: This hardcoded page-size-20, reverse-on-display, refetch-the-whole-window-on-any-action pagination
+      scheme is legacy frontend implementation detail specific to the old MessagesList component; v2's chat/messaging
+      surfaces (if retained) will be designed fresh against the new frontend stack rather than porting this quirk.
+    evidence:
+    - RULE-COMUNICACAO-021
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-COMUNICACAO-044
+  cluster: comunicacao
+  catalog_rule:
+    id: RULE-COMUNICACAO-044
+    name: Video-call online-presence flag derivation
+    category: scheduling-operational
+    type: validation
+    status: OK
+    description: A user's real-time video-call presence status for a given sector/chat is written to Firestore as
+      online_call=true when the triggering action is "in", and false for any other action (in practice "out").
+    logic: 'online_call = (action == "in") ? true : false
+
+      // written via Firestore document update at path /chats/{setor}/usuarios/{usuario}/
+
+      '
+    edge_cases: Any action value other than the literal "in" (the type only allows "in"|"out", but the ternary itself
+      would treat any non-"in" value as false) results in online_call=false.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-COMUNICACAO-044
+    cluster: comunicacao
+    category: scheduling-operational
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: online_call=true when the triggering action is "in", and false for any other action
+    disposition: RETIRE
+    justification: The in/out-to-boolean online_call presence-flag derivation is written directly to Firestore,
+      a legacy dependency being replaced under the platform change; the underlying presence concept is folded into
+      the broader video-call roster redesign (see RULE-COMUNICACAO-028/032) rather than kept as a standalone rule.
+    evidence:
+    - RULE-COMUNICACAO-044
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-FORMULARIOS-CLINICOS-016
+  cluster: formularios-clinicos
+  catalog_rule:
+    id: RULE-FORMULARIOS-CLINICOS-016
+    name: Physiotherapy conduct enums (respiratory & motor techniques)
+    category: care-pathway
+    type: validation
+    status: OK
+    description: Physiotherapy interventions selectable as respiratory and motor technique multichecks.
+    logic: "fisioterapia_respiratoria multicheck {manobras_higiene_bronquica, padroes_ventilatorios,\n  tecnicas_de_reexpansao_pulmonar,\
+      \ tosse_dirigida, tosse_assistida, tosse_induzida,\n  treinamento_de_musculatura_respiratoria, aspiracao_de_via_aerea_superiore_traqueostomia,\n\
+      \  bag_squeezing, ajuste_de_oxigenoterapia, epap, ajuste_de_parametros_ventilatorios, aspiracao}\nuso_de_cough_assist(string)\n\
+      fisioterapia_motora multicheck {cinesioterapia_passiva, cinesioterapia_ativo_assistida, cinesioterapia_ativa,\n\
+      \  cinesioterapia_ativa_livre, cinesioterapia_resistida, sedestacao_no_leito, sedestacao_fora_do_leito,\n\
+      \  ortostatismo, deambulacao, treino_de_marcha, treino_de_equilibrio, exercicios_calistenicos,\n  exercicios_isometricos,\
+      \ alongamento, mobilizacao_passiva, posicionamento_funcional, crioterapia,\n  termoterapia, eletroterapia}\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-FORMULARIOS-CLINICOS-016
+    cluster: formularios-clinicos
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Physiotherapy interventions selectable as respiratory and motor technique multichecks.
+    disposition: ADOPT
+    justification: 'Status OK and verdict NOT_APPLICABLE permit plain ADOPT: the respiratory and motor technique
+      multicheck vocabulary (bronchial-hygiene maneuvers, cough techniques, kinesiotherapy variants) is a sound
+      discipline-specific documentation asset carried into the v2 clinical-forms physiotherapy conduct screen unchanged.'
+    evidence:
+    - RULE-FORMULARIOS-CLINICOS-016
+    target: design/screens/clinical-forms.md#physio-conduct-vocabulary
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-FORMULARIOS-CLINICOS-025
+  cluster: formularios-clinicos
+  catalog_rule:
+    id: RULE-FORMULARIOS-CLINICOS-025
+    name: Speech-therapy global assessment enums
+    category: data-validation
+    type: validation
+    status: OK
+    description: Speech therapist global assessment with communication mode, respiration/airway type, oxygen use,
+      feeding acceptance and feeding route.
+    logic: "estado_geral {grave, regular}; orientacao {ativo, sonolento, torporoso, comatoso, reativo};\nemocional\
+      \ {calmo, agitado, agressivo, letargico, nsa};\ncomunicacao {verbal, gestual, expressoes_faciais, comunicacao_alternativa,\
+      \ ausencia_comunicacao};\nrespiracao {espontanea_ar_ambiente, espontanea_suporte_o2, traqueostomia_plastica,\
+      \ traqueostomia_metalica,\n  ventilacao_mecanica, ventilacao_nao_invasiva};\nuso_oxigenoterapia(boolean);\n\
+      alimentacao {total, parcial, recusa}; via {oral, sonda_nasoenteral, gastrostomia}\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-FORMULARIOS-CLINICOS-025
+    cluster: formularios-clinicos
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Speech therapist global assessment with communication mode
+    disposition: ADOPT
+    justification: The Fono global-assessment enum set (estado_geral, orientacao, emocional, comunicacao, respiracao,
+      alimentacao, via) is a controlled PT-BR clinical vocabulary shared across disciplines and should be adopted
+      verbatim into the v2 clinical-forms vocabulary layer.
+    evidence:
+    - RULE-FORMULARIOS-CLINICOS-025
+    - RULE-FORMULARIOS-CLINICOS-031
+    target: design/screens/clinical-forms.md#speech-therapy-global-assessment
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-FORMULARIOS-CLINICOS-039
+  cluster: formularios-clinicos
+  catalog_rule:
+    id: RULE-FORMULARIOS-CLINICOS-039
+    name: Binary gender iconography (Masculino/Feminino)
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    description: 'Two dedicated icon components exist for gender/sex representation: Masculino.jsx (Male) and Feminino.jsx
+      (Female). No third/non-binary or ''unspecified'' gender icon exists within this partition''s scope.
+
+      '
+    logic: 'GENDER_ICON = { "M": Masculino.jsx, "F": Feminino.jsx }
+
+      '
+    edge_cases: 'AMBIGUOUS: the icon set alone does not prove the data model restricts gender/sex to a strict binary
+      - the actual field validation lives outside this partition. DISCREPANCY (verbatim): unlike Feminino.jsx (fn
+      ''Feminino''), Masculino.jsx internally names its component generic ''Icon''.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-330
+      band: AMBIGUOUS
+      title: data-validation
+      excerpt: Binary gender iconography (Masculino/Feminino)
+  disposition_record:
+    rule_id: RULE-FORMULARIOS-CLINICOS-039
+    cluster: formularios-clinicos
+    category: data-validation
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: Two dedicated icon components exist for gender/sex representation
+    disposition: RATIFY
+    justification: The Masculino/Feminino-only icon pairing cannot itself prove the v2 data model restricts gender/sex
+      to a strict binary (the actual field validation lives outside this partition), but the demographic-representation
+      choice has clinical/LGPD-inclusivity weight, so per ESC-AMBIGUOUS-330 the committee must ratify the intended
+      gender/sex vocabulary before v2 design commits to it.
+    evidence:
+    - RULE-FORMULARIOS-CLINICOS-039
+    - ESC-AMBIGUOUS-330
+    target: RATIFICATION.md#rat-formularios-clinicos-02
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-330
+      band: AMBIGUOUS
+    ratify_ref: RAT-FORMULARIOS-CLINICOS-02
+- rule_id: RULE-PRESCRICAO-003
+  cluster: prescricao
+  catalog_rule:
+    id: RULE-PRESCRICAO-003
+    name: Continuous-prescription (order-level) suspension flag - now-based
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    description: 'Order/header-level ''suspenso'': the whole continuous prescription is suspended once its source
+      prescription''s DT_SUSPENSAO is at or before the current wall-clock time. Computed identically in the PrescricaoContinua
+      model property and the PrescricaoContinua serializer.'
+    logic: "# Byte-identical in PrescricaoContinua.suspenso property and PrescricaoContinuaSerializer.get_suspenso:\n\
+      dt_suspensao = <prescricao>.DT_SUSPENSAO\nif dt_suspensao:\n    return dt_suspensao <= timezone.now()\nelse:\n\
+      \    return False\n"
+    edge_cases: A future DT_SUSPENSAO -> not yet suspended (False). Null DT_SUSPENSAO -> False. Uses timezone.now()
+      (current time), so the flag for a given day's order can change purely with the passage of time.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-109
+      band: P3
+      title: alert-threshold
+      excerpt: This order-level check (DT_SUSPENSAO <= now(), whole order, wall-clock) is byte-identical between
+        the model property (prescricao_continua.py 54-60) and the serializer (serializers/prescricao.py 145-151)
+        - so those two AGREE. It DISAGREES…
+  disposition_record:
+    rule_id: RULE-PRESCRICAO-003
+    cluster: prescricao
+    category: alert-threshold
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: DISAGREES with the dose-level get_suspenso
+    disposition: RETIRE
+    justification: Status DISCREPANCY forbids plain ADOPT; this order-level now()-based suspension flag disagrees
+      in scope with the dose-level check (RULE-PRESCRICAO-002) and is legacy home-care MAR plumbing with no counterpart
+      in IntensiCare v2's read-only AMH Gold/FHIR consumption model per ADR-001, so it is retired rather than corrected.
+    evidence:
+    - ESC-P3-109
+    - RULE-PRESCRICAO-003
+    - ADR001-C-01
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-109
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-PRESCRICAO-016
+  cluster: prescricao
+  catalog_rule:
+    id: RULE-PRESCRICAO-016
+    name: Add-new-horario button eligibility
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: The "Adicionar" (add new administration time) placeholder is rendered only when the prescription
+      is not suspended AND the user has can_manage_prescricao permission.
+    logic: 'showAddButton = (!prescricao.suspenso) && can_manage_prescricao
+
+      '
+    edge_cases: Existing horarios always render regardless of permission (view-only when no permission).
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-PRESCRICAO-016
+    cluster: prescricao
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: rendered only when the prescription is not suspended AND the user has can_manage_prescricao
+    disposition: RETIRE
+    justification: Permission-and-state gate for an add-new-administration-time button in the legacy home-care prescribing
+      UI; the add-horario feature itself does not exist in IntensiCare v2's monitoring/alerting scope, so this specific
+      visibility rule retires with the screen it controls, unlike the general permission-gating pattern preserved
+      separately in RULE-PRESCRICAO-018.
+    evidence:
+    - RULE-PRESCRICAO-016
+    - ADR001-C-01
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-PRESCRICAO-035
+  cluster: prescricao
+  catalog_rule:
+    id: RULE-PRESCRICAO-035
+    name: Non-administration reason validation (effectively unreachable guard)
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: A validation intended to require either "administrado" or a "motivo_nao_administrado" is only ever
+      invoked from a call site that has already guaranteed motivo_nao_administrado is truthy, making the check itself
+      practically unable to raise.
+    logic: "@staticmethod\ndef validar_motivo(validated_data):\n    if not (validated_data.get(\"administrado\"\
+      , None) or validated_data.get(\"motivo_nao_administrado\", None)):\n        raise ValidationError(\"É necessário\
+      \ informar o motivo da prescrição não administrada\")\n# Call site (update(), RULE-prescricao-BE-07-006):\n\
+      #   if administrado is False and motivo_nao_administrado:  <- already guarantees motivo truthy\n#       validar_motivo(validated_data)\n"
+    edge_cases: 'Because the only call site already checked `validated_data.get("motivo_nao_administrado")` is truthy
+      before calling this, the `or motivo_nao_administrado` half of the condition inside validar_motivo is always
+      True at that point, so the ValidationError branch is unreachable via this call path.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-176
+      band: P3
+      title: data-validation
+      excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+  disposition_record:
+    rule_id: RULE-PRESCRICAO-035
+    cluster: prescricao
+    category: data-validation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: is only ever invoked from a call site that has already guaranteed
+    disposition: RETIRE
+    justification: validar_motivo's guard is provably unreachable because its sole call site pre-verifies motivo_nao_administrado
+      is truthy before invoking it; this is dead legacy validation code in a serializer that retires with the platform,
+      and its intended requirement is already correctly enforced client-side by RULE-PRESCRICAO-030.
+    evidence:
+    - RULE-PRESCRICAO-035
+    - ESC-P3-176
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-176
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-TRILHAS-ENGINE-002
+  cluster: trilhas-engine
+  catalog_rule:
+    id: RULE-TRILHAS-ENGINE-002
+    name: Homecare-bed pathway composition
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: Homecare beds evaluate exactly two pathway models — PioraClinica and Sepse.
+    logic: 'get_trilhas_homecare() = [PioraClinica, Sepse]  (from trilha_homecare.models)
+
+      '
+    edge_cases: 'Homecare bed detail/payload additionally injects static NEUTRO stub cards for PrescricaoContinua,
+      BalancoHidrico, Formulario, Ventilação, and Eficiência (display-only, not scored).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-TRILHAS-ENGINE-002
+    cluster: trilhas-engine
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Homecare beds evaluate exactly two pathway models — PioraClinica and Sepse
+    disposition: SUPERSEDE
+    justification: The homecare-specific two-pathway (PioraClinica + Sepse) composition and its static NEUTRO stub
+      cards are Django bed-type routing tied to the retired Tasy-linked trilha models; the underlying intent (lighter-weight
+      deterioration + sepsis surveillance for non-ICU-bed patients) is carried forward as care-context-scoped enablement
+      of the sepsis and early-warning-score domains in the new Alert Engine rather than a fixed bed-type pathway
+      list.
+    evidence:
+    - RULE-TRILHAS-ENGINE-002
+    - vision.md §4.1
+    target: clinical/domains/early-warning-scores.md#care-context-scoping
+    supersedes_note:
+      replaced_by: care-context-based domain enablement in the v2 Alert Engine (sepsis + early-warning-scores domains),
+        vision.md §4.1
+      lost: static NEUTRO display-only stub cards for PrescricaoContinua/BalancoHidrico/Formulario/Ventilacao/Eficiencia
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-TRILHAS-ENGINE-005
+  cluster: trilhas-engine
+  catalog_rule:
+    id: RULE-TRILHAS-ENGINE-005
+    name: Interactive care-pathway eligibility (Sepse / Profilaxia)
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: 'The interactive protocol accept/refuse card is offered only for pathways named exactly "Sepse"
+      or "Profilaxia", and only when there is either an existing interactive protocol instance, a protocol history,
+      or permission to create a new protocol.
+
+      '
+    logic: "hasTrilhaInterativaOption =\n  (trilha.nome === \"Sepse\" || trilha.nome === \"Profilaxia\")\n  AND\
+      \ (\n    trilha.trilha_interativa\n    OR trilha.has_historico_protocolo\n    OR trilha.can_criar_novo_protocolo\n\
+      \  )\n"
+    edge_cases: 'Name comparison is exact and case-sensitive ("Sepse", "Profilaxia"); any other pathway name yields
+      no interactive card regardless of the other flags.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-TRILHAS-ENGINE-005
+    cluster: trilhas-engine
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: offered only for pathways named exactly "Sepse" or "Profilaxia"
+    disposition: SUPERSEDE
+    justification: Hard-coding the two interactive-protocol pathways by exact string name is legacy trilhas-frontend
+      gating tied to the retired trilha model; the underlying capability (an accept/refuse clinician workflow gated
+      on protocol-history/creation permission) is superseded by the v2 alert response/acknowledgment workflow defined
+      generically in the alert entry schema (response.required + ack_sla) rather than a name-matched UI card.
+    evidence:
+    - RULE-TRILHAS-ENGINE-005
+    - RULE-TRILHAS-ENGINE-006
+    target: clinical/domains/sepsis.md#protocol-response-workflow
+    supersedes_note:
+      replaced_by: generic alert response/acknowledgment fields (response, ack_sla) on every v2 alert entry, CONTRACTS.md
+        alert schema
+      lost: hard-coded exact-name gating restricted to only Sepse/Profilaxia; can_criar_novo_protocolo/has_historico_protocolo
+        flag combination
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-TRILHAS-ENGINE-006
+  cluster: trilhas-engine
+  catalog_rule:
+    id: RULE-TRILHAS-ENGINE-006
+    name: Interactive pathway restricted to automatic bed type
+    category: triage-eligibility
+    type: eligibility
+    status: OK
+    description: 'The TrilhaInterativa (interactive protocol) component is rendered inside a pathway tab only when
+      the occupancy''s bed type is "automatica".
+
+      '
+    logic: "if (ocupacao.leito.tipo === \"automatica\"):\n  render <TrilhaInterativa trilha=... idLeito=ocupacao.leito.id\
+      \ .../>\n"
+    edge_cases: 'Exact string match on "automatica"; any other leito.tipo suppresses the interactive protocol UI
+      entirely for that occupancy.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-TRILHAS-ENGINE-006
+    cluster: trilhas-engine
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: rendered inside a pathway tab only when the occupancy's bed type is "automatica"
+    disposition: RETIRE
+    justification: This is a pure legacy UI mount-gate on the leito.tipo === "automatica" string, part of the trilhas-frontend
+      component tree being replaced wholesale; the v2 Alert Engine has no bed-type-keyed UI concept, so the gate
+      itself has no successor artifact beyond the general response workflow already captured under RULE-TRILHAS-ENGINE-005's
+      SUPERSEDE target.
+    evidence:
+    - RULE-TRILHAS-ENGINE-006
+    - RULE-TRILHAS-ENGINE-005
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

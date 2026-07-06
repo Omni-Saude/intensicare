@@ -1,0 +1,170 @@
+round: 2
+lens: lgpd-amh-workflow
+regression_note: >-
+  Re-tested every round-1 finding in this lens marked fixed. VERIFIED-LANDED: RT1-SEC-01 (PHI-free
+  push), RT1-SEC-02 (alert_enablement + audit), RT1-SEC-03 (birth_date -> BYTEA + REQ-INV-4-1),
+  RT1-SEC-04 (enumerated rrt cross-unit scope), RT1-UX-01 (owned rrt_rotation table), RT1-AMH-01
+  (bed_unit_assignment split out of demographics). FIX DID NOT LAND / consumer not updated:
+  RT1-UX-02 (RT2-UX-01), RT1-AMH-02 (RT2-AMH-01). NEW/RESIDUAL contradictions the fixes introduced
+  or exposed: RT2-SEC-01, RT2-AMH-02, RT2-AMH-03, RT2-SEC-02.
+findings:
+  - finding_id: RT2-AMH-01
+    severity: major
+    claim: >-
+      The RT1-AMH-02 fix (marked fixed) only half-landed: amh-freshness.yaml now sets
+      labs_electrolytes staleness_max_for_alerting to 30min (15min for CRIT analytes) AND explicitly
+      mandates that "the staleness indicator spec (command-center.md §6) MUST render a distinct
+      'resultado mais recente pode estar pendente' caveat state for electrolytes", but the actual
+      consumer — command-center.md §6 — still shows labs_electrolytes at the OLD "1 h" value and
+      renders no such caveat. The bed-board therefore still leaves a 31–60-min-old normal K+ unbadged
+      (green/fresh) exactly the stale-but-green hazard RT1-AMH-02 was closing, re-opening MOT-11.
+    falsifiable_check: >-
+      Open docs/plan/design/screens/command-center.md §6 line 216: the row reads
+      "| `labs_electrolytes` (K⁺/Na⁺) | **1 h** | electrolytes |". Compare
+      docs/plan/_work/platform/amh-freshness.yaml lines 119–120: staleness_max_for_alerting "30min"
+      + staleness_max_for_alerting_crit "15min" (comment: "tightened from 1h (RT1-AMH-02)"). Grep
+      command-center.md for "pode estar pendente" / "resultado mais recente" -> 0 hits, though
+      amh-freshness.yaml lines 121–126 (possible_newer_result_pending) name command-center.md §6 as
+      the MUST-owner of that caveat state. Consumer contradicts the fixed source of truth and omits a
+      MUST requirement the fix itself created.
+    owning_doc: docs/plan/design/screens/command-center.md
+    proposed_fix: >-
+      In command-center.md §6, change the labs_electrolytes row to "30 min (15 min CRIT: K⁺>6.5 /
+      severe Na⁺)" to match amh-freshness.yaml, and add the mandated "resultado mais recente pode
+      estar pendente" caveat state (distinct from the past-staleness `stale` badge) that fires when a
+      cell's last-seen electrolyte age approaches the Gold batch cadence, per amh-freshness.yaml
+      possible_newer_result_pending. Add a contract check that the §6 table values equal the
+      amh-freshness.yaml staleness_max fields so this cannot drift again.
+  - finding_id: RT2-SEC-01
+    severity: major
+    claim: >-
+      The RT1-SEC-04 fix hard-codes "rrt is the SINGLE / SOLE / ONE enumerated cross-unit role" and
+      "every other role is bound to tenant_id+unit — there is no silent tenant-wide grant", but the
+      coordinator role (Fernanda, PER-FERNANDA-01) is by design cross-unit: command-center.md gives
+      her a live occupancy/acuity dashboard and bed grid spanning "Todas as unidades" across
+      adult/coronary/neonatal (multiple setores, even multiple estabelecimentos), fed by "the same
+      authoritative WebSocket payload that renders the cells". Coordinator is therefore either
+      unshippable (single-unit-bound, cannot deliver PER-FERNANDA-01) or a SECOND, un-enumerated
+      cross-unit WS grant — a deny-by-default hole that violates I2. The fix's "sole" language
+      sharpened the contradiction rather than resolving it.
+    falsifiable_check: >-
+      security-lgpd.md §2.2 I2 (line 92): "The **sole** cross-unit exception is the least-privilege
+      `rrt` role"; §5.3 (line 231): "every other role is bound to `tenant_id`+`unit` (I2) — there is
+      no silent tenant-wide grant"; §5.3.1 (lines 240–241): rrt is "the **single, explicitly
+      enumerated cross-unit role**". §5.3 enumerates coordinator with NO cross-unit carve-out.
+      command-center.md line 86 (`Todas as unidades` (Fernanda) filter), line 230 (ribbon "across
+      adult / coronary / neonatal"), line 240 ("cross-unit awareness"/"cross-unit worst-severity"),
+      line 295 ("up to 90 beds in `Todas as unidades`"), line 310 (Fernanda "across
+      adult/coronary/neonatal"), and §2.1 per-unit acuity badges "on an *unopened* unit" all require a
+      cross-unit subscription/reads for coordinator. Grep security-lgpd.md for "coordinator" cross-unit
+      scope -> none. Two docs cannot both hold.
+    owning_doc: docs/plan/architecture/security-lgpd.md
+    proposed_fix: >-
+      Add an explicit least-privilege coordinator cross-unit scope to §5.3/§5.3.1 alongside rrt:
+      tenant-wide subscription limited to occupancy/acuity aggregates + bed-board severity context for
+      the coordinator's assigned estabelecimento(s), deny-by-default, gated on the coordinator role
+      grant, every cross-unit PHI read audited. Reword "sole/single/one cross-unit role" to enumerate
+      BOTH rrt (critical/urgent streams) and coordinator (aggregate/bed-board scope) as the two
+      documented cross-unit roles, and state their differing least-privilege scopes.
+  - finding_id: RT2-AMH-02
+    severity: major
+    claim: >-
+      The RT1-AMH-01 fix added bed_unit_assignment as a load-bearing source with a "~2min
+      ADT-event-driven" freshness_slo and a 15min staleness_max, but committed no sanctioned or
+      budgeted read path for it. It is absent from the §3.4 Athena poll-concurrency budget (which
+      enumerates only electrolytes/sepsis/ABG/AKI/meds/delirium), and the only sanctioned operational
+      sub-batch ingress is vitals-via-MLLP (§3.3); a ~2min ADT event stream would be a new ingestion
+      path contradicting ADR001-C-01 (Athena-only for demographics/identity/context) and ADR001-F-10
+      (no NiFi/Kafka/Debezium). The freshness SLO the fix relies on to keep routing/thresholds safe is
+      thus undeliverable by any read mechanism the architecture sanctions.
+    falsifiable_check: >-
+      amh-freshness.yaml bed_unit_assignment: freshness_slo "ADT-event-driven; ...within ~2min of an
+      admit/transfer/discharge event" (line 90), staleness_max_for_alerting "15min" (line 91),
+      source_of_record "AMH ADT movement stream (movimentacao-adt cluster) ... Add a transfers/ADT
+      source to the operational sync" (lines 87–89). system-architecture.md §3.4 concurrency table
+      (lines 50–57) lists domains electrolytes/sepsis-ABG/AKI/meds/delirium — NO ADT/assignment poll.
+      §3.3 (lines 34–42): vitals-via-MLLP is "the ONE sanctioned sub-batch path"; ADR001-C-01 scopes
+      Athena-only to "labs, medications, demographics/identity, cultures, documents" (assignment is
+      identity/context). No doc reconciles a ~2min assignment feed with either the Athena poll budget
+      or the no-new-ingestion rule.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Pin the bed_unit_assignment read path: either (a) add an ADT/assignment poll row to the §3.4
+      Athena poll-concurrency budget at a cadence proven inside the negotiated quota, tying the ~2min
+      freshness to headroom (or relabel it best-effort), or (b) if ADT must be event-driven, formally
+      extend the §3.3 operational-ingress ADR clarification (RAT-INGRESS-01) to cover ADT events as a
+      second sanctioned operational path with platform-team signoff, and cross-update amh-freshness.yaml
+      to a deliverable freshness_slo.
+  - finding_id: RT2-AMH-03
+    severity: major
+    claim: >-
+      REQ-AMH-ASSIGN-01 (RT1-AMH-01 fix) mandates that a stale bed/unit assignment "is always flagged
+      in the UI" via a visible "leito/unidade desatualizado" flag "on the bed-board and in the alert
+      context", but the bed-board owner (command-center.md) implements none of it: bed_unit_assignment
+      is not in the §6 per-source staleness table, there is no `assignment-stale`/`leito desatualizado`
+      cell state in §3.2 or the exhaustive §9 states list, and neither alert-routing.md nor
+      alert-triage.md carries an assignment-stale alert-context flag. The fix's safety guarantee that
+      "the bed-binding uncertainty is explicit to the clinician" is therefore unimplemented in the
+      surfaces that must render it — a stale transfer mis-thresholds/mis-routes silently, invisibly.
+    falsifiable_check: >-
+      amh-freshness.yaml bed_unit_assignment.fallback item (3) (lines 96–98) + requirement
+      REQ-AMH-ASSIGN-01 (lines 99–101): "surface a visible 'leito/unidade desatualizado' flag on the
+      bed-board and in the alert context ... always flagged in the UI." Grep docs/plan/design/ for
+      "desatualizad" -> only patient-timeline.md line 92 (channel-disconnect banner, NOT bed/unit
+      assignment) and no command-center hit. command-center.md §6 table (lines 211–221) omits
+      bed_unit_assignment; §3.2 occupancy/§9 bed-states lists carry no assignment-stale state. The
+      mandated flag exists in no consumer doc.
+    owning_doc: docs/plan/design/screens/command-center.md
+    proposed_fix: >-
+      Add bed_unit_assignment (15min staleness) to command-center.md §6 and define a distinct
+      "leito/unidade desatualizado" cell/identity state (§3.2/§9) — visually separate from `stale`
+      (aged datum) and `não avaliado` (never scored) — plus a matching assignment-stale badge in the
+      alert context (alert-routing.md §1.1 / alert-triage.md), discharging REQ-AMH-ASSIGN-01 in the
+      surfaces that own rendering.
+  - finding_id: RT2-UX-01
+    severity: major
+    claim: >-
+      RT1-UX-02 is recorded resolution.status=fixed in round-1/adjudicated.yaml, but the fix never
+      landed: command-center.md still contradicts itself on the triggering-parameter chip. §3.1 keeps
+      it "a **hard L1 element, never hidden behind disclosure** (PER-ANA-02/PER-C-04, MOT-06)" while
+      the §5 density table omits it from the monitor-wall preset (≥1920px, the MOT-18 night wall) and
+      introduces it only at the workstation preset. The night wall thus still cannot answer "qual
+      parâmetro disparou?" at a glance/4m, and the ratification ledger carries a false "fixed" status.
+    falsifiable_check: >-
+      grep round-1/adjudicated.yaml RT1-UX-02 -> resolution: {status: fixed, round: 1}; yet none of
+      fixes-F1..F5.yaml references RT1-UX-02 (grep confirms). command-center.md line 99: chip is "a
+      **hard L1 element, never hidden behind disclosure**" (unqualified). §5 line 192 monitor-wall
+      cell content: "severity (color+icon+shape) · `Leito` · dominant score · trend arrow · staleness
+      age" (no chip); line 193 workstation: "+ triggering-parameter chip". No scoping of "never
+      hidden" to workstation/phone density was added. Same contradiction the finding flagged, intact.
+    owning_doc: docs/plan/design/screens/command-center.md
+    proposed_fix: >-
+      Land the round-1 proposed fix: either keep a short-form triggering-parameter chip on the
+      monitor-wall preset at wall-legible size (recommended for MOT-18), or amend §3.1 to scope "never
+      hidden behind disclosure" to workstation/phone density and explicitly point the wall glance to
+      the L2 peek. Then correct the RT1-UX-02 resolution note so the ledger reflects reality.
+  - finding_id: RT2-SEC-02
+    severity: minor
+    claim: >-
+      The RT1-SEC-03 / INV-4 encryption fix and the command-center render contract are unreconciled on
+      PHI-read volume. display_name (and birth_date) are now pgcrypto ciphertext requiring per-request
+      DEK decrypt, and REQ-INV-1-S1 mandates exactly one audit_trail action='phi.read' row per PHI
+      read; the command-center bed grid renders patient name (and age) on every occupied cell and
+      patches cells continuously over the one WebSocket channel at up to 90 beds / 60fps. Nothing
+      states the granularity ("read" = per WS patch? per view? per session), so the plan either
+      implies a phi.read-audit + pgcrypto-decrypt storm against the §11 <16ms/patch budget, or an
+      unstated batched-decrypt that conflicts with data-model §7's "exact age ... never cached".
+    falsifiable_check: >-
+      command-center.md §3.1 line 97 ("patient name, age, sex icon" per cell) + §11 line 295 ("up to
+      90 beds ... at 60 fps (16.67 ms frame budget)") + §8 (continuous per-cell WS patch). data-model.md
+      §7 line 458 ("the exact date and the exact age are **never** cached") + §7 line 445 ("Every such
+      PHI read emits an audit_trail row action='phi.read'"); security-lgpd.md REQ-INV-1-S1 ("every PHI
+      read writes exactly one audit_trail row"). No doc defines phi.read granularity for a
+      continuously-repainted 90-cell PHI grid, nor budgets the decrypt/audit cost in §11.
+    owning_doc: docs/plan/architecture/data-model.md
+    proposed_fix: >-
+      Define phi.read audit granularity for the bed-board explicitly (e.g. one phi.read per
+      patient-per-user-view/session, not per WS patch), and state a decrypt-on-sync-into-in-memory
+      pattern so name/age render without per-frame pgcrypto calls; cross-reference command-center §11
+      so the perf budget accounts for it. Confirm whether the cell shows the non-PHI derived age band
+      (cacheable) rather than exact age.

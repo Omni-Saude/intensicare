@@ -1,0 +1,1349 @@
+shard: tenancy-organizacao-p1
+cluster: tenancy-organizacao
+rule_count: 26
+rules_with_escalations: 14
+rules:
+- id: RULE-TENANCY-ORGANIZACAO-001
+  name: Establishment occupancy percentage formula
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: EstabelecimentoStatusSerializer.get_ocupacao computes bed occupancy percentage as (occupied beds
+    / total beds) * 100 rounded to 2 decimals across all the establishment's sectors the user belongs to; returns
+    int 0 if there are no beds.
+  inputs:
+  - name: total_leitos
+    type: integer
+    unit: null
+  - name: total_leitos_ocupados
+    type: integer
+    unit: null
+  outputs:
+  - name: ocupacao
+    type: float | integer
+    unit: '%'
+  logic: 'total_leitos = self.get_total_leitos(instance)
+
+    return round((self.get_total_leitos_ocupados(instance) / total_leitos) * 100, 2) if total_leitos else 0
+
+    '
+  edge_cases: Same 0-guard int/float type inconsistency as RULE-setor-BE-05-006.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-002
+  merged_from:
+  - RULE-estabelecimento-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/estabelecimento.py
+    lines: 87-93
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Identical formula duplicated at sector level (RULE-setor-BE-05-006). | Reconciliation: cross-hierarchy
+    variant of the identical formula/guard at sector scope (see related). No merge performed — establishment- and
+    sector-level occupancy are distinct computed values over different querysets, per the audit''s variant-preservation
+    rule; kept as separate rules, cross-referenced.'
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: WHO European Health Information Gateway, "Bed occupancy rate (%), acute care hospitals only"; standard
+      Bed Occupancy Rate (BOR) = (occupied beds / available beds) x 100. Point-prevalence form corroborated by PA
+      Dept. of Health "Occupancy Rates in Health Facilities".
+    detail_file: tenancy-organizacao-batch1.yaml
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-002
+  name: Sector occupancy percentage formula
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: SetorStatusSerializer.get_ocupacao computes bed occupancy percentage as (occupied active beds / total
+    active beds) * 100, rounded to 2 decimals; returns integer 0 (division-by-zero guard) when there are no active
+    beds.
+  inputs:
+  - name: total_leitos
+    type: integer
+    unit: null
+    range: '>= 0'
+  - name: total_leitos_ocupados
+    type: integer
+    unit: null
+    range: '>= 0'
+  outputs:
+  - name: ocupacao
+    type: float | integer
+    unit: '%'
+  logic: 'total_leitos = self.get_total_leitos(instance)
+
+    return round((self.get_total_leitos_ocupados(instance) / total_leitos) * 100, 2) if total_leitos else 0
+
+    '
+  edge_cases: total_leitos == 0 returns int 0 (not float 0.0), a minor type inconsistency vs. the rounded-float
+    branch. This exact formula/guard is duplicated in EstabelecimentoStatusSerializer.get_ocupacao (RULE-estabelecimento-BE-05-001).
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-001
+  merged_from:
+  - RULE-setor-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 142-148
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Reconciliation: cross-hierarchy variant of the identical formula/guard at establishment scope (see related).
+    Kept separate per variant-preservation rule; no divergence in the formula itself was found between the two levels.'
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: WHO European Health Information Gateway, Bed Occupancy Rate (%); BOR = (occupied active beds / total
+      active beds) x 100.
+    detail_file: tenancy-organizacao-batch1.yaml
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-003
+  name: Establishment bed total (ativo-scoped) vs occupied-bed total (no ativo scoping)
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: get_total_leitos requires both setor.usuarios=request.user AND leitos.ativo=True (denominator); get_total_leitos_ocupados
+    requires setor.usuarios=request.user AND leitos.ocupado=True but NOT ativo=True (numerator) - an inactive-but-occupied
+    bed inflates occupancy above what the denominator accounts for, mirroring the same asymmetry found at the sector
+    level.
+  inputs:
+  - name: instance.setores
+    type: related manager of Setor
+    unit: null
+  - name: request.user
+    type: object
+    unit: null
+  outputs:
+  - name: total_leitos
+    type: integer
+    unit: null
+  - name: total_leitos_ocupados
+    type: integer
+    unit: null
+  logic: "def get_total_leitos(instance):\n    return instance.setores.filter(usuarios=request.user, leitos__ativo=True).aggregate(total_leitos=Count(\"\
+    leitos\")).get(\"total_leitos\", 0)\ndef get_total_leitos_ocupados(instance):\n    return instance.setores.filter(leitos__ocupado=True,\
+    \ usuarios=request.user).aggregate(total_leitos_ocupados=Count(\"leitos\")).get(\"total_leitos_ocupados\", 0)\n"
+  edge_cases: Both are scoped to setores where request.user is a member (setor.usuarios=user), unlike the analogous
+    Setor-level methods which operate directly on a single already-resolved Setor instance.
+  confidence: medium
+  related:
+  - RULE-TENANCY-ORGANIZACAO-004
+  merged_from:
+  - RULE-estabelecimento-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/estabelecimento.py
+    lines: 95-112
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Cross-reference RULE-setor-BE-05-007 for the identical inconsistency pattern at sector scope. | Reconciliation:
+    identical ativo-scoping asymmetry pattern also present at sector scope (see related, status also DISCREPANCY
+    there). Kept as separate rules (different entity/queryset), not merged.'
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'WHO / standard BOR definition: occupied beds is a strict subset of available beds, therefore BOR
+      is bounded at <=100%. PA Dept. of Health "Occupancy Rates in Health Facilities" states the numerator (occupied)
+      must be drawn from the same available-bed denominator.'
+    detail_file: tenancy-organizacao-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-072
+    band: P2
+    title: Establishment bed total (ativo-scoped) vs occupied-bed total (no ativo scoping)
+    excerpt: 'CONFIRMED against legacy source (estabelecimento.py L95-112): get_total_leitos filters leitos__ativo=True;
+      get_total_leitos_ocupados filters leitos__ocupado=True with NO ativo=True constraint. An inactive-but-occupied
+      bed inflates the numerator without ente…'
+- id: RULE-TENANCY-ORGANIZACAO-004
+  name: Sector active-bed total vs. occupied-bed total use inconsistent ativo scoping
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: get_total_leitos filters leitos.filter(ativo=True) (the occupancy-percentage denominator), but get_total_leitos_ocupados
+    filters leitos.filter(ocupado=True) with NO ativo constraint (the numerator). If any leito has ocupado=True
+    but ativo=False, it inflates the numerator without being counted in the denominator, which can push the RULE-setor-BE-05-006
+    occupancy percentage above 100%.
+  inputs:
+  - name: instance.leitos
+    type: related manager of Leito
+    unit: null
+  outputs:
+  - name: total_leitos
+    type: integer
+    unit: null
+  - name: total_leitos_ocupados
+    type: integer
+    unit: null
+  logic: "def get_total_leitos(instance):\n    return instance.leitos.filter(ativo=True).count()\ndef get_total_leitos_ocupados(instance):\n\
+    \    return instance.leitos.filter(ocupado=True).count()   # no ativo=True filter\n"
+  edge_cases: Only manifests when an inactive bed is simultaneously marked ocupado=True; whether that combination
+    is reachable in practice depends on Leito's own state-transition rules (out of this partition's scope).
+  confidence: medium
+  related:
+  - RULE-TENANCY-ORGANIZACAO-003
+  merged_from:
+  - RULE-setor-BE-05-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 150-156
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Identical asymmetry pattern also present in EstabelecimentoStatusSerializer (RULE-estabelecimento-BE-05-002)
+    - both should be checked together by a verifier. | Reconciliation: identical ativo-scoping asymmetry pattern
+    also present at establishment scope (see related, status also DISCREPANCY there). Kept as separate rules (different
+    entity/queryset), not merged.'
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'WHO / standard BOR: occupied beds subset of available beds, BOR <=100%. Same authority as RULE-003.'
+    detail_file: tenancy-organizacao-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-073
+    band: P2
+    title: Sector active-bed total vs. occupied-bed total use inconsistent ativo scoping
+    excerpt: 'CONFIRMED against legacy source (setor.py L150-156): get_total_leitos = instance.leitos.filter(ativo=True).count();
+      get_total_leitos_ocupados = instance.leitos.filter(ocupado=True).count() with no ativo=True filter. Same ativo-scoping
+      asymmetry as RULE-003 …'
+- id: RULE-TENANCY-ORGANIZACAO-005
+  name: Establishment macro-indicator aggregate (sum/avg rounded to 2 decimals)
+  category: clinical-scoring
+  type: formula
+  status: OK
+  verify: true
+  description: get_macro_indicadores aggregates MacroIndicadores rows for the establishment code (CD_ESTABELECIMENTO),
+    summing vidas_salvas/obitos/tempo_permanencia/admissao and averaging tx_mortalidade/tx_ocupacao, each rounded
+    to 2 decimal places. Only computed for tipo in ('automatica','homecare'); 'manual' establishments get an empty
+    dict.
+  inputs:
+  - name: instance.codigo
+    type: string
+    unit: null
+  - name: instance.tipo
+    type: string enum
+    unit: null
+  outputs:
+  - name: vidas_salvas
+    type: float
+    unit: null
+  - name: obitos
+    type: float
+    unit: null
+  - name: tempo_permanencia
+    type: float
+    unit: null
+  - name: tx_mortalidade
+    type: float
+    unit: '%'
+  - name: tx_ocupacao
+    type: float
+    unit: '%'
+  - name: admissao
+    type: float
+    unit: null
+  logic: "indicadores = {}\nif instance.tipo in (\"automatica\", \"homecare\"):\n    indicadores = MacroIndicadores.objects.filter(CD_ESTABELECIMENTO=instance.codigo).aggregate(\n\
+    \        vidas_salvas=Round(Sum(\"VIDAS_SALVAS\"), precision=2),\n        obitos=Round(Sum(\"OBITOS\"), precision=2),\n\
+    \        tempo_permanencia=Round(Sum(\"TEMPO_PERMANENCIA\"), precision=2),\n        tx_mortalidade=Round(Avg(\"\
+    TX_MORTALIDADE\"), precision=2),\n        tx_ocupacao=Round(Avg(\"TX_OCUPACAO\"), precision=2),\n        admissao=Round(Sum(\"\
+    ADMISSAO\"), precision=2))\nreturn indicadores\n"
+  edge_cases: If no MacroIndicadores rows match CD_ESTABELECIMENTO, Django's Sum/Avg aggregate over an empty queryset
+    returns None (not 0/0.0) for each key, since no explicit default/Coalesce is used - the resulting dict will
+    contain None values rather than raising.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-006
+  merged_from:
+  - RULE-estabelecimento-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/estabelecimento.py
+    lines: 151-164
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Version/implementation difference vs. the sector-level RULE-setor-BE-05-009 (single-record .get() with
+    bare except, no rounding, keyed by an additional CD_SETOR_ATENDIMENTO) - cross-reference for a verifier. | Reconciliation:
+    sector-level counterpart (see related) uses a materially different implementation (single-record .get() with
+    bare except, no rounding) — flagged there as DISCREPANCY. Kept as separate rules since each aggregates a different
+    queryset (establishment-wide vs single sector).'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published clinical/statistical standard governs this proprietary establishment-level
+      macro-indicator aggregation (which of vidas_salvas/obitos/tempo_permanencia/admissao to Sum vs which of tx_mortalidade/tx_ocupacao
+      to Avg, and the 2-decimal Round). Internal IntensiCare/Trilhas business rule.
+    detail_file: tenancy-organizacao-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-208
+    band: UNVERIFIABLE
+    title: Establishment macro-indicator aggregate (sum/avg rounded to 2 decimals)
+    excerpt: Proprietary internal business aggregation with no authoritative published reference to verify equation/coefficients/cutoffs
+      against. Flagged for internal review, NOT treated as wrong. Two behaviors worth internal attention (doc…
+- id: RULE-TENANCY-ORGANIZACAO-006
+  name: Sector macro-indicator single-record fetch with silent failure
+  category: clinical-scoring
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: get_macro_indicadores fetches a single MacroIndicadores row keyed by (CD_ESTABELECIMENTO, CD_SETOR_ATENDIMENTO)
+    matching the sector; if found, raw (un-rounded) values for vidas_salvas/obitos/tempo_permanencia/tx_mortalidade/tx_ocupacao/admissao
+    are returned. A bare `except:` clause silently swallows ANY exception (DoesNotExist, MultipleObjectsReturned,
+    or anything else) and returns an empty dict.
+  inputs:
+  - name: instance.estabelecimento.codigo
+    type: string
+    unit: null
+  - name: instance.codigo
+    type: string
+    unit: null
+  outputs:
+  - name: indicadores
+    type: object {vidas_salvas, obitos, tempo_permanencia, tx_mortalidade, tx_ocupacao, admissao} | {}
+    unit: null
+  logic: "indicadores = {}\nif instance.tipo in (\"automatica\", \"homecare\"):\n    try:\n        obj = MacroIndicadores.objects.get(\n\
+    \            CD_ESTABELECIMENTO=instance.estabelecimento.codigo,\n            CD_SETOR_ATENDIMENTO=instance.codigo)\n\
+    \        indicadores = {\n            \"vidas_salvas\": obj.VIDAS_SALVAS, \"obitos\": obj.OBITOS,\n        \
+    \    \"tempo_permanencia\": obj.TEMPO_PERMANENCIA, \"tx_mortalidade\": obj.TX_MORTALIDADE,\n            \"tx_ocupacao\"\
+    : obj.TX_OCUPACAO, \"admissao\": obj.ADMISSAO}\n    except:\n        return indicadores   # {}\nreturn indicadores\n"
+  edge_cases: For 'manual' sectors, indicadores stays {} unconditionally. No rounding is applied here (contrast
+    with EstabelecimentoStatusSerializer's version which rounds to 2 decimals via aggregate/Round). A MultipleObjectsReturned
+    (more than one MacroIndicadores row matching the same estabelecimento+setor codes) is silently treated the same
+    as 'not found'.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-005
+  merged_from:
+  - RULE-setor-BE-05-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 187-206
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Version/implementation difference vs. RULE-estabelecimento-BE-05-004 (aggregate Sum/Avg with Round(precision=2)
+    across possibly multiple establishment-wide rows, no try/except at all). Cross-reference for a verifier deciding
+    which behavior is ''correct''. | Reconciliation: establishment-level counterpart (see related) uses Sum/Avg
+    aggregation with explicit Round(precision=2) and no exception handling — this sector-level version is a materially
+    different (less robust) implementation of the same conceptual indicator fetch. Kept as separate rules (different
+    queryset scope), not merged; both flagged for a verifier deciding canonical behavior.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal proprietary data-fetch rule: SetorStatusSerializer.get_macro_indicadores
+      single-record fetch of a MacroIndicadores row keyed by (CD_ESTABELECIMENTO, CD_SETOR_ATENDIMENTO). Legacy
+      verbatim confirmed at core/api/v1/serializers/setor.py:187-206 @ 8166c07.'
+    detail_file: tenancy-organizacao-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-209
+    band: UNVERIFIABLE
+    title: Sector macro-indicator single-record fetch with silent failure
+    excerpt: Proprietary multi-tenant data-fetch; no published clinical calculator governs it. Flag for internal
+      review. Extraction-flagged DISCREPANCY is an intra-codebase divergence vs RULE-005 (no rounding here; establishment
+      version rou…
+- id: RULE-TENANCY-ORGANIZACAO-007
+  name: Establishment unread message count sums across ALL sectors, not just user's own
+  category: alert-threshold
+  type: formula
+  status: AMBIGUOUS
+  verify: true
+  description: get_qtd_mensagens sums the Firestore unread-count for every sector belonging to the establishment
+    (instance.setores.all()), without filtering to sectors the requesting user actually belongs to - unlike nearly
+    every other computed field in this file which scopes to setor__usuarios=request.user.
+  inputs:
+  - name: instance.setores
+    type: related manager of Setor
+    unit: null
+  - name: request.user.pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: qtd_mensagens
+    type: integer
+    unit: null
+  logic: "total_msg = 0\nfor setor in instance.setores.all():\n    total_msg += get_qtd_msg_setor(setor, request.user,\
+    \ db)   # Firestore chats/{setor.pk}/usuarios/{usuario.pk}\nreturn total_msg\n"
+  edge_cases: Because the Firestore path is keyed by the user's own pk (chats/{setor}/usuarios/{usuario.pk}), a
+    user with no membership/message history for a given sector simply contributes 0 for that sector (no cross-user
+    data leakage) - but the lack of a setor__usuarios=user filter here is inconsistent with the rest of the file
+    and could sum sectors the user has no access to if that sector nonetheless has a stored Firestore doc for them
+    (e.g. from a past membership).
+  confidence: medium
+  related:
+  - RULE-TENANCY-ORGANIZACAO-008
+  merged_from:
+  - RULE-estabelecimento-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/estabelecimento.py
+    lines: 231-251
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Best interpretation: not a security bug (data is keyed by the requesting user''s own pk) but a scoping
+    inconsistency vs. sibling methods in the same serializer; flagged AMBIGUOUS because the intent (sum only ''my''
+    sectors vs. sum the whole establishment) cannot be confirmed from code alone. | Reconciliation: sector-level
+    counterpart (see related) is scoped to a single sector for the requesting user via the same Firestore path convention.
+    Kept separate since this rule sums across ALL of the establishment''s sectors regardless of user membership
+    (the AMBIGUOUS scoping question is specific to this rule).'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. Internal messaging/tenancy rule: EstabelecimentoStatusSerializer.get_qtd_mensagens
+      sums Firestore unread counters across instance.setores.all(). Legacy verbatim confirmed at core/api/v1/serializers/estabelecimento.py:231-251
+      @ 8166c07.'
+    detail_file: tenancy-organizacao-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-215
+    band: UNVERIFIABLE
+    title: Establishment unread message count sums across ALL sectors, not just user's own
+    excerpt: 'Proprietary business rule; extraction status AMBIGUOUS. No clinical/published reference exists to
+      declare right or wrong. Not a data-leak (Firestore path is keyed by the requesting user''s own pk: chats/{setor}/usuarios/{user.pk…'
+- id: RULE-TENANCY-ORGANIZACAO-008
+  name: Sector unread message count via Firestore
+  category: alert-threshold
+  type: formula
+  status: OK
+  verify: true
+  description: get_qtd_mensagens looks up the requesting user's unread-message counter for this specific sector
+    from Firestore at chats/{setor.pk}/usuarios/{usuario.pk}, defaulting to 0 if the document or field is missing.
+  inputs:
+  - name: instance.pk
+    type: uuid
+    unit: null
+  - name: request.user.pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: qtd_mensagens
+    type: integer
+    unit: null
+  logic: "def get_qtd_msg_setor(setor, usuario, db):\n    doc_ref = db.collection(\"chats\").document(str(setor.pk)).collection(\"\
+    usuarios\").document(str(usuario.pk))\n    data = doc_ref.get().to_dict() or {}\n    return data.get(\"qtd_mensagens\"\
+    , 0)\n"
+  edge_cases: Missing document or missing 'qtd_mensagens' field both resolve to 0, not an error.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-007
+  merged_from:
+  - RULE-setor-BE-05-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 270-286
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Identical helper function is duplicated (not imported/shared) in estabelecimento.py (RULE-estabelecimento-BE-05-007),
+    where it is summed across multiple sectors instead of looked up for one. | Reconciliation: establishment-level
+    counterpart (see related) reuses this same Firestore lookup helper (duplicated, not shared) but sums it across
+    every sector of the establishment without a user-membership filter. Kept separate; this sector-level version
+    is scoped to exactly one already-resolved sector.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. Internal Firestore lookup: get_qtd_msg_setor reads chats/{setor.pk}/usuarios/{usuario.pk},
+      returning data.get(''qtd_mensagens'', 0). Legacy verbatim confirmed at core/api/v1/serializers/setor.py:270-286
+      @ 8166c07.'
+    detail_file: tenancy-organizacao-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-216
+    band: UNVERIFIABLE
+    title: Sector unread message count via Firestore
+    excerpt: Proprietary messaging counter; no published reference. Extraction status OK; behavior is internally
+      consistent (missing doc and missing field both resolve to 0). Legacy traced and confirmed. Nothing to characterize
+      against an e…
+- id: RULE-TENANCY-ORGANIZACAO-009
+  name: Combined setor display name
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: SetorUsuarioSerializer.get_nome concatenates the parent establishment's name and the sector's own
+    name for display.
+  inputs:
+  - name: instance.estabelecimento.nome
+    type: string
+    unit: null
+  - name: instance.nome
+    type: string
+    unit: null
+  outputs:
+  - name: nome
+    type: string
+    unit: null
+  logic: 'return instance.estabelecimento.nome + " - " + instance.nome
+
+    '
+  edge_cases: null
+  confidence: high
+  merged_from:
+  - RULE-setor-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 22-23
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. Internal display-string rule: SetorUsuarioSerializer.get_nome
+      returns instance.estabelecimento.nome + '' - '' + instance.nome. Legacy verbatim confirmed at core/api/v1/serializers/setor.py:22-23
+      @ 8166c07.'
+    detail_file: tenancy-organizacao-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-218
+    band: UNVERIFIABLE
+    title: Combined setor display name
+    excerpt: Pure presentation string concatenation; no clinical or published reference applies. Extraction status
+      OK. Behavior traced and confirmed; the only edge is a hard dependency on a non-null estabelecimento FK, which
+      is a schema con…
+- id: RULE-TENANCY-ORGANIZACAO-010
+  name: '''atualizado_em'' timestamp floored to 5-minute buckets'
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: SetorSerializer.get_atualizado_em returns the current time with its minute component rounded DOWN
+    to the nearest multiple of 5 (e.g. 14:37 -> 14:35); seconds/microseconds are left unchanged.
+  inputs: []
+  outputs:
+  - name: atualizado_em
+    type: datetime
+    unit: null
+  logic: 'horario = timezone.now().astimezone()
+
+    minuto = int(horario.minute - horario.minute % 5)
+
+    horario = horario.replace(minute=minuto)
+
+    return horario
+
+    '
+  edge_cases: Only the minute field is replaced - seconds and microseconds from the original timezone.now() call
+    are preserved, so the result is NOT floored to an exact 5-minute clock boundary (e.g. could be 14:35:42.123456,
+    not 14:35:00.000000).
+  confidence: high
+  merged_from:
+  - RULE-setor-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 112-116
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Likely intended as a cache-bucketing/throttling value for a 'last updated' display, not a literal computation
+    from real data changes.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. Internal cache-bucketing helper: SetorSerializer.get_atualizado_em
+      floors the minute component to the nearest lower multiple of 5. Legacy verbatim confirmed at core/api/v1/serializers/setor.py:112-116
+      @ 8166c07. Arithmetic (n - n%5) is a standard floor-to-bucket; checked for internal self-consistency only.'
+    detail_file: tenancy-organizacao-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-219
+    band: UNVERIFIABLE
+    title: '''atualizado_em'' timestamp floored to 5-minute buckets'
+    excerpt: Proprietary 'last updated' cache-bucketing/throttling value, not a clinical computation; no published
+      reference governs it. The floor-to-5-minute arithmetic is internally correct and matches the rule description
+      on all traced v…
+- id: RULE-TENANCY-ORGANIZACAO-011
+  name: Sector alert counts merge manual movement alerts with automatic-pathway alerts
+  category: alert-threshold
+  type: formula
+  status: OK
+  verify: true
+  description: 'get_alertas produces a VERMELHO/AMARELO/NEUTRO count dict by combining two sources: (1) counts of
+    alerta_movimentacao from currently-active (atual=True) Movimentacao records for the sector''s beds (manual-type
+    tracking), and (2) alertas_automaticos computed separately over the sector''s automatica-type leitos via Leito.get_total_generos_e_alertas_automaticos.
+    The two sources are summed per alert-level key.'
+  inputs:
+  - name: obj.leitos (filtered tipo=automatica)
+    type: queryset of Leito
+    unit: null
+  - name: Movimentacao(atual=True, leito__setor=obj)
+    type: queryset
+    unit: null
+  outputs:
+  - name: alertas
+    type: object {VERMELHO, AMARELO, NEUTRO}
+    unit: null
+  logic: "self.generos_automaticos, self.alertas_automaticos = Leito.get_total_generos_e_alertas_automaticos(\n\
+    \    leitos=obj.leitos.all().filter(tipo=\"automatica\"))\nalertas = {\"VERMELHO\": 0, \"AMARELO\": 0, \"NEUTRO\"\
+    : 0}\nalertas.update(Movimentacao.objects.filter(atual=True, leito__setor=obj.pk)\n               .values_list(\"\
+    alerta_movimentacao\").annotate(Count(\"alerta_movimentacao\")))\nfor key in alertas:\n    alertas[key] += self.alertas_automaticos[key]\n\
+    return alertas\n"
+  edge_cases: get_generos_e_alertas_automaticos must run before get_alertas reads self.alertas_automaticos - it
+    is called as the first line inside get_alertas itself, so ordering is self-contained and safe regardless of
+    DRF field serialization order.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-035
+  merged_from:
+  - RULE-setor-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 56-79
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Leito.get_total_generos_e_alertas_automaticos is defined in core/models, out of this partition''s scope;
+    its output shape (dict with VERMELHO/AMARELO/NEUTRO keys) is inferred from usage here. | Reconciliation: distinct
+    from RULE-TENANCY-ORGANIZACAO (setor-BE-05-010, get_total_alertas) which computes a similarly-shaped VERMELHO/AMARELO/NEUTRO
+    dict but in a different serializer class (SetorStatusSerializer) using context-supplied movimentacoes and tipo-branching,
+    rather than this SetorSerializer.get_alertas which unconditionally sums manual + automatica sources. Not a duplicate
+    capture; kept separate.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal/proprietary business logic: per-sector alert-level
+      tally (VERMELHO/AMARELO/NEUTRO) that sums manual Movimentacao alerts with automatica-pathway bed alerts. This
+      is an application-specific aggregation, not a validated clinical scale, scoring system, or guideline-defined
+      algorithm.'
+    detail_file: tenancy-organizacao-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-217
+    band: UNVERIFIABLE
+    title: Sector alert counts merge manual movement alerts with automatic-pathway alerts
+    excerpt: 'No published clinical source governs this counter; flag for internal review, do NOT treat as wrong.
+      Behavioral observation for the internal reviewer only: the merge is arithmetically correct for the three expected
+      levels, but a…'
+- id: RULE-TENANCY-ORGANIZACAO-012
+  name: Sector bed totals (active beds only)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: SetorSerializer.get_leitos returns the total count of active (ativo=True) beds in the sector and,
+    of those, how many are currently occupied.
+  inputs:
+  - name: obj
+    type: Setor
+    unit: null
+  outputs:
+  - name: total
+    type: integer
+    unit: null
+  - name: ocupados
+    type: integer
+    unit: null
+  logic: 'queryset = Leito.objects.filter(setor=obj, ativo=True)
+
+    return {"total": queryset.count(), "ocupados": queryset.filter(ocupado=True).count()}
+
+    '
+  edge_cases: '''ocupados'' is a strict subset of ''total'' since it filters the already ativo=True queryset - unlike
+    the analogous SetorStatusSerializer methods (RULE-setor-BE-05-007), there is no ativo mismatch here.'
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-002
+  - RULE-TENANCY-ORGANIZACAO-004
+  merged_from:
+  - RULE-setor-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 81-92
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Reconciliation: distinct from the SetorStatusSerializer bed-count methods (RULE-TENANCY-ORGANIZACAO for
+    setor-BE-05-006/007) which use the same ativo/ocupado filters but live in a different serializer class and (in
+    the -007 case) drop the ativo constraint from the numerator. This SetorSerializer.get_leitos method scopes both
+    total and ocupados to ativo=True consistently (no discrepancy here).'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal/proprietary business logic: SetorSerializer.get_leitos
+      counts active beds (ativo=True) and the occupied subset (ocupado=True) within that active set. This is bed-inventory
+      bookkeeping, not a clinical calculator; general ICU-occupancy definition (occupied/available beds) is the
+      only conceptual anchor and it is not a coefficient/cutoff-bearing published equation.'
+    detail_file: tenancy-organizacao-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-214
+    band: UNVERIFIABLE
+    title: Sector bed totals (active beds only)
+    excerpt: 'No published clinical source governs this count; flag for internal review, do NOT treat as wrong.
+      Behavioral observation: unlike the SetorStatusSerializer numerator (RULE-TENANCY-ORGANIZACAO-004, DISCREPANCY),
+      this method deriv…'
+- id: RULE-TENANCY-ORGANIZACAO-013
+  name: Sector gender counts merge manual movements with automatic-pathway beds
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: get_generos produces an M/F/N/O gender-count dict combining active (atual=True) Movimentacao patient
+    genders with automatica-type-leito genders computed separately, summed per key.
+  inputs: []
+  outputs:
+  - name: generos
+    type: object {M, F, N, O}
+    unit: null
+  logic: "generos = {\"M\": 0, \"F\": 0, \"N\": 0, \"O\": 0}\ngeneros.update(Movimentacao.objects.filter(atual=True,\
+    \ leito__setor=obj.pk)\n               .values_list(\"paciente__genero\").annotate(Count(\"paciente__genero\"\
+    )))\nfor key in generos:\n    generos[key] += self.generos_automaticos[key]\nreturn generos\n"
+  edge_cases: Depends on get_generos_e_alertas_automaticos having already populated self.generos_automaticos (triggered
+    from get_alertas, RULE-setor-BE-05-003) - if 'generos' is serialized before 'alertas' this could AttributeError;
+    DRF serializes fields in declaration order and 'alertas' is declared before 'generos' in the Meta/class body,
+    so this is safe under normal DRF field ordering but is an implicit coupling.
+  confidence: medium
+  related:
+  - RULE-TENANCY-ORGANIZACAO-034
+  merged_from:
+  - RULE-setor-BE-05-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 94-110
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Gender code ''N'' (alongside M/F/O) is unusual - likely ''não informado'' (not informed), recorded verbatim
+    as implemented. Cross-field dependency (generos relies on alertas having run first) is a fragile implicit-ordering
+    discrepancy worth a verifier''s attention. | Reconciliation: distinct from setor-BE-05-008 (get_total_generos,
+    SetorStatusSerializer, tipo-branching) — this SetorSerializer.get_generos unconditionally sums manual Movimentacao
+    genders + automatica-leito genders. Not a duplicate capture; kept separate, cross-referenced.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal/proprietary business logic: per-sector patient-gender
+      tally (M/F/N/O) merging active Movimentacao patient genders with automatica-leito genders. The gender code
+      set (M/F/N/O, N likely ''nao informado'') is an application enum, not an HL7/FHIR/ISO-5218-conformant published
+      value set with defined semantics/cutoffs.'
+    detail_file: tenancy-organizacao-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-220
+    band: UNVERIFIABLE
+    title: Sector gender counts merge manual movements with automatic-pathway beds
+    excerpt: 'No published clinical source governs this counter; flag for internal review, do NOT treat as wrong.
+      Behavioral observations for internal reviewer: (1) same out-of-schema-key KeyError exposure as RULE-011 if
+      paciente__genero is …'
+- id: RULE-TENANCY-ORGANIZACAO-014
+  name: Sector chat preview picks the first related observation without explicit ordering
+  category: data-validation
+  type: formula
+  status: AMBIGUOUS
+  verify: true
+  description: SetorChatsSerializer.get_ultima_mensagem returns the text of instance.observacoes.first() (or empty
+    string if none exist), intending to show the 'latest message' - but no explicit .order_by() is applied here,
+    so correctness depends entirely on the Observacao model's default Meta.ordering (out of this partition's scope).
+  inputs:
+  - name: instance.observacoes
+    type: related manager of Observacao
+    unit: null
+  outputs:
+  - name: ultima_mensagem
+    type: string
+    unit: null
+  logic: 'return instance.observacoes.first().texto if instance.observacoes.exists() else ""
+
+    '
+  edge_cases: If Observacao's default ordering is not by creation date descending, 'first()' will not actually return
+    the most recent message despite the field name 'ultima_mensagem' (last message).
+  confidence: medium
+  related:
+  - RULE-TENANCY-ORGANIZACAO-033
+  merged_from:
+  - RULE-setor-BE-05-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/setor.py
+    lines: 311-314
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Best interpretation: relies on Observacao.Meta.ordering being descending by criado_em; a verifier with
+    access to core/models/observacao.py should confirm.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal/proprietary UI/data-presentation logic:
+      SetorChatsSerializer.get_ultima_mensagem returns instance.observacoes.first().texto. Chat-preview ''latest
+      message'' selection is application behavior, not a clinical algorithm. Correctness hinges on Observacao.Meta.ordering,
+      which is outside this partition''s scope.'
+    detail_file: tenancy-organizacao-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-221
+    band: UNVERIFIABLE
+    title: Sector chat preview picks the first related observation without explicit ordering
+    excerpt: Already carries extraction status AMBIGUOUS. No published clinical source applies; flag for internal
+      review, do NOT treat as wrong. Correctness is entirely contingent on Observacao's default Meta.ordering (must
+      be descending by…
+- id: RULE-TENANCY-ORGANIZACAO-015
+  name: Monthly total intervention count for sector indicators
+  category: clinical-scoring
+  type: formula
+  status: OK
+  verify: true
+  description: As part of the indicadores action, the sector's total count of AssistidoPor (audit) records created
+    within the CURRENT calendar month (1st through last day, inclusive) is computed and appended as a fifth indicator,
+    labeled with the month/year.
+  inputs:
+  - name: current month/year
+    type: date
+    unit: null
+  outputs:
+  - name: total_intervencoes
+    type: integer
+    unit: null
+  logic: "month, year = timezone.now().month, timezone.now().year\nnum_days = calendar.monthrange(year, month)[1]\n\
+    data_inicio = date(year, month, 1)         # first day of month\ndata_fim = date(year, month, num_days)    \
+    \ # last day of month\ntotal_intervencoes = AssistidoPor.objects.filter(\n    leito__setor=setor, criado_em__range=(data_inicio,\
+    \ data_fim)\n).count()\nindicadores.append({\"nome\": f\"Total de intervenções ({month}/{year})\", \"valor\"\
+    : total_intervencoes})\n"
+  edge_cases: Django's __range filter is inclusive on both ends. The source code's inline comments are swapped/backwards
+    (data_inicio's comment says 'último dia do mês' [last day] and data_fim's says 'primeiro dia do mês' [first
+    day]) even though the actual date values assigned are correct (1st, then last day) - a verbatim comment/code
+    mismatch, not a logic bug.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-038
+  merged_from:
+  - RULE-setor-BE-05-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/setor.py
+    lines: 145-176
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'timezone.now() is used without .astimezone(), so month/year are computed in whatever timezone Django''s
+    USE_TZ setting resolves to (typically UTC) - not necessarily the user''s local calendar month at midnight boundaries.
+    | Reconciliation: this indicator is appended as a fifth entry inside the same indicadores action documented
+    in setor-BE-05-015; kept as a separate rule because it is a structurally distinct formula (AssistidoPor monthly
+    count) computed alongside, not part of, the per-trilha aggregation.'
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference. Internal/proprietary business logic: current-calendar-month
+      count of AssistidoPor (audit/intervention) records for a sector, appended as a fifth indicator. Calendar-month
+      boundary math (calendar.monthrange, first/last day) is standard library behavior, not a clinical guideline;
+      the only checkable dimension is the date-range boundary correctness.'
+    detail_file: tenancy-organizacao-batch3.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-210
+    band: UNVERIFIABLE
+    title: Monthly total intervention count for sector indicators
+    excerpt: 'No published clinical source governs this count; flag for internal review, do NOT treat as wrong.
+      Two behavioral observations for the internal reviewer, both outside clinical-reference scope: (1) the well-known
+      Django gotcha — …'
+- id: RULE-TENANCY-ORGANIZACAO-016
+  name: Processing-mode (tipo) enumeration for company/bed/sector/establishment
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The `tipo` field ("manual"/"automatica"/"homecare"/"") selects which pathway engine and alert logic
+    apply to a bed/sector/establishment/company.
+
+    '
+  inputs:
+  - name: tipo
+    type: string
+    unit: null
+    range: manual|automatica|homecare|'' (Não informado)
+  outputs:
+  - name: processing_mode
+    type: string
+    unit: null
+  logic: "EmpresaChoices.tipo() -> (manual, automatica, homecare, \"\").\nDownstream branching (Leito.save / get_alerta_leito\
+    \ / get_paciente_instance):\n  tipo==\"automatica\" -> use automatic pathway set + alerta_nao_assistido_automatico\n\
+    \  tipo==\"homecare\"   -> use homecare pathway set + alerta_nao_assistido_homecare\n  tipo==\"manual\"    \
+    \ -> alerta computed from stored movimentacao trilhas (no auto engine)\nDefaults: Estabelecimento/Setor/Leito\
+    \ default \"manual\"; Empresa.tipo default \"\".\n"
+  edge_cases: get_alerta_leito raises ValidationError for any tipo other than homecare/automatica when computing
+    bed alert; get_trilha raises "Tipo de leito inválido" for tipo not in {automatica,homecare}.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-025
+  - RULE-TENANCY-ORGANIZACAO-026
+  - RULE-TENANCY-ORGANIZACAO-027
+  - RULE-TENANCY-ORGANIZACAO-028
+  - RULE-TENANCY-ORGANIZACAO-029
+  - RULE-TENANCY-ORGANIZACAO-030
+  - RULE-TENANCY-ORGANIZACAO-034
+  - RULE-TENANCY-ORGANIZACAO-035
+  - RULE-TENANCY-ORGANIZACAO-036
+  - RULE-TENANCY-ORGANIZACAO-038
+  merged_from:
+  - RULE-empresa-BE-04-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/empresa.py
+    lines: 14-21
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: "Leito.tipo reuses EmpresaChoices.tipo but max_length=64; Estabelecimento/Setor use max_length=65. Same\
+    \ enum reused across four models.\n | Reconciliation: this is the single canonical definition of the shared\
+    \ `tipo` enum and its downstream engine-selection semantics; all tipo-branching decision rules elsewhere in\
+    \ this cluster (FE gating rules, estabelecimento/setor tipo-branch formulas) are separate rules that consume\
+    \ this enum and are cross-referenced here rather than merged, since each implements a distinct decision (different\
+    \ button, different aggregation) rather than restating this same enum definition."
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-017
+  name: EmpresaMiddleware — path-based empresa (tenant) resolution
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Scans the request path''s segments; when a segment literally equals ''empresas'', treats the NEXT
+    segment as the empresa pk, looks it up (with related prefetching) and attaches it to request.empresa. Any lookup
+    failure (bad pk, does-not-exist, etc.) is silently swallowed (bare except: pass), leaving request.empresa as
+    None.'
+  inputs:
+  - name: request.path
+    type: string
+    unit: null
+  outputs:
+  - name: request.empresa
+    type: Empresa instance or None
+    unit: null
+  logic: "request.empresa = None\nFOR index, name IN enumerate(request.path.split(\"/\")):\n  IF name == \"empresas\"\
+    :\n    TRY:\n      pk = path_splitted[index + 1]\n      request.empresa = Empresa.objects.prefetch_related(\n\
+    \        \"grupos_acessos\",\"usuarios\",\"grupos_acessos__grupo\",\"grupos_acessos__grupo__permissions\"\n\
+    \      ).get(pk=pk)\n      BREAK\n    EXCEPT Exception: pass\n"
+  edge_cases: 'Any exception (malformed UUID, DoesNotExist, IndexError if ''empresas'' is the last path segment)
+    is caught by a bare `except Exception: pass`, silently leaving request.empresa unset with no error surfaced.'
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-018
+  - RULE-TENANCY-ORGANIZACAO-019
+  - RULE-TENANCY-ORGANIZACAO-020
+  - RULE-TENANCY-ORGANIZACAO-051
+  merged_from:
+  - RULE-mw-BE-11-059
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/middleware.py
+    lines: 18-46
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'First of a chain of 4 tenant-hierarchy-resolving middlewares (Empresa -> Estabelecimento -> Setor -> Leito)
+    that all rely on this exact URL-segment-name-then-next-segment convention. | Reconciliation: first of a 4-middleware
+    tenant-resolution chain (Empresa->Estabelecimento->Setor->Leito/ocupacoes) plus the sibling UndefinedMiddleware
+    (mw-BE-11-063) in the same file; kept as 5 separate rules (each resolves a different path segment / entity and
+    has distinct cross-check behavior) rather than merged, cross-referenced via related.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-018
+  name: EstabelecimentoMiddleware — path-based estabelecimento resolution + empresa cross-check
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Same URL-segment convention as EmpresaMiddleware but for 'estabelecimentos'; additionally validates
+    that if request.empresa is already set (from EmpresaMiddleware running earlier in MIDDLEWARE order), it must
+    equal the resolved estabelecimento.empresa, otherwise the request is rejected with HTTP 400.
+  inputs:
+  - name: request.path
+    type: string
+    unit: null
+  - name: request.empresa
+    type: Empresa instance or None (set by EmpresaMiddleware)
+    unit: null
+  outputs:
+  - name: request.estabelecimento
+    type: Estabelecimento instance or None
+    unit: null
+  - name: HTTP 400 response
+    type: returned early on tenant mismatch
+    unit: null
+  logic: "request.estabelecimento = None\nFOR index, name IN enumerate(path_splitted):\n  IF name == \"estabelecimentos\"\
+    :\n    TRY:\n      pk = path_splitted[index + 1]\n      estabelecimento = Estabelecimento.objects.select_related(\"\
+    empresa\").prefetch_related(...).get(pk=pk)\n      request.estabelecimento = estabelecimento\n      IF request.empresa\
+    \ AND request.empresa != estabelecimento.empresa:\n        RETURN JsonResponse({\"errors\": {\"detail\": \"\
+    Este estabelecimento não pertence à esta empresa\"}, ...}, status=400)\n      BREAK\n    EXCEPT Exception: pass\n"
+  edge_cases: 'Cross-check only applies if request.empresa was already resolved (depends on MIDDLEWARE ordering:
+    EmpresaMiddleware runs before EstabelecimentoMiddleware per settings.py MIDDLEWARE list) — a request path containing
+    only ''/estabelecimentos/<pk>/'' without an ''/empresas/<pk>/'' segment performs no cross-tenant validation
+    at all.'
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-017
+  - RULE-TENANCY-ORGANIZACAO-019
+  - RULE-TENANCY-ORGANIZACAO-020
+  merged_from:
+  - RULE-mw-BE-11-060
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/middleware.py
+    lines: 49-94
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Duplicates the business intent of verificar_setor_da_empresa (RULE-util-BE-11-044) at the establishment
+    level rather than the setor level.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-019
+  name: SetorMiddleware — path-based setor resolution + dual empresa/estabelecimento cross-check
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Same URL-segment convention for 'setores'; validates the resolved setor's estabelecimento against
+    BOTH request.empresa (if set) and request.estabelecimento (if set); rejects with HTTP 400 if either mismatches.
+  inputs:
+  - name: request.path
+    type: string
+    unit: null
+  - name: request.empresa, request.estabelecimento
+    type: instances or None
+    unit: null
+  outputs:
+  - name: request.setor
+    type: Setor instance or None
+    unit: null
+  - name: HTTP 400 response
+    type: returned early on tenant mismatch
+    unit: null
+  logic: "request.setor = None\nFOR index, name IN enumerate(path_splitted):\n  IF name == \"setores\":\n    TRY:\n\
+    \      pk = path_splitted[index + 1]\n      setor = Setor.objects.select_related(\"estabelecimento\",\"estabelecimento__empresa\"\
+    ).prefetch_related(...).get(pk=pk)\n      request.setor = setor\n      IF (request.empresa AND request.empresa\
+    \ != setor.estabelecimento.empresa) OR \\\n         (request.estabelecimento AND request.estabelecimento !=\
+    \ setor.estabelecimento):\n        RETURN JsonResponse({\"errors\": {\"detail\": \"Este setor não pertence à\
+    \ este estabelecimento ou empresa\"}, ...}, status=400)\n      BREAK\n    EXCEPT Exception: pass\n"
+  edge_cases: 'Same MIDDLEWARE-ordering caveat as EstabelecimentoMiddleware: cross-checks are only as strong as
+    whichever of empresa/estabelecimento happened to be resolved earlier from the same URL.'
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-017
+  - RULE-TENANCY-ORGANIZACAO-018
+  - RULE-TENANCY-ORGANIZACAO-021
+  merged_from:
+  - RULE-mw-BE-11-061
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/middleware.py
+    lines: 97-154
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-020
+  name: LeitoMiddleware — path-based leito resolution (no cross-tenant check)
+  category: data-validation
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: Scans for a path segment literally 'ocupacoes'; takes the next segment as the leito pk and attaches
+    the Leito instance to request.leito. Unlike Empresa/Estabelecimento/Setor middlewares, this one performs NO
+    cross-tenant consistency check against request.empresa/estabelecimento/setor.
+  inputs:
+  - name: request.path
+    type: string
+    unit: null
+  outputs:
+  - name: request.leito
+    type: Leito instance or None
+    unit: null
+  logic: "request.leito = None\nFOR index, name IN enumerate(path_splitted):\n  IF name == \"ocupacoes\":\n    TRY:\n\
+    \      pk = path_splitted[index + 1]\n      request.leito = Leito.objects.get(pk=pk)\n      BREAK\n    EXCEPT\
+    \ Exception: pass\n"
+  edge_cases: No cross-check against request.empresa/estabelecimento/setor, and no prefetch_related (unlike the
+    other three middlewares), suggesting this middleware may be less complete/mature than the others.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-017
+  - RULE-TENANCY-ORGANIZACAO-018
+  - RULE-TENANCY-ORGANIZACAO-019
+  merged_from:
+  - RULE-mw-BE-11-062
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilhas/middleware.py
+    lines: 157-175
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMBIGUOUS whether the missing cross-tenant check is intentional (e.g. 'ocupacoes' routes are always nested
+    under an already-validated setor path) or an inconsistency vs the other three middlewares; flag for verifier.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-340
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: LeitoMiddleware — path-based leito resolution (no cross-tenant check)
+- id: RULE-TENANCY-ORGANIZACAO-021
+  name: Sector queryset dual (non-exclusive) scoping by empresa and estabelecimento
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: SetorViewSet.get_queryset (and identically, SetorUsuarioViewSet.get_queryset) applies BOTH an empresa
+    filter and an estabelecimento filter independently (if each is present on the request) rather than an either/or
+    priority chain - unlike the setor>estabelecimento>empresa exclusive pattern used elsewhere (e.g. GrupoAcesso,
+    permissions).
+  inputs:
+  - name: request.empresa
+    type: object|null
+    unit: null
+  - name: request.estabelecimento
+    type: object|null
+    unit: null
+  outputs:
+  - name: queryset
+    type: queryset of Setor
+    unit: null
+  logic: "queryset = Setor.objects.all()\nif request.empresa:\n    queryset = queryset.filter(estabelecimento__empresa=request.empresa)\n\
+    if request.estabelecimento:\n    queryset = queryset.filter(estabelecimento=request.estabelecimento)\nreturn\
+    \ queryset\n"
+  edge_cases: Both conditions are plain 'if' (not 'elif'), so when both request.empresa and request.estabelecimento
+    are present, both filters apply cumulatively (AND), which is consistent as long as estabelecimento actually
+    belongs to empresa.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-017
+  - RULE-TENANCY-ORGANIZACAO-018
+  - RULE-TENANCY-ORGANIZACAO-019
+  - RULE-TENANCY-ORGANIZACAO-022
+  merged_from:
+  - RULE-setor-BE-05-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/setor.py
+    lines: 42-48, 191-197
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Duplicated verbatim between SetorViewSet.get_queryset and SetorUsuarioViewSet.get_queryset. | Reconciliation:
+    cross-referenced with the Empresa/Estabelecimento/Setor tenant-resolution middlewares (which populate request.empresa/request.estabelecimento
+    consumed here) — not a duplicate, this is the queryset-filtering consumer of those middleware-attached objects.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-022
+  name: Establishment queryset optionally scoped to parent empresa
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: EstabelecimentoViewSet.get_queryset filters to the empresa__pk URL kwarg when present (nested route),
+    else returns all establishments.
+  inputs:
+  - name: kwargs.empresa__pk
+    type: uuid | null
+    unit: null
+  outputs:
+  - name: queryset
+    type: queryset of Estabelecimento
+    unit: null
+  logic: "queryset = Estabelecimento.objects.all()\nif kwargs.get(\"empresa__pk\"):\n    queryset = queryset.filter(empresa=kwargs[\"\
+    empresa__pk\"])\nreturn queryset\n"
+  edge_cases: No scoping by request.user at all (contrast with EstabelecimentoStatusSerializer's methods which do
+    scope by setor__usuarios=user) - a non-nested request against this viewset returns ALL establishments across
+    ALL companies.
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-017
+  - RULE-TENANCY-ORGANIZACAO-021
+  merged_from:
+  - RULE-estabelecimento-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/estabelecimento.py
+    lines: 34-39
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Flagged for a verifier: whether this is intentional (e.g., permission_classes/TrilhasPermissaoMixin restricts
+    access elsewhere) or a genuine multi-tenant gap depends on code outside this partition. | Reconciliation: cross-referenced
+    with the tenant-resolution middleware chain and with setor-BE-05-017 (the analogous dual-scoping queryset for
+    Setor); this establishment queryset only conditionally scopes by empresa (nested-route kwarg) and has no request.user
+    scoping at all — flagged by Phase 1 as a possible multi-tenant gap depending on permission enforcement elsewhere.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-023
+  name: Cascading estabelecimento-then-setor selection gate
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'In the establishment/sector picker, the "Setor de atendimento" search field is disabled (shown as
+    a non-functional placeholder input) until an estabelecimento has been chosen; selecting a new estabelecimento
+    first clears the sector search (briefly unmounting/remounting it via a 100ms delay) before enabling it again
+    scoped to the newly chosen establishment.
+
+    '
+  inputs:
+  - name: estabId (selected estabelecimento id)
+    type: string | undefined
+  outputs:
+  - name: setorSearchEnabled
+    type: boolean
+  logic: "onEstabelecimentoChange(value):\n  estabId = undefined            // disable/reset setor search immediately\n\
+    \  onChangeEstabelecimento()\n  setTimeout(() => { estabId = value }, 100)   // re-enable, scoped to new estab,\
+    \ after 100ms\nsetorSearchEnabled = !!estabId\n"
+  edge_cases: The 100ms setTimeout is a fixed delay with no cancellation/debounce guard; rapid consecutive estabelecimento
+    changes could race and apply an out-of-order estabId.
+  confidence: medium
+  merged_from:
+  - RULE-selectplace-FE-06-032
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/SelectPlace/SelectPlace.tsx
+    lines: 21-73
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-024
+  name: GET bypasses can_manage_empresa permission
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: EmpresaViewSet declares permission_trilhas=('can_manage_empresa',) with exceto_metodo='GET', so only
+    mutating requests require this permission.
+  inputs:
+  - name: request.method
+    type: string
+    unit: null
+  outputs:
+  - name: permission_required
+    type: boolean
+    unit: null
+  logic: 'escopo = "empresa"
+
+    permission_trilhas = ("can_manage_empresa",)
+
+    exceto_metodo = "GET"
+
+    '
+  edge_cases: null
+  confidence: medium
+  merged_from:
+  - RULE-empresa-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/empresa.py
+    lines: 30-32
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Enforcement mechanism (TrilhasPermissaoMixin) is out of this partition's scope; configuration values recorded
+    as observed.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-025
+  name: Homecare-only dashboard shortcuts (Feed / Relatório de Evolução)
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'On the company (empresa) dashboard, floating shortcut buttons to the Feed page and the Relatório
+    de Evolução page are only rendered when the current company''s tipo === "homecare". The Relatório de Evolução
+    button additionally requires the can_access_relatorio_evolucao effective permission.
+
+    '
+  inputs:
+  - name: currentEmpresa.tipo
+    type: string enum
+    unit: null
+    range: homecare | manual | automatica (observed)
+  - name: can_access_relatorio_evolucao
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: button-visibility
+    type: boolean
+    unit: null
+  logic: "if (currentEmpresa.tipo === \"homecare\") {\n  show Feed button\n  if (can_access_relatorio_evolucao)\
+    \ {\n    show Relatório de Evolução button\n  }\n}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-016
+  merged_from:
+  - RULE-empresa-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa].tsx
+    lines: 121-152
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'can_access_relatorio_evolucao is computed via useEffectivePermissions() (hook implementation out of FE-08
+    scope). Cross-reference RULE-relatorio-FE-08-001.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TENANCY-ORGANIZACAO-026
+  name: Manual-type gates estabelecimento creation
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The "add estabelecimento" floating action button is only rendered when the current company''s tipo
+    === "manual"; companies of other types cannot create establishments through this UI.
+
+    '
+  inputs:
+  - name: empresaData.tipo
+    type: string enum
+    unit: null
+    range: manual | automatica | homecare (observed)
+  outputs:
+  - name: add-button-visibility
+    type: boolean
+    unit: null
+  logic: "if (empresaData?.tipo === \"manual\") {\n  show \"+\" add-estabelecimento button\n}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-TENANCY-ORGANIZACAO-016
+  - RULE-TENANCY-ORGANIZACAO-027
+  - RULE-TENANCY-ORGANIZACAO-028
+  merged_from:
+  - RULE-empresa-FE-08-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/estabelecimentos/index.tsx
+    lines: 227-242
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'This is a UI-only restriction; no server-side re-check of tipo observed in this page. | Reconciliation:
+    part of a 3-rule family (estabelecimento/leito/setor creation-and-editing gates) all keyed on empresa.tipo ===
+    ''manual'', each on its own configuracoes page; kept as separate rules since each gates a distinct UI surface,
+    cross-referenced via related.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

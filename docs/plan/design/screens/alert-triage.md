@@ -146,3 +146,26 @@ The disposition/resolution captured in §2.4 and the desfecho in §3 are the sol
 | `INV-1`/`CON-0066` every transition audited · `INV-3` version stamping | B/C3 | §2, §4, §6 |
 
 **Open reconciliations (→ C2 / data-architect):** add `acting` + `escalated` to the `status` enum (or model `acting` as acknowledged+`intervention_started_at`, `escalated` as a flag); add a delivery-only `info`/`normal` value to `alert.severity` if Tier-4 advisories are to be persisted as first-class PPV-analyzable rows (severity-model reconciliation).
+
+---
+
+## 8. Accessibility gate (required by `accessibility-standard.md §8`)
+
+This is the alert-routing/lifecycle surface, so the AAA critical-value ceiling (`A11Y-REQ-01`) is load-bearing here: the `critical` alert card, the triggering vital in the why-panel (§4), and the mandatory-ack control are all AAA-scoped.
+
+- [x] **A11Y-GATE-01** — Alert card/chip/toast text meets `SC 1.4.3` (4.5:1 / large 3:1); every `critical`-scoped element (critical alert card, the triggering vital in the §4 why-panel, the mandatory-ack control) meets `SC 1.4.6` (7:1) per `A11Y-REQ-01` (`design-tokens.md §6.2`; §1, §4).
+- [x] **A11Y-GATE-02** — Severity border/glow/status ball, the why-panel abnormal-value icons, mini-trend chart marks, and focus rings meet `SC 1.4.11` (≥3:1 non-text) in both themes.
+- [x] **A11Y-GATE-03** — Severity band, alert **resolution** (`procede`/`não procede` → true/false-positive), and the suppression `×N` state each carry a distinct icon **and** shape/text, never color alone (§0 triple-encoding, §2.1, §4); the two legacy color-only bugs are fixed-not-ported (§0).
+- [x] **A11Y-GATE-04** — **N/A** — this screen introduces no new severity hex; it consumes the C2-validated `clinical.*` set (§0, §1); the §2.2 CVD/ΔE method is owned by `design-tokens.md`.
+- [x] **A11Y-GATE-05** — No animation exceeds 3 Hz (`A11Y-REQ-13` seizure floor) — a raised `critical` uses a static high-contrast border/icon + a "NOVO" badge, never a >3 Hz pulse; `prefers-reduced-motion: reduce` collapses non-essential motion to instant (`A11Y-REQ-14`).
+- [x] **A11Y-GATE-06** — Severity icon+shape pairs stay distinct at the smallest chip / tile status-ball size used, protecting the deuteranopia `watch↔critical` LOW-RISK pair (§2.3 of the standard).
+- [x] **A11Y-GATE-07** — Every severity-colored/iconed/announced element (chip, tile border, toast, why-panel criterion) derives from the live severity value — no hardcoded literal — the exact fix for the hardcoded-amber-toast and literal-`'VERMELHO'`-panel bugs (`A11Y-REQ`, §0, §4).
+- [x] **A11Y-GATE-08** — The drawer/overlay stack (board-tile drawer, why-panel, RRT desfecho form) — `Escape` closes only the topmost, back matches Esc, `role="dialog"`/`alertdialog` + `aria-modal` + focus trap, stated initial focus + exact restore, depth ≤2 (§0, `accessibility-standard §3`, `A11Y-REQ-07..11`).
+- [x] **A11Y-GATE-09** — Live alert regions are named per the §5.1 severity table: `critical` `role="alert"` assertive (never forces focus), `urgent` assertive region, `watch` polite, `normal` off; one container per tier, coalesced ~1/2 s to prevent stomping (`A11Y-REQ-16/17`) — the visual alert paints immediately regardless.
+- [x] **A11Y-GATE-10** — Every alert's accessible name follows severity → triggering parameter+value+trend → location (bed/patient) per `A11Y-REQ-18` — e.g. *"Crítico. Lactato 4.2, subindo. Leito 12."* — never *"Alerta. Leito 12."*; this is the §4 why-content read aloud.
+- [x] **A11Y-GATE-11** — 24×24 floor platform-wide; the **Reconhecer** 1-click ack and every RRT mobile primary action meet 44×44 (`A11Y-REQ-21`; §1.1, §2.2).
+- [x] **A11Y-GATE-12** — No pure `#FFFFFF`/`#000000` large surface (`A11Y-REQ-23`); embossed alert cards/tiles carrying clinical text pass the both-theme contrast check (`CON-0037`) and have a `prefers-contrast: more` flat fallback (`A11Y-REQ-24`).
+- [x] **A11Y-GATE-13** — **N/A** — no drag interactions on this screen (ack, disposition, act are all tap/click; state: none).
+- [x] **A11Y-GATE-14** — **N/A** — no authentication/e-signature step on this surface (ack/disposition chart via the audited lifecycle, not a PIN); if institutional e-signing is later required on resolve it inherits `A11Y-REQ-25` from the shared signing redesign.
+- [x] **A11Y-GATE-15** — Every custom primitive (alert chip, severity ball, `Reconhecer` control, `procede`/`não procede` disposition control, why-panel, digest row) exposes an accessible name/role/state (`SC 4.1.2`) — no bare `<div onClick>`.
+- [x] **A11Y-GATE-16** — The structured act (§2.3) and RRT desfecho (§3) forms use the clinical form engine; they pre-populate from the alert payload and do not re-ask a value already captured in the same flow (`SC 3.3.7`).

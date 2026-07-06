@@ -17,6 +17,7 @@
 | **Status do projeto** | [`PROJECT_STATUS.md`](PROJECT_STATUS.md) |
 | **Visão do produto** | [`docs/product/vision.md`](docs/product/vision.md) |
 | **Documentação da API** | [`docs/api/overview.md`](docs/api/overview.md) |
+| **Política de segurança** | [`SECURITY.md`](SECURITY.md) |
 | **Fila regulatória** | [`docs/review-queue.md`](docs/review-queue.md) |
 | **Plano de implementação** | [`docs/implementation-plan.md`](docs/implementation-plan.md) |
 | **Arquitetura (ADR)** | [`docs/architecture/adr/ADR-001-amh-data-platform-consumer.md`](docs/architecture/adr/ADR-001-amh-data-platform-consumer.md) |

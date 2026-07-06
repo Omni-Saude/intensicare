@@ -1,0 +1,94 @@
+{
+  "brief_id": "cluster-balanco-hidrico",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/balanco-hidrico.yaml",
+    "lines": 2670,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/balanco-hidrico.yaml", "line_ranges": "1-2670"}
+  ],
+  "facts": [
+    {"id": "CLU-BALANCO-HIDRICO-01",
+     "claim": "62 rules, 9 categories: physiological-calculation 26, care-pathway 14, data-validation 13, drug-dosing 3, clinical-scoring 2, alert-threshold 1, billing-administrative 1, scheduling-operational 1, triage-eligibility 1.",
+     "kind": "metric", "source_ref": "balanco-hidrico.yaml category: field"},
+    {"id": "CLU-BALANCO-HIDRICO-02",
+     "claim": "By type: formula 18, decision-tree 8, validation 16, workflow 12, threshold 6, scoring 1, eligibility 1.",
+     "kind": "metric", "source_ref": "balanco-hidrico.yaml type: field"},
+    {"id": "CLU-BALANCO-HIDRICO-03",
+     "claim": "Status: OK 42, DISCREPANCY 15, AMBIGUOUS 5. Verification verdict: NOT_APPLICABLE 31, UNVERIFIABLE 14, VERIFIED 8, DISCREPANCY 9.",
+     "kind": "metric", "source_ref": "balanco-hidrico.yaml status: and verification.verdict:"},
+    {"id": "CLU-BALANCO-HIDRICO-04",
+     "claim": "Themes: (1) intake/output ledger + 24h/cumulative balance arithmetic; (2) a 07:00-07:00 nursing 'turno' window applied inconsistently across 8+ rules; (3) intake/output/vital-signs decision trees with PT-BR drug/solution/electrolyte vocabularies; (4) record lifecycle: soft-delete, CPF+PIN digital signature, permission gating duplicated 3x across Entrada/Saida/SinaisVitais; (5) PDF/overview-grid presentation with its own bugs; (6) scheduled auto-provisioning of daily balance rows for homecare beds.",
+     "kind": "entity", "source_ref": "full read"},
+    {"id": "CLU-BALANCO-HIDRICO-05",
+     "claim": "Units: volumes in mL (entradas/saidas.quantidade, balanco_24h, balanco_acumulado, balanco_diurno, balanco_noturno); temperature Celsius; HGT (capillary glucose) mg/dL; BP (pas/pad) mmHg.",
+     "kind": "vocabulary", "source_ref": "RULE-BALANCO-HIDRICO-001/002/003/010/011/018"},
+    {"id": "CLU-BALANCO-HIDRICO-06",
+     "claim": "Default charting volumes are hardcoded institutional conventions: dieta_enteral defaults 200mL (020), presenca_espontanea='presente' defaults 200mL (021), presente+/++/+++ maps to 100/200/300mL (022) — none clinically sourced.",
+     "kind": "threshold", "source_ref": "RULE-BALANCO-HIDRICO-020, 021, 022"}
+  ],
+  "constraints": [
+    {"id": "CLU-BALANCO-HIDRICO-C-01",
+     "text": "MUST NOT port the 07:00-07:00 window as implemented: uses criado_em__day (day-of-month only, breaks across month boundaries); hour>=7 branch's 2nd queryset predicate is unsatisfiable, silently dropping 00:00-07:00 data. Affects RULE-006..011 (24h balance, ganhos, diureses, evacuacoes, temp max, HGT max).",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-006..011"},
+    {"id": "CLU-BALANCO-HIDRICO-C-02",
+     "text": "MUST fix elapsed-hours helper (tempo_criacao): uses timedelta.seconds (wraps at 24h) not total_seconds(), making sepsis recency guards (<=24h,<=12h,<2h) unreliable for records >24h old. Triplicated in entradas/saidas/sinais_vitais.py.",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-016"},
+    {"id": "CLU-BALANCO-HIDRICO-C-03",
+     "text": "MUST NOT reproduce visao-geral 2h bucketing's inverted range: the 22:00-00:00 bucket is an empty SQL BETWEEN so that slot always aggregates to 0 (data lost); inclusive boundaries also double-count exact-boundary timestamps.",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-013"},
+    {"id": "CLU-BALANCO-HIDRICO-C-04",
+     "text": "Null/zero-sum handling is inconsistent across near-identical helpers (None vs 0 vs falsy-0-as-None); normalize to one correct null-safe sum in v2.",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-001,002,003,007,008,009"},
+    {"id": "CLU-BALANCO-HIDRICO-C-05",
+     "text": "balanco_24h is an incremental accumulator updated on create/delete but never corrected on edit of quantidade — v2 must recompute from source rows, not maintain a mutable running total.",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-014,015,038,039"},
+    {"id": "CLU-BALANCO-HIDRICO-C-06",
+     "text": "MUST NOT carry the operator-precedence bug in presence-to-volume mapping (presenca and tipo=='evacuacao' or tipo=='vomito_retorno_sonda' parses as (presenca AND evacuacao) OR vomito).",
+     "type": "invariant", "source_ref": "RULE-BALANCO-HIDRICO-022"},
+    {"id": "CLU-BALANCO-HIDRICO-C-07",
+     "text": "The 07:00-07:00 shift boundary is an institutional convention, not a clinical cutoff (no Sepsis-3/KDIGO/ASPEN basis) — RATIFY whether v2 keeps it fixed or makes it facility-configurable.",
+     "type": "policy", "source_ref": "RULE-BALANCO-HIDRICO-004,005,023,024,027"},
+    {"id": "CLU-BALANCO-HIDRICO-C-08",
+     "text": "PT-BR controlled vocabularies (drug/solution/electrolyte/consciousness lists) MUST be preserved verbatim incl. accents.",
+     "type": "naming", "source_ref": "RULE-BALANCO-HIDRICO-055..059"}
+  ],
+  "load_bearing_rules": [
+    {"id": "RULE-BALANCO-HIDRICO-001", "what": "Cumulative balance across all days for a bed/admission = intake minus output", "verdict": "VERIFIED"},
+    {"id": "RULE-BALANCO-HIDRICO-006", "what": "24h balance over 07:00-07:00 window via buggy month-agnostic helper", "verdict": "DISCREPANCY"},
+    {"id": "RULE-BALANCO-HIDRICO-008", "what": "Urine output over 07:00-07:00, feeds KDIGO-relevant totals", "verdict": "DISCREPANCY"},
+    {"id": "RULE-BALANCO-HIDRICO-012", "what": "Evolution-form 24h rollup; commented intended formula diverges from ledger def used elsewhere", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-BALANCO-HIDRICO-013", "what": "12-bucket 2h overview grid; 22:00-00:00 bucket inverted/empty, always loses data", "verdict": "DISCREPANCY"},
+    {"id": "RULE-BALANCO-HIDRICO-014", "what": "Intake create adds quantidade to running balanco_24h, uncorrected on edit", "verdict": "VERIFIED"},
+    {"id": "RULE-BALANCO-HIDRICO-016", "what": "Shared elapsed-hours helper uses .seconds not total_seconds(), breaks sepsis recency guards", "verdict": "DISCREPANCY"},
+    {"id": "RULE-BALANCO-HIDRICO-022", "what": "presente+/++/+++ to 100/200/300mL mapping has operator-precedence bug", "verdict": "DISCREPANCY"},
+    {"id": "RULE-BALANCO-HIDRICO-035", "what": "List-endpoint auto-create mis-dates new records to 'yesterday' pre-07:00", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-BALANCO-HIDRICO-037", "what": "Scheduled task auto-creates one BalancoHidrico/day per occupied homecare bed", "verdict": "NOT_APPLICABLE"}
+  ],
+  "systemic_issues": [
+    {"issue": "Month-agnostic day-of-month window bug + unsatisfiable 2nd-queryset predicate dropping 00:00-07:00 data", "rule_ids": ["RULE-BALANCO-HIDRICO-006","RULE-BALANCO-HIDRICO-007","RULE-BALANCO-HIDRICO-008","RULE-BALANCO-HIDRICO-009","RULE-BALANCO-HIDRICO-010","RULE-BALANCO-HIDRICO-011"]},
+    {"issue": "Inconsistent null/zero handling across near-identical sum helpers", "rule_ids": ["RULE-BALANCO-HIDRICO-001","RULE-BALANCO-HIDRICO-002","RULE-BALANCO-HIDRICO-003"]},
+    {"issue": "Elapsed-hours unit bug undermining sepsis time-window criteria", "rule_ids": ["RULE-BALANCO-HIDRICO-016"]},
+    {"issue": "Inverted/empty SQL range causing silent data loss in overview bucketing", "rule_ids": ["RULE-BALANCO-HIDRICO-013"]},
+    {"issue": "Desktop/mobile/PDF display drift (negative-value visibility, PA-row gating)", "rule_ids": ["RULE-BALANCO-HIDRICO-025","RULE-BALANCO-HIDRICO-018","RULE-BALANCO-HIDRICO-028"]},
+    {"issue": "Copy-paste bug: signing a Saida posts to the 'entrada' endpoint", "rule_ids": ["RULE-BALANCO-HIDRICO-043"]},
+    {"issue": "Triplicated auth/signature logic across serializers, inconsistent missing-empresa handling", "rule_ids": ["RULE-BALANCO-HIDRICO-026","RULE-BALANCO-HIDRICO-033"]},
+    {"issue": "Dead code: BalancoHidricoFilter on 'dia' never attached to any viewset", "rule_ids": ["RULE-BALANCO-HIDRICO-062"]},
+    {"issue": "Incremental (non-recomputed) balance accumulator drifts on record edits", "rule_ids": ["RULE-BALANCO-HIDRICO-014","RULE-BALANCO-HIDRICO-015"]}
+  ],
+  "platform_domains": ["hemodynamics", "aki", "early-warning-scores", "sepsis", "platform", "governance"],
+  "domain_notes": "Feeds AKI (KDIGO oliguria via urine-output totals, RULE-008) and hemodynamics/volume-status; vital-signs recency (016/017) feeds sepsis screening; 07:00 shift + audit/signature/permission plumbing (026,033,034,042,045) are platform/governance; presentation bugs (013,018,025,028) belong in a shared dashboard component, not domain clinical logic.",
+  "vocabularies": [
+    {"name": "IV hydration solutions", "rule_id": "RULE-BALANCO-HIDRICO-055", "values": ["Agua destilada", "Solução Hipertônica", "Soro Fisiológico", "Soro Glicosado", "Soro Ringer", "Solução hipotônica", "Solução Polarizante"]},
+    {"name": "Electrolyte replacement", "rule_id": "RULE-BALANCO-HIDRICO-058", "values": ["Sódio (Na+)", "Potássio (K+)", "Cloreto (Cl-)", "Cálcio (Ca2+)", "Magnésio (Mg2+)", "Bicarbonato (HCO3-)", "Fosfato (PO42-)", "Sulfato (SO42-)"]},
+    {"name": "Consciousness level (AVDI-like)", "rule_id": "RULE-BALANCO-HIDRICO-059", "values": ["acordado", "sonolencia (Sonolência)", "agitacao (Agitação ou confusão)", "reage_verbal", "reage_tatil", "coma", "convulsao (pós ictal)"]},
+    {"name": "Evacuacao presence/aspect grading", "rule_id": "RULE-BALANCO-HIDRICO-031", "values": ["presenca: ausente|presente+|presente++|presente+++", "aspecto: regular|pastosa|liquida|sangue-melema"]},
+    {"name": "Drug/antibiotic/BI vocabularies", "rule_id": "RULE-BALANCO-HIDRICO-056/057", "values": ["Full lists (30+ drugs, 25+ antibiotics) preserved verbatim in disposition shard, omitted here for size"]}
+  ],
+  "open_questions": [
+    "Should v2's 07:00-07:00 nursing-day boundary stay fixed or be facility-configurable?",
+    "Authoritative 24h fluid-balance formula: entrada-saida ledger (RULE-006) vs gains-(diuresis+vomit) per commented-out RULE-012 intent — requires opening trilha_homecare/utils.py."
+  ]
+}

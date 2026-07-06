@@ -1,0 +1,1113 @@
+shard: trilhas-engine
+cluster: trilhas-engine
+rule_count: 18
+rules_with_escalations: 7
+rules:
+- id: RULE-TRILHAS-ENGINE-001
+  name: Automatic-bed pathway composition (v3 + v2 model sets)
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'Which automatic care-pathway models are evaluated for an automatic bed = the v3 set followed by
+    the v2 set; several legacy v2 pathways are commented out.
+
+    '
+  inputs:
+  - name: none (static composition)
+    type: null
+    unit: null
+    range: null
+  outputs:
+  - name: pathway model list
+    type: list[Model]
+    unit: null
+  logic: "get_trilhas_automaticas() = get_trilhas_automaticas_v3() + get_trilhas_automaticas_v2()\nv3 = [TrilhaSedacaoV3Model,\
+    \ TrilhaEficienciaV3Model, TrilhaEstabilidadeV3Model,\n      TrilhaSepseV3Model, TrilhaProfilaxiaV3Model]\n\
+    v2 = [TrilhaVentilacaoModel, TrilhaAntimicrobianoModel, TrilhaNutricaoModel,\n      TrilhaEquilibrioModel, TrilhaGlozaZeroModel]\n\
+    # commented out in v2: TrilhaSedacaoModel, TrilhaEstabilizacaoModel, TrilhaSEPSEModel, TrilhaProfilaxiasModel\n"
+  edge_cases: 'Order matters for first-match patient derivation (RULE-paciente-BE-04-020). v3 sedacao/estabilidade/sepse/profilaxia
+    supersede their commented-out v2 equivalents.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-002
+  - RULE-TRILHAS-ENGINE-003
+  - RULE-TRILHAS-ENGINE-009
+  - RULE-TRILHAS-ENGINE-010
+  - RULE-TRILHAS-ENGINE-012
+  divergence: 'v2/v3 duplication: get_trilhas_automaticas returns the v3 set plus the v2 set, but the v2 counterparts
+    of sedacao / estabilizacao / sepse / profilaxias are commented out — leaving the v3 variants (TrilhaSedacaoV3,
+    TrilhaEstabilidadeV3, TrilhaSepseV3, TrilhaProfilaxiaV3) canonical while their disabled v2 models still exist
+    in trilha_automatica.models. Engineers must treat the v3 variants as canonical.
+
+    '
+  merged_from:
+  - RULE-trilha-BE-04-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 134-163
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Pathway models live in trilha_automatica.models (out of partition). v3 5-set mirrors the bootstrap set
+    in RULE-TRILHAS-ENGINE-012 (AtualizarTrilhasV3).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-128
+    band: P3
+    title: care-pathway
+    excerpt: 'v2/v3 duplication: get_trilhas_automaticas returns the v3 set plus the v2 set, but the v2 counterparts
+      of sedacao / estabilizacao / sepse / profilaxias are commented out — leaving the v3 variants (TrilhaSedacaoV3,
+      TrilhaEstabilidadeV3, T…'
+- id: RULE-TRILHAS-ENGINE-002
+  name: Homecare-bed pathway composition
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Homecare beds evaluate exactly two pathway models — PioraClinica and Sepse.
+  inputs:
+  - name: none (static)
+    type: null
+    unit: null
+    range: null
+  outputs:
+  - name: pathway model list
+    type: list[Model]
+    unit: null
+  logic: 'get_trilhas_homecare() = [PioraClinica, Sepse]  (from trilha_homecare.models)
+
+    '
+  edge_cases: 'Homecare bed detail/payload additionally injects static NEUTRO stub cards for PrescricaoContinua,
+    BalancoHidrico, Formulario, Ventilação, and Eficiência (display-only, not scored).
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-003
+  merged_from:
+  - RULE-trilha-BE-04-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/leito.py
+    lines: 165-167
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Static stub cards at leito.py lines 521-546 / 585-608.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-003
+  name: get_trilha leito-type dispatch
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: 'Resolves the active care-pathway (trilha) record for a bed (leito) and encounter, branching on the
+    bed''s tipo. ''automatica'' returns the first matching record with no explicit ordering; ''homecare'' returns
+    the most recently created matching record; any other tipo raises a validation error.
+
+    '
+  inputs:
+  - name: Trilha
+    type: Django model class
+    unit: null
+    range: null
+  - name: leito
+    type: object with nr_atendimento attribute
+    unit: null
+    range: null
+  - name: tipo
+    type: string enum
+    unit: null
+    range: '"automatica" | "homecare" | other'
+  outputs:
+  - name: trilha
+    type: model instance or None
+    unit: null
+  logic: "IF tipo == \"automatica\":\n  RETURN Trilha.objects.filter(nr_atendimento=leito.nr_atendimento).first()\n\
+    ELIF tipo == \"homecare\":\n  RETURN Trilha.objects.filter(nr_atendimento=leito.nr_atendimento)\n          \
+    \              .order_by(\"-criado_em\").first()\nELSE:\n  RAISE ValidationError(\"Tipo de leito inválido\"\
+    )\n"
+  edge_cases: 'No matching row returns None silently (not raised) for automatica/homecare. The ''automatica'' branch
+    relies on the Trilha model''s default queryset ordering (not defined in this partition) to pick ''the'' record
+    when more than one exists for the same nr_atendimento; ''homecare'' is explicit (-criado_em). A leito.tipo of
+    "manual" (seen in utils/popular_banco.py) is not one of the two handled branches and would hit the else-raise.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-002
+  - RULE-TRILHAS-ENGINE-012
+  merged_from:
+  - RULE-trilha-BE-11-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/trilha.py
+    lines: 4-14
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Called throughout utils/handlers.py (conteudo_trilha_automatica_criterios, conteudo_observacao_criterios,
+    conteudo_trilha_homecare_criterios). AMBIGUOUS because the ''automatica'' branch''s lack of explicit ordering
+    makes the chosen record implementation-dependent (default PK/insertion order) unlike the homecare branch.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-307
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: get_trilha leito-type dispatch
+- id: RULE-TRILHAS-ENGINE-004
+  name: Pathway alert-status color precedence
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The color/severity styling of a pathway tab is chosen by precedence: if the pathway is marked assistido
+    (attended), use the ASSISTIDO style; otherwise use the pathway''s alert level (trilha.alerta); if no alert,
+    default to NEUTRO.
+
+    '
+  inputs:
+  - name: trilha.assistido
+    type: boolean
+    unit: null
+    range: null
+  - name: trilha.alerta
+    type: enum(string)
+    unit: null
+    range: NEUTRO | VERMELHO | AMARELO | LARANJA (or null)
+  outputs:
+  - name: statusTrilha key -> colors {ballColor, backgroundShade}
+    type: enum
+    unit: null
+  logic: "key = trilha.assistido\n        ? \"ASSISTIDO\"\n        : (trilha.alerta || \"NEUTRO\")\nstyle.borderColor\
+    \     = statusTrilha[key].ballColor\n// when tab is active also:\nstyle.backgroundColor = statusTrilha[key].backgroundShade\n\
+    style.color           = statusTrilha[key].ballColor\n"
+  edge_cases: 'assistido overrides any alert level. A null/absent alerta falls back to NEUTRO (green). Criteria
+    panels are always styled with the VERMELHO (red) palette regardless of the tab color.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-007
+  - RULE-TRILHAS-ENGINE-008
+  merged_from:
+  - RULE-trilha-FE-03-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines: 110-139
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'statusTrilha color map (out of partition, src/utils/statusTrilha.ts) defines keys NEUTRO (green #00DC50),
+    VERMELHO (red #FF1633), AMARELO (yellow #ffd900), LARANJA (orange #ff5900), ASSISTIDO (blue #00B0FF). Severity
+    ordering is not numerically encoded here; alerta is taken verbatim from the backend.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-005
+  name: Interactive care-pathway eligibility (Sepse / Profilaxia)
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The interactive protocol accept/refuse card is offered only for pathways named exactly "Sepse" or
+    "Profilaxia", and only when there is either an existing interactive protocol instance, a protocol history, or
+    permission to create a new protocol.
+
+    '
+  inputs:
+  - name: trilha.nome
+    type: string
+    unit: null
+    range: '"Sepse" | "Profilaxia" (case-sensitive)'
+  - name: trilha.trilha_interativa
+    type: object|null
+    unit: null
+    range: null
+  - name: trilha.has_historico_protocolo
+    type: boolean
+    unit: null
+    range: null
+  - name: trilha.can_criar_novo_protocolo
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: hasTrilhaInterativaOption
+    type: boolean
+    unit: null
+  logic: "hasTrilhaInterativaOption =\n  (trilha.nome === \"Sepse\" || trilha.nome === \"Profilaxia\")\n  AND (\n\
+    \    trilha.trilha_interativa\n    OR trilha.has_historico_protocolo\n    OR trilha.can_criar_novo_protocolo\n\
+    \  )\n"
+  edge_cases: 'Name comparison is exact and case-sensitive ("Sepse", "Profilaxia"); any other pathway name yields
+    no interactive card regardless of the other flags.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-006
+  - RULE-TRILHAS-ENGINE-014
+  - RULE-TRILHAS-ENGINE-015
+  merged_from:
+  - RULE-trilha-FE-03-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TrilhaInterativa/TrilhaInterativa.tsx
+    lines: 156-163
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Hard-codes the two interactive protocols supported by the platform (Sepse, Profilaxia). Combined with
+    RULE-TRILHAS-ENGINE-006 the interactive card requires BOTH an automatic bed and one of these two pathway names.
+    Pure UI gating on flags — encodes no clinical threshold/dose — so verify:false.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-006
+  name: Interactive pathway restricted to automatic bed type
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The TrilhaInterativa (interactive protocol) component is rendered inside a pathway tab only when
+    the occupancy''s bed type is "automatica".
+
+    '
+  inputs:
+  - name: ocupacao.leito.tipo
+    type: string
+    unit: null
+    range: '"automatica" | (other)'
+  outputs:
+  - name: TrilhaInterativa rendered?
+    type: boolean
+    unit: null
+  logic: "if (ocupacao.leito.tipo === \"automatica\"):\n  render <TrilhaInterativa trilha=... idLeito=ocupacao.leito.id\
+    \ .../>\n"
+  edge_cases: 'Exact string match on "automatica"; any other leito.tipo suppresses the interactive protocol UI entirely
+    for that occupancy.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-005
+  merged_from:
+  - RULE-trilha-FE-03-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines: 286-296
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: '"automatica" (automatic bed) vs manual beds. This is the outer gate; the inner gate (Sepse/Profilaxia
+    + protocol flags) is RULE-TRILHAS-ENGINE-005.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-007
+  name: Mark-pathway-assisted eligibility and own-record authorization
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'A user may mark a pathway as "Assistido" (attended) only when the pathway has a non-NEUTRO alert,
+    has criteria, the user holds can_assist_ocupacao, and a postAssistido handler exists. A pathway already assisted
+    by another user cannot be toggled; only the user who assisted it may un-assist it. Any eligible user may check
+    (assist); only the owner may uncheck.
+
+    '
+  inputs:
+  - name: trilha.alerta
+    type: enum(string)
+    unit: null
+    range: must be truthy and !== "NEUTRO"
+  - name: trilha.criterios
+    type: array
+    unit: null
+    range: null
+  - name: can_assist_ocupacao
+    type: boolean (permission)
+    unit: null
+    range: null
+  - name: trilha.assistido
+    type: boolean
+    unit: null
+    range: null
+  - name: trilha.assistido_por.id
+    type: string
+    unit: null
+    range: null
+  - name: user.usuario.id
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: postAssistido(ocupacao.id, {tipo, assistido, id})
+    type: side-effect
+    unit: null
+  logic: "showAssistCheckbox =\n  trilha.alerta AND trilha.alerta !== \"NEUTRO\"\n  AND trilha.criterios AND can_assist_ocupacao\
+    \ AND postAssistido\ncheckbox.defaultChecked = trilha.assistido\ncheckbox.disabled =\n  trilha.assistido_por\n\
+    \  AND user.usuario.id !== trilha.assistido_por.id\n  AND trilha.assistido                       // assisted\
+    \ by someone else -> locked\ncanUncheck =\n  trilha.assistido_por\n  AND user.usuario.id === trilha.assistido_por.id\n\
+    \  AND trilha.assistido                       // only owner can uncheck\nonClick(e):\n  if ((canUncheck AND\
+    \ !e.target.checked) OR e.target.checked):\n    postAssistido(ocupacao.id, { tipo: trilha.tipo,\n          \
+    \                       assistido: e.target.checked,\n                                 id: trilha.id })\n"
+  edge_cases: 'Checking (assist) is always permitted for eligible users. Unchecking is only submitted when canUncheck
+    is true; an uncheck attempt by a non-owner is short-circuited (the button is also disabled). A pathway with
+    NEUTRO or no alert, or without criteria, shows no assist control.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-004
+  merged_from:
+  - RULE-trilha-FE-03-007
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines: 156-211
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Author name shown truncated to 10 chars on collapsed (<1260px) viewports, else 256 (lines 201-204). tipo
+    is the pathway type sent back so the backend knows which pathway was assisted.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-008
+  name: Pathway overdue-item alert
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: 'When a pathway has any overdue protocol item, a red warning "Existem itens em atraso." is displayed
+    in the interactive protocol card header.
+
+    '
+  inputs:
+  - name: trilha.has_item_em_atraso
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: overdue warning shown?
+    type: boolean
+    unit: null
+  logic: "if (trilha.has_item_em_atraso):\n  render danger text \"Existem itens em atraso.\"\n"
+  edge_cases: Presence-driven boolean; the overdue computation is server-side.
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-004
+  - RULE-TRILHAS-ENGINE-005
+  merged_from:
+  - RULE-trilha-FE-03-005
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TrilhaInterativa/TrilhaInterativa.tsx
+    lines: 190-194
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Related to per-item RULE-sepse-FE-03-002 (atraso_primeira_hora, in the sepse cluster) but at the pathway
+    aggregate level. Operational overdue flag — no published clinical anchor, so verify:false.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-009
+  name: Care-pathway catalog and criteria counts
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The platform defines nine automatic care pathways (trilhas), each bound to a v3 Tasy source model,
+    a local target model, and a fixed number of clinical criteria (quantidade_criterios) that drives pathway evaluation/completion
+    in the shared novo_etl_schema engine.
+
+    '
+  inputs:
+  - name: trilha_number
+    type: integer
+    unit: null
+    range: 1-9
+  outputs:
+  - name: quantidade_criterios
+    type: integer
+    unit: null
+  logic: 'novo_etl_schema(TrilhaSedacaoTasyModel,        TrilhaSedacaoModel,        quantidade_criterios=12)  #
+    Trilha 1 - Sedacao
+
+    novo_etl_schema(TrilhaEstabilizacaoTasyModel,  TrilhaEstabilizacaoModel,  quantidade_criterios=6)   # Trilha
+    2 - Estabilizacao
+
+    novo_etl_schema(TrilhaVentilacaoTasyModel,     TrilhaVentilacaoModel,     quantidade_criterios=10)  # Trilha
+    3 - Ventilacao
+
+    novo_etl_schema(TrilhaSEPSETasyModel,          TrilhaSEPSEModel,          quantidade_criterios=10)  # Trilha
+    4 - SEPSE
+
+    novo_etl_schema(TrilhaAntimicrobianoTasyModel, TrilhaAntimicrobianoModel, quantidade_criterios=14)  # Trilha
+    5 - Antimicrobiano
+
+    novo_etl_schema(TrilhaNutricaoTasyModel,       TrilhaNutricaoModel,       quantidade_criterios=10)  # Trilha
+    6 - Nutricao
+
+    novo_etl_schema(TrilhaEquilibrioTasyModel,     TrilhaEquilibrioModel,     quantidade_criterios=10)  # Trilha
+    7 - Equilibrio (balanco hidrico)
+
+    novo_etl_schema(TrilhaProfilaxiasTasyModel,    TrilhaProfilaxiasModel,    quantidade_criterios=11)  # Trilha
+    8 - Profilaxias
+
+    novo_etl_schema(TrilhaGlozaZeroTasyModel,      TrilhaGlozaZeroModel,      quantidade_criterios=16)  # Trilha
+    9 - Glosa Zero
+
+    '
+  edge_cases: 'quantidade_criterios is consumed by novo_etl_schema (module `utils`, OUTSIDE this partition) which
+    contains the actual per-criterion scoring/aggregation logic; the counts here are the contract only.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-010
+  merged_from:
+  - RULE-trilha-BE-02-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/etl/trilha5.py
+    lines: 1-8
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'One rule per file: trilha1.py:15 (12), trilha2.py:7 (6), trilha3.py:7 (10), trilha4.py:7 (10), trilha5.py:7
+    (14), trilha6.py:7 (10), trilha7.py:7 (10), trilha8.py:7 (11), trilha9.py:7 (16). VERSION VARIANTS: commented-out
+    legacy calls use the old etl_schema with different counts (trilha1 v1=6, trilha3 v1=7, trilha4 v1=6, trilha6
+    v1=6, trilha7 v1=7, trilha8 v1=6). The active code uses the "novo"/v3 models with the counts above. Verify criterion
+    definitions in utils.novo_etl_schema.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-010
+  name: Automatica facade — active payload variant selection per trilha
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: 'The facade __init__ binds each trilha''s "_automatica" alert payload to a SPECIFIC variant. For
+    several trilhas two variants coexist (module dict vs get_ function, or v1 vs v3) and this mapping determines
+    which one the automatic engine actually serves.
+
+    '
+  inputs:
+  - name: trilha name
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: bound payload symbol
+    type: reference
+    unit: null
+  logic: 'payload_sepse_automatica       = payload_trilha_sepse            (variant B, 27 criteria)
+
+    payload_sepse_automatica_v3    = get_payload_trilha_sepse()      (variant C, 20 criteria + thresholds)
+
+    payload_sedacao_automatica     = get_payload_trilha_sedacao()    (v2 fn, NOT the module dict)
+
+    payload_eficiencia_automatica  = get_payload_trilha_eficiencia() (efficiency fn, NOT the sedation module dict)
+
+    payload_estabilidade_automatica= get_payload_trilha_estabilidade()
+
+    payload_trilha_profilaxia_automatica = payload_trilha_profilaxia (v1 module dict, NOT the v3 fn)
+
+    payload_equilibrio_automatica  = payload_trilha_equilibrio
+
+    payload_ventilacao_automatica  = payload_trilha_ventilacao
+
+    payload_antimicrobiano_automatica = payload_trilha_antimicrobiano
+
+    payload_nutricao_automatica    = payload_trilha_nutricao
+
+    payload_glosa_zero_automatica  = payload_trilha_glosa_zero
+
+    # estabilizacao is NOT re-exported here; imported directly by trilha2 model
+
+    # from trilha_automatica.facade.estabilizacao
+
+    '
+  edge_cases: '"from .equilibrio import payload_equilibrio_automatica" appears twice (lines 2 and 7) — a harmless
+    duplicate import. estabilizacao_automatica is intentionally absent from __init__.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-009
+  merged_from:
+  - RULE-config-BE-01-021
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/facade/__init__.py
+    lines: 1-12
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Load-bearing wiring: choosing get_ vs module payloads changes which criterion set and which thresholds
+    are active. Cross-ref the sepse/sedacao/eficiencia/profilaxia variant payload rules (in their own clusters).
+    This facade only selects between existing variants; it does not merge them.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-011
+  name: Manual pathway set created per movimentacao (Estabilidade/Sedacao/Sepse/Ventilacao)
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Each prontuario (dados_prontuario) spawns exactly four manual care pathways — TrilhaEstabilidade,
+    TrilhaSedacao, TrilhaSepse, TrilhaVentilacao — created in order.
+
+    '
+  inputs:
+  - name: dados_prontuario
+    type: DadosProntuario
+    unit: null
+    range: may include noradrenalina, sedativos, ventilacao_mecanica, parada_cardiorrespiratoria, labs, etc.
+  outputs:
+  - name: 4 pathway rows (trilha_estabilidade/trilha_sedacao/trilha_sepse/trilha_ventilacao)
+    type: side-effect
+    unit: null
+  logic: "trilhas = [TrilhaEstabilidade, TrilhaSedacao, TrilhaSepse, TrilhaVentilacao]\nfor trilha in trilhas: trilha.objects.create(dados_prontuario=dados_prontuario)\n\
+    \  on ValidationError -> raise {\"<trilha>\": \"Ocorreu um erro na criação da <trilha>: ...\"}\n# Effect confirmed\
+    \ by test: after create, movimentacao.dados_prontuario has attributes\n#   trilha_estabilidade, trilha_sedacao,\
+    \ trilha_sepse, trilha_ventilacao\n#   (plus stored noradrenalina, parada_cardiorrespiratoria, sedativos, ventilacao_mecanica)\n"
+  edge_cases: 'Antimicrobiano/Nutricao/Equilibrio/etc are NOT created here (those are automatic-bed pathways). Ordered
+    creation. Trilhas are generated even from a minimal prontuario; each movimentacao gets its own prontuario/trilhas
+    (a chained movimentacao''s prontuario differs from the prior one).
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-012
+  merged_from:
+  - RULE-trilha-BE-04-039
+  - RULE-CAREPATH-BE-12-028
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/use_cases/trilhas/criar_trilhas.py
+    lines: 24-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/tests/test_movimentacao.py
+    lines: 155-165,288-295
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Merge of the use_case code (criar_trilhas.py, primary) and the test that observes its effect (test_movimentacao.py).
+    Confirmed same four pathways, same order. Pathway models live in trilha_manual.models. Terminology note: the
+    test/Phase-1 label called these "automatic ICU pathways" but the code creates the MANUAL set (trilha_manual.models)
+    via the CriarTrilhas use case — no logic divergence, only loose naming.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-012
+  name: AtualizarTrilhasV3 — v3 care-pathway bootstrap and bed re-linking
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'For a given bed (leito), ensures the patient has exactly one instance of each of the five automatic
+    v3 care pathways (Eficiencia, Sedacao, Estabilidade, Sepse, Profilaxia), creating any missing ones tied to the
+    current leito/paciente/nr_atendimento, then re-points ALL FIVE existing pathway instances'' leito foreign key
+    to the current leito.
+
+    '
+  inputs:
+  - name: leito
+    type: Leito model instance
+    unit: null
+    range: null
+  outputs:
+  - name: trilhas_*_v3 records
+    type: created/updated model rows
+    unit: null
+  logic: "paciente = leito.paciente\nFOR (related_name, Model) IN [\n  (\"trilhas_eficiencia_v3\", TrilhaEficienciaV3Model),\n\
+    \  (\"trilhas_sedacao_v3\", TrilhaSedacaoV3Model),\n  (\"trilhas_estabilidade_v3\", TrilhaEstabilidadeV3Model),\n\
+    \  (\"trilhas_sepse_v3\", TrilhaSepseV3Model),\n  (\"trilhas_profilaxia_v3\", TrilhaProfilaxiaV3Model),\n]:\n\
+    \  IF NOT getattr(paciente, related_name).exists():\n    Model.objects.create(leito=leito, paciente=paciente,\
+    \ nr_atendimento=leito.nr_atendimento)\ntrilhas = [\n  paciente.trilhas_sedacao_v3.first(), paciente.trilhas_eficiencia_v3.first(),\n\
+    \  paciente.trilhas_estabilidade_v3.first(), paciente.trilhas_sepse_v3.first(),\n  paciente.trilhas_profilaxia_v3.first(),\n\
+    ]\nFOR trilha IN trilhas:\n  trilha.leito = leito\n  trilha.save()\n"
+  edge_cases: 'get_trilhas() re-fetches via the paciente relation with .first() and NO filter on nr_atendimento
+    — if a patient has pathway records from a prior encounter/admission, this could re-point a stale pathway record''s
+    leito to the new bed instead of creating/using an encounter-scoped one.
+
+    '
+  confidence: medium
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-003
+  - RULE-TRILHAS-ENGINE-011
+  merged_from:
+  - RULE-trilha-BE-11-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/atualizar_trilhas_v3.py
+    lines: 1-45
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: whether patients are expected to only ever have one lifetime record per v3 pathway type (making
+    the missing nr_atendimento filter harmless) or one per encounter (making it a bug) cannot be determined from
+    this partition alone; flag for verifier with access to trilha_automatica/models.py. The five v3 pathways match
+    the v3 composition set in RULE-TRILHAS-ENGINE-001.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-308
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: AtualizarTrilhasV3 — v3 care-pathway bootstrap and bed re-linking
+- id: RULE-TRILHAS-ENGINE-013
+  name: Trilha name humanization (6-char prefix split)
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'Formats an internal trilha (care-pathway) identifier for display by splitting it at a FIXED 6-character
+    boundary, capitalizing each part and joining with a space. This assumes trilha identifiers are of the form "trilha"+suffix
+    (the literal 6-char prefix "trilha").
+
+    '
+  inputs:
+  - name: trilhaName
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: humanized
+    type: string
+    unit: null
+  logic: 'firstWord = trilhaName.substring(0,6)     # first 6 chars, e.g. "trilha"
+
+    lastWord  = trilhaName.substring(6)       # remainder
+
+    return capitalize(firstWord) + " " + capitalize(lastWord)   # lodash capitalize (first letter up, rest lower)
+
+    '
+  edge_cases: 'Hard-coded 6-char split assumes every trilha name begins with the 6-letter token "trilha". lodash
+    capitalize lowercases the rest, so a mixed-case suffix like "Sepse" -> "Sepse" but "SEPSE" -> "Sepse". Names
+    shorter than 6 chars yield an empty lastWord and a trailing space.
+
+    '
+  confidence: medium
+  related:
+  - RULE-TRILHAS-ENGINE-018
+  - RULE-TRILHAS-ENGINE-005
+  merged_from:
+  - RULE-trilha-FE-02-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/trilhaHumanize.ts
+    lines: 3-10
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'AMBIGUOUS: the magic number 6 encodes an assumption about the "trilha<Name>" naming convention that a
+    verifier should confirm against actual trilha slugs (e.g. sepse vs sepse_v3 variants handled elsewhere / out
+    of partition).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-309
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Trilha name humanization (6-char prefix split)
+- id: RULE-TRILHAS-ENGINE-014
+  name: Accept interactive protocol workflow
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Accepting a protocol POSTs { aceito: true }, refreshes the occupancy, and navigates to the protocol
+    screen. The Accept button is disabled once a protocol instance already exists (trilha_interativa !== null) and
+    its label switches from "Aceitar" to "Aceito".
+
+    '
+  inputs:
+  - name: trilha.trilha_interativa
+    type: object|null
+    unit: null
+    range: null
+  - name: trilha.can_criar_novo_protocolo
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: POST body
+    type: object
+    unit: null
+  logic: "// Accept controls shown when (can_criar_novo_protocolo || trilha_interativa)\nacceptButton.disabled =\
+    \ (trilha.trilha_interativa !== null)\nacceptButton.label    = trilha.trilha_interativa ? \"Aceito\" : \"Aceitar\"\
+    \nonClick:\n  _postTrilhaInterativa({ aceito: true })   // POST .../<trilha.id>\n  onSubmit(idOcupacao)\n  goToProtocolos()\n\
+    // If already accepted, show:\n//   \"Aceito por <registrado_por.nome> em <horario_registro_aceitacao DD/MM/YYYY\
+    \ HH:mm>\"\n"
+  edge_cases: 'aceito is sent as a boolean true on accept (contrast RULE-TRILHAS-ENGINE-015 which sends the string
+    "false"). Button disabled purely on trilha_interativa !== null, so a null (never-created) protocol is acceptable,
+    any existing instance is not.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-005
+  - RULE-TRILHAS-ENGINE-015
+  merged_from:
+  - RULE-trilha-FE-03-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TrilhaInterativa/TrilhaInterativa.tsx
+    lines: 199-233
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Navigation target goToProtocolos (lines 165-173) builds /empresa/.../ocupacao/<idOcupacao>/<trilha.nome.toLowerCase()>/<trilha.id>}
+    NOTE the template literal appends a stray literal "}" after ${trilha.id} (line 170), producing a trailing "}"
+    in the URL path — recorded as a bug, not corrected. Verifier: confirm routing tolerance.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-015
+  name: Refuse interactive protocol workflow (justification required)
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'Refusing a protocol requires a free-text justification (motivo_descartado, required) and submits
+    aceito = "false". If a protocol instance already exists it is PATCHed; otherwise a new one is POSTed with the
+    refusal. On submit the occupancy is refreshed and the form reset.
+
+    '
+  inputs:
+  - name: motivo_descartado
+    type: string (required)
+    unit: null
+    range: non-empty (defaultFormRules required)
+  - name: trilha.trilha_interativa
+    type: object|null
+    unit: null
+    range: null
+  outputs:
+  - name: PATCH/POST body
+    type: object
+    unit: null
+  logic: "onFinish(values):\n  if (trilha.trilha_interativa):\n    _patchTrilhaInterativa(trilha.trilha_interativa.id,\
+    \ { ...values, aceito: \"false\" })\n  else:\n    _postTrilhaInterativa({ ...values, aceito: \"false\" })\n\
+    \  onSubmit(idOcupacao)\n  refuseForm.resetFields()\n// values.motivo_descartado is required (Form.Item rules=defaultFormRules)\n"
+  edge_cases: 'aceito is submitted as the STRING "false" on refuse, whereas accept (RULE-TRILHAS-ENGINE-014) submits
+    the BOOLEAN true. The Justificativa field is mandatory via defaultFormRules (required validator). Modal okText
+    "Recusar".
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-005
+  - RULE-TRILHAS-ENGINE-014
+  divergence: 'Same `aceito` field is typed inconsistently across the two sibling workflows: accept (RULE-TRILHAS-ENGINE-014)
+    sends boolean true, refuse (this rule) sends the string "false". Recorded verbatim from Phase 1; both go to
+    the same interactive-protocol endpoint. Best interpretation: backend coerces both. Verifier should confirm the
+    API accepts string "false" and boolean true interchangeably.
+
+    '
+  merged_from:
+  - RULE-trilha-FE-03-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TrilhaInterativa/TrilhaInterativa.tsx
+    lines: 105-154
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'AMBIGUOUS/divergence flag is for the accept(boolean true) vs refuse(string "false") type inconsistency
+    in the `aceito` field. defaultFormRules is defined in utils/defaultFormRules (out of partition) and enforces
+    required-non-empty.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-310
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Refuse interactive protocol workflow (justification required)
+- id: RULE-TRILHAS-ENGINE-016
+  name: Criterion recommendations and interventions rendering
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'For each red-alert criterion of a pathway, the UI lists its recommendations followed by its interventions.
+    When intervencoes exist they are concatenated after recomendacoes into one list; otherwise only recomendacoes
+    are shown. If neither recommendations nor interventions exist, a placeholder "Nao ha recomendacoes para este
+    criterio" is shown.
+
+    '
+  inputs:
+  - name: criterio.alerta
+    type: string
+    unit: null
+    range: null
+  - name: criterio.recomendacoes
+    type: string[]
+    unit: null
+    range: null
+  - name: criterio.intervencoes
+    type: string[]|undefined
+    unit: null
+    range: null
+  outputs:
+  - name: merged recommendation list
+    type: string[]
+    unit: null
+  logic: "dataSource =\n  criterio.intervencoes\n    ? [ ...criterio.recomendacoes, ...criterio.intervencoes ]\n\
+    \    : criterio.recomendacoes\nhasContent = criterio.recomendacoes.length > 0\n             OR (criterio.intervencoes\
+    \ && criterio.intervencoes.length > 0)\nif (!hasContent): render \"Nao ha recomendacoes para este criterio\"\
+    \n// Panel header = criterio.alerta; panel styled with VERMELHO palette.\n"
+  edge_cases: 'Recommendations precede interventions in the merged list. When intervencoes is undefined only recomendacoes
+    are used. A criterion with empty recomendacoes but present (non-empty) intervencoes still renders the merged
+    list.
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-017
+  - RULE-TRILHAS-ENGINE-004
+  merged_from:
+  - RULE-trilha-FE-03-008
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines: 213-285
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Pathway-level recomendacao (trilha.recomendacao, lines 312-323) is rendered separately below the criteria,
+    with a divider only if criterios.length > 0. When there are no criteria and no recomendacao, the tab shows "Nao
+    ha alertas nem recomendacoes para essa trilha" (lines 281-285).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-TRILHAS-ENGINE-017
+  name: Per-criterion drug-dosing reference image
+  category: drug-dosing
+  type: workflow
+  status: OK
+  verify: true
+  description: 'When a pathway criterion carries a dosage image (criterio.imagem), an "Acessar dosagens" button
+    is shown that opens a modal titled "Dosagens" displaying the dosing reference image.
+
+    '
+  inputs:
+  - name: criterio.imagem
+    type: string (image URL)
+    unit: null
+    range: null
+  outputs:
+  - name: dosages modal
+    type: UI modal
+    unit: null
+  logic: "if (criterio.imagem):\n  render button \"Acessar dosagens\" (pill icon)\n  onClick -> Modal.info({ title:\
+    \ \"Dosagens\", content: <img src=criterio.imagem/> })\n"
+  edge_cases: 'Only shown when criterio.imagem is truthy. The drug dose values themselves live inside the image
+    asset (not machine-readable in this partition).
+
+    '
+  confidence: medium
+  related:
+  - RULE-TRILHAS-ENGINE-016
+  merged_from:
+  - RULE-trilha-FE-03-009
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/TabRecomendacoes/TabRecomendacoes.tsx
+    lines: 257-277
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'verify:true by category (drug-dosing). The actual drug dosing content is an image (criterio.imagem), so
+    the numeric dosing rules are not extractable from code; captured here as the mechanism by which dosing guidance
+    is surfaced per criterion. Verifier can only confirm the surfacing mechanism, not the numeric doses inside the
+    image asset.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference is verifiable for this rule. The rule is categorized drug-dosing
+      (verify:true) but encodes only a UI surfacing mechanism: the actual dose values are embedded in an opaque
+      image asset (criterio.imagem), not in machine-readable code. No equation, coefficient, unit, valid-range,
+      rounding, or cutoff is present in the partition to check against a clinical guideline or standard calculator.
+
+      '
+    detail_file: trilhas-engine-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-291
+    band: UNVERIFIABLE
+    title: Per-criterion drug-dosing reference image
+    excerpt: 'Legacy code confirmed at trilhas-frontend @ f9656be, src/components/TabRecomendacoes/TabRecomendacoes.tsx
+      lines 257-277: `{criterio.imagem && (<Button icon=mdiPill shape=round onClick=Modal.info({title:"Dosagens",
+      content:<img …'
+- id: RULE-TRILHAS-ENGINE-018
+  name: Care-pathway type enumeration (AssistidoChoices vs ObservacaoChoices — label drift)
+  category: care-pathway
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'Canonical set of 12 clinical care-pathway ("trilha") type slugs an assist record / observation can
+    reference. Two backend copies exist — AssistidoChoices.tipo (used by AssistidoPor.tipo) and ObservacaoChoices.tipo_trilha
+    (used by Observacao.tipo_trilha) — with identical slug values/order but drifted display labels.
+
+    '
+  inputs:
+  - name: tipo / tipo_trilha
+    type: string (slug)
+    unit: null
+    range: sedacao|estabilizacao|ventilacao|sepse|antimicrobiano|nutricao|equilibrio|profilaxias|piora_clinica|zero_glosa|auditoria|eficiencia
+  outputs:
+  - name: display_label
+    type: string
+    unit: null
+  logic: '# Both copies return the same 12 (value, label) tuples in the same order:
+
+    #   sedacao, estabilizacao, ventilacao, sepse, antimicrobiano, nutricao,
+
+    #   equilibrio, profilaxias, piora_clinica, zero_glosa, auditoria, eficiencia
+
+    # AssistidoChoices.tipo()  (assistido.py)      labels: sepse="Sepse",  piora_clinica="Piora Clínica"
+
+    # ObservacaoChoices.tipo_trilha() (observacao.py) labels: sepse="SEPSE", piora_clinica="Piora Clinica"
+
+    # Consumers:
+
+    #   AssistidoPor.tipo        -> CharField(max_length=65)
+
+    #   Observacao.tipo_trilha   -> CharField(max_length=20), blank/null allowed
+
+    '
+  edge_cases: 'No default; not enforced beyond Django choices (advisory unless full_clean is called). Observacao.tipo_trilha
+    is blank/null allowed. max_length=20 on Observacao fits the longest slug ("antimicrobiano"=14) so truncation
+    risk is low. These 12 slugs map onto the automatic/homecare pathway model sets (RULE-TRILHAS-ENGINE-001/002).
+
+    '
+  confidence: high
+  related:
+  - RULE-TRILHAS-ENGINE-001
+  - RULE-TRILHAS-ENGINE-013
+  divergence: 'Two independent backend enum copies of the same 12-slug set drift in display labels: AssistidoChoices.tipo
+    (assistido.py) uses sepse="Sepse" and piora_clinica="Piora Clínica"; ObservacaoChoices.tipo_trilha (observacao.py)
+    uses sepse="SEPSE" and piora_clinica="Piora Clinica" (missing acute accent on the "í"). The other 10 (value,label)
+    pairs and the slug values/order are identical. Field width also differs: AssistidoPor.tipo max_length=65 vs
+    Observacao.tipo_trilha max_length=20. Two copies risk further drift.
+
+    '
+  merged_from:
+  - RULE-trilha-BE-04-001
+  - RULE-trilha-BE-04-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/choices/assistido.py
+    lines: 4-20
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/models/choices/observacao.py
+    lines: 1-17
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Merge of the two enum copies (RULE-trilha-BE-04-001 primary, RULE-trilha-BE-04-002 duplicate). Divergence
+    verified verbatim against legacy source. Pre-flagged in Phase 1 (BE-04-002 already DISCREPANCY) — not a newly
+    discovered divergence.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-129
+    band: P3
+    title: care-pathway
+    excerpt: 'Two independent backend enum copies of the same 12-slug set drift in display labels: AssistidoChoices.tipo
+      (assistido.py) uses sepse="Sepse" and piora_clinica="Piora Clínica"; ObservacaoChoices.tipo_trilha (observacao.py)
+      uses sepse="SEP…'

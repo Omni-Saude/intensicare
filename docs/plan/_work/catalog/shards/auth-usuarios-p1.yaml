@@ -1,0 +1,1606 @@
+shard: auth-usuarios-p1
+cluster: auth-usuarios
+rule_count: 32
+rules_with_escalations: 7
+rules:
+- id: RULE-AUTH-USUARIOS-001
+  name: GrupoAcesso permission catalog payload computation
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: 'get_permissoes builds a full permission-codename dict from the system''s permission catalog (PermissionsChoices),
+    defaulting every entry to False, then flips to True only permissions that are both assigned to the underlying
+    Django group and present in the recognized system catalog.
+
+    '
+  inputs:
+  - name: instance.grupo.permissions
+    type: queryset of Permission
+  outputs:
+  - name: permissoes
+    type: object (codename->bool)
+  logic: "all_permissions = PermissionsChoices.permissions()   # list of (codename, label)\nall_codenames = [p[0]\
+    \ for p in all_permissions]\npayload = {codename: False for codename in all_codenames}\nfor perm in instance.grupo.permissions.all():\n\
+    \    if perm.codename in all_codenames:\n        payload[perm.codename] = True\nreturn payload\n"
+  edge_cases: 'Permissions assigned to the Django group that are NOT in PermissionsChoices.permissions() are silently
+    ignored/omitted from the output entirely (neither True nor False key present).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-035
+  - RULE-AUTH-USUARIOS-037
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-acesso-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 95-103
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'verify=true because Phase-1 type is ''formula'' per audit criteria (non-clinical RBAC payload construction,
+    not a clinical calculation).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published/clinical reference exists. Proprietary internal RBAC rule (Django Permission
+      catalog -> codename->bool payload construction in GrupoAcessoSerializer.get_permissoes). Not a clinical calculation,
+      guideline, or standard calculator.
+    detail_file: auth-usuarios-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-278
+    band: UNVERIFIABLE
+    title: GrupoAcesso permission catalog payload computation
+    excerpt: 'Catalog logic verified byte-faithful against legacy source core/api/v1/serializers/grupo_acesso.py
+      lines 95-103 (commit 8166c07). Behavior: payload = {codename: False for every system codename}; iterate the
+      Django group''s permi…'
+- id: RULE-AUTH-USUARIOS-002
+  name: User cargos (roles) empresa-scoped lookup
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: 'get_cargos returns the list of ''cargo'' values from all non-deleted GrupoAcesso records linking
+    this user within the company (empresa) currently injected on the request. If no empresa is present on the request
+    context, returns None (not an empty list).
+
+    '
+  inputs:
+  - name: request.empresa
+    type: object|null
+  outputs:
+  - name: cargos
+    type: array of string | null
+  logic: "request = context.get(\"request\")\nif request and request.empresa:\n    grupos = GrupoAcesso.objects_without_deleted.filter(\n\
+    \        usuarios=instance, empresa=request.empresa\n    ).values_list(\"cargo\", flat=True)\n    return grupos\
+    \ if grupos else []\nelse:\n    return None\n"
+  edge_cases: 'Distinguishes ''no empresa in context'' (returns None) from ''empresa present but user has no groups''
+    (returns []).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-044
+  merged_from:
+  - RULE-usuario-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 32-46
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'verify=true because Phase-1 type is ''formula'' per audit criteria (non-clinical empresa-scoped roles
+    lookup, not a clinical calculation).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published/clinical reference exists. Proprietary internal multi-tenant RBAC rule
+      (empresa-scoped cargo/roles lookup in UsuarioSerializer.get_cargos). Not a clinical calculation, guideline,
+      or standard calculator.
+    detail_file: auth-usuarios-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-279
+    band: UNVERIFIABLE
+    title: User cargos (roles) empresa-scoped lookup
+    excerpt: 'Catalog logic verified byte-faithful against legacy source core/api/v1/serializers/usuario.py lines
+      32-46 (commit 8166c07). Key semantic distinction confirmed: ''no empresa in request context'' returns None
+      (bare `return`), while…'
+- id: RULE-AUTH-USUARIOS-003
+  name: Super-admin (chatbot) permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Grants access only to users flagged as chatbot superusers.
+
+    '
+  inputs:
+  - name: request.user.is_chatbot_superuser
+    type: boolean
+    range: true|false
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: "class IsSuperAdminPermission:\n    def has_permission(request, view): return request.user.is_chatbot_superuser\n"
+  edge_cases: 'Anonymous/user without attribute would raise AttributeError (no guard).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-006
+  merged_from:
+  - RULE-ACCESS-BE-12-015
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 4-6
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Uses a bespoke is_chatbot_superuser flag (not Django is_superuser).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-004
+  name: Partner-required permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Grants access only when the request is associated with a (non-null) partner.
+
+    '
+  inputs:
+  - name: request.partner
+    type: object|null
+    range: None => denied
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: "class HasPartnerPermission:\n    def has_permission(request, view): return request.partner is not None\n"
+  edge_cases: 'Strict is-not-None check.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-ACCESS-BE-12-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 9-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'request.partner presumably set by an API-key/partner auth middleware.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-005
+  name: Owner-organization object permission predicate
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Object-level access granted only when the requesting user''s id equals the object''s owner id (or
+    the object''s own id if it has no owner attribute).
+
+    '
+  inputs:
+  - name: request.user.id
+    type: id
+    range: '-'
+  - name: obj.owner|obj
+    type: object
+    range: '-'
+  outputs:
+  - name: has_object_permission
+    type: boolean
+  logic: "def has_object_permission(request, view, obj):\n    if hasattr(obj, 'owner'): obj = obj.owner\n    return\
+    \ request.user.id == obj.id\n"
+  edge_cases: 'If obj lacks ''owner'', compares user.id to obj.id directly (self-ownership).
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-ACCESS-BE-12-017
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions.py
+    lines: 14-19
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: '-
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-006
+  name: Authenticated-user predicate (IsAuthenticated)
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Grants access to any user that exists and is not anonymous.
+
+    '
+  inputs:
+  - name: request.user
+    type: object
+    range: must be truthy and not anonymous
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: "def has_permission(request, view):\n    return bool(request.user and not request.user.is_anonymous)\n"
+  edge_cases: 'Null user or AnonymousUser -> denied.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-007
+  merged_from:
+  - RULE-ACCESS-BE-12-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions/authenticated.py
+    lines: 4-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Re-implements DRF IsAuthenticated. Same body reused by both empresa permissions (RULE-018).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-007
+  name: Empresa read vs read-write permissions are identical
+  category: access-control
+  type: eligibility
+  status: DISCREPANCY
+  verify: false
+  description: 'Both the empresa read-only permission and the empresa read-and-write permission are implemented
+    identically, checking only that the user is authenticated (non-anonymous); neither actually distinguishes read
+    from write.
+
+    '
+  inputs:
+  - name: request.user
+    type: object
+    range: authenticated non-anonymous => allowed
+  outputs:
+  - name: has_permission
+    type: boolean
+  logic: "class LeituraEmpresaPermission:      # \"read\"\n    def has_permission(request, view): return bool(request.user\
+    \ and not request.user.is_anonymous)\nclass ReadAndWriteEmpresaPermission:  # \"read+write\"\n    def has_permission(request,\
+    \ view): return bool(request.user and not request.user.is_anonymous)\n# identical bodies\n"
+  edge_cases: 'Anonymous -> denied; any authenticated user -> allowed for BOTH read and write.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-006
+  - RULE-AUTH-USUARIOS-047
+  merged_from:
+  - RULE-ACCESS-BE-12-018
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/permissions/empresa.py
+    lines: 4-13
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY - class names imply differentiated read vs write authorization, but both grant identical access
+    to any authenticated user (no write-specific gating). Same predicate as core/permissions/authenticated.py IsAuthenticated
+    (RULE-...-019? no, see below).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-191
+    band: P3
+    title: access-control
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-AUTH-USUARIOS-008
+  name: Hierarchical permission cascade (get_permissoes_empresa/estabelecimento/setor)
+  category: access-control
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'A user''s effective permission codenames at a level are the union of permissions granted by access-groups
+    at that level plus all permissions inherited from the parent level(s) - setor inherits estabelecimento, which
+    inherits empresa.
+
+    '
+  inputs:
+  - name: usuario
+    type: object
+    range: '-'
+  - name: empresa|estabelecimento|setor
+    type: object
+    range: may be null (empresa)
+  outputs:
+  - name: permissoes
+    type: list<string>
+    unit: codenames
+  logic: "get_permissoes_empresa(usuario, empresa):\n    if not empresa: return []\n    payload = []\n    for grupo_acesso\
+    \ in empresa.grupos_acessos.filter(usuarios=usuario):\n        payload += grupo_acesso.grupo.permissions.values_list(\"\
+    codename\")\n    return list(set(payload))\nget_permissoes_estabelecimento(usuario, estab):\n    payload = get_permissoes_empresa(usuario,\
+    \ estab.empresa)         # inherit up\n    payload += (estab.grupos_acessos.filter(usuarios=usuario) permissions)\n\
+    \    return list(set(payload))\nget_permissoes_setor(usuario, setor):\n    payload = get_permissoes_estabelecimento(usuario,\
+    \ setor.estabelecimento)  # inherit up\n    payload += (setor.grupos_acessos.filter(usuarios=usuario) permissions)\n\
+    \    return list(set(payload))\n"
+  edge_cases: 'Null empresa short-circuits to empty list. De-duplicated via set(). Only groups whose membership
+    includes this usuario contribute. Permissions strictly cascade DOWN (parent perms flow to children); child perms
+    do not flow up.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-009
+  - RULE-AUTH-USUARIOS-010
+  - RULE-AUTH-USUARIOS-011
+  - RULE-AUTH-USUARIOS-002
+  merged_from:
+  - RULE-ACCESS-BE-12-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/utils.py
+    lines: 107-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'category ''access-control'' added (none of the enumerated categories cover authorization; guidance lists
+    permission/authorization predicates as rule-bearing). Org hierarchy - Empresa > Estabelecimento > Setor.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-009
+  name: Scope-based RBAC permission dispatch
+  category: billing-administrative
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Enforces per-view permission requirements resolved against a configurable scope (empresa/estabelecimento/setor),
+    with optional per-HTTP-method permissions and method-based bypass.
+
+    '
+  inputs:
+  - name: permission_trilhas
+    type: str | tuple/list of (str | (str, METHOD))
+  - name: escopo
+    type: string
+    range: empresa|estabelecimento|setor (default empresa)
+  - name: exceto_metodo
+    type: str | list/tuple
+  outputs:
+  - name: allow | 403/404/400 error
+    type: HTTP response
+  logic: "dispatch():\n  if call_permission_mixin() and permission_trilhas is not None:\n    if request.method in\
+    \ exceto_metodo (case-insensitive): allow (super().dispatch)\n    if user.is_anonymous: 403 \"Usuário não tem\
+    \ permissão...\"\n    resolve required `permission`:\n      - str -> that permission\n      - tuple/list ->\
+    \ for each entry: if str set permission; if (perm, METHOD) and METHOD matches request.method -> permission=perm\
+    \ & break, else permission=\"\"\n      - otherwise -> 400 \"Permissão configurada incorretamente\"\n    permissoes\
+    \ = switcher[escopo](user, getattr(request, escopo))\n      where switcher = {empresa:get_permissoes_empresa,\
+    \ estabelecimento:get_permissoes_estabelecimento, setor:get_permissoes_setor}\n      if getattr(request, escopo)\
+    \ is None -> 404 \"<Escopo> não encontrado!\"\n    if permission not in permissoes: 403\n  super().dispatch()\n"
+  edge_cases: 'Tuple form with a matching (perm, METHOD) short-circuits; a bare string in the tuple sets permission
+    for all methods. Empty permission "" (no method match) will fail the membership check -> 403. Scope object fetched
+    via getattr(request, escopo).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-008
+  - RULE-AUTH-USUARIOS-015
+  - RULE-AUTH-USUARIOS-056
+  merged_from:
+  - RULE-acesso-BE-04-049
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/mixins/permissao.py
+    lines: 37-132
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'get_permissoes_* helpers in core.utils (out of partition). This is the live RBAC path (vs the dormant
+    PermissaoChoices in RULE-008).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-010
+  name: GrupoAcesso hierarchical scope resolution
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'GrupoAcesso queryset filtering and creation scope resolve in priority order: setor (if setor__pk
+    in URL) > estabelecimento (if estabelecimento__pk in URL) > empresa (default/fallback).
+
+    '
+  inputs:
+  - name: setor__pk
+    type: uuid
+  - name: estabelecimento__pk
+    type: uuid
+  outputs:
+  - name: queryset_scope
+    type: string enum
+  logic: "qs = GrupoAcesso.objects_without_deleted.all()\nif kwargs.get(\"setor__pk\"):\n    qs = qs.filter(setor=request.setor.pk)\n\
+    elif kwargs.get(\"estabelecimento__pk\"):\n    qs = qs.filter(estabelecimento=request.estabelecimento.pk)\n\
+    else:\n    qs = qs.filter(empresa=request.empresa.pk)\n# create() mirrors this: injects request.data[\"setor\"\
+    |\"estabelecimento\"|\"empresa\"] using same if/elif/else order\n"
+  edge_cases: 'Soft-deleted groups excluded via objects_without_deleted manager. Only one of the three scopes is
+    ever applied, never combined.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-011
+  - RULE-AUTH-USUARIOS-008
+  merged_from:
+  - RULE-acesso-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/grupo_acesso.py
+    lines: 21-39
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same setor>estabelecimento>empresa priority pattern is reused in PermissaoDeUsuarioViewSet (RULE-acesso-BE-05-007).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-011
+  name: Permission lookup hierarchical scope resolution
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'PermissaoDeUsuarioViewSet.list resolves which permission-computation function to call using the
+    same priority order as GrupoAcesso: setor > estabelecimento > empresa.
+
+    '
+  inputs:
+  - name: setor__pk
+    type: uuid
+  - name: estabelecimento__pk
+    type: uuid
+  outputs:
+  - name: permissions
+    type: object
+  logic: "if kwargs.get(\"setor__pk\"):\n    permissions = get_permissoes_setor(usuario, request.setor)\nelif kwargs.get(\"\
+    estabelecimento__pk\"):\n    permissions = get_permissoes_estabelecimento(usuario, request.estabelecimento)\n\
+    else:\n    permissions = get_permissoes_empresa(usuario, request.empresa)\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-010
+  - RULE-AUTH-USUARIOS-008
+  merged_from:
+  - RULE-acesso-BE-05-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/permissao.py
+    lines: 28-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'get_permissoes_setor/estabelecimento/empresa implementations live in core/utils, out of this partition''s
+    scope.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-012
+  name: GrupoAcesso usuarios field suppressed on list/destroy actions
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'The serialized ''usuarios'' array (full nested user objects) is added to the response payload for
+    every view action EXCEPT ''list'' and ''destroy'', to avoid the cost of serializing all members on list endpoints.
+
+    '
+  inputs:
+  - name: view.action
+    type: string
+  outputs:
+  - name: payload.usuarios
+    type: array of object
+  logic: "payload = super().to_representation(instance)\nif context[\"view\"].action not in [\"list\", \"destroy\"\
+    ]:\n    payload[\"usuarios\"] = UsuarioSerializer(instance.usuarios.all(), many=True, context=...).data\nreturn\
+    \ payload\n"
+  edge_cases: '''usuarios'' key is entirely absent from the response body (not null/empty) for list and destroy
+    actions.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-acesso-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/grupo_acesso.py
+    lines: 110-116
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-013
+  name: User representation scopes setores list to current empresa
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'UsuarioSerializer.to_representation adds a ''setores'' array to the payload containing only sectors
+    whose estabelecimento belongs to the request''s current empresa, hiding sector memberships from other companies
+    (multi-tenant scoping), but only when a request is present in context.
+
+    '
+  inputs:
+  - name: request.empresa
+    type: object
+  outputs:
+  - name: payload.setores
+    type: array of object
+  logic: "payload = super().to_representation(instance)\nif context and context.get(\"request\"):\n    payload[\"\
+    setores\"] = SetorUsuarioSerializer(\n        instance.setores.filter(estabelecimento__empresa=request.empresa),\
+    \ many=True\n    ).data\nreturn payload\n"
+  edge_cases: 'If no request in context, ''setores'' key is absent entirely.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-039
+  merged_from:
+  - RULE-usuario-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/serializers/usuario.py
+    lines: 193-203
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-014
+  name: User queryset restricted to active users scoped to empresa
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'UsuarioViewSet.get_queryset only returns users with is_active=True, additionally filtered to users
+    belonging to request.empresa when present on the request.
+
+    '
+  inputs:
+  - name: request.empresa
+    type: object|null
+  outputs:
+  - name: queryset
+    type: queryset of Usuario
+  logic: "qs = Usuario.objects.filter(is_active=True)\nif request.empresa:\n    qs = qs.filter(empresas=request.empresa)\n\
+    return qs\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-040
+  merged_from:
+  - RULE-usuario-BE-05-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 42-48
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-015
+  name: GET and PATCH bypass can_manage_usuario permission
+  category: data-validation
+  type: threshold
+  status: OK
+  verify: false
+  description: 'UsuarioViewSet declares permission_trilhas=(''can_manage_usuario'',) with exceto_metodo=(''GET'',''PATCH'')
+    meaning read operations and partial updates are exempted from this trilha-permission check (enforced by TrilhasPermissaoMixin,
+    out of partition scope); only POST/PUT/DELETE require the permission.
+
+    '
+  inputs:
+  - name: request.method
+    type: string
+  outputs:
+  - name: permission_required
+    type: boolean
+  logic: 'escopo = "empresa"
+
+    permission_trilhas = ("can_manage_usuario",)
+
+    exceto_metodo = ("GET", "PATCH")
+
+    # enforcement logic lives in TrilhasPermissaoMixin (core/mixins, out of scope)
+
+    '
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-009
+  - RULE-AUTH-USUARIOS-056
+  merged_from:
+  - RULE-usuario-BE-05-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/usuario.py
+    lines: 22-24
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'The actual permission-check enforcement mechanism (TrilhasPermissaoMixin) lives outside this partition
+    (core/mixins); this rule records the declared configuration values observed in-scope.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-016
+  name: Permission gate for rejecting/closing SEPSE protocol
+  category: care-pathway
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'On the interactive SEPSE trilha viewset, when the request does not accept the protocol (aceito falsy)
+    during create/update/partial_update, the required trilha permission is set to "can_recusar_protocolo_sepse",
+    so only users holding that permission may reject or close the protocol. The acting user is recorded as registrado_por
+    and the parent trilha id is injected from the URL.
+
+    '
+  inputs:
+  - name: data.aceito
+    type: boolean
+  - name: action
+    type: enum
+    range: '{create, update, partial_update}'
+  outputs:
+  - name: permission_trilhas
+    type: tuple
+  logic: "data[\"trilha\"] = kwargs[\"trilhas__pk\"]\ndata[\"registrado_por_id\"] = request.user.get_pk\nif not\
+    \ data.get(\"aceito\") and action in (\"partial_update\", \"update\", \"create\"):\n    self.permission_trilhas\
+    \ = (\"can_recusar_protocolo_sepse\",)\n"
+  edge_cases: 'Only the rejection/closure path is permission-gated here; acceptance is not restricted by this branch.
+    Permission enforced via TrilhasPermissaoMixin (core.mixins, out of partition).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-authz-BE-02-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/api/v1/views/trilha_interativa_sepse.py
+    lines: 40-52
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'A commented-out sibling gate (can_rejeitar_protocolo_sepse, exceto POST) exists in item_trilha_interativa_sepse.py
+    view.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-017
+  name: Sector-card click and audit-button permission gating
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'On the dashboard list, clicking a sector''s card only fires the navigation callback if the card
+    is not sector-scoped, or if it is sector-scoped and the user has `can_view_ocupacoes`; an "Auditar" button is
+    shown only when the card is sector-scoped and the user has `can_view_auditoria`.
+
+    '
+  inputs:
+  - name: isSetor
+    type: boolean
+  - name: can_view_ocupacoes
+    type: boolean (permission)
+  - name: can_view_auditoria
+    type: boolean (permission)
+  outputs:
+  - name: canClick
+    type: boolean
+  - name: showButtonAuditoria
+    type: boolean
+  logic: 'canClick = isSetor ? can_view_ocupacoes : true
+
+    onCardClick = () => { if (isSetor) { if (can_view_ocupacoes) onClick(item.id) } else { onClick(item.id) } }
+
+    showButtonAuditoria = isSetor && can_view_auditoria
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-022
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ListDashboard/ListDashboard.tsx
+    lines: 41-73
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Consumed by DashboardCard.tsx (also this partition) via the canClick/showButtonAuditoria props.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-018
+  name: Settings-gear header icon visibility
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The header "configurações" gear-icon button is shown only if the current user holds at least one
+    of the administrative permissions: manage empresa, manage grupo de acesso, or manage usuário.
+
+    '
+  inputs:
+  - name: can_manage_empresa
+    type: boolean (permission)
+  - name: can_manage_grupo_acesso
+    type: boolean (permission)
+  - name: can_manage_usuario
+    type: boolean (permission)
+  outputs:
+  - name: canAccessConfigs
+    type: boolean
+  logic: 'canAccessConfigs = can_manage_empresa || can_manage_grupo_acesso || can_manage_usuario
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-023
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/PageContainer/PageContainer.tsx
+    lines: 99-101
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Same file also renders the footer environment label (baseURL.includes("homol") ? "Homologação" : "Produção")
+    at lines 476-480, a minor operational (not clinical) display rule.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-019
+  name: Company-switch dropdown visibility
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The header''s company (empresa) name renders as a plain, non-clickable tag when the signed-in user
+    has access to one or zero companies; only when the user has more than one company does it render as a clickable
+    dropdown, whose menu lists every accessible company except the currently selected one.
+
+    '
+  inputs:
+  - name: user.usuario.empresas
+    type: array
+  outputs:
+  - name: showDropdown
+    type: boolean
+  - name: dropdownItems
+    type: array (excludes current empresa)
+  logic: 'showDropdown = (user.usuario.empresas || []).length > 1
+
+    dropdownItems = user.usuario.empresas.filter(e => e.id !== empresaAtual.id)
+
+    // if empresas.length === 0, menu shows a single disabled "Nenhuma permissão encontrada" item (though dropdown
+    itself is unreachable, since showDropdown is false at length<=1)
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-027
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissao-FE-06-024
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/SelectEmpresaAtual/SelectEmpresaAtual.tsx
+    lines: 16-55
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-020
+  name: Permission-string SSR route guard (validateRoute), incl. dead-code token check
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'validateRoute(ctx, ignorePermission=true, permission='''') is the shared getServerSideProps guard
+    used across the app. It parses the ''trilhas.token'' and ''trilhas.permissions'' cookies and redirects to ''/''
+    unless the permission check passes. For pages that pass an explicit permission string (ignorePermission=false),
+    the page is rendered only if the parsed ''trilhas.permissions'' array (JSON-decoded) includes that exact permission
+    string; otherwise the request is redirected. However, the local `token` variable used in the guard''s OTHER
+    clause is initialized as `{} as string` (a plain, always-truthy object literal) rather than an empty string
+    or null, so the `!token` half of the guard condition can never be true and never contributes to the redirect
+    decision, regardless of whether a real ''trilhas.token'' cookie is present. Combined with the common call pattern
+    validateRoute(ctx) (defaults: ignorePermission=true, permission=''''), pages that call it with no explicit permission
+    perform NO effective server-side authentication check at all.
+
+    '
+  inputs:
+  - name: ignorePermission
+    type: boolean
+    range: true | false
+  - name: permission
+    type: string (Models.Permission enum)
+    range: one of the app's permission slugs
+  - name: ctx.req.cookies["trilhas.permissions"]
+    type: JSON-encoded string array
+  - name: ctx.req.cookies["trilhas.token"]
+    type: string | undefined
+  outputs:
+  - name: redirect-or-render
+    type: decision
+  logic: "export const validateRoute = (ctx, ignorePermission = true, permission = \"\" as Models.Permission) =>\n\
+    \  async (callback) => {\n    const { \"trilhas.token\": userToken } = parseCookies(ctx)\n    const { \"trilhas.permissions\"\
+    : userPermissions } = parseCookies(ctx)\n    const { \"theme.light\": light } = parseCookies(ctx)\n    const\
+    \ isLight = light === \"true\"\n\n    let token = {} as string        // <-- BUG: truthy object, not \"\" or\
+    \ null\n    let permissions = [] as Models.Permission[]\n\n    if (userToken) token = userToken\n    if (userPermissions)\
+    \ permissions = JSON.parse(userPermissions)\n\n    if (!token || (!permissions.includes(permission) && !ignorePermission))\
+    \ {\n      return { redirect: { destination: \"/\", permanent: false } }\n    }\n    return callback({ token,\
+    \ isLight } as Models.ReturnWithProps)\n  }\n// !token is ALWAYS false (object literal is truthy) -> the token-presence\
+    \ half of the\n// guard is dead code; only the (!permissions.includes(permission) && !ignorePermission)\n//\
+    \ half can ever trigger a redirect. With default args (no permission passed), that half\n// is also always false,\
+    \ so the whole condition is always false.\n"
+  edge_cases: 'No cookie at all: token stays {} (truthy) -> !token is false -> guard relies entirely on the second
+    clause. With the common call pattern validateRoute(ctx) (ignorePermission defaults to true), !ignorePermission
+    is always false, so the whole condition is false and the page renders with no server-side authentication check
+    whatsoever.
+
+
+    Malformed/missing "trilhas.permissions" cookie => permissions = [] => guard always fails closed (redirects)
+    whenever ignorePermission is false, regardless of the token bug in RULE-acesso-FE-08-001.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-021
+  - RULE-AUTH-USUARIOS-022
+  - RULE-AUTH-USUARIOS-023
+  - RULE-AUTH-USUARIOS-025
+  - RULE-AUTH-USUARIOS-026
+  divergence: 'Not a BE/FE reconciliation — an intra-file merge of two Phase-1 captures of the same function (src/hocs/validateRoute.ts:5-38
+    fully contains :17-35). The ''no permission'' code path (token-presence guard) is unreachable dead code due
+    to `let token = {} as string` being always truthy; only the explicit permission-string branch (RULE-acesso-FE-08-002''s
+    original capture) is behaviorally live.
+
+    '
+  merged_from:
+  - RULE-acesso-FE-08-001
+  - RULE-acesso-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/hocs/validateRoute.ts
+    lines: 5-38
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/hocs/validateRoute.ts
+    lines: 17-35
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: "Concrete (permission-string, page) pairs observed in this partition: can_manage_empresa -> configuracoes/empresa/index.tsx\
+    \ (lines 131-143),\n                       configuracoes/estabelecimentos/index.tsx (lines 348-360);\ncan_manage_grupo_acesso\
+    \ -> configuracoes/grupos/index.tsx (lines 211-223),\n                            configuracoes/grupos/[id_grupo]/index.tsx\
+    \ (lines 232-244),\n                            configuracoes/leitos/index.tsx (lines 364-376) [see RULE-acesso-FE-08-003];\n\
+    can_manage_usuario -> configuracoes/profissionais/index.tsx (lines 216-228); can_access_camera -> setor/[id_setor]/cameras/index.tsx\
+    \ (lines 112-124); can_access_relatorio_evolucao -> relatorio-evolucao/index.tsx (lines 53-65).\n\n---\nThis\
+    \ is the single highest-impact finding in this partition: every page that calls validateRoute(ctx) with default\
+    \ arguments (no explicit permission) performs NO effective server-side authentication check. Affected pages\
+    \ in this partition: src/pages/empresa/index.tsx, src/pages/empresa/[id_empresa].tsx, configuracoes/index.tsx,\
+    \ configuracoes/profissionais/[id_profissional]/index.tsx, configuracoes/setores/index.tsx, estabelecimento/[id_estabelecimento].tsx,\
+    \ chats/index.tsx, chats/[id_setor]/[id_usuario].tsx, setor/[id_setor].tsx, setor/[id_setor]/dashboard/index.tsx,\
+    \ setor/[id_setor]/inconsistencias/index.tsx, setor/[id_setor]/auditoria/index.tsx, setor/[id_setor]/auditoria/[id_ocupacao]/index.tsx,\
+    \ leito/.../ocupacao/[id_ocupacao].tsx, .../balanco/index.tsx, .../prescricao/index.tsx, .../sepse/[id_trilha]/index.tsx,\
+    \ feed/index.tsx. Rendering still depends on client-side API calls succeeding (which presumably enforce auth\
+    \ server-side in the backend), so real-world exposure depends on backend API behavior, which is out of scope\
+    \ for this partition. Recorded verbatim per ground rules; not corrected.\n"
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-133
+    band: P3
+    title: triage-eligibility
+    excerpt: Not a BE/FE reconciliation — an intra-file merge of two Phase-1 captures of the same function (src/hocs/validateRoute.ts:5-38
+      fully contains :17-35). The 'no permission' code path (token-presence guard) is unreachable dead code due
+      to `l…
+- id: RULE-AUTH-USUARIOS-021
+  name: Bed-management page reuses access-group permission
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'The Leitos (beds) management page is gated by the "can_manage_grupo_acesso" permission (the same
+    permission that gates Grupos/access-group management), rather than a bed-specific or establishment-management
+    permission such as can_manage_empresa.
+
+    '
+  inputs:
+  - name: permission
+    type: string
+    range: can_manage_grupo_acesso
+  outputs:
+  - name: redirect-or-render
+    type: decision
+  logic: 'getServerSideProps = validateRoute(ctx, false, "can_manage_grupo_acesso")(...)
+
+    // identical permission string used for both /configuracoes/grupos and
+
+    // /configuracoes/leitos
+
+    '
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-020
+  merged_from:
+  - RULE-acesso-FE-08-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/leitos/index.tsx
+    lines: 363-376
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Recorded verbatim; may be an intentional coarse-grained "admin" permission reused across multiple config
+    screens, or a copy-paste artifact. Compare with configuracoes/estabelecimentos/index.tsx and configuracoes/empresa/index.tsx,
+    which both use "can_manage_empresa" for structurally similar company-configuration screens.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-134
+    band: P3
+    title: triage-eligibility
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-AUTH-USUARIOS-022
+  name: Automatica-only shortcuts not enforced server-side
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'The sector occupancy page only shows navigation buttons to the Inconsistências and Dashboard analítico
+    pages when the current company''s tipo === "automatica". However, both destination pages (setor/[id_setor]/inconsistencias
+    and setor/[id_setor]/dashboard) use the default validateRoute(ctx) call with no permission and no server-side
+    re-check of empresa.tipo, so the restriction is UI-only and can be bypassed by direct URL navigation.
+
+    '
+  inputs:
+  - name: empresaData.tipo
+    type: string enum
+    range: manual | automatica | homecare (observed values)
+  outputs:
+  - name: button-visibility
+    type: boolean
+  logic: '// setor/[id_setor].tsx (parent page, CircularMenu items)
+
+    show "Relatórios" (Inconsistências) button  IF empresaData.tipo === "automatica"
+
+    show "Dashboard" button                     IF empresaData.tipo === "automatica"
+
+
+    // dashboard/index.tsx and inconsistencias/index.tsx (destination pages)
+
+    getServerSideProps = validateRoute(ctx)(...)   // no permission, no tipo check
+
+    '
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-060
+  merged_from:
+  - RULE-acesso-FE-08-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/estabelecimento/[id_estabelecimento]/setor/[id_setor].tsx
+    lines: 165-206
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Destination pages confirmed at src/pages/.../setor/[id_setor]/dashboard/index.tsx lines 171-182 and src/pages/.../setor/[id_setor]/inconsistencias/index.tsx
+    lines 61-72.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-135
+    band: P3
+    title: triage-eligibility
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-AUTH-USUARIOS-023
+  name: Redirect authenticated user away from login page
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'On the login page''s getServerSideProps, if the "trilhas.token" cookie is present, the user is redirected
+    to /empresa instead of seeing the login form.
+
+    '
+  inputs:
+  - name: ctx.req.cookies["trilhas.token"]
+    type: string | undefined
+  outputs:
+  - name: redirect-or-props
+    type: decision
+  logic: "if (token) {\n  redirect -> \"/empresa\", permanent: false\n} else {\n  props = { light: light === \"\
+    true\" }\n}\n"
+  edge_cases: 'Empty-string token cookie is falsy in JS, so an empty token does not redirect.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-024
+  merged_from:
+  - RULE-login-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/index.tsx
+    lines: 81-99
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Uses a plain string cookie check (unlike validateRoute''s buggy object-typed token), so this particular
+    guard behaves correctly.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-024
+  name: Post-login company-selection redirect decision tree
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'After a successful login, the app decides where to send the user based on how many companies (empresas)
+    the account is associated with — zero companies is treated as an error and forces logout; exactly one company
+    auto-selects it and skips the selector screen; more than one sends the user to the company-selection screen.
+
+    '
+  inputs:
+  - name: usuario.empresas.length
+    type: integer
+    range: 0, 1, or >1
+  outputs:
+  - name: redirect route
+    type: string (route path)
+  logic: "if usuario.empresas.length == 0:\n  show error \"Você não tem nenhuma permissão nesse perfil\"\n  logout()\n\
+    else if usuario.empresas.length == 1:\n  refreshToken(token)\n  router.push(`/empresa/${usuario.empresas[0].id}`)\n\
+    else:  // > 1\n  refreshToken(token)\n  router.push(`/empresa/`)\n"
+  edge_cases: 'The refreshToken(token) call happens for both the ==1 and >1 branches but NOT for the ==0 branch
+    (which logs out instead). Errors thrown inside the try block (including from the API login call itself) are
+    caught and shown as a generic "Algo deu errado no login." message.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-023
+  - RULE-AUTH-USUARIOS-041
+  merged_from:
+  - RULE-auth-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/contexts/AuthContext/AuthContext.tsx
+    lines: 128-160
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Extends the fixed category taxonomy with ''access-control'' (see RULE-permissoes-FE-07-001).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-025
+  name: Professional profile self-or-permission access gate
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'A user may view/edit a professional''s profile page only if the profile belongs to themself, or
+    if they hold the can_manage_usuario permission. Otherwise an "Acesso negado" (403) result is shown instead of
+    the profile tabs. This check happens entirely client-side (getServerSideProps for this route has no permission
+    requirement).
+
+    '
+  inputs:
+  - name: id_profissional (route param)
+    type: string
+  - name: user.usuario.id
+    type: string
+  - name: permissions
+    type: string array
+  outputs:
+  - name: verifyUser
+    type: boolean
+  logic: "verifyUser = (id_profissional === user.usuario?.id) || permissions?.includes(\"can_manage_usuario\")\n\
+    if (verifyUser && currentUser) {\n  render profile Tabs\n} else {\n  render <Result status=\"403\" title=\"\
+    Acesso negado\" .../>\n}\n"
+  edge_cases: 'currentUser must have loaded (async fetch) in addition to verifyUser being true, else the 403 branch
+    is shown even for a permitted user while data is still loading.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-020
+  - RULE-AUTH-USUARIOS-026
+  merged_from:
+  - RULE-profissional-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/profissionais/[id_profissional]/index.tsx
+    lines: 49-101
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Because the server-side validateRoute(ctx) call for this route uses the default (no permission), this
+    access boundary exists only client-side; see RULE-acesso-FE-08-001.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-026
+  name: Homecare-only "Gestão de Pacientes" tab
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'On the professional profile page, the "Gestão de Pacientes" (patient management) tab is only rendered
+    when the viewer has can_manage_usuario permission AND the current company''s tipo === "homecare".
+
+    '
+  inputs:
+  - name: can_manage_usuario
+    type: boolean
+  - name: currentEmpresa.tipo
+    type: string enum
+    range: homecare | manual | automatica (observed)
+  outputs:
+  - name: tab-visibility
+    type: boolean
+  logic: "if (can_manage_usuario && currentEmpresa && currentEmpresa.tipo === \"homecare\") {\n  show \"Gestão de\
+    \ Pacientes\" tab\n}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-025
+  - RULE-AUTH-USUARIOS-060
+  merged_from:
+  - RULE-profissional-FE-08-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/configuracoes/profissionais/[id_profissional]/index.tsx
+    lines: 76-91
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-027
+  name: Admin sidebar menu-item visibility gating
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The administrative sidebar menu shows/hides six navigation items strictly based on three permission
+    flags — "Empresa", "Estabelecimentos", "Setores", and "Leitos" all require can_manage_empresa; "Grupos" requires
+    can_manage_grupo_acesso; "Profissionais" requires can_manage_usuario.
+
+    '
+  inputs:
+  - name: can_manage_empresa
+    type: boolean
+  - name: can_manage_grupo_acesso
+    type: boolean
+  - name: can_manage_usuario
+    type: boolean
+  outputs:
+  - name: menuItens
+    type: Utils.PropsMenuItem[]
+  logic: 'menuItens = []
+
+    if can_manage_empresa: menuItens += "empresa"
+
+    if can_manage_grupo_acesso: menuItens += "grupos"
+
+    if can_manage_empresa: menuItens += "estabelecimentos"
+
+    if can_manage_empresa: menuItens += "setores"
+
+    if can_manage_empresa: menuItens += "leitos"
+
+    if can_manage_usuario: menuItens += "profissionais"
+
+    // order above is exactly the order items are appended (Empresa, Grupos, Estabelecimentos, Setores, Leitos,
+    Profissionais)
+
+    '
+  edge_cases: 'A user with can_manage_grupo_acesso but not can_manage_empresa sees only "Grupos" and (if applicable)
+    "Profissionais" — the four other admin sections are entirely hidden, not just disabled.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-018
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useMenuByPermissions.tsx
+    lines: 9-111
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Extends the fixed category taxonomy with ''access-control'' (see RULE-permissoes-FE-07-001).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-028
+  name: Per-professional evolution-form authoring eligibility
+  category: access-control
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'For each of 10 professional roles (médico, enfermeiro, técnico de enfermagem, fisioterapeuta, musicoterapeuta,
+    nutricionista, psicólogo, farmacêutico, fonoaudiólogo, intercorrência), the evolution-form tab is visible based
+    on that role''s specific "can_preencher_formulario_X" permission, but the ability to actually submit a new entry
+    (canAdd passed into EvolucaoDefault) additionally requires the global can_manage_evolucao permission.
+
+    '
+  inputs:
+  - name: can_preencher_formulario_<role>
+    type: boolean
+  - name: can_manage_evolucao
+    type: boolean
+  outputs:
+  - name: canAdd (per role)
+    type: boolean
+  logic: "for each role in {medico, enfermagem(via can_preencher_formulario_enfermeiro), tec_enfermagem,\n     \
+    \              fisioterapeuta, musicoterapeuta, nutricionista, psicologo, farmaceutico,\n                  \
+    \ fonoaudiologo, intercorrencia}:\n  tab_visible = can_preencher_formulario_<role>\n  canAdd = can_preencher_formulario_<role>\
+    \ AND can_manage_evolucao\n"
+  edge_cases: 'A user who can_preencher_formulario_medico but lacks can_manage_evolucao still sees the "Médico"
+    tab (tab_visible true) but cannot submit a new entry (canAdd false) — a view-without-edit state.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-058
+  merged_from:
+  - RULE-permissoes-FE-07-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/hooks/useEvolucaoMenu.tsx
+    lines: 30-386
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Extends the fixed category taxonomy with ''access-control'' (see RULE-permissoes-FE-07-001). See RULE-evolucao-FE-07-006
+    for a naming discrepancy on the pharmacist (''farmaceutica'') role key specifically.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-029
+  name: Login cascade - local auth first (incl. HTTP 202 status)
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'On login, the system first attempts Django local authentication (username+password) before trying
+    any external identity provider. Both the local-auth success path and the external-SSO success path (RULE-AUTH-USUARIOS-030)
+    return this exact same payload shape and status code.
+
+    '
+  inputs:
+  - name: username
+    type: string
+  - name: password
+    type: string
+  outputs:
+  - name: jwt_payload
+    type: object
+  - name: http_status
+    type: int
+  logic: "usuario = authenticate(username=username, password=password)\nif usuario:\n    payload = jwt_payload_handler(usuario)\n\
+    \    token = jwt_encode_handler(payload)\n    context = jwt_response_payload_handler(token, usuario)\n    return\
+    \ Response(context, status=202)\n# else fall through to RULE-auth-BE-05-002\n\n# Confirmed by core/tests/test_usuario.py:35-38:\
+    \ POST /api/v1/login/ with a valid\n# {username, password} asserts response.status_code == status.HTTP_202_ACCEPTED\
+    \ (202, not 200/201).\n"
+  edge_cases: 'authenticate() returns None for inactive or unknown users, or wrong password; falls through to external
+    SSO attempt rather than failing immediately. Non-standard success status (202 rather than 200/201).
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-030
+  - RULE-AUTH-USUARIOS-052
+  - RULE-AUTH-USUARIOS-057
+  merged_from:
+  - RULE-auth-BE-05-001
+  - RULE-ACCESS-BE-12-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/login.py
+    lines: 29-42
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/tests/test_usuario.py
+    lines: 35-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Success status code is 202 (Accepted), not 200. Login view implementation outside partition; behavior
+    asserted by test. Merged: RULE-ACCESS-BE-12-032 independently captured the same 202-status fact via a test-file
+    assertion (core/tests/test_usuario.py) that RULE-auth-BE-05-001 captured directly from the view source (core/api/v1/views/login.py);
+    folded together to avoid double-counting one behavior.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-030
+  name: External SSO fallback with auto-provisioning
+  category: triage-eligibility
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: 'If local auth fails, the system POSTs credentials to an external SSO (americashealth.co). If the
+    SSO responds with a JSON dict, the user is treated as authenticated: a local Usuario is looked up by email=username,
+    and auto-created if missing, then issued a JWT. No project-specific (Trilhas) entitlement/access check is performed
+    before provisioning or issuing the token.
+
+    '
+  inputs:
+  - name: username
+    type: string
+    range: treated as an email address for the Usuario.get(email=username) lookup
+  - name: password
+    type: string
+  outputs:
+  - name: jwt_payload
+    type: object
+  logic: "requisicao = POST https://nps.americashealth.co/api/v2/auth-user/  {username, password}\nrequisicao_json\
+    \ = json.loads(requisicao.text)\nif type(requisicao_json) is dict:\n    try:\n        usuario = Usuario.objects.get(email=username)\n\
+    \    except Usuario.DoesNotExist:\n        usuario = Usuario.objects.create_user(\n            username=username,\
+    \ nome=requisicao_json.get(\"nome\"),\n            email=username, password=password)\n    context = montar_payload_de_usuario(usuario)\n\
+    \    return Response(context, status=202)\nelse:\n    raise AuthenticationFailed(\"Falha na autenticação\")\n"
+  edge_cases: 'requisicao_json could raise json.JSONDecodeError if the external service returns non-JSON (uncaught);
+    a non-dict JSON payload (e.g., list, string, error) leads to AuthenticationFailed.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-029
+  - RULE-AUTH-USUARIOS-052
+  merged_from:
+  - RULE-auth-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/login.py
+    lines: 44-69
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Code contains an explicit TODO comment (''Adicionar verificação se tem acesso ao projeto Trilhas.'') and
+    no such check exists anywhere in the visible code path between the external dict response and user provisioning/JWT
+    issuance - any user who can auth against the shared americashealth SSO gets a Trilhas account and token, regardless
+    of Trilhas project entitlement.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-136
+    band: P3
+    title: triage-eligibility
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-AUTH-USUARIOS-031
+  name: Auto-hash plaintext password on user save
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'On saving a Usuario, if the stored password is not already a recognized hash, it is hashed.
+
+    '
+  inputs:
+  - name: password
+    type: string
+  outputs:
+  - name: hashed_password
+    type: string
+  logic: 'try: identify_hasher(self.password)      # raises ValueError if not a known hash format
+
+    except ValueError: self.set_password(self.password)  # hash it
+
+    super().save()
+
+    '
+  edge_cases: 'If password already hashed, left untouched (prevents double-hashing). No None-guard: identify_hasher(None)
+    would raise (caught as ValueError? actually TypeError) — but Usuario.password is required by AbstractBaseUser.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-054
+  merged_from:
+  - RULE-usuario-BE-04-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario.py
+    lines: 99-104
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Usuario also enforces cpf unique (max_length=11), username unique with UnicodeUsernameValidator, pin default=settings.PIN_DEFAULT.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-AUTH-USUARIOS-032
+  name: User-company membership grants 'u' access and cascades group cleanup
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Linking a user to a company adds the ''u'' access code; unlinking removes that company''s access-group
+    memberships and drops ''u'' when the user belongs to no company.
+
+    '
+  inputs:
+  - name: usuario
+    type: Usuario FK
+  - name: empresa
+    type: Empresa FK
+  outputs:
+  - name: usuario.acessos / group memberships
+    type: side-effect
+  logic: "UsuarioEmpresa unique_together(usuario, empresa).\nsave(): if \"u\" not in usuario.acessos: append \"\
+    u\"; save usuario.\npost_delete(UsuarioEmpresa):\n  delete UsuarioGrupoAcesso where usuario=instance.usuario\
+    \ AND grupo.empresa=instance.empresa\n  if not usuario.empresas.exists():\n      usuario.acessos = [a for a\
+    \ in acessos if a != \"u\"]; save\n"
+  edge_cases: 'Cascade only removes empresa-scoped groups; establishment/sector groups handled by their own signals.
+
+    '
+  confidence: high
+  related:
+  - RULE-AUTH-USUARIOS-033
+  merged_from:
+  - RULE-acesso-BE-04-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/models/usuario_empresa.py
+    lines: 19-38
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

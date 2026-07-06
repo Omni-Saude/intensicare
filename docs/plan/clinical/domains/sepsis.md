@@ -118,10 +118,16 @@ infection**. The infection gate is what protects PPV — an ungated SIRS-OR scre
 failure mode. **Both disputed branches (v1-AND, v3-OR) are fully specified in §6 RAT-SEPSE-02**; this default is
 provisional pending that ratification.
 
-The manual pathway's 20 PT-BR criterion descriptions (RULE-SEPSE-099, ADOPT-CORRECTED — fixes the
-`criterio8`-vs-`criterio_8` key typo that silently dropped one description) are preserved verbatim as the
-display vocabulary for a positive screen. Homecare-specific dead branches (RULE-SEPSE-003 `menores==4`,
-unreachable because criterio_11/RULE-SEPSE-037 is hard-coded `False`) are **superseded**, not ported.
+The manual pathway's 20 PT-BR criterion descriptions (RULE-SEPSE-099) are preserved verbatim as the display
+vocabulary for a positive screen. Its disposition is **RATIFY — pending RAT-SEPSE-ADD-01** (ADDENDUM band,
+ESC-ADDENDUM-349): this is a Phase-6 coverage finding, so policy (SYS-C-03) mandates a recorded human RATIFY
+rather than a silent ADOPT-CORRECTED, and it is **not** presented here as settled. The **recommended default**
+(committee decides) is to adopt the corrected form using the consistent `criterio_N` key pattern so that the live
+`criterio8`-vs-`criterio_8` key typo — which makes `descricao_criterio_8` always default to `None`, silently
+dropping `criterio_8`'s stored/displayed description (e.g. the Glasgow/delirium text) — is fixed and no criterion
+description is lost. Until RAT-SEPSE-ADD-01 is ratified the vocabulary is designed to that default, not adopted.
+Homecare-specific dead branches (RULE-SEPSE-003 `menores==4`, unreachable because criterio_11/RULE-SEPSE-037 is
+hard-coded `False`) are **superseded**, not ported.
 
 ### 3.2 Organ-dysfunction / hypoperfusion — `ALERT-SEPSIS-ORGAN-02` (severity: critical)
 

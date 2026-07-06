@@ -1,0 +1,38 @@
+{
+  "brief_id": "cluster-operacional-infra",
+  "authority": "audit",
+  "source": {"path": "docs/rules/extraction/phase2/catalog/operacional-infra.yaml", "lines": 2900, "read_complete": true},
+  "cluster_summary": "Operational infrastructure: scheduling, data validation, offline sync, access control, legacy integration. 46 OK / 12 DISCREPANCY / 4 AMBIGUOUS. 32 scheduling-operational, 25 data-validation. Contains cross-platform divergence (23:xx overflow), single-tenant hardcoding (homecare), dead code (ParanoiaMixin override).",
+  "facts": [
+    {"id": "CLU-OPERACIONAL-INFRA-01", "kind": "count", "claim": "62 rules: 46 OK, 12 DISCREPANCY, 4 AMBIGUOUS; verdicts: 48 NOT_APPLICABLE, 10 UNVERIFIABLE, 2 VERIFIED, 2 DISCREPANCY.", "source_ref": "yaml lines 1-2900"},
+    {"id": "CLU-OPERACIONAL-INFRA-02", "kind": "distribution", "claim": "Type: 16 threshold, 13 workflow, 11 formula, 9 validation, 7 decision-tree, 4 eligibility, 2 scoring. Category: 32 scheduling-operational, 25 data-validation.", "source_ref": "grep type, category"},
+    {"id": "CLU-OPERACIONAL-INFRA-03", "kind": "issue", "claim": "23:31-23:59 hour overflow (RULE-001): get_hora_cheia emits '24:00'; justOclock parses via moment and silently rolls to '00:00' (drops date). Both unguarded.", "source_ref": "RULE-OPERACIONAL-INFRA-001"},
+    {"id": "CLU-OPERACIONAL-INFRA-04", "kind": "threshold", "claim": "Shift boundary 07:00 (RULE-004): times 07:00+ same day, <07:00 next day. Case/When inclusive. No standard; institutional convention.", "source_ref": "RULE-OPERACIONAL-INFRA-004"},
+    {"id": "CLU-OPERACIONAL-INFRA-05", "kind": "window", "claim": "Offline prescription 3-day (RULE-005, QTD_DIAS=2): dia__gte=(today-2). Priority: DIETA=1, MEDICAMENTO_SOLUÇÃO=2, SN_ACM=3, RECOMENDACAO_ENFERMAGEM=4, RECOMENDACAO=5.", "source_ref": "RULE-OPERACIONAL-INFRA-005"},
+    {"id": "CLU-OPERACIONAL-INFRA-06", "kind": "issue", "claim": "Delete semantics dead code (RULE-017/018): ParanoiaMixin cascade unreachable; SetUpModel overrides. MRO-dependent behavior per model.", "source_ref": "RULE-OPERACIONAL-INFRA-017/018"},
+    {"id": "CLU-OPERACIONAL-INFRA-07", "kind": "issue", "claim": "Single-tenant hardcoding (RULE-021): offline sync unconditionally set request.empresa=Empresa.objects.get(whitelabel='homecare'). Requires v2 redesign.", "source_ref": "RULE-OPERACIONAL-INFRA-021"},
+    {"id": "CLU-OPERACIONAL-INFRA-08", "kind": "vocabulary", "claim": "PT-BR: SDRA severity (leve/moderada/grave); RASS -5..+4 (VERIFIED); Prescription types (DIETA, MEDICAMENTO_SOLUÇÃO, SN_ACM, RECOMENDACAO_ENFERMAGEM, RECOMENDACAO); Status (liberado); Connectives (da/de/do/das/dos).", "source_ref": "RULE-012/013/005/002"},
+    {"id": "CLU-OPERACIONAL-INFRA-09", "kind": "issue", "claim": "Unguarded: RULE-002 IndexError on single-word names; RULE-021 Empresa.get() uncaught (500); RULE-011 silently coerces invalid to 0.", "source_ref": "RULE-002/021/011"},
+    {"id": "CLU-OPERACIONAL-INFRA-10", "kind": "workflow", "claim": "Celery -c 1 (RULE-025): 7 queues serialize (atualizar_trilhas, executar_trilhas, estabelecimento_setor_leito, prescricoes, prescricao_continua, etl_dados_brutos, callprocedure). Consistent across demo/homol/prod.", "source_ref": "RULE-OPERACIONAL-INFRA-025"}
+  ],
+  "systemic_issues": [
+    {"category": "time-window-bugs", "rule_ids": ["RULE-OPERACIONAL-INFRA-001", "RULE-OPERACIONAL-INFRA-004"], "summary": "23:31-23:59 overflow unguarded. 07:00 shift boundary sound. Timestamp labeling corruption in offline sync."},
+    {"category": "dead-code", "rule_ids": ["RULE-OPERACIONAL-INFRA-017", "RULE-OPERACIONAL-INFRA-018", "RULE-OPERACIONAL-INFRA-001"], "summary": "ParanoiaMixin.delete() unreachable (SetUpModel overrides). justOclock unused. Maintenance confusion."},
+    {"category": "unguarded-access", "rule_ids": ["RULE-OPERACIONAL-INFRA-002", "RULE-OPERACIONAL-INFRA-021", "RULE-OPERACIONAL-INFRA-011"], "summary": "RULE-002 IndexError on single-word names. RULE-021 uncaught Empresa.get() (500). RULE-011 masks invalid as 0."},
+    {"category": "multi-tenancy-hardcoding", "rule_ids": ["RULE-OPERACIONAL-INFRA-021", "RULE-OPERACIONAL-INFRA-022"], "summary": "Offline hardcoded to homecare. RULE-022 AND-of-four access. Legacy single-tenant requires v2 redesign."},
+    {"category": "unit-ambiguity", "rule_ids": ["RULE-OPERACIONAL-INFRA-059"], "summary": "tempo_atualizacao unit (seconds/ms) unspecified; consuming code absent. UI auto-refresh undefined."},
+    {"category": "legacy-tasy-coupling", "rule_ids": ["RULE-OPERACIONAL-INFRA-060"], "summary": "TasyModel forces Oracle routing. save() overwrites using='oracle'. Prevents clean Tasy migration."}
+  ],
+  "load_bearing_rules": [
+    {"id": "RULE-OPERACIONAL-INFRA-001", "what": "Hour rounding 23:xx overflow (get_hora_cheia/justOclock)", "verdict": "DISCREPANCY"},
+    {"id": "RULE-OPERACIONAL-INFRA-004", "what": "Shift boundary 07:00 for prescription 'real day'", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-OPERACIONAL-INFRA-005", "what": "Offline prescription 3-day + item-type priority", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-OPERACIONAL-INFRA-012", "what": "RASS -5..+4 (verified Sessler/Ely 2002-03)", "verdict": "VERIFIED"},
+    {"id": "RULE-OPERACIONAL-INFRA-021", "what": "Hardcode empresa whitelabel='homecare' (single-tenant)", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-OPERACIONAL-INFRA-022", "what": "Offline access AND-of-four (setor+establishment+company+patient)", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-OPERACIONAL-INFRA-025", "what": "Celery -c 1 for 7 pathway-mutating queues", "verdict": "NOT_APPLICABLE"},
+    {"id": "RULE-OPERACIONAL-INFRA-060", "what": "TasyModel Oracle routing (legacy Tasy integration)", "verdict": "NOT_APPLICABLE"}
+  ],
+  "domains_fed": ["platform", "experience", "governance", "correlation", "infrastructure"],
+  "pt_br_vocabulary": {"scales": ["leve", "moderada", "grave"], "status": ["liberado"], "prescription_types": ["DIETA", "MEDICAMENTO_SOLUÇÃO", "SN_ACM", "RECOMENDACAO_ENFERMAGEM", "RECOMENDACAO"], "connectives": ["da", "de", "do", "das", "dos"]}
+}

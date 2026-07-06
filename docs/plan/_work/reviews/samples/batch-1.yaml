@@ -1,0 +1,1161 @@
+batch: 1
+clusters:
+- alertas
+- clinical-scoring
+- evolucoes
+- piora-clinica
+- tenancy-organizacao
+n_items: 22
+items:
+- rule_id: RULE-ALERTAS-003
+  cluster: alertas
+  catalog_rule:
+    id: RULE-ALERTAS-003
+    name: Criteria-count -> alert color mapping (define_tipo_alerta) + per-model _CRITERIOS_ALERTA thresholds
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    description: 'Maps a count of triggered criteria to a care-pathway alert color VERMELHO / AMARELO / NEUTRO using
+      per-trilha {amarelo, vermelho} count thresholds. define_tipo_alerta is the single shared function; each *Sintetico
+      / *_sintetico (v1 and v3) model invokes it from generate_view_data() passing conta_criterios_automatica()
+      and its own _CRITERIOS_ALERTA dict.
+
+      '
+    logic: "# define_tipo_alerta (trilha_automatica/utils.py:75-81) - shared color mapping:\nif total_alertas >=\
+      \ criterios[\"vermelho\"]:\n    return \"VERMELHO\"\nelif 0 < total_alertas <= criterios[\"amarelo\"]:\n \
+      \   return \"AMARELO\"\nelse:\n    return \"NEUTRO\"\n\n# Each *Sintetico / *_sintetico model calls it from\
+      \ generate_view_data() as:\n#   define_tipo_alerta(self.conta_criterios_automatica(), self._CRITERIOS_ALERTA)\n\
+      # Per-model _CRITERIOS_ALERTA {amarelo, vermelho} thresholds (verified @8166c07):\n#   trilha1,2,3,4,8,9 &\
+      \ all v3 & *_Tasy: {\"amarelo\":2,\"vermelho\":3}\n#   trilha5 sintetico (v3), trilha6 sintetico (v3): {\"\
+      amarelo\":3,\"vermelho\":4}\n#   trilha7 sintetico (v3): {\"amarelo\":4,\"vermelho\":5}\n# conta_criterios_automatica\
+      \ counts truthy criterio_1..N attributes; N varies:\n#   1..6 (trilha1,2,8); 1..10 (trilha3,5,7); 1..20 (trilha4);\
+      \ etc.\n#   (ranges frequently under-count relative to defined criteria, e.g. trilha1\n#    counts only 1..6\
+      \ of 12).\n"
+    edge_cases: 'total_alertas == 0 -> NEUTRO (AMARELO branch requires total > 0). VERMELHO uses >= (inclusive).
+      AMARELO upper bound <= criterios["amarelo"] (inclusive). If criterios["amarelo"] < total_alertas < criterios["vermelho"],
+      NEITHER branch matches -> NEUTRO (a value above the yellow threshold but below red is downgraded to neutral).
+      In practice every _CRITERIOS_ALERTA in the codebase sets vermelho == amarelo+1, so this dead-zone is not exercised
+      by shipped models.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-102
+      band: P3
+      title: alert-threshold
+      excerpt: 'Latent logic dead-zone: when amarelo < vermelho-1, a criteria count strictly between the two thresholds
+        falls through both branches to NEUTRO instead of AMARELO (mid-range counts silently downgraded). Safe only
+        while callers keep amarelo…'
+  disposition_record:
+    rule_id: RULE-ALERTAS-003
+    cluster: alertas
+    category: alert-threshold
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: a value above the yellow threshold but below red is downgraded to neutral
+    disposition: ADOPT-CORRECTED
+    justification: Status DISCREPANCY forbids plain ADOPT; the count->color mapping's clinical intent (red>=threshold,
+      yellow band otherwise) is sound but its dead-zone bug must be corrected to close the gap between amarelo and
+      vermelho before v2 ports the per-trilha threshold table.
+    evidence:
+    - RULE-ALERTAS-003
+    - ESC-P3-102
+    target: architecture/alert-engine.md#alert-color-mapping
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-102
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-ALERTAS-004
+  cluster: alertas
+  catalog_rule:
+    id: RULE-ALERTAS-004
+    name: Single-criterion alert flag (esta_alerta)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: A criterion is 'in alert' iff its value equals exactly 1.
+    logic: 'return valor == 1
+
+      # trilha_automatica/utils.py: if valor == 1: return True else: return False
+
+      # core/utils.py:            return valor == 1
+
+      '
+    edge_cases: Strict equality to 1; any other value (0, 2, None) -> False.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ALERTAS-004
+    cluster: alertas
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: A criterion is 'in alert' iff its value equals exactly 1.
+    disposition: ADOPT
+    justification: Verified strict-equality esta_alerta==1 predicate is a simple, unambiguous boolean primitive
+      underlying the count-based alert engine, with no divergence between its two legacy implementations, so it
+      carries forward unchanged into the v2 alert-color mapping.
+    evidence:
+    - RULE-ALERTAS-004
+    target: architecture/alert-engine.md#alert-color-mapping
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-ALERTAS-019
+  cluster: alertas
+  catalog_rule:
+    id: RULE-ALERTAS-019
+    name: Mensageiro.enviar_observacao_automatica_e_homecare - hardcoded RED alert with tipo-dependent patient FK
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: 'Creates an Observacao for a leito (bed) that is ALWAYS alerta=''VERMELHO'', using the same system-user
+      provisioning as RULE-ALERTAS-018. Additionally attaches a patient reference in a tipo-dependent field: leito.tipo==''homecare''
+      sets paciente_homecare, leito.tipo==''automatica'' sets paciente_automatica; neither is set for any other
+      tipo.
+
+      '
+    logic: "usuario = get_or_create_sistema_user()\npayload = {\n  \"responsavel_id\": usuario.id, \"setor_id\"\
+      : leito.setor.id, \"leito_id\": leito.id,\n  \"paciente\": leito.paciente OR None, \"alerta\": \"VERMELHO\"\
+      , \"texto\": None, \"conteudo\": conteudo,\n}\nIF leito.tipo == \"homecare\": payload[\"paciente_homecare\"\
+      ] = leito.get_paciente_homecare\nELIF leito.tipo == \"automatica\": payload[\"paciente_automatica\"] = leito.get_paciente_automatica\n\
+      Observacao.objects.create(**payload)\nsend_qtd_mensagens_to_firebase.apply_async(args=[str(leito.setor.pk),\
+      \ str(usuario.id)])\n"
+    edge_cases: 'For leito.tipo not in {''homecare'',''automatica''} (e.g. ''manual''), neither paciente_homecare
+      nor paciente_automatica is populated, relying solely on the generic ''paciente'' key.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-ALERTAS-019
+    cluster: alertas
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: using the same system-user provisioning as RULE-ALERTAS-018.
+    disposition: RETIRE
+    justification: This bed-level variant shares RULE-ALERTAS-018's hardcoded-VERMELHO and plaintext-password system-user
+      anti-pattern plus tipo-dependent FK branching tied to the legacy bed-type model, so it is retired alongside
+      it rather than adapted.
+    evidence:
+    - RULE-ALERTAS-019
+    - RULE-ALERTAS-018
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-CLINICAL-SCORING-002
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-002
+    name: SOFA respiratory sub-score (PaO2/FiO2)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: SOFA organ-1 (respiration) points from the PaO2/FiO2 ratio, computed inline in sofa.py.
+    logic: 'if not (po2 > 0 and fio2 > 0): return 0
+
+      ratio = po2 / fio2
+
+      if ratio >= 400: 0
+
+      elif 300 <= ratio < 400: 1
+
+      elif 200 <= ratio < 300: 2
+
+      elif 100 <= ratio < 200: 3
+
+      elif ratio < 100: 4
+
+      '
+    edge_cases: 'Missing po2/fio2 -> 0 points. Boundaries [lo,hi) inclusive-low. Test confirms po2=500->0, 350->1,
+      250->2, 150->3, 50->4 (with fio2=1).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Vincent JL et al. 1996 (SOFA), respiration component. PaO2/FiO2 in mmHg with FiO2 as a FRACTION
+        (0.21-1.0): >=400=0, 300-399=1, 200-299=2, 100-199=3 (requires respiratory support), <100=4 (requires respiratory
+        support).
+
+        '
+      detail_file: clinical-scoring-batch1.yaml
+    escalations:
+    - item_id: ESC-P0-001
+      band: P0
+      title: SOFA respiratory sub-score (PaO2/FiO2)
+      excerpt: 'UNIT DISCREPANCY: thresholds are the standard P/F cutoffs which require FiO2 as a fraction (0.21-1.0),
+        but the DadosProntuario FiO2Validator stores 21-100 (percentage). With a percentage FiO2 the ratio is ~100x
+        too small vs standard P/F. Tests set attributes directly (fio2=1) bypassing the validator. See RULE-008.
+        Same bilirubin-style strict-upper-bound convention is NOT present here (all bands co'
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-002
+    cluster: clinical-scoring
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: SOFA organ-1 (respiration) points from the PaO2/FiO2 ratio
+    disposition: RATIFY
+    justification: This P0-escalated FiO2 percent-vs-fraction unit conflict makes the SOFA respiratory sub-score
+      numerically wrong by roughly 100x whenever the validator's 21-100 percentage convention is used instead of
+      the 0.21-1.0 fraction assumed by every threshold, so clinical ratification of the canonical FiO2 unit is required
+      before the sub-score can be adopted or corrected.
+    evidence:
+    - RULE-CLINICAL-SCORING-002
+    - RULE-CLINICAL-SCORING-008
+    - ESC-P0-001
+    - Vincent JL et al. Intensive Care Med. 1996;22(7):707-710
+    target: RATIFICATION.md#rat-clinical-scoring-01
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-001
+      band: P0
+    ratify_ref: RAT-CLINICAL-SCORING-01
+- rule_id: RULE-CLINICAL-SCORING-005
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-005
+    name: SOFA cardiovascular sub-score (vasopressors/MAP)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: SOFA organ-4 (cardiovascular) points from noradrenaline dose, dobutamine presence, and MAP.
+    logic: 'if noradrenalina > 10: 4
+
+      elif 0 < noradrenalina <= 10: 3
+
+      elif dobutamina > 0: 2
+
+      elif 0 < pam < 70: 1
+
+      elif pam >= 70: 0
+
+      else: 0
+
+      '
+    edge_cases: 'Priority order noradrenaline > dobutamine > MAP. pam==0 with no drugs -> else 0. Test pam=50->1,
+      +dobutamina5->2, +noradrenalina5->3, noradrenalina20->4.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Vincent JL et al. 1996 (SOFA), cardiovascular component. Vasopressor doses in mcg/kg/min sustained
+        >=1h: MAP>=70=0; MAP<70=1; dopamine<=5 OR dobutamine (any dose)=2; dopamine>5 OR epinephrine<=0.1 OR norepinephrine<=0.1=3;
+        dopamine>15 OR epinephrine>0.1 OR norepinephrine>0.1=4.
+
+        '
+      detail_file: clinical-scoring-batch1.yaml
+    escalations:
+    - item_id: ESC-P0-002
+      band: P0
+      title: SOFA cardiovascular sub-score (vasopressors/MAP)
+      excerpt: 'DISCREPANCY: standard SOFA cardiovascular uses vasopressor RATES in mcg/kg/min (norepi >0.1=4, <=0.1=3;
+        dopamine/epinephrine tiers; dobutamine any=2; MAP<70=1). Here noradrenaline is a raw ml volume (Noradrenalina.quantidade)
+        with cutoff 10, and dobutamine is any>0=2. MAP<70=1 matches standard. Non-standard dosing units.'
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-005
+    cluster: clinical-scoring
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: SOFA organ-4 (cardiovascular) points from noradrenaline dose, dobutamine presence, and MAP.
+    disposition: RATIFY
+    justification: This P0-escalated cardiovascular sub-score scores a raw noradrenaline VOLUME in ml against a
+      cutoff of 10 instead of a weight-normalized mcg/kg/min vasopressor rate required by standard SOFA, a unit
+      defect severe enough that the correct rate-based mapping must be clinically ratified before adoption.
+    evidence:
+    - RULE-CLINICAL-SCORING-005
+    - ESC-P0-002
+    - Vincent JL et al. Intensive Care Med. 1996;22(7):707-710
+    - CLINICAL-SCORING-C-03
+    target: RATIFICATION.md#rat-clinical-scoring-03
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-002
+      band: P0
+    ratify_ref: RAT-CLINICAL-SCORING-03
+- rule_id: RULE-CLINICAL-SCORING-007
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-007
+    name: SOFA renal sub-score (creatinine/urine output)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: SOFA organ-6 (renal) points from serum creatinine OR 24h urine output.
+    logic: 'if any([creatinina > 5, 0 < debito < 200]): 4
+
+      elif any([3.5 <= creatinina <= 4.9, 0 < debito < 500]): 3
+
+      elif 2   <= creatinina <= 4:   2
+
+      elif 1.2 <= creatinina <= 1.9: 1
+
+      elif 0 < creatinina < 1.2:     0
+
+      else: 0
+
+      '
+    edge_cases: 'GAP: creatinina == 5.0 and creatinina in (4.9,5.0] match NO creatinine branch (not >5, not 3.5-4.9,
+      not 2-4, not 1.2-1.9, not <1.2); fall to else -> 0 unless urine output triggers. debito uses OPEN-low bound
+      (0 < debito): debito==0 ignored. Urine <200 -> 4, <500 -> 3. Overlap creatinina 3.5-4.0 resolves to 3 (checked
+      before the 2..4 branch via any()).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Vincent JL, et al. SOFA score, Intensive Care Med. 1996;22(7):707-710. Renal component (serum
+        creatinine, mg/dL, OR urine output): <1.2=0, 1.2-1.9=1, 2.0-3.4=2, 3.5-4.9=3, >=5.0 (>440 umol/L)=4; urine
+        <500 mL/day=3, <200 mL/day=4. Confirmed via MDCalc/Medscape SOFA calculator.
+
+        '
+      detail_file: clinical-scoring-batch2.yaml
+    escalations:
+    - item_id: ESC-P0-003
+      band: P0
+      title: SOFA renal sub-score (creatinine/urine output)
+      excerpt: 'DISCREPANCY vs standard SOFA renal (Cr mg/dL): <1.2=0, 1.2-1.9=1, 2.0-3.4=2, 3.5-4.9=3, >=5.0=4;
+        urine <500=3, <200=4. Here the ''2 points'' band is 2.0-4.0 (standard 2.0-3.4) and ''>5'' is strict leaving
+        a dead gap at (4.9,5.0]. Reproduce VERBATIM.'
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-007
+    cluster: clinical-scoring
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: SOFA organ-6 (renal) points from serum creatinine OR 24h urine output.
+    disposition: RATIFY
+    justification: This P0-escalated renal sub-score widens the '2 points' creatinine band to 2.0-4.0 mg/dL instead
+      of the standard 2.0-3.4 and leaves a dead gap at (4.9,5.0], and the ledger notes the corrected v2 renal score
+      must take the MAX (not any-first-match) of the creatinine and urine-output sub-scores, so the fix requires
+      clinical ratification.
+    evidence:
+    - RULE-CLINICAL-SCORING-007
+    - ESC-P0-003
+    - Vincent JL et al. Intensive Care Med. 1996;22(7):707-710
+    - SOFA-C-03
+    target: RATIFICATION.md#rat-clinical-scoring-04
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-003
+      band: P0
+    ratify_ref: RAT-CLINICAL-SCORING-04
+- rule_id: RULE-CLINICAL-SCORING-008
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-008
+    name: PaO2/FiO2 ratio (relacao PO2/FiO2)
+    category: physiological-calculation
+    type: formula
+    status: DISCREPANCY
+    description: 'Computes the PaO2/FiO2 oxygenation ratio used by SOFA and by sedation/ventilation/sepse pathways;
+      returns boolean False when either input is non-positive (used as a "no data" sentinel).
+
+      '
+    logic: "if po2 > 0 and fio2 > 0:\n    return po2 / fio2\nreturn False   # sentinel; note False == 0 in downstream\
+      \ numeric comparisons\n"
+    edge_cases: 'Returns False (not 0/None) when po2<=0 or fio2<=0. Downstream comparisons like `0 < ratio < 200`
+      therefore treat missing data as False (excluded). No rounding; no division-by-zero (guarded).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'PaO2/FiO2 (P/F) oxygenation ratio. Vincent JL, et al. SOFA, Intensive Care Med. 1996 (respiratory
+        component thresholds 400/300/200/100) and Berlin Definition of ARDS (ARDS Definition Task Force, JAMA 2012;307:2526-2533).
+        In every authoritative use PaO2 is in mmHg and FiO2 is a FRACTION (0.21-1.0), so a P/F of 300 corresponds
+        to e.g. PaO2 150 mmHg at FiO2 0.5.
+
+        '
+      detail_file: clinical-scoring-batch2.yaml
+    escalations:
+    - item_id: ESC-P0-007
+      band: P0
+      title: PaO2/FiO2 ratio (relacao PO2/FiO2)
+      excerpt: 'UNIT DISCREPANCY: FiO2Validator restricts fio2 to 0 or 21..100 (a percentage), but every clinical
+        threshold using this ratio (SOFA 400/300/200/100; ventilacao 150/200/250/300) and all tests (fio2=1 -> ratio=po2)
+        treat fio2 as a fraction 0.21..1.0. Tests set attributes directly, bypassing the validator. With percentage
+        FiO2 the ratio is ~100x too small vs standard P/F. Same ratio is also referenced'
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-008
+    cluster: clinical-scoring
+    category: physiological-calculation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: Computes the PaO2/FiO2 oxygenation ratio used by SOFA and by sedation/ventilation/sepse pathways
+    disposition: RATIFY
+    justification: This shared PaO2/FiO2 ratio helper is the P0-escalated root cause of the cluster-wide FiO2 percent-vs-fraction
+      ambiguity feeding SOFA respiratory, ventilation, and sepsis pathways, plus a False-as-sentinel return type
+      that behaves as zero downstream, so the canonical FiO2 unit and sentinel handling must be ratified before
+      any v2 domain reuses this formula.
+    evidence:
+    - RULE-CLINICAL-SCORING-008
+    - RULE-CLINICAL-SCORING-002
+    - ESC-P0-007
+    - ARDS Definition Task Force, JAMA 2012;307:2526-2533
+    - CLINICAL-SCORING-C-01
+    target: RATIFICATION.md#rat-clinical-scoring-05
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-007
+      band: P0
+    ratify_ref: RAT-CLINICAL-SCORING-05
+- rule_id: RULE-CLINICAL-SCORING-013
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-013
+    name: Glasgow Coma Scale valid range (3-15)
+    category: clinical-scoring
+    type: validation
+    status: OK
+    description: 'GCS total score constrained to the inclusive range 3..15 across the homecare neurological model
+      (backend) and two frontend capture forms.
+
+      '
+    logic: "Backend (trilha_homecare neurologica.escala_coma_glasgow):\n  IntegerField(validators=[MinValueValidator(3),\
+      \ MaxValueValidator(15)])  # null/blank allowed\nFrontend movimentacao (dados_prontuario.glasgow):\n  { label:\
+      \ \"Glasgow\", type: \"interval\", min: 3, max: 15 }\nFrontend physician neuro (avaliacao_neurologica.escala_coma_glasgow):\n\
+      \  { label: \"ESCALA GLASGOW\", type: \"number\", min: 3, max: 15 }\n# inclusive bounds 3 (deep coma) .. 15\
+      \ (fully alert); total GCS only (no E/V/M sub-scores)\n"
+    edge_cases: 'Inclusive bounds 3 and 15. Backend allows null (blank/null True). Total GCS only; component E/V/M
+      sub-scores not modeled.
+
+      '
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'Teasdale G, Jennett B. Assessment of coma and impaired consciousness: a practical scale. Lancet.
+        1974;2(7872):81-84. Total GCS = eye(1-4) + verbal(1-5) + motor(1-6), inclusive range 3 (deep coma) to 15
+        (fully alert).
+
+        '
+      detail_file: clinical-scoring-batch3.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-013
+    cluster: clinical-scoring
+    category: clinical-scoring
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: GCS total score constrained to the inclusive range 3..15 across the homecare neurological model
+    disposition: ADOPT
+    justification: The GCS 3-15 inclusive range validator reconciles exactly across the backend model and both frontend
+      capture forms with only cosmetic form-type differences, matching the original Teasdale & Jennett 1974 scale
+      bounds, so it is adopted verbatim as the canonical GCS input-range constraint for v2 clinical forms.
+    evidence:
+    - Teasdale G, Jennett B. Lancet. 1974;2(7872):81-84
+    - RULE-CLINICAL-SCORING-013
+    target: design/screens/clinical-forms.md#gcs-range-3-15
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-CLINICAL-SCORING-015
+  cluster: clinical-scoring
+  catalog_rule:
+    id: RULE-CLINICAL-SCORING-015
+    name: Escala de Dor numerica - faixa valida (0-10)
+    category: clinical-scoring
+    type: validation
+    status: OK
+    description: Numeric pain-rating score constrained to 0..10.
+    logic: 'PositiveSmallIntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
+
+      '
+    edge_cases: 'Inclusive 0..10. This cap is why piora criterio_6 "3+" (dor>10) is unreachable (RULE-piora-BE-06-006,
+      piora-clinica cluster).
+
+      '
+    verification:
+      verdict: VERIFIED
+      clinical_impact: none
+      reference: 'Numeric Rating Scale (NRS-11) for pain intensity, 0 (no pain) to 10 (worst pain imaginable); single-item
+        verbal numeric scale, validated against VAS (r=0.86-0.95). Standard 0-10 integer range.
+
+        '
+      detail_file: clinical-scoring-batch3.yaml
+    escalations: []
+  disposition_record:
+    rule_id: RULE-CLINICAL-SCORING-015
+    cluster: clinical-scoring
+    category: clinical-scoring
+    catalog_echo:
+      status: OK
+      verdict: VERIFIED
+    source_quote: Numeric pain-rating score constrained to 0..10.
+    disposition: ADOPT
+    justification: The 0-10 inclusive numeric pain rating scale validator matches the standard NRS-11 pain instrument
+      used across critical care with no boundary or unit defects, so it is adopted verbatim as the canonical pain-scale
+      input range for v2 clinical forms.
+    evidence:
+    - NRS-11 Numeric Rating Scale for pain intensity
+    - RULE-CLINICAL-SCORING-015
+    target: design/screens/clinical-forms.md#pain-nrs-0-10
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EVOLUCOES-007
+  cluster: evolucoes
+  catalog_rule:
+    id: RULE-EVOLUCOES-007
+    name: Form visibility rule - own draft or released
+    category: care-pathway
+    type: decision-tree
+    status: OK
+    description: A Formulario (clinical form/evolution) of a given type is only visible to a user if it belongs
+      to the same encounter (nr_atendimento) and matches the requested tipo_formulario, AND (it was authored/filled
+      by the requesting user OR its status is "liberado" i.e. released). Draft forms authored by other users are
+      excluded.
+    logic: "Formulario.objects.filter(\n    Q(nr_atendimento=leito.nr_atendimento, tipo=tipo_formulario),\n    Q(preenchido_por=request.user)\
+      \ | Q(status=\"liberado\"),\n).order_by(\"-modificado_em\")\n"
+    edge_cases: 'Forms with any status other than "liberado" (e.g. draft/rascunho) are only visible to their original
+      author; there is no explicit handling for a null/unset preenchido_por.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EVOLUCOES-007
+    cluster: evolucoes
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Form visibility rule - own draft or released
+    disposition: ADOPT
+    justification: Restricting visibility of a same-type Formulario to its own author unless status is 'liberado'
+      is a deny-by-default document-visibility invariant worth carrying into v2's access-control design (architecture/security-lgpd.md),
+      independent of the legacy Django queryset mechanism that expresses it.
+    evidence:
+    - RULE-EVOLUCOES-007
+    target: architecture/security-lgpd.md#draft-document-visibility
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EVOLUCOES-024
+  cluster: evolucoes
+  catalog_rule:
+    id: RULE-EVOLUCOES-024
+    name: criar_sepse_evolucao / get_ultimos_sinais_vitais — sepsis note auto-linked to most recent vitals
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: When a Sepse evolution record is created for a formulario, it is automatically linked to the most
+      recently created SinaisVitais (vital signs) record whose balanco (fluid-balance record) shares the same nr_atendimento
+      as the formulario; if no such vitals record exists, sinais_vitais is left null.
+    logic: "get_ultimos_sinais_vitais(formulario):\n  RETURN SinaisVitais.objects.select_related(\"balanco\")\n\
+      \           .filter(balanco__nr_atendimento=formulario.nr_atendimento)\n           .order_by(\"-criado_em\"\
+      ).first()\ncriar_sepse_evolucao(formulario):\n  sinais_vitais = get_ultimos_sinais_vitais(formulario)\n  Sepse.objects.create(sinais_vitais=sinais_vitais\
+      \ OR None, nr_atendimento=formulario.nr_atendimento, evolucao=formulario)\n"
+    edge_cases: Chooses the single most recent SinaisVitais by criado_em (creation timestamp), not by any clinical
+      timestamp field on the vitals themselves — if vitals were entered out of chronological order (e.g. backdated),
+      the 'most recent' one is not necessarily the clinically-latest one.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EVOLUCOES-024
+    cluster: evolucoes
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: criar_sepse_evolucao / get_ultimos_sinais_vitais — sepsis note auto-linked to most recent vitals
+    disposition: ADOPT
+    justification: Auto-linking a newly created Sepse evolution to the most recently created SinaisVitais record
+      sharing the same nr_atendimento (or null if none exists) is a clinically meaningful sepsis-workflow linkage
+      rule carried forward into v2's sepsis domain vitals-association logic.
+    evidence:
+    - RULE-EVOLUCOES-024
+    target: clinical/domains/sepsis.md#vitals-auto-link
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EVOLUCOES-039
+  cluster: evolucoes
+  catalog_rule:
+    id: RULE-EVOLUCOES-039
+    name: Psicologo form content composition
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: Psychologist form content blocks.
+    logic: "content_blocks(psicologo) = [\"impressao_geral\", \"avaliacao_psicologica\",\n                     \
+      \        \"conduta_psicologica\", \"meta_terapeutica\"]\npermission_trilhas = (\"can_preencher_formulario_psicologo\"\
+      ,)\nexceto_metodo = \"GET\"\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EVOLUCOES-039
+    cluster: evolucoes
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Psicologo form content composition
+    disposition: ADOPT
+    justification: The psychologist evolution's four content blocks (impressao_geral, avaliacao_psicologica, conduta_psicologica,
+      meta_terapeutica) gated by can_preencher_formulario_psicologo define its form structure and are adopted verbatim
+      as the v2 psicologo form-section vocabulary.
+    evidence:
+    - RULE-EVOLUCOES-039
+    target: design/screens/clinical-forms.md#psicologo-form-sections
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EVOLUCOES-066
+  cluster: evolucoes
+  catalog_rule:
+    id: RULE-EVOLUCOES-066
+    name: Numeric field inclusive min/max range validation
+    category: data-validation
+    type: validation
+    status: OK
+    description: A number field is validated to lie within [campo.min, campo.max] inclusive, and is required when
+      campo.required.
+    logic: "rules = [\n  { type:\"number\", max: campo.max, min: campo.min,\n    message: `Valor invalido! O valor\
+      \ deve estar entre ${campo.min} e ${campo.max}` },\n  ...(campo.required ? [{ required:true, message:\"Este\
+      \ campo e obrigatorio!\" }] : [])\n]\n"
+    edge_cases: 'antd type:number max/min are inclusive bounds. If campo.min/max undefined, the corresponding bound
+      is not enforced but the message still interpolates "undefined".
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-EVOLUCOES-066
+    cluster: evolucoes
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: validated to lie within [campo.min, campo.max] inclusive
+    disposition: ADOPT
+    justification: Inclusive min/max numeric range validation plus a required-when-flagged rule is a straightforward,
+      correctly-specified field-level constraint of the dynamic form engine that should carry forward as-is into
+      the v2 clinical-forms validation schema.
+    evidence:
+    - RULE-EVOLUCOES-066
+    - RULE-EVOLUCOES-072
+    target: design/screens/clinical-forms.md#numeric-field-bounds
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-PIORA-CLINICA-001
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-001
+    name: Piora Clinica criterio_1 - Frequencia respiratoria (graded sub-score)
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: 'Graded respiratory-rate sub-score for the clinical-deterioration ("piora clinica") track-and-trigger
+      scale. Returns a signed grade string ("+" = high deviation, "-" = low deviation) used both to sum the aggregate
+      score and to fire per-criterion alerts.
+
+      '
+    logic: "pontuacao = \"0\"\nfr = sinais_vitais.frequencia_respiratoria\nif fr:\n    if   19 <= fr <= 22: pontuacao\
+      \ = \"1+\"\n    elif  9 <= fr <= 11: pontuacao = \"1-\"\n    elif       fr <  9 : pontuacao = \"3-\"\n   \
+      \ elif       fr > 22 : pontuacao = \"3+\"\nreturn pontuacao\n"
+    edge_cases: 'fr in 12..18 -> "0" (normal). fr == 0 is falsy -> "0". No 2+/2- band exists for FR (magnitude jumps
+      1 -> 3). Boundaries inclusive at 19,22 and 9,11.
+
+      '
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: 'Royal College of Physicians. National Early Warning Score (NEWS) 2 (2017). Respiratory-rate band
+        is the closest published track-and-trigger anchor; piora-clinica is a distinct proprietary instrument with
+        its own cutoffs.
+
+        '
+      detail_file: piora-clinica-batch1.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-266
+      band: UNVERIFIABLE
+      title: Piora Clinica criterio_1 - Frequencia respiratoria (graded sub-score)
+      excerpt: Proprietary composite; no authoritative source dictates these exact bands, so cutoffs are flagged
+        for internal review, not treated as wrong. Directional monotonicity is sound (both high and low RR escalate).
+        Low-RR side aligns …
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-001
+    cluster: piora-clinica
+    category: clinical-scoring
+    catalog_echo:
+      status: OK
+      verdict: UNVERIFIABLE
+    source_quote: No 2+/2- band exists for FR (magnitude jumps
+    disposition: RATIFY
+    justification: UNVERIFIABLE escalation band mandates ratification; the respiratory-rate sub-score is directionally
+      sound for both high and low RR but no published source fixes these exact proprietary cutoffs or the 1->3 magnitude
+      jump with no 2-band, so clinical review must confirm the bands before v2 early-warning-score encoding.
+    evidence:
+    - ESC-UNVERIFIABLE-266
+    - RULE-PIORA-CLINICA-001
+    target: RATIFICATION.md#rat-piora-clinica-01
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-266
+      band: UNVERIFIABLE
+    ratify_ref: RAT-PIORA-CLINICA-01
+- rule_id: RULE-PIORA-CLINICA-004
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-004
+    name: Piora Clinica criterio_4 - Frequencia cardiaca (FC) (graded sub-score)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: Graded heart-rate sub-score.
+    logic: "pontuacao = \"0\"\nfc = sinais_vitais.frequencia_cardiaca\nif fc:\n    if   101 <= fc <= 120: pontuacao\
+      \ = \"1+\"\n    elif 121 <= fc <= 130: pontuacao = \"2+\"\n    elif        fc >  130: pontuacao = \"3+\"\n\
+      \    elif  50 <= fc <=  59: pontuacao = \"1-\"\n    # elif 81 <= fc <= 99: pontuacao = \"2-\"   # commented\
+      \ out / disabled in source\n    elif        fc <=  50: pontuacao = \"3-\"\nreturn pontuacao\n"
+    edge_cases: 'Gap 60..100 -> "0". fc == 0 falsy -> "0". fc == 50 matches "50 <= fc <= 59" (1-) first, so 50 ->
+      "1-" (never "3-") due to branch order.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: low
+      reference: 'Royal College of Physicians NEWS2 (2017) pulse band as family anchor. The verdict targets INTERNAL
+        defects (disabled 2- band and branch-order shadowing) independent of the external reference.
+
+        '
+      detail_file: piora-clinica-batch1.yaml
+    escalations:
+    - item_id: ESC-P2-063
+      band: P2
+      title: Piora Clinica criterio_4 - Frequencia cardiaca (FC) (graded sub-score)
+      excerpt: Confirms extraction-flagged DISCREPANCY (two internal defects), characterized against NEWS2/MEWS.
+        (1) The commented-out '2-' band (81<=fc<=99) would have labelled a NORMAL/high-normal HR (81-99 bpm, NEWS2/MEWS
+        grade 0) as a LOW-deviation bradycardia score —…
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-004
+    cluster: piora-clinica
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: due to branch order.
+    disposition: ADOPT-CORRECTED
+    justification: The heart-rate sub-score has a disabled 2- band (81<=fc<=99 commented out in source) and a branch-order
+      bug that shadows fc==50 into the mild '1-' grade instead of the severe '3-' bradycardia grade; v2 must adopt
+      the corrected form that reinstates the 2- band and evaluates severe bounds first so fc<=50 correctly scores
+      '3-'.
+    evidence:
+    - ESC-P2-063
+    - RULE-PIORA-CLINICA-004
+    target: clinical/domains/hemodynamics.md#piora-clinica-fc
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P2-063
+      band: P2
+    ratify_ref: null
+- rule_id: RULE-PIORA-CLINICA-005
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-005
+    name: Piora Clinica criterio_5 - Nivel de consciencia (graded sub-score)
+    category: clinical-scoring
+    type: scoring
+    status: OK
+    description: Graded consciousness sub-score mapped from the consciousness enum.
+    logic: "pontuacao = \"0\"\nconsciencia = sinais_vitais.nv_consciencia\nif consciencia:\n    if   consciencia\
+      \ == \"reage_verbal\": pontuacao = \"1+\"\n    elif consciencia == \"reage_tatil\" : pontuacao = \"2+\"\n\
+      \    elif consciencia == \"coma\"        : pontuacao = \"3+\"\n    elif consciencia == \"sonolencia\"  : pontuacao\
+      \ = \"1-\"\n    elif consciencia == \"agitacao\"    : pontuacao = \"2-\"\n    elif consciencia == \"convulsao\"\
+      \   : pontuacao = \"3-\"\nreturn pontuacao\n"
+    edge_cases: The value "acordado" (alert) and any unmapped value yield "0".
+    verification:
+      verdict: UNVERIFIABLE
+      clinical_impact: n/a
+      reference: 'Royal College of Physicians NEWS2 (2017) consciousness assessment (ACVPU: Alert / new Confusion
+        / Voice / Pain / Unresponsive). Piora-clinica uses a proprietary consciousness enum mapped to a graded +/-
+        sub-score rather than the NEWS2 binary (Alert=0, any CVPU=3).
+
+        '
+      detail_file: piora-clinica-batch1.yaml
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-268
+      band: UNVERIFIABLE
+      title: Piora Clinica criterio_5 - Nivel de consciencia (graded sub-score)
+      excerpt: 'The ''+'' (high) side maps cleanly onto the AVPU-graded MEWS ladder: acordado->0 (Alert), reage_verbal->1+
+        (Voice), reage_tatil->2+ (Pain), coma->3+ (Unresponsive) — strong alignment with the published anchor, no
+        directional erro…'
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-005
+    cluster: piora-clinica
+    category: clinical-scoring
+    catalog_echo:
+      status: OK
+      verdict: UNVERIFIABLE
+    source_quote: Uses BalancoChoices.consciencia() enum values.
+    disposition: RATIFY
+    justification: UNVERIFIABLE escalation band mandates ratification; the consciousness sub-score's high-deviation
+      side aligns well with the AVPU/NEWS2 ladder but the proprietary low-side enum (sonolencia/agitacao/convulsao
+      grading) has no single authoritative anchor, so clinical review must confirm the mapping before the PT-BR
+      enum and its grades are adopted verbatim into v2 neuro-sedation scoring.
+    evidence:
+    - ESC-UNVERIFIABLE-268
+    - RULE-PIORA-CLINICA-005
+    target: RATIFICATION.md#rat-piora-clinica-03
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-UNVERIFIABLE-268
+      band: UNVERIFIABLE
+    ratify_ref: RAT-PIORA-CLINICA-03
+- rule_id: RULE-PIORA-CLINICA-006
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-006
+    name: Piora Clinica criterio_6 - Dor (escala numerica 0-10) (graded sub-score)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: Graded numeric pain-scale (0-10 numeric rating scale) sub-score.
+    logic: "pontuacao = \"0\"\ndor = sinais_vitais.escala_dor\nif dor:\n    if   2 <= dor <= 3 : pontuacao = \"\
+      1+\"\n    elif 4 <= dor <= 6 : pontuacao = \"2+\"\n    elif 7 <= dor >  10: pontuacao = \"3+\"     # buggy\
+      \ compound comparison, verbatim\nreturn pontuacao\n"
+    edge_cases: '`7 <= dor > 10` evaluates as (7 <= dor) AND (dor > 10). Since escala_dor is validator-capped at
+      10, dor > 10 is impossible, so "3+" is UNREACHABLE and severe pain 7,8,9,10 all score "0". dor == 0/1 -> "0".
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'Numeric Rating Scale (NRS 0-10) for pain intensity. Standard cut-offs: mild 1-3/1-4, moderate
+        5-6, severe 7-10; higher = worse and severe is the band that must drive intervention. Boonstra AM et al.,
+        "Cut-Off Points for Mild, Moderate, and Severe Pain on the NRS for Pain in Patients with Chronic Musculoskeletal
+        Pain," Front Psychol 2016;7:1466.'
+      detail_file: piora-clinica-batch2.yaml
+    escalations:
+    - item_id: ESC-P0-004
+      band: P0
+      title: Piora Clinica criterio_6 - Dor (escala numerica 0-10) (graded sub-score)
+      excerpt: '*Cluster:* `piora-clinica` · *Category:* `clinical-scoring` · *Extraction:* DISCREPANCY · *Verification:*
+        DISCREPANCY  **What the legacy does.** Graded numeric pain-scale (0-10 numeric rating scale) sub-score.  **Why
+        it matters clinically.** Confirms the extraction DISCREPANCY. The severe-pain band `if 7 <= dor > 10` parses
+        as (7 <= dor) AND (dor > 10); since escala_dor is capped at 10, dor > 10 i'
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-006
+    cluster: piora-clinica
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: severe pain 7,8,9,10 all score
+    disposition: RATIFY
+    justification: P0 escalation band mandates ratification; the buggy compound comparison `7 <= dor > 10` makes
+      the severe-pain (NRS 7-10) band structurally unreachable so severe pain is silently scored as normal, a high
+      clinical-impact defect that must be ratified before v2 pain-alerting encodes the corrected 7<=dor<=10 boundary.
+    evidence:
+    - ESC-P0-004
+    - RULE-PIORA-CLINICA-006
+    - Boonstra AM et al. NRS pain cut-offs Front Psychol 2016;7:1466
+    target: RATIFICATION.md#rat-piora-clinica-04
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-004
+      band: P0
+    ratify_ref: RAT-PIORA-CLINICA-04
+- rule_id: RULE-PIORA-CLINICA-007
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-007
+    name: Piora Clinica criterio_7 - Dor (escala comportamental 3-12) (graded sub-score)
+    category: clinical-scoring
+    type: scoring
+    status: DISCREPANCY
+    description: Graded behavioral pain-scale (range 3-12) sub-score.
+    logic: "pontuacao = \"0\"\nsinais = sinais_vitais.sinais_dor\nif sinais:\n    if   5  <= sinais <= 6 : pontuacao\
+      \ = \"1+\"\n    elif 7  <= sinais <= 9 : pontuacao = \"2+\"\n    elif 10 <= sinais >  12: pontuacao = \"3+\"\
+      \   # buggy compound comparison, verbatim\nreturn pontuacao\n"
+    edge_cases: '`10 <= sinais > 12` == (10 <= sinais) AND (sinais > 12). sinais_dor is validator-capped at 12,
+      so sinais > 12 is impossible and "3+" is UNREACHABLE; sinais 10,11,12 score "0". sinais 3,4 -> "0".
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: Behavioral Pain Scale (BPS), Payen JF et al., Crit Care Med 2001;29(12):2258-63. Three domains
+        (facial expression, upper-limb movement, ventilator compliance), each 1-4, total range 3 (no pain) to 12
+        (maximal pain), higher = worse; score >5 (>=6) commonly indicates significant/unacceptable pain requiring
+        analgesia.
+      detail_file: piora-clinica-batch2.yaml
+    escalations:
+    - item_id: ESC-P0-005
+      band: P0
+      title: Piora Clinica criterio_7 - Dor (escala comportamental 3-12) (graded sub-score)
+      excerpt: '*Cluster:* `piora-clinica` · *Category:* `clinical-scoring` · *Extraction:* DISCREPANCY · *Verification:*
+        DISCREPANCY  **What the legacy does.** Graded behavioral pain-scale (range 3-12) sub-score.  **Why it matters
+        clinically.** Confirms the extraction DISCREPANCY, identical bug pattern to criterio_6. `if 10 <= sinais
+        > 12` parses as (10 <= sinais) AND (sinais > 12); sinais_dor is capped at 12 so'
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-007
+    cluster: piora-clinica
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: sinais 10,11,12 score
+    disposition: RATIFY
+    justification: P0 escalation band mandates ratification; the identical bug pattern to criterio_6 makes the Behavioral
+      Pain Scale's severe band (10-12) unreachable via `10 <= sinais > 12`, so maximal-pain patients score '0' on
+      this sub-scale, a high-impact defect requiring clinical sign-off on the corrected 10<=sinais<=12 boundary
+      before v2 encodes it.
+    evidence:
+    - ESC-P0-005
+    - RULE-PIORA-CLINICA-007
+    - Payen JF et al. Behavioral Pain Scale Crit Care Med 2001;29(12):2258-63
+    target: RATIFICATION.md#rat-piora-clinica-05
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-005
+      band: P0
+    ratify_ref: RAT-PIORA-CLINICA-05
+- rule_id: RULE-PIORA-CLINICA-010
+  cluster: piora-clinica
+  catalog_rule:
+    id: RULE-PIORA-CLINICA-010
+    name: Piora Clinica - Calculo do alerta (soma agregada + gatilho por criterio)
+    category: alert-threshold
+    type: decision-tree
+    status: DISCREPANCY
+    description: 'Aggregates the 9 graded sub-scores (criterio_1..9) into a color alert. This is a MEWS/NEWS-style
+      track-and-trigger: any single criterion at grade 2 (+/-) sets AMARELO and any at grade 3 (+/-) sets VERMELHO
+      (message names the criterion); only if NO criterion reached grade 2/3 does a total-sum banding apply (0-7
+      NEUTRO, 8-14 AMARELO, 15-21 VERMELHO).
+
+      '
+    logic: "soma = 0\npayload = {}\nfor c in range(1, 10):\n    criterio = getattr(self, f\"criterio_{c}\")   #\
+      \ e.g. \"0\",\"1+\",\"2-\",\"3+\"\n    soma += int(criterio[0])                     # magnitude only; sign\
+      \ discarded (\"3-\" and \"3+\" both add 3)\n    if criterio in [\"2-\", \"2+\"]:\n        payload[\"mensagem\"\
+      ] = f\"Moderado risco de piora clinica – {nome_criterio(f'criterio_{c}')}\"\n        payload[\"alerta\"] \
+      \ = \"AMARELO\"\n    elif criterio in [\"3-\", \"3+\"]:\n        payload[\"mensagem\"] = f\"Alto risco de\
+      \ piora clinica – {nome_criterio(f'criterio_{c}')}\"\n        payload[\"alerta\"]  = \"VERMELHO\"\nif not\
+      \ payload:\n    if   0  <= soma <=  7: alerta=\"NEUTRO\",   mensagem=\"Baixo risco de piora clinica\"\n  \
+      \  elif 8  <= soma <= 14: alerta=\"AMARELO\",  mensagem=\"Moderado risco de piora clinica\"\n    elif 15 <=\
+      \ soma <= 21: alerta=\"VERMELHO\", mensagem=\"Alto risco de piora clinica\"\n"
+    edge_cases: 'int(criterio[0]) reads only the first char, so grade SIGN is discarded when summing. The per-criterion
+      payload is OVERWRITTEN each loop iteration, so the LAST (highest-index) criterion at grade 2 or 3 determines
+      the final alerta/mensagem - a later grade-2 criterion can DOWNGRADE an earlier grade-3 one (VERMELHO -> AMARELO).
+      The soma-banding branch runs only when NO criterion reached grade 2/3 (all sub-scores in {0,1+,1-}); then
+      soma <= 9, so the 15-21 band is dead and only soma 8-9 can reach AMARELO. criterio must be non-null (guaranteed
+      after save()); calling on an unsaved instance with None criterio raises on criterio[0].
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: high
+      reference: 'NEWS2 / MEWS track-and-trigger escalation logic (Royal College of Physicians NEWS2, 2017; NICE
+        MIB205). Two-tier trigger: (a) ANY single parameter scoring 3 ("red score") mandates urgent escalation regardless
+        of aggregate; (b) aggregate bands drive graded response (NEWS2: 0-4 low, 5-6 medium, >=7 high). A high-severity
+        single parameter must never be downgraded by other parameters, and every abnormal parameter contributes
+        to the aggregate.'
+      detail_file: piora-clinica-batch2.yaml
+    escalations:
+    - item_id: ESC-P0-010
+      band: P0
+      title: Piora Clinica - Calculo do alerta (soma agregada + gatilho por criterio)
+      excerpt: '*Cluster:* `piora-clinica` · *Category:* `alert-threshold` · *Extraction:* DISCREPANCY · *Verification:*
+        DISCREPANCY  **What the legacy does.** Aggregates the 9 graded sub-scores (criterio_1..9) into a color alert.
+        This is a MEWS/NEWS-style track-and-trigger: any single criterion at grade 2 (+/-) sets AMARELO and any
+        at grade 3 (+/-) sets VERMELHO (message names the criterion); only if NO criterio'
+  disposition_record:
+    rule_id: RULE-PIORA-CLINICA-010
+    cluster: piora-clinica
+    category: alert-threshold
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: can DOWNGRADE an earlier grade-3 one
+    disposition: RATIFY
+    justification: P0 escalation band mandates ratification; the aggregate alert has three internal defects -- last-writer-wins
+      overwrite that can downgrade a VERMELHO to AMARELO, sign-discarding magnitude-only summation, and an unreachable
+      15-21 sum band -- any one of which can silently suppress a critical deterioration alert, so the corrected
+      max-severity-wins, sign-preserving design must be clinically ratified.
+    evidence:
+    - ESC-P0-010
+    - RULE-PIORA-CLINICA-010
+    - Royal College of Physicians NEWS2 2017 two-tier trigger logic
+    target: RATIFICATION.md#rat-piora-clinica-08
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-010
+      band: P0
+    ratify_ref: RAT-PIORA-CLINICA-08
+- rule_id: RULE-TENANCY-ORGANIZACAO-019
+  cluster: tenancy-organizacao
+  catalog_rule:
+    id: RULE-TENANCY-ORGANIZACAO-019
+    name: SetorMiddleware — path-based setor resolution + dual empresa/estabelecimento cross-check
+    category: data-validation
+    type: decision-tree
+    status: OK
+    description: Same URL-segment convention for 'setores'; validates the resolved setor's estabelecimento against
+      BOTH request.empresa (if set) and request.estabelecimento (if set); rejects with HTTP 400 if either mismatches.
+    logic: "request.setor = None\nFOR index, name IN enumerate(path_splitted):\n  IF name == \"setores\":\n    TRY:\n\
+      \      pk = path_splitted[index + 1]\n      setor = Setor.objects.select_related(\"estabelecimento\",\"estabelecimento__empresa\"\
+      ).prefetch_related(...).get(pk=pk)\n      request.setor = setor\n      IF (request.empresa AND request.empresa\
+      \ != setor.estabelecimento.empresa) OR \\\n         (request.estabelecimento AND request.estabelecimento !=\
+      \ setor.estabelecimento):\n        RETURN JsonResponse({\"errors\": {\"detail\": \"Este setor não pertence\
+      \ à este estabelecimento ou empresa\"}, ...}, status=400)\n      BREAK\n    EXCEPT Exception: pass\n"
+    edge_cases: 'Same MIDDLEWARE-ordering caveat as EstabelecimentoMiddleware: cross-checks are only as strong as
+      whichever of empresa/estabelecimento happened to be resolved earlier from the same URL.'
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-TENANCY-ORGANIZACAO-019
+    cluster: tenancy-organizacao
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: validates the resolved setor's estabelecimento against
+    disposition: SUPERSEDE
+    justification: SetorMiddleware's dual empresa+estabelecimento cross-check extends the same deny-on-mismatch
+      intent one level deeper; superseded by ADR-001's Lake Formation ABAC which can express the full empresa->estabelecimento->setor
+      hierarchy as declarative access policy instead of chained middleware.
+    evidence:
+    - ADR001-C-07
+    - RULE-TENANCY-ORGANIZACAO-019
+    target: architecture/security-lgpd.md#tenant-resolution
+    supersedes_note:
+      replaced_by: Lake Formation ABAC hierarchical tenant policy (ADR-001 Implicação 7)
+      lost: the specific dual-cross-check-only-if-already-resolved behavior and its dependency on MIDDLEWARE list
+        ordering
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-TENANCY-ORGANIZACAO-025
+  cluster: tenancy-organizacao
+  catalog_rule:
+    id: RULE-TENANCY-ORGANIZACAO-025
+    name: Homecare-only dashboard shortcuts (Feed / Relatório de Evolução)
+    category: triage-eligibility
+    type: decision-tree
+    status: OK
+    description: 'On the company (empresa) dashboard, floating shortcut buttons to the Feed page and the Relatório
+      de Evolução page are only rendered when the current company''s tipo === "homecare". The Relatório de Evolução
+      button additionally requires the can_access_relatorio_evolucao effective permission.
+
+      '
+    logic: "if (currentEmpresa.tipo === \"homecare\") {\n  show Feed button\n  if (can_access_relatorio_evolucao)\
+      \ {\n    show Relatório de Evolução button\n  }\n}\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-TENANCY-ORGANIZACAO-025
+    cluster: tenancy-organizacao
+    category: triage-eligibility
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: floating shortcut buttons to the Feed page and the Relatório
+    disposition: RETIRE
+    justification: Homecare-only dashboard shortcut buttons are legacy frontend UI mechanics keyed on the retired
+      empresa.tipo enum (RULE-016); v2's screen designs have no homecare/manual/automatica company-type distinction,
+      so this conditional-visibility rule is retired rather than ported.
+    evidence:
+    - RULE-TENANCY-ORGANIZACAO-025
+    - RULE-TENANCY-ORGANIZACAO-016
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-TENANCY-ORGANIZACAO-049
+  cluster: tenancy-organizacao
+  catalog_rule:
+    id: RULE-TENANCY-ORGANIZACAO-049
+    name: Company logo field rename with silent drop for non-string values
+    category: data-validation
+    type: validation
+    status: DISCREPANCY
+    description: EmpresaViewSet.manage_data always pops 'logo' out of the incoming data; it is only re-added as
+      'logo_b64' if it is a truthy string. If 'logo' is present but not a string (or falsy), it is silently discarded
+      from the payload entirely with no error and no effect.
+    logic: "logo = data.pop(\"logo\", None)\nif logo and isinstance(logo, str):\n    data[\"logo_b64\"] = logo\n\
+      # else: logo value is lost, no logo_b64 set, no error raised\n"
+    edge_cases: A non-string truthy 'logo' value (e.g., a dict or file-like object sent by mistake) is dropped without
+      feedback to the client.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-P3-180
+      band: P3
+      title: data-validation
+      excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+  disposition_record:
+    rule_id: RULE-TENANCY-ORGANIZACAO-049
+    cluster: tenancy-organizacao
+    category: data-validation
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: NOT_APPLICABLE
+    source_quote: silently discarded from the payload entirely with no error and no effect
+    disposition: RATIFY
+    justification: Escalation band P3 flags this silent-data-loss defect (non-string logo values dropped without
+      client feedback); DISCREPANCY status forbids plain ADOPT, and whether v2 should surface a 400 error or coerce
+      the value is a product decision, so it is ratified rather than silently fixed.
+    evidence:
+    - RULE-TENANCY-ORGANIZACAO-049
+    - ESC-P3-180
+    - TENANCY-SYSTEMIC-09
+    target: RATIFICATION.md#rat-tenancy-organizacao-05
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-180
+      band: P3
+    ratify_ref: RAT-TENANCY-ORGANIZACAO-05

@@ -1,0 +1,1885 @@
+shard: documentacao-faturamento
+cluster: documentacao-faturamento
+rule_count: 32
+rules_with_escalations: 13
+rules:
+- id: RULE-DOCUMENTACAO-FATURAMENTO-001
+  name: Prescricao PDF display date formatting
+  category: care-pathway
+  type: formula
+  status: OK
+  verify: true
+  description: The report's display date is converted from ISO 'YYYY-MM-DD' to Brazilian 'DD/MM/YYYY' format.
+  inputs:
+  - name: dia
+    type: string
+    unit: null
+    range: '''YYYY-MM-DD'''
+  outputs:
+  - name: dia (display)
+    type: string
+    unit: null
+    range: '''DD/MM/YYYY'''
+  logic: 'dia_display = datetime.strptime(dia, "%Y-%m-%d").date().strftime("%d/%m/%Y")
+
+    '
+  edge_cases: Raises ValueError (uncaught) if dia does not match 'YYYY-MM-DD'.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-006
+  - RULE-DOCUMENTACAO-FATURAMENTO-022
+  - RULE-DOCUMENTACAO-FATURAMENTO-023
+  merged_from:
+  - RULE-pdf-BE-08-042
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_prescricao.py
+    lines: 59-59
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: verify=true because type is 'formula' per audit rule 4 (mechanical rule, not a clinical calculation).
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: ISO 8601:2004 calendar date format (YYYY-MM-DD); Brazilian date convention DD/MM/YYYY (ABNT NBR 5892
+      / pt-BR locale); Python 3 datetime.strftime/strptime format-code semantics (%Y=4-digit year, %m=zero-padded
+      month, %d=zero-padded day).
+    detail_file: documentacao-faturamento-batch1.yaml
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-002
+  name: Glosa-Zero automatic alert engine — 16-criteria billing/documentation-compliance catalog, dual (and divergent)
+    alert computation
+  category: billing-administrative
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'TrilhaGlozaZeroModel (db_table AMH_TM_SINTETICO_09_V, verbose_name "Trilha Auditoria" / "Auditoria")
+    is the automatic "Glosa Zero" billing-integrity pathway: 16 boolean criterio_1..criterio_16 flags, each with
+    a fixed alert label + recommendation text (payload_trilha_glosa_zero, re-exported as payload_glosa_zero_automatica),
+    covering late medication checks, missing/late signatures, physician-note timing, VM humidifier-filter compliance,
+    antimicrobial-parecer requirements, and dispensed-not-prescribed items. The SAME model exposes TWO independently
+    computed alert classifications from this criteria set, and they disagree (see divergence).'
+  inputs:
+  - name: criterio_1..criterio_16
+    type: int flag (1) per criterion, 16 total
+    unit: null
+    range: null
+  - name: atraso na checagem de medicacao
+    type: float
+    unit: hours
+    range: null
+  - name: atraso na assinatura
+    type: float
+    unit: hours
+    range: null
+  - name: troca de filtro VM interval
+    type: float
+    unit: hours
+    range: null
+  - name: hora do dia (evolucao diurna)
+    type: float
+    unit: hour-of-day
+    range: null
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}, persisted field via calcular_alerta()
+    unit: null
+  - name: tipo_alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}, view-computed via generate_view_data()
+    unit: null
+  - name: criterios / recomendacoes
+    type: list of {nome, alerta, recomendacoes} for triggered criteria (get_detalhe)
+    unit: null
+  logic: "# --- (A) 16-criteria catalog (core/facade/trilha_glosa_zero.py:1-101, payload_trilha_glosa_zero,\n# \
+    \    re-exported unchanged as trilha_automatica/facade/glosa_zero.py:payload_glosa_zero_automatica) ---\ncriterio_1\
+    \  checagem de medicacao atrasada > 1h -> verificar cancelamento ou administrar/registrar.\ncriterio_2  checagem\
+    \ de medicacao atrasada > 2h -> administrar de imediato e registrar.\ncriterio_3  ausencia de assinatura do\
+    \ registro > 1h E < 6h apos liberacao -> assinar digitalmente.\ncriterio_4  troca do filtro umidificador da\
+    \ VM com < 72h sem justificativa (formulario TASY).\ncriterio_5  ausencia de evolucao medica diurna ate 14h\
+    \ -> realizar antes do fim do plantao de 12h.\ncriterio_6  ausencia de evolucao medica noturna do periodo anterior\
+    \ -> comunicar coordenador.\ncriterio_7  filtro umidificador de VM usado sem indicacao -> registrar inicio de\
+    \ VM.\ncriterio_8  ausencia de assinatura -> relogar, digitar PIN, liberar.\ncriterio_9  ausencia de assinatura\
+    \ (plantao anterior) -> envolver coordenacao.\ncriterio_10/11 inicio de antimicrobiano sem parecer de infectologista\
+    \ -> registrar/parecer.\ncriterio_12 ausencia de parecer apos solicitacao ao inicio do ciclo de antimicrobiano\n\
+    \            (especialmente > 7 dias de duracao).\ncriterio_13 ausencia de evolucao medica diurna (matutino)\
+    \ -> realizar/envolver coordenacao.\ncriterio_14 ausencia de evolucao medica noturna -> realizar/envolver coordenacao.\n\
+    criterio_15 ausencia de evolucao do medico intensivista (diaria) -> realizar/envolver coordenacao.\ncriterio_16\
+    \ material/medicamento dispensado e nao prescrito -> realizar prescricao do item.\n\n# --- (B) PRIMARY predicate\
+    \ code: persisted `alerta` field\n#     (trilha_automatica/models/trilha9.py:128-146, called from save() at\
+    \ line ~106-110) ---\ndef calcular_alerta():\n    escores = {\n        \"vermelho\": [],                   \
+    \                         # ALWAYS EMPTY\n        \"amarelo\": [criterio_1, criterio_3, criterio_5, criterio_6],\
+    \  # only 4 of the 16 criteria\n    }\n    vermelho = escores[\"vermelho\"].count(1)   # always 0\n    amarelo\
+    \  = escores[\"amarelo\"].count(1)\n    if vermelho:      return \"VERMELHO\"       # unreachable (0 is falsy)\n\
+    \    elif amarelo:     return \"AMARELO\"        # any of criterio_1/3/5/6 truthy(1)\n    else:            \
+    \ return \"NEUTRO\"\n# get_detalhe() (lines 175-184) only ever surfaces criteria [1,3,5,6] text/recommendations\
+    \ in \"criterios\".\n\n# --- (C) SECOND, independent predicate: view-computed `tipo_alerta`\n#     (trilha_automatica/models/trilha9.py:120-126\
+    \ generate_view_data();\n#      trilha_automatica/utils.py:75-81 define_tipo_alerta) ---\n_CRITERIOS_ALERTA\
+    \ = {\"amarelo\": 2, \"vermelho\": 3}          # class attribute on TrilhaGlozaZeroModel\ndef conta_criterios_automatica():\n\
+    \    return count(criterio_i for i in 1..16 if criterio_i truthy)   # ALL 16 criteria, not just 1/3/5/6\ndef\
+    \ define_tipo_alerta(total_alertas, criterios):\n    if total_alertas >= criterios[\"vermelho\"]:        return\
+    \ \"VERMELHO\"   # >=3 of 16 criteria true\n    elif 0 < total_alertas <= criterios[\"amarelo\"]:    return\
+    \ \"AMARELO\"   # 1-2 of 16 criteria true\n    else:                                              return \"\
+    NEUTRO\"\ntipo_alerta = define_tipo_alerta(conta_criterios_automatica(), _CRITERIOS_ALERTA)\n"
+  edge_cases: 'Timing cutoffs (from catalog text): med check >1h (c1) / >2h (c2); signature window >1h AND <6h (c3);
+    VM filter change <72h flagged (c4); daytime physician note deadline 14h / within 12h shift (c5); antimicrobial-parecer
+    emphasis when duration >7 days (c12). Criteria 1&2 form a graded med-check delay escalation; 3,8,9 and 5,6,13,14,15
+    are documentation-signature/evolution duplicates (same underlying event, different wording/severity). `alerta`
+    uses truthiness of list counts (not >= threshold) and its ''vermelho'' list is permanently empty, so `alerta`
+    can never be "VERMELHO" no matter which/how many criteria are true. `tipo_alerta` instead counts truthy values
+    across ALL 16 criterio_* fields against class-level thresholds {amarelo:2, vermelho:3} and CAN reach "VERMELHO".
+    get_detalhe() hardcodes payload["inconsistencia"] = True unconditionally.'
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-010
+  - RULE-DOCUMENTACAO-FATURAMENTO-007
+  - RULE-DOCUMENTACAO-FATURAMENTO-008
+  - RULE-DOCUMENTACAO-FATURAMENTO-009
+  - RULE-DOCUMENTACAO-FATURAMENTO-024
+  - RULE-DOCUMENTACAO-FATURAMENTO-025
+  - RULE-DOCUMENTACAO-FATURAMENTO-015
+  divergence: 'The same TrilhaGlozaZeroModel record exposes two independently-computed, disagreeing alert classifications
+    for the identical set of 16 criteria: (1) the PERSISTED `alerta` field (calcular_alerta(), run on every save())
+    only inspects criterio_1/3/5/6 and has a permanently-empty ''vermelho'' bucket, so it can be at most "AMARELO"
+    (if any of those 4 flags is set) and can NEVER be "VERMELHO", regardless of how many of the other 12 criteria
+    (2,4,7,8,9,10-16) are also true. (2) The VIEW-COMPUTED `tipo_alerta` (generate_view_data() -> define_tipo_alerta)
+    counts truthy values across ALL 16 criterio_* fields against the model''s own _CRITERIOS_ALERTA thresholds ({"amarelo":
+    2, "vermelho": 3}) and DOES reach "VERMELHO" once 3+ of the 16 criteria are true. A record with, say, criterio_2,
+    criterio_4 and criterio_16 all true (0 of the 1/3/5/6 subset) would show alerta="NEUTRO" but tipo_alerta="VERMELHO"
+    for the exact same underlying data — originally flagged (RULE-auditoria-BE-03-020) only as "VERMELHO unreachable
+    for `alerta`"; reconciliation against the same file''s generate_view_data()/define_tipo_alerta() surfaced the
+    second, disagreeing computation as an additional, previously-uncaptured divergence.'
+  merged_from:
+  - RULE-auditoria-BE-03-020
+  - RULE-glosa-BE-01-020
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha9.py
+    lines: 128-146, 175-184
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_glosa_zero.py
+    lines: 1-101
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/facade/glosa_zero.py
+    lines: 1-4
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/utils.py
+    lines: 75-81
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: criteria 1&2 form a graded med-check delay escalation; 3,8,9 and 5,6,13,14,15 are documentation-signature/evolution
+    duplicates. Domain = auditoria/faturamento; verbose_name "Trilha Auditoria" refers to this billing/glosa-zero
+    compliance pathway specifically, NOT the generic audit-log subsystem (compare RULE-audit-BE-02-007, misrouted
+    to auditoria-logs). trilha_automatica/facade/glosa_zero.py:payload_glosa_zero_automatica is a pure re-export
+    (`= payload_trilha_glosa_zero`) of the core/facade module, confirmed identical, not an independent copy.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-189
+    band: P3
+    title: billing-administrative
+    excerpt: 'The same TrilhaGlozaZeroModel record exposes two independently-computed, disagreeing alert classifications
+      for the identical set of 16 criteria: (1) the PERSISTED `alerta` field (calcular_alerta(), run on every save())
+      only inspects crit…'
+- id: RULE-DOCUMENTACAO-FATURAMENTO-003
+  name: combinar_documentos — all-or-nothing PDF validation gate before merge/upload
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Downloads each PDF url (10s timeout by default) and validates it is a parseable PDF with at least
+    one page (validar_pdf via PyPDF2). Valid PDFs are appended to an in-memory merger. If ANY url is invalid (timeout,
+    HTTP error, unparseable PDF, or any other exception during fetch/validate), the ENTIRE operation is aborted:
+    a 400 response listing all invalid urls is returned, discarding any PDFs already merged in memory — no partial/best-effort
+    merge is ever produced. Only if there are zero invalid urls does it merge, upload to S3 (public-read ACL, key
+    `{s3_directory}/pdf_combinado_trilhas_{uuid4().hex}.pdf`, region default ''us-east-2''), and return the resulting
+    public URL.'
+  inputs:
+  - name: urls
+    type: list of PDF URLs
+    unit: null
+  - name: bucket_name
+    type: string
+    unit: null
+  - name: s3_directory
+    type: string
+    unit: null
+  - name: timeout_validacao
+    type: integer
+    unit: seconds
+    range: default 10
+  outputs:
+  - name: result
+    type: '{url: str} on success, OR {errors, status, invalid_urls|exception} on failure'
+    unit: null
+  logic: "pdf_invalidos = []\nFOR url IN urls:\n  TRY:\n    response = GET(url, timeout=timeout_validacao, stream=True);\
+    \ response.raise_for_status()\n    IF NOT validar_pdf(response.content): pdf_invalidos.append(url); CONTINUE\n\
+    \    merger.append(response.content)\n  EXCEPT (ReadTimeout, RequestException, PdfReadError, Exception):\n \
+    \   pdf_invalidos.append(url); CONTINUE\nIF pdf_invalidos:\n  RETURN {\"errors\": {\"detail\": \"PDFs corrompidos\
+    \ ou com timeout detectados\"}, \"status\": 400, \"invalid_urls\": pdf_invalidos}\nnome_arquivo = f\"pdf_combinado_trilhas_{uuid4().hex}.pdf\"\
+    \nupload merged bytes to s3://{bucket_name}/{s3_directory}/{nome_arquivo} with ACL public-read\nRETURN {\"url\"\
+    : f\"https://{bucket_name}.s3.{AWS_REGION or 'us-east-2'}.amazonaws.com/{s3_directory}/{nome_arquivo}\"}\n"
+  edge_cases: validar_pdf itself only catches PyPDF2.errors.PdfReadError internally and returns True only if page
+    count > 0; any other exception from validar_pdf propagates up and is caught by combinar_documentos's own broad
+    except, still resulting in the url being marked invalid. AWS credential errors and generic S3 upload errors
+    return distinct 500 payloads.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-016
+  merged_from:
+  - RULE-doc-BE-11-054
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/combinar_documentos.py
+    lines: 11-94
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Backend endpoint is ArquivosAMHDocsViewSet.retrieve_multiple (core/api/v1/views/integracao_amhdocs.py,
+    url_path ''agrupar-pdf''), which calls this combinar_documentos() and returns Response({''message'':..., ''file_path'':
+    caminho_arquivo[''url'']}) directly (no extra ''.res'' wrapper). Confirmed by reconciliation against the frontend
+    caller (RULE-DOCUMENTACAO-FATURAMENTO-016 / postAgruparPDFs): the FE''s defensive `data.res || data` unwrap
+    is benign/unnecessary for the current contract (data.res is always undefined so it falls through to data.file_path
+    correctly) — not a functional divergence, just defensive-but-superfluous code, so no status change.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-004
+  name: Signed vs unsigned balanco hidrico PDF template selection
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The fluid-balance PDF report uses the "with signature" HTML template when the ''assinatura'' query
+    parameter is exactly the string "true" or "True"; otherwise it uses the standard (unsigned) template.
+
+    '
+  inputs:
+  - name: assinatura (query param)
+    type: string
+    unit: null
+    range: '''true'' | ''True'' | other'
+  outputs:
+  - name: template used
+    type: enum
+    unit: null
+    range: '''arquivos/pdf_balanco_hidrico_com_assinatura.html'' | ''arquivos/pdf_balanco_hidrico.html'''
+  logic: "if request.query_params.get(\"assinatura\", None) in [\"true\", \"True\"]:\n    template = \"arquivos/pdf_balanco_hidrico_com_assinatura.html\"\
+    \nelse:\n    template = \"arquivos/pdf_balanco_hidrico.html\"\n"
+  edge_cases: Case-sensitive; only "true"/"True" trigger the signed template - "TRUE", "1", etc. do not.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-005
+  - RULE-DOCUMENTACAO-FATURAMENTO-021
+  merged_from:
+  - RULE-pdf-BE-08-036
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_balanco_hidrico.py
+    lines: 65-72
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-005
+  name: PDF report dt_entrada lookup (admission date)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The admission date/time (dt_entrada) shown on the balanco hidrico PDF is taken from the first MicroIndicadores
+    record matching the encounter number, or null if none exists.
+
+    '
+  inputs:
+  - name: balanco.nr_atendimento
+    type: string/integer
+    unit: null
+  outputs:
+  - name: dt_entrada
+    type: datetime or null
+    unit: null
+  logic: "dt_entrada = (MicroIndicadores.objects.filter(NR_ATENDIMENTO=balanco.nr_atendimento).first().DT_ENTRADA\n\
+    \              if MicroIndicadores.objects.filter(NR_ATENDIMENTO=balanco.nr_atendimento).exists()\n        \
+    \      else None)\n"
+  edge_cases: Performs the same filter query twice (existence check then first()); functionally safe but redundant.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-004
+  - RULE-DOCUMENTACAO-FATURAMENTO-023
+  merged_from:
+  - RULE-pdf-BE-08-037
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_balanco_hidrico.py
+    lines: 55-63
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-006
+  name: Prescricao PDF export - priority ordering and soft-delete exclusion
+  category: scheduling-operational
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'The printed continuous-prescription list is ordered into 5 priority tiers by item type (excluding
+    soft-deleted rows): DIETA first, then MEDICAMENTO_SOLUÇÃO, then SN_ACM, then RECOMENDACAO_ENFERMAGEM, then RECOMENDACAO.
+    Items whose DS_TIPO_ITEM_PRESCR is none of these five values receive a null priority and are ordered by the
+    database''s default NULL ordering relative to the others. There is no secondary sort key (e.g. creation time).
+
+    '
+  inputs:
+  - name: prescricao.DS_TIPO_ITEM_PRESCR
+    type: string (enum)
+    unit: null
+    range: '''DIETA''|''MEDICAMENTO_SOLUÇÃO''|''SN_ACM''|''RECOMENDACAO_ENFERMAGEM''|''RECOMENDACAO''|other'
+  outputs:
+  - name: prioridade
+    type: integer or null
+    unit: null
+    range: 1-5 or null
+  logic: "prioridade = CASE\n  WHEN DS_TIPO_ITEM_PRESCR = 'DIETA' THEN 1\n  WHEN DS_TIPO_ITEM_PRESCR = 'MEDICAMENTO_SOLUÇÃO'\
+    \ THEN 2\n  WHEN DS_TIPO_ITEM_PRESCR = 'SN_ACM' THEN 3\n  WHEN DS_TIPO_ITEM_PRESCR = 'RECOMENDACAO_ENFERMAGEM'\
+    \ THEN 4\n  WHEN DS_TIPO_ITEM_PRESCR = 'RECOMENDACAO' THEN 5\n  ELSE NULL\nEND\nqueryset = PrescricaoContinua.objects_without_deleted.select_related(\"\
+    prescricao\")\n             .filter(prescricao__NR_ATENDIMENTO=leito.nr_atendimento, dia=dia)\n            \
+    \ .annotate(prioridade=...)\n             .order_by(\"prioridade\")\n"
+  edge_cases: 'Uses objects_without_deleted (soft-deleted prescriptions excluded from the printed PDF). No deterministic
+    tiebreaker within the same priority tier - order among same-priority rows is database-dependent.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-022
+  - RULE-DOCUMENTACAO-FATURAMENTO-023
+  - RULE-DOCUMENTACAO-FATURAMENTO-001
+  merged_from:
+  - RULE-pdf-BE-08-040
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_prescricao.py
+    lines: 29-52
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Same priority-tier formula is duplicated in the interactive PrescricaoViewSet (RULE-prescricao-BE-08-043),
+    but that variant (a) includes soft-deleted rows and (b) adds "criado_em" as a secondary, deterministic sort
+    key.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-007
+  name: Cryptocubo __get_formato_assinatura — signature-format mapping
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Maps a requested document format to the Cryptocubo signature envelope type: ''cms'' -> ''detached'',
+    ''xml'' -> ''enveloping'', ''pdf'' -> ''detached''; any other format raises a validation error.'
+  inputs:
+  - name: formato
+    type: string
+    unit: null
+    range: cms | xml | pdf | other
+  outputs:
+  - name: formato_assinatura
+    type: string
+    unit: null
+    range: detached | enveloping
+  logic: 'IF formato == "cms": RETURN "detached"
+
+    ELIF formato == "xml": RETURN "enveloping"
+
+    ELIF formato == "pdf": RETURN "detached"
+
+    ELSE: RAISE ValidationError("Formato de assinatura não suportado")
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-008
+  - RULE-DOCUMENTACAO-FATURAMENTO-009
+  - RULE-DOCUMENTACAO-FATURAMENTO-010
+  merged_from:
+  - RULE-sign-BE-11-051
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/cryptocubo.py
+    lines: 74-82
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Confirmed: assinar_xml_cryptocubo (called from RULE-DOCUMENTACAO-FATURAMENTO-010) always passes formato="xml"
+    -> "enveloping"; the default formato="pdf" (-> "detached") path is not exercised by that caller.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-008
+  name: Cryptocubo PIN/ALIAS fallback — inconsistent 'or'-fallback semantics, unencoded fallback PIN
+  category: data-validation
+  type: decision-tree
+  status: DISCREPANCY
+  verify: false
+  description: 'In the constructor, __ALIAS falls back to a plain environment default when usuario.cpf is falsy:
+    `usuario.cpf or os.environ.get(''CRYPTOCUBO_ALIAS'')` — this works as intended for any falsy cpf (None or '''').
+    __PIN instead first COMPUTES a derived value (base64-encoding usuario.pin) and only THEN applies ''or'' against
+    the environment default: `base64.b64encode(usuario.pin.encode(''utf-8'')).decode(''utf-8'') or os.environ.get(''CRYPTOCUBO_PIN'')`.
+    If usuario.pin is None, `.encode()` raises an unhandled AttributeError before the fallback can ever apply. If
+    usuario.pin is an empty string, the base64 encoding of empty bytes decodes to an empty string (falsy), so the
+    fallback DOES trigger — but the fallback value taken directly from the environment is NOT base64-encoded, unlike
+    every other code path''s PIN value, which is always base64-encoded.'
+  inputs:
+  - name: usuario.cpf
+    type: string
+    unit: null
+  - name: usuario.pin
+    type: string
+    unit: null
+  outputs:
+  - name: __ALIAS
+    type: string
+    unit: null
+  - name: __PIN
+    type: base64 string (intended) or raw env value (fallback path)
+    unit: null
+  logic: '__ALIAS = usuario.cpf OR os.environ.get("CRYPTOCUBO_ALIAS")
+
+    __PIN = base64.b64encode(usuario.pin.encode("utf-8")).decode("utf-8") OR os.environ.get("CRYPTOCUBO_PIN")
+
+    '
+  edge_cases: usuario.pin is None -> unhandled AttributeError (crash), not a graceful fallback. usuario.pin == ''
+    -> falls back to CRYPTOCUBO_PIN env value used AS-IS (not base64-encoded), while the Cryptocubo API payload
+    builder (__get_cryptocubo_sign_data) always sends whatever is in self.__PIN as the 'pin' field, so this fallback
+    path sends a differently-encoded PIN value than the normal path.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-007
+  - RULE-DOCUMENTACAO-FATURAMENTO-009
+  - RULE-DOCUMENTACAO-FATURAMENTO-010
+  divergence: 'Within the same DocumentosCryptocubo.__init__ (utils/cryptocubo.py:44-47), __ALIAS and __PIN use
+    the same ''or env-default'' fallback idiom but behave inconsistently: __ALIAS = usuario.cpf or os.environ.get(''CRYPTOCUBO_ALIAS'')
+    falls back safely for ANY falsy cpf (None or ''''). __PIN = base64.b64encode(usuario.pin.encode(''utf-8'')).decode(''utf-8'')
+    or os.environ.get(''CRYPTOCUBO_PIN'') instead computes the base64 encoding FIRST: if usuario.pin is None, ''.encode()''
+    raises an unhandled AttributeError before any fallback can apply (ALIAS has no equivalent crash risk); if usuario.pin
+    == '''', the base64 encoding of empty bytes decodes to '''' (falsy), so the fallback DOES trigger, but the fallback
+    value taken directly from CRYPTOCUBO_PIN is NOT base64-encoded — unlike every other code path''s PIN value,
+    which always is, and unlike ALIAS''s fallback, which needs no such encoding step. __get_cryptocubo_sign_data()
+    (utils/cryptocubo.py:95-113) sends self.__PIN verbatim as the API''s ''pin'' field regardless of which path
+    set it, so the empty-pin fallback silently submits a differently-encoded PIN than every other case.'
+  merged_from:
+  - RULE-sign-BE-11-052
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/cryptocubo.py
+    lines: 44-47
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY recorded verbatim: the PIN fallback both risks an unhandled crash (None case) and produces
+    an inconsistently-encoded value (empty-string case) compared to the ALIAS fallback in the same constructor,
+    which behaves safely and consistently.
+
+
+    Confirmed: __get_cryptocubo_sign_data() (utils/cryptocubo.py:95-113) sends self.__PIN verbatim as the ''pin''
+    field for every request, so the empty-string fallback''s un-encoded value really does reach the Cryptocubo API
+    differently-encoded than the normal path.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-156
+    band: P3
+    title: data-validation
+    excerpt: 'Within the same DocumentosCryptocubo.__init__ (utils/cryptocubo.py:44-47), __ALIAS and __PIN use the
+      same ''or env-default'' fallback idiom but behave inconsistently: __ALIAS = usuario.cpf or os.environ.get(''CRYPTOCUBO_ALIAS'')
+      falls back s…'
+- id: RULE-DOCUMENTACAO-FATURAMENTO-009
+  name: Cryptocubo __check_response_status — non-200 response audit logging + hard failure
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: If the Cryptocubo sign API responds with a status code other than 200, persists a CryptocuboError
+    audit record (cpf=alias, message from response error detail, status_code) and raises a ValidationError surfacing
+    the error message; on 200, processing continues.
+  inputs:
+  - name: response
+    type: HTTP response object
+    unit: null
+  outputs:
+  - name: CryptocuboError row
+    type: created on failure
+    unit: null
+  logic: "IF response.status_code != 200:\n  error_message = response.json().get(\"error\", {}).get(\"message\"\
+    , \"N/A\")\n  CryptocuboError.objects.create(cpf=self.__ALIAS, message=error_message, status_code=response.status_code)\n\
+    \  RAISE ValidationError({\"erro\": f\"Cryptocubo/Eval: {error_message}\"})\n"
+  edge_cases: If response.json() itself fails (non-JSON error body), this would raise an unhandled exception rather
+    than the intended ValidationError.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-007
+  - RULE-DOCUMENTACAO-FATURAMENTO-008
+  - RULE-DOCUMENTACAO-FATURAMENTO-010
+  merged_from:
+  - RULE-sign-BE-11-053
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/cryptocubo.py
+    lines: 164-180
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-010
+  name: Digital-signature eligibility - user must have CPF and PIN
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'A clinical document (SinaisVitais / Entrada / Saida etc.) is digitally signed via Cryptocubo only
+    if the acting user has both a CPF and a PIN. Otherwise signing is skipped and a warning is logged; the object
+    is left unsigned.
+
+    '
+  inputs:
+  - name: user
+    type: User (needs .cpf and .pin)
+    unit: null
+    range: null
+  - name: objeto
+    type: model instance to sign
+    unit: null
+    range: null
+  - name: tipo
+    type: string (document type tag)
+    unit: null
+    range: null
+  outputs:
+  - name: objeto.assinatura
+    type: AssinaturaCryptocubo or unchanged
+    unit: null
+  logic: "if user.cpf and user.pin:\n    data = vars(objeto).copy(); data.pop(\"_state\")\n    assinatura = assinar_xml_cryptocubo({tipo:\
+    \ data}, user)   # xml-escaped dict2xml, single-line\n    if not assinatura.get_error():\n        objeto.assinatura\
+    \ = AssinaturaCryptocubo.create(\n            documento_assinado=sign_response, assinado_por=user,\n       \
+    \     data_assinatura=now(), tipo=tipo, documento_original=xml_original)\n    # on ValidationError: log warning,\
+    \ leave unsigned\nelse:\n    log warning \"usuario nao possui cpf ou pin\"; leave unsigned\n"
+  edge_cases: 'Both cpf AND pin required (either missing -> no signature, warning only, no exception raised to caller).
+    Signature generation failure (ValidationError from assinar_xml_cryptocubo) is caught and logged, not propagated.
+    Object._state is stripped before serialising to XML.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-007
+  - RULE-DOCUMENTACAO-FATURAMENTO-008
+  - RULE-DOCUMENTACAO-FATURAMENTO-009
+  - RULE-DOCUMENTACAO-FATURAMENTO-002
+  merged_from:
+  - RULE-assinatura-BE-09-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 462-483
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'assinar_xml_cryptocubo (utils.py 441-459) is the plumbing helper it calls. Signature metadata (assinado_por
+    CPF, conselho, numero_conselho, estado_conselho, data_assinatura, "Valido") is rendered on the balanco/prescription
+    PDFs.
+
+
+
+    Confirmed: validar_realizar_assinatura_cryptocubo (trilha_homecare/utils.py:456-483) is the caller of assinar_xml_cryptocubo,
+    which constructs utils.cryptocubo.DocumentosCryptocubo (formato="xml") — the class whose internals are RULE-DOCUMENTACAO-FATURAMENTO-007/008/009.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-011
+  name: Bulk-download button requires a non-empty selection
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The "Baixar Arquivos" bulk-download action button, and the selected-files list itself, only render
+    when at least one file has been selected; with zero files selected a "select files" placeholder message is shown
+    instead of the list, and the download button is entirely absent.
+
+    '
+  inputs:
+  - name: selectedFiles
+    type: Models.Arquivo.Download[]
+  outputs:
+  - name: visibility of file list vs. placeholder message
+    type: UI branch
+  - name: visibility of "Baixar Arquivos" button
+    type: boolean
+  logic: "if selectedFiles && selectedFiles.length > 0:\n  render each selected arquivo row (with a remove \"x\"\
+    \ button)\nelse:\n  render placeholder text \"Selecione os arquivos que deseja baixar.\"\nif selectedFiles &&\
+    \ selectedFiles.length > 0:\n  render Button(\"Baixar Arquivos\", onClick=onDownload)\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-016
+  - RULE-DOCUMENTACAO-FATURAMENTO-017
+  merged_from:
+  - RULE-arquivo-FE-05-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/DownloadMultiple/DownloadMultiple.tsx
+    lines: 21-77
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-012
+  name: Leito file-send requires image(s) or a PDF plus category/observation
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'Before a "send file" request to a leito''s document store (AmhDoc) is allowed to proceed, the user
+    must have picked at least one image or a PDF, and the form additionally marks "Categoria" and "Observação" as
+    required fields.
+
+    '
+  inputs:
+  - name: imageList
+    type: Models.LocalImage[]
+    unit: null
+    range: null
+  - name: file (pdf base64)
+    type: string | undefined
+    unit: null
+    range: null
+  - name: categoria
+    type: string (required)
+    unit: null
+    range: null
+  - name: observacao
+    type: string (required)
+    unit: null
+    range: null
+  outputs:
+  - name: postImagensLeito request body
+    type: '{ imagens?, pdf_base64?, file_name?, observacao?, categoria? }'
+  logic: "on submit:\n  if imageList.length > 0 OR file is set:\n    send { imagens: imageList.map(...) or undefined,\n\
+    \           pdf_base64: file or undefined,\n           file_name: fileName or undefined,\n           observacao:\
+    \ value.observacao or undefined,\n           categoria: value.categoria or undefined }\n  else:\n    show error\
+    \ message \"Adicione imagens ou um PDF\"   // request is NOT sent\nForm.Item(\"categoria\") and Form.Item(\"\
+    observacao\") both carry `required` + defaultFormRules.\n"
+  edge_cases: 'Switching the Radio.Group between "pdf" and "imagens" clears both imageList and file/fileName (mutually
+    exclusive input modes) via the shared clear() callback. If neither images nor a PDF is present the network call
+    is skipped entirely (guarded client-side before hitting the API).
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-013
+  - RULE-DOCUMENTACAO-FATURAMENTO-026
+  - RULE-DOCUMENTACAO-FATURAMENTO-020
+  merged_from:
+  - RULE-upload-FE-05-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilesLeitoComponent/FilesPickContent/FilesPickContent.tsx
+    lines: 51-81,155-184
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-013
+  name: Leito upload tab gated on can_upload_files_amhdocs permission
+  category: data-validation
+  type: eligibility
+  status: OK
+  verify: false
+  description: 'The "Enviar arquivo" tab (and the drawer''s Save/Ok button) inside the leito files drawer is only
+    rendered/enabled for users holding the can_upload_files_amhdocs permission; users without it only see the "Arquivos
+    Enviados" (already-sent files) tab.
+
+    '
+  inputs:
+  - name: can_upload_files_amhdocs
+    type: boolean (from useEffectivePermissions())
+  outputs:
+  - name: visibility of "Enviar arquivo" Tabs.TabPane
+    type: boolean
+  - name: DrawerBuilder hideOk
+    type: boolean
+  logic: "hideOk = !can_upload_files_amhdocs\nif can_upload_files_amhdocs:\n  render Tabs.TabPane(\"Enviar arquivo\"\
+    ) containing FilesPickContent\nalways render Tabs.TabPane(\"Arquivos Enviados\") containing ArquivosContent\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-012
+  merged_from:
+  - RULE-upload-FE-05-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilesLeitoComponent/FilesLeitoComponent.tsx
+    lines: 35,46,50-60
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-014
+  name: Double-gated evolution report access
+  category: triage-eligibility
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: 'The Relatório de Evolução page is gated twice by conceptually the same permission, via two different
+    mechanisms: (1) server-side, validateRoute redirects to "/" if the static "trilhas.permissions" cookie array
+    does not include "can_access_relatorio_evolucao"; (2) client-side, the page additionally checks a "can_access_relatorio_evolucao"
+    value computed by the useEffectivePermissions() hook, and if false, shows an empty-report placeholder instead
+    of the filter form (even though the SSR gate already passed).
+
+    '
+  inputs:
+  - name: cookie-based permissions array (trilhas.permissions)
+    type: array
+    unit: null
+  - name: useEffectivePermissions().can_access_relatorio_evolucao
+    type: boolean
+    unit: null
+  outputs:
+  - name: page rendered / redirected / empty-state
+    type: enum
+    unit: null
+  logic: "// SSR (validateRoute)\nif (!cookiePermissions.includes(\"can_access_relatorio_evolucao\")) redirect ->\
+    \ \"/\"\n\n// client render\nif (can_access_relatorio_evolucao) {\n  render FilterFormRelatorioEvolucao\n} else\
+    \ {\n  render Result(\"Relatório vazio\", \"Atualmente essa empresa não possui nenhum relatório de evolução.\"\
+    )\n}\n"
+  edge_cases: null
+  confidence: medium
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-019
+  merged_from:
+  - RULE-relatorio-FE-08-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/pages/empresa/[id_empresa]/relatorio-evolucao/index.tsx
+    lines: 18-19, 32-46, 52-65
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Best interpretation: useEffectivePermissions() (hook out of FE-08 scope) likely computes a dynamic/derived
+    version of permissions (e.g. incorporating company plan/feature flags) that can differ from the static cookie
+    snapshot read by validateRoute, so the client-side re-check is a legitimate defense-in-depth / freshness check
+    rather than redundant dead code. This cannot be fully confirmed without reading useEffectivePermissions (src/hooks,
+    out of this partition).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-311
+    band: AMBIGUOUS
+    title: triage-eligibility
+    excerpt: Double-gated evolution report access
+- id: RULE-DOCUMENTACAO-FATURAMENTO-015
+  name: Auto-post released evolution to Tasy (lancamento code 501)
+  category: billing-administrative
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'When an evolution is liberated, a Celery task calls the Tasy Oracle stored procedure amh_gerar_lancamento_auto
+    to auto-generate a billing/record posting for the attendance, using a fixed procedure/lancamento code 501 and
+    origin "TasyApp". Target DB depends on environment.
+
+    '
+  inputs:
+  - name: cpf
+    type: string
+    unit: null
+    range: null
+  - name: nr_atendimento
+    type: string
+    unit: null
+    range: null
+  - name: codigo_evolucao
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: Oracle stored-proc call (side-effect)
+    type: side-effect
+    unit: null
+  logic: "env = ENVIRONMENT\nconnection = \"oracle\" if env == \"prod\" else \"homol-oracle\"\ncursor.callproc(\"\
+    amh_gerar_lancamento_auto\",\n  [ nr_atendimento, None, 501, \"TasyApp\", None, None, None, None, None, None,\n\
+    \    cpf, codigo_evolucao, now(localtime) ])\n# ConnectionError is swallowed (pass)\n"
+  edge_cases: 'Fixed positional args: index2 = 501 (constant code), index3 = "TasyApp". Routes to production Oracle
+    only when ENVIRONMENT == "prod", else homologation DB. ConnectionError is caught and ignored (silent failure
+    -> posting may be dropped). Timestamp is localtime-aware now().
+
+    '
+  confidence: medium
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-002
+  merged_from:
+  - RULE-billing-BE-09-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/utils.py
+    lines: 405-438
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMBIGUOUS: the meaning of the magic constant 501 and the seven None positional params of amh_gerar_lancamento_auto
+    is not derivable from this repo (Tasy stored proc). Recorded verbatim. Celery shared_task liberar_evolucao,
+    routing key <ENV>.trilhas.callprocedure.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-347
+    band: AMBIGUOUS
+    title: billing-administrative
+    excerpt: Auto-post released evolution to Tasy (lancamento code 501)
+- id: RULE-DOCUMENTACAO-FATURAMENTO-016
+  name: '"Agrupar PDFs e baixar" workflow response-validation chain'
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When merging selected files into a single downloadable PDF (agrupar PDFs), the client validates
+    the API response step by step before proceeding: it must be non-empty, must contain a data payload, and that
+    payload must include a file_path - failing any step raises a distinct guard error before any download is attempted;
+    on success the selection is cleared and the resulting file is opened in a new browser tab.
+
+    '
+  inputs:
+  - name: ids (selected arquivo ids)
+    type: string[]
+  outputs:
+  - name: window.open(file_path)
+    type: side effect
+  - name: selectedFiles reset to []
+    type: side effect
+  logic: 'res = await postAgruparPDFs(idEmpresa, idEstabelecimento, idSetor, idOcupacao, { ids })
+
+    if !res: throw Error("Resposta vazia da API")
+
+    data = res.data || res
+
+    if !data: throw Error("Dados não encontrados na resposta")
+
+    { file_path, message } = data.res || data
+
+    if !file_path: throw Error("Nenhum arquivo gerado")
+
+    // success path:
+
+    setVisibleDownloadMultiple(false); setSelectedFiles([]); antdMessage.success(message || "Download pronto!")
+
+    window.open(file_path, "_blank")
+
+    // any thrown error is caught and surfaced via handleApiError(...) with a generic content message
+
+    '
+  edge_cases: 'The response shape is defensively unwrapped through two optional levels (res.data || res, then data.res
+    || data) to tolerate more than one API response envelope shape, suggesting the backend contract for this endpoint
+    was not fully stable/consistent at implementation time.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-003
+  - RULE-DOCUMENTACAO-FATURAMENTO-011
+  - RULE-DOCUMENTACAO-FATURAMENTO-017
+  merged_from:
+  - RULE-arquivo-FE-05-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ArquivosContent/ArquivosContent.tsx
+    lines: 86-119
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'postAgruparPDFs targets the backend ''agrupar-pdf'' action (RULE-DOCUMENTACAO-FATURAMENTO-003); reconciliation
+    confirms the backend''s actual {message, file_path} response shape is a strict subset of what this defensive
+    unwrap chain handles — no functional mismatch found. [audit-coordinator: category normalized from invalid "workflow"
+    to data-validation; type remains workflow.]'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-017
+  name: Leito arquivos list default sort order
+  category: data-validation
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'The paginated list of a leito''s uploaded arquivos (files) applies a static default ordering of
+    "data_arquivo" with no leading minus sign, which - for the typical Django-REST-Framework "ordering" query-param
+    convention this codebase otherwise follows - sorts ascending (oldest file first) by default.
+
+    '
+  inputs: []
+  outputs:
+  - name: staticFilters.ordering
+    type: string
+  logic: 'PaginationProvider(staticFilters = { ordering: "data_arquivo" })
+
+    '
+  edge_cases: 'No leading "-" is present, so if the backend follows the common DRF convention (bare field name =
+    ascending, "-field" = descending), the default view would list the oldest uploaded file first rather than the
+    most recent - unusual for a document/attachment list, where most-recent-first is the typical expectation.
+
+    '
+  confidence: medium
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-011
+  - RULE-DOCUMENTACAO-FATURAMENTO-016
+  merged_from:
+  - RULE-arquivo-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/ArquivosContent/ArquivosContent.tsx
+    lines: 239-262
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Recorded verbatim per audit ground rules; flagged AMBIGUOUS because it is plausible this ascending default
+    is intentional (e.g. chronological reading order) or an oversight (missing "-" prefix) - a verifier should confirm
+    the intended default sort direction against product requirements or the equivalent backend endpoint.
+
+
+
+    No corresponding backend DRF `ordering`/default-sort configuration for this endpoint was found in the backend
+    repo to resolve the ambiguity one way or the other; recorded as-is per audit ground rules.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-324
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Leito arquivos list default sort order
+- id: RULE-DOCUMENTACAO-FATURAMENTO-018
+  name: PDF report filename pattern
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: PDF export filenames are built from the patient's name (spaces replaced by underscores) plus the
+    report day, in a "<nome>-dia:<dia>.pdf" pattern, and set via a raw (unquoted, non-attachment) Content-Disposition
+    header.
+  inputs:
+  - name: leito.paciente.nome
+    type: string
+    unit: null
+  - name: dia
+    type: string
+    unit: null
+  outputs:
+  - name: nome_arquivo
+    type: string
+    unit: null
+  logic: 'nome_arquivo = f"{leito.paciente.nome.replace('' '', ''_'')}-dia:{dia}.pdf"
+
+    response["Content-Disposition"] = f"filename={nome_arquivo}"
+
+    '
+  edge_cases: 'Content-Disposition lacks the "attachment;" directive and quoting, and the filename contains a literal
+    '':'' character - both can cause inconsistent browser/HTTP-client handling (inline display vs download, or header
+    parsing issues) though this is recorded as-implemented, not corrected.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-004
+  - RULE-DOCUMENTACAO-FATURAMENTO-005
+  - RULE-DOCUMENTACAO-FATURAMENTO-021
+  merged_from:
+  - RULE-pdf-BE-08-038
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_balanco_hidrico.py
+    lines: 40-40,97-100
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Identical filename/header pattern used in trilha_homecare/api/v1/views/pdf_prescricao.py:53,100-103.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-019
+  name: Evolution-note count-by-type with Total row
+  category: billing-administrative
+  type: workflow
+  status: OK
+  verify: false
+  description: 'Aggregates a list of evolution/progress-note records into counts per type, then returns a list whose
+    FIRST element is a "Total" row equal to the overall record count, followed by one row per distinct type.
+
+    '
+  inputs:
+  - name: itens
+    type: RelatorioEvolucao[]
+    unit: null
+    range: null
+  outputs:
+  - name: resultado
+    type: '{tipo:string, qtd:number}[]'
+    unit: null
+  logic: 'contagemTipos = {}
+
+    for registro in itens: contagemTipos[registro.tipo] = (contagemTipos[registro.tipo] || 0) + 1
+
+    total = { tipo: "Total", qtd: itens.length }
+
+    resultado = [ {tipo, qtd} for each tipo in contagemTipos ]
+
+    return [ total, ...resultado ]
+
+    '
+  edge_cases: 'Total is itens.length (total record count), always first. Empty input -> [{tipo:"Total",qtd:0}].
+    Type key order follows insertion order of first occurrence.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-014
+  merged_from:
+  - RULE-reporting-FE-02-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/contarTiposEvolucao.ts
+    lines: 6-28
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Reporting aggregation for evolution-note dashboards.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-020
+  name: Uploaded medical-record/document category code catalog — three divergent hand-maintained copies (54-code
+    runtime map vs 34-value vs 33-value TS union types)
+  category: billing-administrative
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'Fixed code->label dictionary classifying uploaded medical-record attachments (fiscal notes, TISS/SADT
+    insurance guides, prescriptions, exam results, authorization guides, homecare evolution notes by discipline,
+    etc.).
+
+
+
+    This runtime label dictionary (categoriaArquivo.ts, `as Record<Models.Arquivo.Categoria, string>`) is a 54-code
+    superset of two separate, independently hand-maintained TypeScript union types that constrain which categoria
+    values can actually be assigned/selected at compile time: Models.Arquivo.Categoria (34 values; types Arquivo.Upload/Download/Filter.categoria)
+    and Models.Leito.CategoriaArquivo (33 values; types Leito.Upload.categoria), and the three have drifted out
+    of sync with each other.'
+  inputs:
+  - name: categoriaCode
+    type: string
+    unit: null
+    range: 54 codes with runtime labels (categoriaArquivo.ts)
+  - name: categoria (Arquivo.Upload/Download/Filter)
+    type: string enum
+    unit: null
+    range: 34 of those 54 codes (Arquivo.Categoria)
+  - name: categoria (Leito.Upload)
+    type: string enum
+    unit: null
+    range: 33 of those 54 codes (Leito.CategoriaArquivo, additionally missing 'EI')
+  outputs:
+  - name: label
+    type: string
+    unit: null
+  - name: categoria (typed)
+    type: string enum
+    unit: null
+  logic: "# --- (A) PRIMARY / most complete: runtime label dictionary (src/utils/categoriaArquivo.ts:1-54), 54 codes\
+    \ ---\ncategoriaArquivo: Record<Models.Arquivo.Categoria, string> = {\n  nao_informado->\"Não informado\", ID->\"\
+    Nota Fiscal\", AT->\"Atendimento\", RG->\"Documento Identidade\",\n  CC->\"Carteira do Convênio\", PE->\"Pedido\
+    \ de Exame\", GT->\"Guia TISS/ SADT\", DC->\"Documentos Pessoais\",\n  AS->\"Documentos Assitencias\", GC->\"\
+    Guias\", EC->\"Exames Eletrocardiograma (ECG)\",\n  RM->\"Exame Ressonancia Magnética\", CT->\"Contrato \",\
+    \ GS->\"Guia de Solicitação de Internação Externa\",\n  GI->\"Guia de Internação Interna\", EE->\"Evolução externa\"\
+    , EI->\"Evolução interna\",\n  EP->\"Prescrição Externa\", FR->\"Formulario de Remoção\", TG->\"Ticket Gasometria\"\
+    ,\n  RT->\"Requisição de Transfusão\", TC->\"Consentimento\", PX->\"Prontuário externo\",\n  RE->\"Resultado\
+    \ de Exames/ Procedimentos\", PM->\"Parecer Médico\", PU->\"Prescrição Emergência\",\n  IM->\"Invólucros\",\
+    \ LI->\"Laudo Imagem\", RH->\"Requisição de Hemodiálise\", LL->\"Laudo Laboratorial\",\n  AI->\"Guia Autorização\
+    \ Internação\", AP->\"Guia Autorização de Prorrogação\",\n  AR->\"Guia Autorização de Procedimento\", AM->\"\
+    Guia Autorização Mat/Med/Dieta/OPME\",\n  DO->\"Declaração de Óbito\", EX->\"Exame externo\", FG->\"Folha de\
+    \ Gastos de Cirurgia\",\n  EHCMED->\"Evolução HC de Médico\", EHCTEC->\"Evolução HC de Técnico de Enfermagem\"\
+    ,\n  EHCENF->\"Evolução HC de Enfermagem\", EHCFIS->\"Evolução HC de Fisioterapeuta\",\n  EHCTER->\"Evolução\
+    \ HC de Terapeuta\", EHCMUS->\"Evolução HC de Musicoterapeuta\",\n  EHCNUT->\"Evolução HC de Nutricionista\"\
+    , EHCPSI->\"Evolução HC de Psicólogo\",\n  EHCFON->\"Evolução HC de Fonoaudiólogo\", EHCFCT->\"Evolução HC de\
+    \ Farmacêutico\",\n  EHCINT->\"Evolução HC de Intercorrência\", PRHC->\"Prescrição Vida Conecta\",\n  BHHC->\"\
+    Balanço Hídrico Vida Conecta\",\n}   // 54 keys total; TS \"as\" type-assertion suppresses excess-property checking\
+    \ against the 34-value type below\n\n# --- (B) src/@types/models/Arquivo.d.ts:26-60 — Models.Arquivo.Categoria,\
+    \ 34 values (used by Arquivo.Upload/Download/Filter.categoria) ---\ntype Arquivo.Categoria =\n  nao_informado\
+    \ | AT | ID | RG | CC | PE | GT | DC | AS | GC | EC | RM | CT | GS | GI |\n  EE | EI | EP | FR | TG | RT | TC\
+    \ | PX | RE | PM | PU | IM | LI | RH | LL | AI | AP | AR | AM\n\n# --- (C) src/@types/models/Leito.d.ts:17-50\
+    \ — Models.Leito.CategoriaArquivo, 33 values (used by Leito.Upload.categoria) ---\ntype Leito.CategoriaArquivo\
+    \ =\n  nao_informado | AT | ID | RG | CC | PE | GT | DC | AS | GC | EC | RM | CT | GS | GI |\n  EE | /* EI missing\
+    \ here */ EP | FR | TG | RT | TC | PX | RE | PM | PU | IM | LI | RH | LL | AI | AP | AR | AM\n"
+  edge_cases: 'Verbatim typos preserved: "Documentos Assitencias" (should be Assistenciais), "Contrato " (trailing
+    space). "EHC*" codes are homecare (HC / "Vida Conecta") evolution notes per discipline; PRHC/BHHC are Vida Conecta
+    prescription / fluid balance. "nao_informado" is the explicit not-informed default. No runtime validator exists
+    for the Arquivo.Categoria/Leito.CategoriaArquivo types (compiler-enforced only). If Leito.Upload uses CategoriaArquivo,
+    uploading category "EI" (Evolução interna) against a Leito.Upload payload is a type error even though the same
+    code is valid for Arquivo.Upload and has a runtime label.'
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-012
+  - RULE-DOCUMENTACAO-FATURAMENTO-013
+  divergence: 'Three independently hand-maintained catalogs of the same "document category" concept disagree in
+    scope: (1) categoriaArquivo.ts (runtime label dictionary, rendered wherever a category needs a human-readable
+    label) defines 54 codes; (2) Models.Arquivo.Categoria (Arquivo.d.ts, compile-time union type constraining Arquivo.Upload/Download/Filter.categoria)
+    recognizes only 34 of those 54 — DO, EX, FG, all 11 EHC* homecare-evolution codes, PRHC and BHHC have runtime
+    labels but are NOT valid Arquivo.Categoria values, so assigning them to an Arquivo.Upload/Filter.categoria field
+    is a TypeScript type error even though the shared label map can render them (this gap was not flagged by Phase
+    1 and was found by reconciling categoriaArquivo.ts against Arquivo.d.ts directly); (3) Models.Leito.CategoriaArquivo
+    (Leito.d.ts, constraining Leito.Upload.categoria) recognizes only 33 of the 34 Arquivo.Categoria values, additionally
+    omitting "EI" (Evolução interna) — so uploading category="EI" via Leito.Upload is a type error even though the
+    same code is valid for Arquivo.Upload and has a runtime label (this narrower divergence was already flagged
+    by Phase 1 as RULE-arquivo-FE-07-002).'
+  merged_from:
+  - RULE-arquivo-FE-02-001
+  - RULE-arquivo-FE-07-001
+  - RULE-arquivo-FE-07-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/categoriaArquivo.ts
+    lines: 1-54
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/@types/models/Arquivo.d.ts
+    lines: 26-60
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  - repo: trilhas-frontend
+    path: src/@types/models/Leito.d.ts
+    lines: 17-50
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: 'DO = Declaração de Óbito (death certificate). OPME = orthotics/prosthetics/special materials. Distinguishes
+    internal vs external (interna/externa) documents. Also used to type Arquivo.Filter (categoria/data_arquivo_inicio/data_arquivo_fim
+    search filters). The 54-vs-34-vs-33 triple divergence is a maintenance/consistency risk to flag for the rebuild:
+    a single source-of-truth enum (ideally generated, not hand-copied three times) is recommended.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-190
+    band: P3
+    title: billing-administrative
+    excerpt: 'Three independently hand-maintained catalogs of the same "document category" concept disagree in scope:
+      (1) categoriaArquivo.ts (runtime label dictionary, rendered wherever a category needs a human-readable label)
+      defines 54 codes; (2) M…'
+- id: RULE-DOCUMENTACAO-FATURAMENTO-021
+  name: PDF export base64 flag uses raw truthy string check
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'Both PDF export endpoints (balanco hidrico and prescricao) decide whether to return a base64-encoded
+    JSON payload instead of a raw PDF response by testing the truthiness of the raw ''b64'' query-parameter string,
+    not by comparing it against an expected value (e.g. "true"). Any non-empty string value for ''b64'' (including
+    the literal string "false" or "0") evaluates as truthy in Python and therefore triggers base64 mode.
+
+    '
+  inputs:
+  - name: b64 (query param)
+    type: string
+    unit: null
+    range: any non-empty string → truthy
+  outputs:
+  - name: response format
+    type: enum
+    unit: null
+    range: '''application/pdf'' (raw) | JSON {''b64'': <base64 string>}'
+  logic: "is_b64 = request.query_params.get(\"b64\", False)   # returns string or False (bool)\n...\nif is_b64:\
+    \   # truthy check, not equality check\n    return Response({\"b64\": base64.b64encode(pdf).decode(\"UTF-8\"\
+    )})\nelse:\n    return HttpResponse(pdf.decode(\"ISO-8859-1\"), content_type=\"application/pdf\")\n"
+  edge_cases: 'Absent ''b64'' param → False → raw PDF. Any present value, even "false"/"0"/"no", → truthy → base64
+    JSON response. Contrast with the ''assinatura'' param in pdf_balanco_hidrico.py, which is explicitly checked
+    via `in ["true", "True"]`.
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-004
+  - RULE-DOCUMENTACAO-FATURAMENTO-018
+  divergence: Both PDF-export endpoints (balanco hidrico and prescricao) decide base64-vs-raw response format by
+    testing the raw truthiness of the 'b64' query-param STRING (`if is_b64:`), not by comparing it against an expected
+    value. Any non-empty string — including the literal 'false' or '0' — is truthy in Python and triggers base64-JSON
+    mode; only a genuinely ABSENT param (defaulting to the boolean False) yields the raw PDF response. This contrasts
+    directly with the 'assinatura' query-param in the same balanco-hidrico view (RULE-DOCUMENTACAO-FATURAMENTO-004),
+    which is explicitly checked via `in ["true", "True"]` — i.e. two boolean-ish query params in the same codebase
+    (and in one case the same file) use incompatible parsing semantics for what should be equivalent 'true/false
+    flag' inputs.
+  merged_from:
+  - RULE-pdf-BE-08-035
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_balanco_hidrico.py
+    lines: 31-31,102-113
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_prescricao.py
+    lines: 25,93-104
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Identical pattern in trilha_homecare/api/v1/views/pdf_prescricao.py:25,93-104.
+
+
+    Confirmed by direct source read: identical `is_b64 = request.query_params.get("b64", False)` + truthy-check
+    pattern present verbatim in both trilha_homecare/api/v1/views/pdf_balanco_hidrico.py (lines 31, 102-113) and
+    pdf_prescricao.py (lines 25, 93-104) — recorded as one rule with both source locations (see sources) rather
+    than two, since it is the identical bug duplicated by copy-paste, not two independent implementations of a shared
+    threshold.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-157
+    band: P3
+    title: data-validation
+    excerpt: Both PDF-export endpoints (balanco hidrico and prescricao) decide base64-vs-raw response format by
+      testing the raw truthiness of the 'b64' query-param STRING (`if is_b64:`), not by comparing it against an
+      expected value. Any non-empty st…
+- id: RULE-DOCUMENTACAO-FATURAMENTO-022
+  name: Prescricao PDF export has no explicit validation for missing 'dia'
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'Unlike BalancoHidricoViewSet.list() (RULE-balanco-BE-08-007), the continuous-prescription PDF export
+    reads ''dia'' from query params with no presence check, then immediately parses it with datetime.strptime(dia,
+    "%Y-%m-%d"). If ''dia'' is missing, this raises a TypeError from strptime(None, ...) rather than a friendly
+    ValidationError.
+
+    '
+  inputs:
+  - name: dia (query param)
+    type: string or None
+    unit: null
+  outputs:
+  - name: dia (formatted)
+    type: string
+    unit: dd/mm/yyyy
+  logic: 'dia = request.query_params.get("dia")   # no None check
+
+    ...
+
+    "dia": datetime.strptime(dia, "%Y-%m-%d").date().strftime("%d/%m/%Y"),
+
+    '
+  edge_cases: Missing 'dia' → unhandled TypeError (500), not a 400 ValidationError.
+  confidence: medium
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-006
+  - RULE-DOCUMENTACAO-FATURAMENTO-023
+  - RULE-DOCUMENTACAO-FATURAMENTO-001
+  divergence: The continuous-prescription PDF export reads `dia = request.query_params.get("dia")` with NO presence
+    check, then immediately calls `datetime.strptime(dia, "%Y-%m-%d")` — a missing 'dia' therefore raises an unhandled
+    TypeError (500) instead of a friendly ValidationError (400). This is the opposite behavior of the sibling BalancoHidricoViewSet.list()
+    endpoint (same PDF-export subsystem, not itself captured in this cluster's inputs), which explicitly validates
+    that 'dia' is present before use — i.e. the two PDF-export endpoints handle the identical 'required date query
+    param' concern with different rigor.
+  merged_from:
+  - RULE-pdf-BE-08-039
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_prescricao.py
+    lines: 24-34,59
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Contrast with BalancoHidricoViewSet.list(), which explicitly validates a required 'dia' parameter.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-158
+    band: P3
+    title: data-validation
+    excerpt: The continuous-prescription PDF export reads `dia = request.query_params.get("dia")` with NO presence
+      check, then immediately calls `datetime.strptime(dia, "%Y-%m-%d")` — a missing 'dia' therefore raises an unhandled
+      TypeError (500) inst…
+- id: RULE-DOCUMENTACAO-FATURAMENTO-023
+  name: Prescricao PDF export - unguarded first() access for dt_entrada
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'The prescription PDF export retrieves dt_entrada via `prescricoes.first().prescricao.DT_ENTRADA`
+    with no check that the queryset is non-empty. If no PrescricaoContinua rows match the given leito/dia, `.first()`
+    returns None and the subsequent `.prescricao` access raises an unhandled AttributeError, unlike the balanco
+    hidrico PDF export which checks `.exists()` first.
+
+    '
+  inputs:
+  - name: prescricoes queryset
+    type: queryset
+    unit: null
+  outputs:
+  - name: dt_entrada
+    type: datetime
+    unit: null
+  logic: '"dt_entrada": prescricoes.first().prescricao.DT_ENTRADA,   # no None-check on .first()
+
+    '
+  edge_cases: Empty queryset (e.g. no prescriptions for that day) → unhandled AttributeError (500).
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-005
+  - RULE-DOCUMENTACAO-FATURAMENTO-006
+  - RULE-DOCUMENTACAO-FATURAMENTO-022
+  divergence: The prescription PDF export retrieves dt_entrada via `prescricoes.first().prescricao.DT_ENTRADA` with
+    NO check that the queryset is non-empty — an empty queryset (no PrescricaoContinua rows for that leito/dia)
+    makes `.first()` return None and the subsequent `.prescricao` access raises an unhandled AttributeError (500).
+    The balanco-hidrico PDF export's equivalent dt_entrada lookup (RULE-DOCUMENTACAO-FATURAMENTO-005, same subsystem)
+    explicitly guards the identical kind of lookup with `.exists()` before calling `.first()` and falls back to
+    None — the two PDF-export endpoints handle the identical 'lookup first related record for dt_entrada' concern
+    with different safety guarantees.
+  merged_from:
+  - RULE-pdf-BE-08-041
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/pdf_prescricao.py
+    lines: 61-61
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Contrast with RULE-pdf-BE-08-037, which guards the equivalent lookup with .exists().
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-159
+    band: P3
+    title: data-validation
+    excerpt: The prescription PDF export retrieves dt_entrada via `prescricoes.first().prescricao.DT_ENTRADA` with
+      NO check that the queryset is non-empty — an empty queryset (no PrescricaoContinua rows for that leito/dia)
+      makes `.first()` return Non…
+- id: RULE-DOCUMENTACAO-FATURAMENTO-024
+  name: Prescription/CPOE signature-inconsistency record
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: An "Inconsistência de Assinatura" (signature inconsistency) record cross-references an item as tracked
+    in Trilhas ("item") against its corresponding item in the CPOE (Computerized Physician Order Entry) system ("item_cpoe")
+    for a given patient/bed and date, implying a data-integrity reconciliation check between the two systems, though
+    the actual mismatch-detection algorithm is computed server-side and not present in this partition.
+  inputs:
+  - name: item
+    type: string
+    unit: null
+    range: null
+  - name: item_cpoe
+    type: string
+    unit: null
+    range: null
+  - name: data_item
+    type: string (date)
+    unit: null
+    range: null
+  outputs:
+  - name: Inconsistencia.Assinatura
+    type: object
+    unit: null
+  logic: "Inconsistencia.Assinatura = {\n  id: number, leito: string, data_item: string,\n  ds_item: string, ds_paciente:\
+    \ string, ds_profissional: string,\n  item: string, item_cpoe: string\n}\n// presumed: a mismatch/pending-signature\
+    \ discrepancy exists whenever item and item_cpoe\n// disagree for the same data_item/leito/profissional; exact\
+    \ comparison logic not present here.\n"
+  edge_cases: No client-side comparison of item vs item_cpoe is performed in this partition — the frontend only
+    lists/reports already-flagged inconsistencies (via GET .../inconsistencias/ and a PDF report endpoint).
+  confidence: low
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-025
+  - RULE-DOCUMENTACAO-FATURAMENTO-002
+  merged_from:
+  - RULE-inconsistencia-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Inconsistencia.d.ts
+    lines: 4-14
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: A verifier should check the backend partition for the actual reconciliation algorithm between Trilhas prescription
+    items and CPOE order-entry items.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-325
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Prescription/CPOE signature-inconsistency record
+- id: RULE-DOCUMENTACAO-FATURAMENTO-025
+  name: Report filter date-prefix formatting convention
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When rendering the list of applied filters for the signature inconsistency report generator, any
+    filter key whose name begins with the 3-character prefix "dt_" is formatted as a date via formatDataItem();
+    every other filter key is rendered as its raw string value.
+
+    '
+  inputs:
+  - name: filtersPagination (key/value map)
+    type: object
+    unit: null
+  outputs:
+  - name: displayValue
+    type: string
+  logic: "for each [key, value] in Object.entries(filtersPagination) where value is truthy:\n  displayValue = key.substring(0,\
+    \ 3) === \"dt_\" ? formatDataItem(value) : String(value)\n"
+  edge_cases: Falsy filter values (0, '', false, null, undefined) are silently skipped (map callback implicitly
+    returns undefined for them, rendering nothing).
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-024
+  - RULE-DOCUMENTACAO-FATURAMENTO-002
+  merged_from:
+  - RULE-relatorio-FE-06-025
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Relatorios/GerarRelatorioInconsistenciaAssinatura/GerarRelatorioInconsistenciaAssinatura.tsx
+    lines: 25-44
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'formatDataItem/humanizeLabel implementations are out of this partition''s scope (src/utils).
+
+
+    Phase-1 capture omitted a `status` field; reviewed content shows no divergence or unresolved ambiguity, so status
+    is set to OK on reconciliation.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-026
+  name: PDF upload MIME-type validation
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'When a user uploads a document via the PDF picker, the file is accepted only if the base64 data-URI''s
+    declared MIME segment equals "application/pdf"; otherwise the value is cleared and an error modal is shown.
+
+    '
+  inputs:
+  - name: b64 (base64 data URI of uploaded file)
+    type: string
+    unit: null
+  outputs:
+  - name: accepted
+    type: boolean
+  logic: "b64 = await getBase64(file)\nisPdf = b64.substring(5, 20) === \"application/pdf\"\nif (isPdf) { onChange(b64)\
+    \ }\nelse {\n  onChange(\"\")\n  show Modal.error({ title: \"Formato de arquivo invalido!\", content: \"Por\
+    \ favor! Envie um arquivo PDF.\" })\n}\n"
+  edge_cases: 'Validation relies on a fixed character offset (5-20) into the data-URI string (`data:application/pdf;base64,...`),
+    not a robust MIME parse; a differently-prefixed data URI of the same length window could pass or fail incorrectly.
+    A fake progress bar increments 5% every 300ms and is force-cleared after 8000ms regardless of actual upload
+    completion (not tied to real network progress).
+
+    '
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-012
+  merged_from:
+  - RULE-upload-FE-06-021
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/PDFB64Convert/PDFB64Convert.tsx
+    lines: 47-75
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Phase-1 capture omitted a `status` field; the fixed-offset MIME check is a documented edge case, not a
+    cross-implementation divergence (no backend/other counterpart to compare in this cluster), so status is set
+    to OK on reconciliation. Confirmed this component (PDFB64Convert) is used only by FilesPickContent.tsx (RULE-DOCUMENTACAO-FATURAMENTO-012's
+    leito document upload), not shared with the misrouted FileB64Convert (RULE-upload-FE-05-001, avatar/logo uploader)
+    despite both implementing an identical fake setInterval-based progress bar (5%/300ms, force-cleared at 8000ms)
+    — a shared UI anti-pattern across two otherwise-unrelated components, not the same business rule, so not merged.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-027
+  name: AMHDocs external file lookup keyed by bed's nr_atendimento
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: get_nr_atendimento (used to build both the internal create() call and the external AMHDocs proxy
+    URL) resolves nr_atendimento from the Leito identified by the 'ocupacoes__pk' URL kwarg.
+  inputs:
+  - name: kwargs.ocupacoes__pk
+    type: uuid
+    unit: null
+  outputs:
+  - name: nr_atendimento
+    type: string
+    unit: null
+  logic: 'leito = get_object_or_404(Leito.objects.all(), pk=kwargs["ocupacoes__pk"])
+
+    return str(leito.nr_atendimento)
+
+    '
+  edge_cases: Unlike the observacao/assistido views, here 'ocupacoes__pk' is ALWAYS treated as a Leito pk directly
+    (no Movimentacao fallback attempted).
+  confidence: high
+  merged_from:
+  - RULE-integracao-BE-05-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/integracao_amhdocs.py
+    lines: 23-33
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-028
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published reference. This is proprietary integration/routing code: get_nr_atendimento
+      resolves a bed''s encounter number by primary-key lookup on the internal Leito model (Django ORM get_object_or_404).
+      "nr_atendimento" (encounter/attendance number) is an internal Tasy/AMHDocs identifier, not a standardized
+      code governed by any external body. Marked type=formula in the catalog only because it is a mechanical field
+      derivation, not a clinical formula.
+
+      '
+    detail_file: supplemental-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-280
+    band: UNVERIFIABLE
+    title: AMHDocs external file lookup keyed by bed's nr_atendimento
+    excerpt: 'Legacy confirmed at core/api/v1/views/integracao_amhdocs.py:23-33 (ArquivosAMHDocsViewSet.get_nr_atendimento).
+      Behavior matches the catalog: the ''ocupacoes__pk'' kwarg is ALWAYS treated as a Leito pk directly (no Movimentacao
+      fa…'
+- id: RULE-DOCUMENTACAO-FATURAMENTO-028
+  name: AMHDocs pagination links rewritten to proxy's own URL
+  category: data-validation
+  type: formula
+  status: OK
+  verify: true
+  description: When listing external AMHDocs files, the external API's 'next'/'previous' pagination URLs are rewritten
+    to point back at this API's own base URL (stripped of any existing query string) with the external response's
+    query string appended.
+  inputs:
+  - name: payload.next
+    type: string (url) | null
+    unit: null
+  - name: payload.previous
+    type: string (url) | null
+    unit: null
+  outputs:
+  - name: payload.next
+    type: string (url)
+    unit: null
+  - name: payload.previous
+    type: string (url)
+    unit: null
+  logic: "original_url = request.build_absolute_uri().split(\"?\")[0]\nif payload.get(\"next\"):\n    payload[\"\
+    next\"] = f'{original_url}?{payload[\"next\"].split(\"?\")[1]}'\nif payload.get(\"previous\"):\n    payload[\"\
+    previous\"] = f'{original_url}?{payload[\"previous\"].split(\"?\")[1]}'\n"
+  edge_cases: split('?')[1] assumes the external URL always contains a '?' - if AMHDocs ever returns a next/previous
+    URL with no query string at all, this raises an uncaught IndexError.
+  confidence: high
+  merged_from:
+  - RULE-integracao-BE-05-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/integracao_amhdocs.py
+    lines: 41-66
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-027
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative clinical/standards reference for the rewrite policy itself (proprietary DRF proxy
+      behavior). Adjacent standards used only to confirm the documented edge case: RFC 3986 sec. 3.4 defines the
+      URI query component as OPTIONAL (introduced by ''?''), so a next/previous URL need not contain ''?''; Django
+      REST Framework pagination (LimitOffset/PageNumber) in practice always emits absolute next/previous URLs that
+      DO carry a ''?<query>''.
+
+      '
+    detail_file: supplemental-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-281
+    band: UNVERIFIABLE
+    title: AMHDocs pagination links rewritten to proxy's own URL
+    excerpt: Legacy confirmed at core/api/v1/views/integracao_amhdocs.py:29-30 (get_original_url, build_absolute_uri().split('?')[0])
+      and 41-66 (list() next/previous rewrite). The rewrite policy is internal/proprietary with no governing sta…
+- id: RULE-DOCUMENTACAO-FATURAMENTO-029
+  name: PDF grouping (agrupar-pdf) requires a non-empty array of ids
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: retrieve_multiple (the 'agrupar-pdf' action) validates that the request body's 'ids' is a non-empty
+    list before proceeding; otherwise raises a ValidationError.
+  inputs:
+  - name: request.data.ids
+    type: array of uuid
+    unit: null
+    range: must be a non-empty list
+  outputs:
+  - name: eligible
+    type: boolean
+    unit: null
+  logic: "ids = request.data.get(\"ids\", [])\nif not isinstance(ids, list) or not ids:\n    raise ValidationError({\"\
+    error\": \"Um array de UUIDs deve ser fornecido.\"})\n"
+  edge_cases: null
+  confidence: high
+  merged_from:
+  - RULE-integracao-BE-05-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/integracao_amhdocs.py
+    lines: 73-76
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: null
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-030
+  - RULE-DOCUMENTACAO-FATURAMENTO-003
+  - RULE-DOCUMENTACAO-FATURAMENTO-016
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-030
+  name: PDF grouping response status-code decision tree
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'retrieve_multiple maps distinct failure modes from the external retrieve-multiple call and downstream
+    PDF-combining step to specific HTTP status codes: external 401 -> 401 with an auth-failure message; any requests
+    exception -> 500; unexpected response shape (neither list nor dict) -> 500; empty resulting URL list -> 400;
+    combinar_documentos returning an ''errors'' key -> whatever status it specifies (default 400); success -> 200
+    with the combined file path.'
+  inputs:
+  - name: external response status/body
+    type: object
+    unit: null
+  outputs:
+  - name: http_status
+    type: integer
+    unit: null
+    range: 200 | 400 | 401 | 500
+  logic: "response = session.post(retrieve_multiple_url, json={\"ids\": ids}, headers={\"X-Api-Key\": AMHDOCS_APIKEY},\
+    \ timeout=10)\nif response.status_code == 401: return Response({...}, status=401)\nresponse.raise_for_status()\
+    \   # raises on other non-2xx, caught below -> 500\ndata = response.json()\nif isinstance(data, list):\n   \
+    \ id_to_url = {item[\"id\"]: item[\"url_bucket\"] for item in data if \"id\" in item and \"url_bucket\" in item}\n\
+    \    urls = [id_to_url[i] for i in ids if i in id_to_url]\nelif isinstance(data, dict):\n    urls = data.get(\"\
+    pdf_urls\", [])\nelse:\n    return Response({...}, status=500)\nif not urls:\n    return Response({...}, status=400)\n\
+    caminho_arquivo = combinar_documentos(urls, bucket_name, s3_directory)\nif \"errors\" in caminho_arquivo:\n\
+    \    return Response(caminho_arquivo, status=caminho_arquivo.get(\"status\", 400))\nreturn Response({\"message\"\
+    : \"...\", \"file_path\": caminho_arquivo[\"url\"]}, status=200)\n"
+  edge_cases: requests.exceptions.RequestException (network errors, raise_for_status() 4xx/5xx other than 401) is
+    caught and mapped to 500 regardless of the actual external status code.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-029
+  - RULE-DOCUMENTACAO-FATURAMENTO-003
+  - RULE-DOCUMENTACAO-FATURAMENTO-016
+  merged_from:
+  - RULE-integracao-BE-05-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/api/v1/views/integracao_amhdocs.py
+    lines: 68-130
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: combinar_documentos implementation lives in utils.combinar_documentos, out of this partition's scope.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-031
+  name: Arquivo filter end-date must not precede start date
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'In the Arquivos list filter, the "Data final" (data_arquivo_fim) field is validated against "Data
+    inicial" (data_arquivo_inicio): it must be greater than or equal to the start date, and the end-date calendar
+    disables any day before the start date.
+
+    '
+  inputs:
+  - name: data_arquivo_inicio
+    type: date
+  - name: data_arquivo_fim
+    type: date
+  outputs:
+  - name: validation result / form error
+    type: Promise.resolve() | Promise.reject(Error)
+  logic: "validator(data_arquivo_fim):\n  if (!value) OR (data_arquivo_inicio <= value): resolve()\n  else: reject(\"\
+    A data final deve ser maior que a data inicial\")\ndisabledDate(current) = current < data_arquivo_inicio.endOf(\"\
+    day\")\nonSubmit: both dates reformatted to \"YYYY-MM-DD\" before being passed to onFilter\n"
+  edge_cases: 'Validator uses "<=" (i.e. equal dates ARE allowed, contradicting the literal error text "maior que"
+    [greater than], which implies strictly-after); recorded as implemented (an inclusive boundary despite the "maior
+    que" wording). No validator exists preventing data_arquivo_inicio itself from being empty or in the future.
+
+    '
+  confidence: high
+  merged_from:
+  - RULE-filtro-FE-05-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/FilterArquivos/FilterArquivos.tsx
+    lines: 26-35,53-88
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Same pattern (and same inclusive-boundary/wording mismatch) recurs in RULE-filtro-FE-05-002.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-DOCUMENTACAO-FATURAMENTO-032
+  name: Default electronic-signature configuration for CryptoCubo document signing
+  category: data-validation
+  type: workflow
+  status: OK
+  verify: false
+  description: 'DocumentosCryptocubo.__init__ hardcodes the default electronic-signature configuration used to legally
+    sign clinical documents (evolutions/forms) through the CryptoCubo integration: tipo="advanced", formato="pdf",
+    perfil="adrb", icpbr=False. These defaults are interpolated into the sign/verify request URLs (sign/{tipo}/{formato}?profile={perfil}&icpbr={icpbr})
+    and thus determine the legal signature strength/profile applied to every document signed on this path (invoked
+    from utils/evolucoes.py:86-104 assinar_pdf_cryptocubo).'
+  inputs:
+  - documentos (list of base64 PDFs)
+  - usuario (signing user)
+  - tipo default 'advanced'
+  - formato default 'pdf'
+  - perfil default 'adrb'
+  - icpbr default False
+  outputs:
+  - __SIGN_URL / __VERIFY_URL (signing/verification endpoints embedding the profile)
+  logic: "def __init__(self, documentos, usuario,\n             tipo=\"advanced\", formato=\"pdf\", perfil=\"adrb\"\
+    , icpbr=False):\n    self.__SIGN_URL   = CRYPTOCUBO_HOST + CRYPTOCUBO_ELETRONIC_SIGNATURE + \\\n           \
+    \             f\"sign/{tipo}/{formato}?profile={perfil}&icpbr={icpbr}\"\n    self.__VERIFY_URL = CRYPTOCUBO_HOST\
+    \ + CRYPTOCUBO_ELETRONIC_SIGNATURE + \\\n                        f\"verify/{tipo}/{formato}?profile={perfil}&icpbr={icpbr}\"\
+    \n    # tipo=\"advanced\" (NOT \"qualified\"); perfil=\"adrb\"; icpbr=False (ICP-Brasil root chain off)\n"
+  edge_cases: All four signature parameters are keyword defaults, so unless a caller overrides them every document
+    is signed with tipo=advanced (advanced, not qualified, signature), profile=adrb and icpbr=False (the ICP-Brasil
+    root chain is not applied). The values flow verbatim into the CryptoCubo sign/verify URL query string.
+  confidence: high
+  related:
+  - RULE-DOCUMENTACAO-FATURAMENTO-007
+  - RULE-DOCUMENTACAO-FATURAMENTO-008
+  - RULE-AUTH-USUARIOS-063
+  merged_from:
+  - RULE-gap6-04
+  sources:
+  - repo: ahlabs-trilhas
+    path: utils/cryptocubo.py
+    lines: 18-27
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'COMPLIANCE-RELEVANT DEFAULT: the deployment default legally signs medical documents with an ''advanced''
+    (not ''qualified'') CryptoCubo profile and with ICP-Brasil (icpbr) disabled, which affects the legal weight/validity
+    of the signature under Brazilian e-signature norms (MP 2.200-2/ICP-Brasil). Extracted as-is; NOT corrected.
+    Only lines 44-47, 74-82 and 164-180 of this file were previously cited. Flag for legal/compliance review of
+    the intended signature strength.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-ADDENDUM-351
+    band: ADDENDUM
+    title: Default electronic-signature configuration for CryptoCubo document signing
+    excerpt: '*Cluster:* `documentacao-faturamento` · *Category:* `data-validation` · *Extraction:* OK · *Verification:*
+      NOT_APPLICABLE · *Priority:* HIGH (security/compliance review)  - **Legacy:** `DocumentosCryptocubo.__init__`
+      hardcodes the default electronic-signature configuration used to legally sign clinical documents (evolutions/forms)
+      through the CryptoCubo integration: `tipo="advanced"`, `formato="pd'

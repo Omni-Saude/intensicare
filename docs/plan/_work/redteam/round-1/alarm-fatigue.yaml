@@ -1,0 +1,176 @@
+round: 1
+lens: alarm-fatigue
+findings:
+  - finding_id: RT1-ALARM-FATIGUE-01
+    severity: critical
+    claim: >-
+      The DoD line PER-CARLOS-02 (< 3 false positives / patient-day, CON-0088/PER-C-02) is mis-operationalized
+      two ways so it can read PASS while individual sick patients blow past 3 FP/day. (a) ppv-ledger-draft.yaml
+      defines fp_per_patient_day = false_positive / patient_days — a FLEET MEAN (total FP over total occupied
+      patient-days). Alerts cluster on the sickest patients, so the mean is dominated by quiet beds and is
+      structurally blind to per-patient concentration; the constraint's intent (Carlos's own patients) is a
+      per-patient distribution, not a unit average. (b) The only per-patient numeric "3" governor in the design,
+      alert-routing.md §4.1, cites `false_positive_budget.target_max_per_patient_day: 3, CON-0088/PER-C-02` but
+      implements a DIFFERENT quantity: a rolling budget of "<=3 escalation tokens/24h for the watch/normal band"
+      that governs loudness only, counts no false positives, and explicitly EXCLUDES urgent/critical. So the DoD
+      FP-ceiling has no per-patient enforcement mechanism and its cited "implementation" is a low-tier loudness
+      governor.
+    falsifiable_check: >-
+      Open docs/plan/_work/budgets/ppv-ledger-draft.yaml line 66: `fp_per_patient_day: "false_positive /
+      patient_days"` — confirm it is a fleet ratio (numerator = all FP, denominator = census patient_days), with
+      no per-patient percentile or per-patient-day cap. Then open docs/plan/design/screens/alert-routing.md §4.1
+      (line ~144): confirm it cites CON-0088/PER-C-02 for a budget that (§4 banner, line 138) touches "normal and
+      watch ONLY" and never urgent/critical, and coalesces rather than dropping (MF-02, line ~172) — i.e. it does
+      not count or cap false positives. Two artifacts cite the same DoD constraint for two things, neither of
+      which is a per-patient FP ceiling.
+    owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+    proposed_fix: >-
+      Re-define PER-CARLOS-02 as a per-patient-day distribution metric — e.g. "share of patient-days with > 3
+      dispositioned FP must be < X%", or "p95 of FP/patient-day < 3" — and add it to method.formulas. Sever the
+      alert-routing.md §4.1 citation of CON-0088 from the watch/normal token governor (rename it a loudness
+      budget, cite VIS-7.1-04 only), so the DoD FP ceiling is not falsely claimed as "implemented."
+
+  - finding_id: RT1-ALARM-FATIGUE-02
+    severity: major
+    claim: >-
+      No cross-domain de-duplication is specified for the same physiology firing multiple domains at once. Vision
+      fixes "exactly three" cross-domain correlations (correlation-engine.md §1: Sepsis+AKI, Respiratory+Hemo,
+      Drug+Electrolyte). A single deteriorating septic-shock patient co-fires many alerts off ONE physiology
+      (hypotension / rising lactate / tachypnea): ALERT-EWS-NEWS2-DETERIORATION-01 + ALERT-EWS-TREND-RISING-02 +
+      ALERT-EWS-SOFA-03 + ALERT-SEPSIS-SCREEN-01 + ALERT-SEPSIS-ORGAN-02 + ALERT-SEPSIS-SHOCK-03 +
+      ALERT-HEMO-SHOCK-INDEX-01 + ALERT-HEMO-VASO-ESCALATION-03 + ALERT-HEMO-LACTATE-CLEARANCE-02. The pairs
+      Sepsis<->EWS, Sepsis<->Hemodynamics, and EWS<->Hemodynamics are NOT among the three correlations and have no
+      dedup, fold, or shared-physiology group anywhere. The fleet est_volume (137/100 beds/day) sums every alert
+      as if independent, so a crashing patient's push count multiplies uncontrolled.
+    falsifiable_check: >-
+      correlation-engine.md §1 lists only three clinical correlations (§4.1-4.3) plus one efficiency alert; grep
+      the plan for any "cross-domain dedup", "shared physiology", or suppression keyed across domains outside
+      those three — none exists (alert-engine.md §5 dedup_key is `mpi_id + alert_definition_id (+criterion)`,
+      i.e. WITHIN one definition only). Instantiate a septic-shock patient against the trigger logic of the nine
+      alerts above (all catalog triggers in _work/alerts/{early-warning-scores,sepsis,hemodynamics}.yaml) and
+      count concurrent fires: >5 urgent/critical pushes, zero folded (only Sepsis+AKI / Resp+Hemo folds exist,
+      neither matches this combination).
+    owning_doc: docs/plan/clinical/domains/correlation-engine.md
+    proposed_fix: >-
+      Specify a cross-domain shared-physiology suppression group (e.g. a "deterioration cluster" that folds
+      concurrent EWS/Sepsis/Hemodynamic pushes on one patient into a single richer escalation, max-severity
+      preserved), OR add the missing correlations, OR justify with per-patient co-fire arithmetic why the
+      un-correlated overlaps do not multiply the delivered push count.
+
+  - finding_id: RT1-ALARM-FATIGUE-03
+    severity: major
+    claim: >-
+      The correlation engine is billed as "the central alarm-fatigue lever" (correlation-engine.md §1, line 15)
+      carrying the ignored-rate from 25% to <=10%, but its own arithmetic cannot move the fleet by more than a
+      few percent. The three clinical correlations have est_volumes 2+1+1 = 4 firings/100 beds/day; each folds
+      ">= 2 members" (§5), so at most ~8 member pushes are folded — out of a fleet total of 137/100 beds/day
+      (< 6%). After adding the 6 correlation alerts back (2 of which, EXAM-REDUND, are net-additive), the NET push
+      reduction is roughly 0-2/100 beds/day. A <6% gross fold cannot plausibly deliver a 15-percentage-point
+      ignored-rate reduction (25%->10%); the claim in §5 ("replace ~9-10 member pushes") and §9 is unsupported and
+      the true mechanism for the target is unaccounted.
+    falsifiable_check: >-
+      Sum est_volume_per_100_beds_day across all 50 alerts in _work/alerts/*.yaml (= 137). Sum the three clinical
+      correlation volumes in _work/alerts/correlation-engine.yaml (SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 = 4);
+      multiply by the "folds >= 2" claim = <= 8 folded pushes. 8/137 = 5.8%. Compare against the 25%->10% target
+      (VIS-7.1-04) attributed to this engine in correlation-engine.md §1/§5/§9 — the fold is an order of magnitude
+      too small to produce that swing.
+    owning_doc: docs/plan/clinical/domains/correlation-engine.md
+    proposed_fix: >-
+      Re-scope the correlation engine's claimed contribution to a defensible number (~1-6% push reduction) and
+      identify the actual levers responsible for the remaining ignored-rate reduction (per-alert PPV gates,
+      watch/normal budget coalescing, tuning loop), or explicitly mark the 25%->10% target as not yet
+      mechanistically accounted for and route it to C3.
+
+  - finding_id: RT1-ALARM-FATIGUE-04
+    severity: major
+    claim: >-
+      Urgent/critical push clustering on the sickest patients is deliberately left unbounded and the fleet fatigue
+      targets never model it. alert-routing.md §4 states the load-bearing invariant that urgent/critical are NEVER
+      budget-suppressed, rate-limited, or coalesced (correct for safety) AND that "budget depletion correlates
+      with acuity — the sickest patients fire the most alerts." The only mechanism that could bound urgent/critical
+      concurrency (the correlation fold) covers three pairs only (see RT1-ALARM-FATIGUE-02). Therefore one
+      unstable patient can receive an unbounded stream of un-foldable urgent/critical interruptive pages, yet the
+      alarm-fatigue budget (<=10% ignored, VIS-7.1-04) and est_volume are stated only as fleet averages that never
+      model this per-patient concentration on one nurse's/one RRT's shift.
+    falsifiable_check: >-
+      alert-routing.md line 138 banner + §4.1 table confirm urgent/critical bypass every budget/rate-limit;
+      §140 acknowledges depletion correlates with acuity. Add up the per-patient rate_limits of the
+      urgent/critical alerts a shock patient can trip (e.g. SEPSIS-SHOCK-03 6/24h, HEMO-REFRACTORY-SHOCK-04
+      6/24h, HEMO-LACTATE-CLEARANCE-02 4/24h, HEMO-VASO-ESCALATION-03 4/24h, SEPSIS-ORGAN-02 3/24h,
+      EWS-NEWS2 …) — the sum exceeds 20/24h with no cross-alert per-patient ceiling on the paging tiers. No
+      artifact bounds or even estimates the per-patient urgent/critical daily load.
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Add a per-patient urgent/critical concurrency model (expected and worst-case pages/patient-day for a
+      decompensating patient) to alert-engine.md §5, and specify a same-physiology urgent/critical FOLD (upgrade
+      to one richer alert, never suppress — HAZ-026-safe) so the paging tiers are bounded without violating the
+      never-suppress-critical invariant.
+
+  - finding_id: RT1-ALARM-FATIGUE-05
+    severity: major
+    claim: >-
+      The coordinator tuning loop cannot fix the noisiest alerts because the highest-volume ones are
+      guideline-anchored / safety_critical and non-relaxable. US-25 ranks tuning by (lowest PPV x highest volume)
+      (ppv-ledger method.tuning_recommendation), but admin-config.md §4.1 forbids relaxing a safety_critical
+      alert below its published guideline value (US-25 AC5 / CON-0061) and clamps tuning to reference-safe ranges.
+      The top-volume alerts are exactly the ones this bars: ALERT-SEPSIS-SCREEN-01 (vol 7, PPV 0.60,
+      SIRS/qSOFA guideline-anchored), ALERT-RESP-ARDS-STAGING-01 (vol 7), ALERT-EWS-TREND-RISING-02 (vol 6),
+      ALERT-RESP-DETERIORATION-02 (vol 6). If any underperforms its PPV in production, the governance loop can
+      raise a "tune-me" recommendation it is then not permitted to act on by threshold change — the noisy alert
+      stays noisy, defeating the loop the plan relies on to hit the fatigue targets.
+    falsifiable_check: >-
+      admin-config.md §4.1 (constraint row line 21: "non-relaxable safety floor; safety-critical not silently
+      disabled") + ppv-ledger tuning_recommendation (line 73) which only offers "suggested threshold delta."
+      Cross-reference the safety_critical=true alerts and the top est_volume alerts: the guideline-anchored
+      sepsis/EWS/ARDS screens are simultaneously highest-volume and threshold-locked. No alternative remedy
+      (context-gating, denominator refinement, added specificity input) is specified for a noisy non-relaxable
+      alert.
+    owning_doc: docs/plan/design/screens/admin-config.md
+    proposed_fix: >-
+      Define the permitted remedies for a noisy alert whose threshold is locked at guideline (add specificity
+      inputs / context gates, refine the firing denominator, downgrade delivery tier without disabling, or a
+      RATIFY-level escalation path), and state which of the top-volume alerts are threshold-locked so the tuning
+      loop's reach is honest.
+
+  - finding_id: RT1-ALARM-FATIGUE-06
+    severity: minor
+    claim: >-
+      The FP/patient-day metric is deflated by the very fatigue it is meant to detect. method.denominator_rule
+      excludes never-acknowledged ("ignored") and "pending" alerts from the false_positive count ("Only
+      DISPOSITIONED alerts count toward PPV"). At initial deployment with heavy overload, alerts increasingly go
+      un-acknowledged and are classified "ignored" (feeds ignored_rate) rather than false_positive — so measured
+      FP/patient-day DROPS precisely as real alarm burden and fatigue RISE. PER-CARLOS-02 can therefore be met on
+      paper because clinicians stopped acknowledging, exactly the failure mode it should catch.
+    falsifiable_check: >-
+      ppv-ledger-draft.yaml lines 49 (denominator_rule) and 57-60 (ignored definition) confirm never-acked ->
+      "ignored", excluded from false_positive; line 66 fp_per_patient_day counts only false_positive. Construct a
+      scenario: raise volume, hold true FP rate constant, but drop ack-rate — false_positive count falls,
+      ignored_rate rises, fp_per_patient_day improves. The two DoD metrics move in opposite directions under
+      fatigue.
+    owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+    proposed_fix: >-
+      Gate PER-CARLOS-02 jointly with an ignored-rate ceiling (both must hold), or count a defined fraction of
+      never-acked high-tier alerts toward FP, so worsening fatigue cannot deflate the FP metric.
+
+  - finding_id: RT1-ALARM-FATIGUE-07
+    severity: minor
+    claim: >-
+      The sepsis-screen volume/PPV budget is epidemiologically optimistic and it is the single largest FP source.
+      ALERT-SEPSIS-SCREEN-01 budgets est_volume 7/100 beds/day at PPV 0.60, crediting the infection gate for
+      lifting specificity. But its infection gate is `cultura OR atb<24h OR suspeita documentada`, and empiric
+      broad-spectrum antibiotics are near-ubiquitous in ICU, so the gate is frequently open and the alert
+      collapses toward a near-pure SIRS/qSOFA screen — which in ICU fires far more than 7/100 beds/day at PPV
+      ~0.2-0.35 (the ledger's own SEP-001 carries ppv_target 0.55 and flags SIRS low specificity). At a realistic
+      2-3x volume and PPV ~0.35, this one alert alone contributes ~9-14 FP/100 beds/day, dominating the fleet FP
+      total.
+    falsifiable_check: >-
+      _work/alerts/sepsis.yaml ALERT-SEPSIS-SCREEN-01: trigger logic line 6 (`infection_present AND (qsofa>=2 OR
+      sirs_count>=2)`), infection gate includes `atb<24h`; ppv_budget est_volume 7 / target_ppv 0.60 (lines
+      35-36). Compare to published ICU SIRS/qSOFA screen firing rates and PPV (the est_volume rationale cites no
+      firing-rate source, only specificity caveats). No sensitivity analysis shows the fleet FP total if this
+      one alert runs at 2-3x volume / 0.35 PPV.
+    owning_doc: docs/plan/_work/alerts/sepsis.yaml
+    proposed_fix: >-
+      Cite an ICU sepsis-screen firing-rate/PPV reference for the est_volume, or widen est_volume to a validated
+      range and mark ALERT-SEPSIS-SCREEN-01 as the top day-1 tuning-priority alert with a pre-committed
+      context-gating remedy (since its guideline anchor bars threshold relaxation — see RT1-ALARM-FATIGUE-05).

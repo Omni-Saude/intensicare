@@ -1,0 +1,89 @@
+# Red-team round-1 fixes — agent F2 (engine/budgets)
+agent: F2
+round: 1
+findings:
+
+  - finding_id: RT1-PATIENT-SAFETY-01
+    status: fixed
+    where: "docs/plan/architecture/alert-engine.md §2.2 (new section: Build-time systemic-defect gates)"
+    note: >-
+      Added §2.2 'Build-time systemic-defect gates (CI-failing)' owned by the alert-definition
+      compiler. Gate A criterion-coverage: every declared criterion/input wired into the
+      trigger.logic AST, reachable (no structurally-always-false gate), and exercised by a can-fire
+      test vector — kills SYS-08 dead/unwired criteria and supplies the criterion-reachability/
+      coverage gate HAZ-009 cites of §2. Gate B band-partition/dead-code: exhaustive partition check
+      over every graded scale — no gaps, no overlaps, no unreachable band (empty-interval detection
+      kills the SYS-06 chained-comparison misparse), explicit closed/open edge semantics + a boundary
+      vector per band edge (kills SYS-07 off-by-one edges). Gate C facade==predicate: rendered
+      rationale/units/thresholds generated from the firing AST, drift is a build failure (kills
+      SYS-04); SYS-05 note covers the AND/OR-collapse via the declarative schema + Gate A. REQ rows
+      added: REQ-GATE-01/02/03 (requirement, verification incl. seeded-defect tests, owning
+      component = alert-definition compiler). Cross-references included: §2.1 units gate named as
+      the SYS-01/02/03 sibling; SYS-09/10 named as edge-parser duties of the ingestion normalize
+      stage (locale-aware decimal parsing, timezone-explicit absolute-instant windows), so every
+      SYS-01..10 class has exactly one owner. Hazard-log spec_ref repointing and check_links scope
+      extension were not in F2's assignment and remain with the safety-log owner; §2.2 now provides
+      the concrete anchor those spec_refs can point to.
+
+  - finding_id: RT1-ALARM-FATIGUE-04
+    status: fixed
+    where: "docs/plan/architecture/alert-engine.md §5.1 (new subsection) + §5 targets line"
+    note: >-
+      Added §5.1 'Per-patient urgent/critical concurrency model — what bounds the never-suppressed
+      tiers'. Explicit statement that fleet fatigue targets (VIS-7.1-04 ignored-rate; watch/normal
+      token budget) exclude urgent/critical by design and that PER-C-02 is a measurement gate, not a
+      throttle. Quantified from the ten alert catalogs: fleet expectation 73 urgent+critical
+      interruptive alerts/100 beds/day (critical 24 + urgent 49, of 137 total; mean ~0.7/patient-day,
+      heavy-tailed); expected pages per decompensating (septic-shock) patient-day ~10-16 before
+      folding / ~8-14 after (8-13 distinct urgent/critical definitions co-firing); worst case
+      bounded by per-definition rate_limits: Σ=50/24h for the septic-shock co-fire set, absolute
+      structural ceiling 93/24h across all 28 urgent/critical definitions (urgent 41 + critical 52)
+      — named as the C3 input for RRT pager-load sizing. Interaction with correlation folding stated:
+      only the three CORR pairs fold (~2-4 pages/day on the decompensating patient; ≤~8 member pushes
+      fleet-wide, <6%), Sepsis↔EWS / Sepsis↔Hemo / EWS↔Hemo explicitly NOT folded (open item owned
+      by correlation-engine.md, flagged not resolved). Also added the proposed_fix's same-physiology
+      urgent/critical FOLD as an HAZ-026-safe upgrade: concurrent same-physiology urgent/critical
+      firings deliver as ONE max-severity richer page (CON-0090 members listed), no member dropped/
+      delayed/demoted, severity increases always break through; bounding-summary list closes with
+      the PER-C-02 distribution gate cross-reference.
+
+  - finding_id: RT1-LAT-03
+    status: fixed
+    where: "docs/plan/_work/budgets/latency.yaml (number source) + docs/plan/architecture/observability-slo.md §3/§2/§1.1/§4.1 (render) + docs/plan/architecture/alert-engine.md §8/§8.1 (canonical prose)"
+    note: >-
+      latency.yaml: poll split into poll_nrt (1000ms, Redis/event pickup only — no Athena on the NRT
+      hot path) and poll_micro_batch (8000ms p95 Athena SELECT round-trip: queue + planning +
+      S3/Iceberg scan + fetch; STATED PLANNING ASSUMPTION for the narrow partition-pruned
+      high-watermark reads, to be replaced by pilot-measured p95, breach re-opens C3). Owned-pipeline
+      sums recomputed and stated per path in budget_check: NRT 9000ms, micro-batch 16000ms, both
+      within the 30000ms VIS-C-09 ceiling (headroom 21s/14s); MVP evaluate re-scope now per path
+      (NRT 23000ms / micro-batch 16000ms) so each path's MVP column sums to exactly 30000ms; note
+      records that the expedited electrolyte CRIT cadence (~1-2min) is the trigger interval with the
+      8s per-poll cost inside it — no longer under-budgeted. observability-slo.md §3 table mirrors
+      rows 1a/1b + per-path Σ rows + per-path checks + batch-path bullet (30min + 16s), render-only
+      with latency.yaml as the number source (B3-005 note extended); §1.1 stage attribute enum and
+      §2 SLO row updated to match; §4.1 340ms figure relabelled last_probe_latency_ms with an
+      explicit statement that connectivity-probe latency is not a data-poll round-trip. alert-engine
+      §8 resolution bullet + §8.1 stage table updated identically (canonical prose).
+
+  - finding_id: RT1-ALARM-FATIGUE-01
+    status: fixed
+    where: "docs/plan/_work/budgets/ppv-ledger-draft.yaml (fleet_targets + method.formulas) + docs/plan/product/product-spec.md §3.1 PER-CARLOS-02 row + docs/plan/delivery/validation-plan.md §3 M4 support cell and §6 FP-guardrail row"
+    note: >-
+      PER-CARLOS-02 (CON-0088, '<3 falsos positivos por paciente-dia') re-operationalized as a
+      per-patient-day DISTRIBUTION metric, identical in all three artifacts: over (mpi_id,
+      calendar_day) patient-day cells from the occupancy census, (i) share of patient-days with >3
+      dispositioned FP <= 5% (fp_patient_day_gt3_share) AND (ii) p95 of dispositioned-FP count per
+      patient-day < 3 (fp_patient_day_p95); FP = dispositioned false positive per the existing
+      method.classification. The fleet mean (false_positive/patient_days, fp_per_patient_day) is
+      retained as a DIAGNOSTIC trend only and explicitly marked NOT the PER-CARLOS-02 gate
+      (structurally blind to concentration on the sickest patients). ppv-ledger fleet_targets
+      replaced fp_per_patient_day_max:3 with fp_patient_day_p95_max:3 +
+      fp_patient_day_gt3_share_max:0.05; method.formulas define the three quantities. product-spec
+      metric row and validation-plan instrumentation rows restated with the same two-gate
+      definition and formula names. Consistency renders in files F2 already owned this round:
+      observability-slo.md §2 FP row and alert-engine.md §5 targets line + §5.1 now cite the
+      distribution form. The alert-routing.md §4.1 CON-0088-citation severing (loudness-budget
+      rename) is outside F2's file set and remains with the alert-routing owner; alert-engine §5.1
+      already states the watch/normal token budget is a low-tier delivery mechanism distinct from
+      the PER-C-02 measurement gate.

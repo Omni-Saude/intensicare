@@ -59,7 +59,9 @@ mg/dL↔mmol/L conversions (Brazilian labs vary), and it explicitly forbids prop
 | `glicemia` | quantity | `mg/dL` | lab_result (glucose) |
 | `creatinina` | quantity | `mg/dL` | lab_result LOINC 2160-0 |
 | `qtc` | quantity | `ms` | Observation ECG QTc LOINC 44974-4 |
-| `delta_k_24h`, `delta_na_24h` | quantity | `mmol/L` (derived over 24h) | derived from serial results |
+| `delta_k_24h` | quantity | `mmol/L` (trailing 24h delta) | derived from serial results |
+| `delta_na_24h_trailing` | quantity | `mmol/L` (trailing: `sodio_atual − sodio_24h_atras`) | derived — **`ALERT-ELY-SODIUM-01` only** |
+| `correcao_na_24h_from_nadir` | quantity | `mmol/L` (from nadir: `sodio_atual − sodio_nadir_24h`) | derived — **`ALERT-ELY-SODIUM-CORRECTION-02` only** |
 | `digoxina_ativa` | boolean | `boolean` | MedicationAdministration |
 | `medicamento_hipercalemiante_ativo` | boolean | `boolean` | MedicationAdministration (list below) |
 | `furosemida_dose_alta` | boolean | `boolean` | MedicationAdministration |
@@ -114,10 +116,10 @@ PAIRED (digoxin): digoxina_ativa AND (potassio > 6.0 OR potassio < 3.0)
 Glucose correction: sodio_corrigido = sodio + 0.024*(glicemia - 100)  when glicemia > 100 mg/dL
 HYPER: critical  sodio > 160 mmol/L
        urgent    sodio > 155 mmol/L (<= 160)
-       watch     sodio > 150 mmol/L AND delta_na_24h > 5 mmol/L (rising)
+       watch     sodio > 150 mmol/L AND delta_na_24h_trailing > 5 mmol/L (rising)
 HYPO:  critical  sodio < 120 mmol/L
        urgent    sodio < 125 mmol/L (>= 120)
-       watch     sodio < 130 mmol/L AND delta_na_24h <= -5 mmol/L (acute fall)
+       watch     sodio < 130 mmol/L AND delta_na_24h_trailing <= -5 mmol/L (acute fall)
 ```
 
 - **>160 crit / >155 urgent; <120 crit / <125 urgent** — ESICM/ESE/ERBP 2024 dysnatraemia consensus;
@@ -132,8 +134,8 @@ HYPO:  critical  sodio < 120 mmol/L
 ### 3.3 Sodium correction rate — `ALERT-ELY-SODIUM-CORRECTION-02` (safety)
 
 ```
-critical  delta_na_24h > 10 mmol/L in 24h    (exceeds osmotic-demyelination ceiling)
-urgent    delta_na_24h >  8 mmol/L in 24h     (approaching ceiling)
+critical  correcao_na_24h_from_nadir > 10 mmol/L in 24h    (exceeds osmotic-demyelination ceiling)
+urgent    correcao_na_24h_from_nadir >  8 mmol/L in 24h     (approaching ceiling)
 highest concern when the 24h nadir sodium < 130 mmol/L (chronic hyponatremia being corrected)
 ```
 
@@ -141,6 +143,15 @@ highest concern when the 24h nadir sodium < 130 mmol/L (chronic hyponatremia bei
   (MUST NOT correct hyponatremia faster than 8-10 mmol/L per 24 h — risco de mielinólise pontina / síndrome de
   desmielinização osmótica). Kept as a **separate** alert because its clinical action (stop/relower, DDAVP)
   differs from the absolute-value alert and its **absence** is what kills — it is the domain's safety net.
+- **Baseline MUST be the 24 h nadir, never the trailing delta (deterministic-baseline law).** This alert consumes
+  **`correcao_na_24h_from_nadir` = `sodio_atual − sodio_nadir_24h`**, a **distinct named quantity** from the
+  **`delta_na_24h_trailing` = `sodio_atual − sodio_24h_atras`** that `ALERT-ELY-SODIUM-01` uses. The two MUST NOT
+  be collapsed into one shared `delta_na_24h` value: an over-rapid rise off the 24 h nadir is the
+  osmotic-demyelination hazard **even when the trailing 24 h delta is flat or negative**. Worked case — Na
+  **140 → 120 → 132**: the from-nadir correction is **+12** (120 → 132) and fires **critical**, while the trailing
+  delta is **−8** (132 − 140), a net fall that would silently miss the overcorrection. Sharing one name is exactly
+  the **HAZ-031** deterministic-baseline violation that hands this safety net the wrong baseline and can miss an
+  ODS-range correction (**HAZ-032**).
 
 ### 3.4 Ionized calcium — `ALERT-ELY-CALCIUM-01`
 
@@ -265,8 +276,10 @@ so there is no mandatory-RATIFY rule; the only pending decisions are RAT-ELY-01 
 - **OQ-2 (osmolality unit).** `mOsm/kg` is absent from the registry, so plasma osmolality is not a typed input
   (glucose correction is used instead). Register `osmolalidade` (canonical mOsm/kg) to enable
   pseudo/translocational-hyponatremia discrimination.
-- **OQ-3 (delta baselines).** vision open question: which field/timestamp anchors `delta_k_24h` / `delta_na_24h`
-  and the sodium 24 h nadir. This spec assumes serial `lab_result` rows in AMH Gold with per-analyte timestamps;
+- **OQ-3 (delta baselines).** vision open question: which field/timestamp anchors `delta_k_24h`,
+  `delta_na_24h_trailing` (trailing `sodio_atual − sodio_24h_atras`) and `correcao_na_24h_from_nadir`
+  (the sodium 24 h nadir). The two sodium baselines are **distinct quantities** and MUST resolve separately
+  (§3.3, HAZ-031). This spec assumes serial `lab_result` rows in AMH Gold with per-analyte timestamps;
   the exact lookback resolver is a downstream data-model decision (mirrors the AKI baseline resolver).
 
 ---
@@ -285,7 +298,8 @@ inputs:
   - {name: creatinina, type: quantity, unit: "mg/dL", source: "AMH Gold lab_result LOINC 2160-0 (CKD / tumor-lysis context)"}
   - {name: qtc, type: quantity, unit: "ms", source: "AMH Gold Observation ECG QTc LOINC 44974-4"}
   - {name: delta_k_24h, type: quantity, unit: "mmol/L", source: "derived (potassio_atual - potassio_24h_atras)"}
-  - {name: delta_na_24h, type: quantity, unit: "mmol/L", source: "derived (sodio_atual - sodio_nadir_24h)"}
+  - {name: delta_na_24h_trailing, type: quantity, unit: "mmol/L", source: "derived (sodio_atual - sodio_24h_atras); ALERT-ELY-SODIUM-01 only — trailing 24h delta"}
+  - {name: correcao_na_24h_from_nadir, type: quantity, unit: "mmol/L", source: "derived (sodio_atual - sodio_nadir_24h); ALERT-ELY-SODIUM-CORRECTION-02 only — MUST use the 24h nadir baseline (HAZ-031/HAZ-032)"}
   - {name: digoxina_ativa, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration"}
   - {name: medicamento_hipercalemiante_ativo, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration (espironolactona/eplerenona/IECA/BRA/TMP-SMX/heparina/succinilcolina)"}
   - {name: furosemida_dose_alta, type: boolean, unit: "boolean", source: "AMH Gold MedicationAdministration"}

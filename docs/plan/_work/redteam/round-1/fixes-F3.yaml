@@ -1,0 +1,104 @@
+agent: F3-platform
+findings:
+  - finding_id: RT1-LAT-01
+    status: fixed
+    where:
+      - docs/plan/_work/adrs/operational-vitals-ingress.md
+      - docs/plan/architecture/system-architecture.md
+      - docs/plan/architecture/alert-engine.md
+      - docs/plan/_work/platform/amh-freshness.yaml
+      - docs/plan/_work/coverage/adr001-map.yaml
+    note: >-
+      Authored the clarifying ADR draft operational-vitals-ingress.md (RAT-INGRESS-01, status:
+      proposed-clarification of ADR-001, pending platform-team ratification by CTO Office + AMH Engineering).
+      The ONE story: bedside-monitor vitals reach the OPERATIONAL store via the existing Phase-1 HL7 MLLP
+      listener (operational ingress, ORU-R01, idempotent on MSH-10 per INV-2); ADR001-C-01's "no own
+      ingestion / Athena-only" is scoped to ANALYTICAL + clinical-context data (labs/meds/demographics/
+      documents = Athena/Gold only); Gold remains the SOLE analytical source and the same vitals are ALSO
+      replayed from Gold for retrospective scoring + fact_* write-back. Propagated the single narrative:
+      system-architecture.md §1 framing + §3.3 rewritten from "unresolved/routed to §6" to the sanctioned
+      (pending-ratification) ingress section; alert-engine.md §1.2 retitled and rewritten from "record and
+      route rather than decide" to reference the ADR as the resolution; amh-freshness.yaml vitals_operational
+      annotated (ingress_class/role/adr_scope_note) and vitals_gold fallback de-"Interim"-ed to the sanctioned
+      resolution; adr001-map.yaml ADR001-C-01 now carries counter_adr -> the ADR draft plus clarified_in ->
+      the §3.3 anchor, keeping the §3 honored_by. Contradiction (unresolved + committed + silent re-scope)
+      removed.
+  - finding_id: RT1-LAT-04
+    status: fixed
+    where:
+      - docs/plan/architecture/system-architecture.md
+    note: >-
+      Added §3.4 "Athena poll-concurrency budget (240-bed / 4-hospital tier)": quantifies peak concurrent
+      Athena queries (concurrency scales with domains x tenants/workgroups, not beds — expected steady-state
+      ~5-15 in-flight, bursts ~20-30 when expedited electrolyte polls align) against the regional Athena
+      concurrent-DML quota (low tens, soft/raise-able), flagged as a negotiated AMH dependency. Consolidation
+      strategy: (1) per-domain query batching (one partition scan per unit/tenant per tick, never per bed),
+      (2) per-tenant Athena workgroup isolation via Lake Formation ABAC (ADR001-C-07), (3) cadence backpressure
+      widening low-acuity domains first. Tied the expedited ~1-2min electrolyte cadence to proven headroom or
+      best-effort with §6 T2 as mitigation; recorded as OQ-5 in §10.
+  - finding_id: RT1-LAT-06
+    status: fixed
+    where:
+      - docs/plan/architecture/system-architecture.md
+      - docs/plan/architecture/alert-engine.md
+    note: >-
+      Rewrote §6.1 decision-table T1 to make "the MLLP path cannot close it" telemetry-observable: trigger on
+      EITHER (a) vitals ingest->alert p95 > 30s (VIS-C-09) sustained over a rolling 7-day window while the MLLP
+      feed is healthy, OR (b) MLLP feed unavailable > 0.5% of monitored bed-hours over the same 7-day window
+      (mirrors the inherited 99.5% availability floor, ADR001-C-10). Both conjuncts read from metrics already
+      emitted (stage:* latency histograms; healthcheck_probe_result + MLLP-listener liveness). Removed the stale
+      "§3.3 option 1" cross-ref; noted dependence on RAT-INGRESS-01. Updated §10 OQ-1 and alert-engine.md §1.2
+      to the fuller T1 definition.
+  - finding_id: RT1-AMH-01
+    status: fixed
+    where:
+      - docs/plan/_work/platform/amh-freshness.yaml
+    note: >-
+      Split the load-bearing bed/unit ASSIGNMENT out of the 24h-tolerant mpi_demographics into a new
+      bed_unit_assignment source: ADT-event-driven (source_of_record = AMH movimentacao-adt stream resolved
+      into patient_cache.bed_id/unit), minutes-level freshness (~2min of an admit/transfer/discharge event,
+      staleness_max 15min), declared load-bearing for threshold resolution (bed>unit>tenant, alert-engine §6)
+      and OWNER/COVERING routing (setor, alert-routing §3.1). Fail-safe fallback when ADT is stale: route at
+      UNIT level + parallel hospital-wide RESPONDER (degrade wider), most-conservative threshold band, visible
+      "leito/unidade desatualizado" flag; REQ-AMH-ASSIGN-01 forbids sole-routing/sole-thresholding a critical
+      alert on a stale assignment. mpi_demographics narrowed to advisory demographics (name/gender/birth_date)
+      only, feeds_domains reduced to [identity].
+  - finding_id: RT1-AMH-02
+    status: fixed
+    where:
+      - docs/plan/_work/platform/amh-freshness.yaml
+    note: >-
+      Tightened labs_electrolytes staleness_max_for_alerting from 1h to 30min (<= Gold batch worst case,
+      ADR001-F-02), with staleness_max_for_alerting_crit = 15min for CRIT analytes (K+ > 6.5, severe Na+).
+      Added possible_newer_result_pending: a "resultado mais recente pode estar pendente" caveat state for the
+      staleness indicator spec (command-center §6) whenever last-seen age approaches the expected batch cadence,
+      distinct from the past-staleness_max stale badge. Recorded the residual MVP risk against MOT-11 rather
+      than implying on-result latency; kept it flagged as the strongest Alternativa-B candidate (§6 T2).
+  - finding_id: RT1-LAT-02
+    status: fixed
+    where:
+      - docs/plan/architecture/observability-slo.md
+    note: >-
+      Rewrote §4.2 escalation so the dead-man page routes through a path INDEPENDENT of IntensiCare's own
+      Tier-1 delivery layer and of AMP evaluation: canary/Lambda emits directly to an independent SNS -> pager
+      channel sharing no component with ARQ/Redis/WS or AMP (REQ-INV-5-S1), so the page arrives even when the
+      whole delivery layer and AMP are down. Added a no-data alarm on healthcheck_probe_result absence
+      (>2 probe intervals / >60s) evaluated out-of-band of AMP (REQ-INV-5-S2). Demoted the OTEL->AMP emission
+      to a secondary human-visibility path, never the sole route to the page. Added §4.2.1 failure-domain
+      analysis table ("what watches the watcher"): SNS-side dead-man timer on the probe stream + canary/SNS in
+      a separate AWS account/paired Region. Updated the §8 REQ-INV-5 chaos test to assert the out-of-band page
+      survives killing the delivery layer AND AMP.
+  - finding_id: RT1-LAT-05
+    status: fixed
+    where:
+      - docs/plan/architecture/observability-slo.md
+    note: >-
+      Added §6.1 "Alert-storm capacity & latency" at >=500 alerts/min + an all-beds-critical burst (240-bed
+      tier, ~240 near-simultaneous criticals). Sized each storm stage: ARQ workers (>=2-4 hold >=500/min, ~8-12
+      clear the burst); a dedicated critical-tier ARQ queue so low-tier backlog never head-of-line-blocks a
+      critical page (deliver p95 <2s, RRT push <5s held); Redis single-node ~O(10^4) pub/sub msg/s with Cluster
+      as the pre-provisioned next lever; WebSocket grid-update coalescing to bound frame amplification.
+      Specified per-source storm detection (>20 critical/60s from one source -> ONE operational page instead of
+      N, all N still recorded/audited, never per-patient suppression). Stated the 9s budget's validity range vs
+      arrival rate. Updated §6 lever 2 (now cites §6.1 fan-out number) and §9 open-reconciliations; added a
+      storm load-test to the §6 load-test requirement.

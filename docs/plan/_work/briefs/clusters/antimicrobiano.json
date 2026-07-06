@@ -1,0 +1,120 @@
+{
+  "brief_id": "cluster-antimicrobiano",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/antimicrobiano.yaml",
+    "lines": 160,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/antimicrobiano.yaml",
+      "line_ranges": "1-160"
+    }
+  ],
+  "facts": [
+    {
+      "id": "CLU-ANTIMICROBIANO-01",
+      "claim": "Active alert (RULE-ANTIMICROBIANO-001) maps 5 criteria flags (3,4,5,6,8) to VERMELHO/AMARELO/NEUTRO enum; VERMELHO if 4 or 8, AMARELO if 3,5,6, else NEUTRO. On NEUTRO, assistido→False.",
+      "kind": "threshold",
+      "source_ref": "RULE-ANTIMICROBIANO-001"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-02",
+      "claim": "Stewardship pathway (RULE-ANTIMICROBIANO-003) defines 12 criteria: duration >7d, short-spectrum + internacao >48h, weight/renal dose adjust, CVC >7d + fever, empiric echinocandin, cultures, CAP/COVID (PCR <100).",
+      "kind": "care-pathway",
+      "source_ref": "RULE-ANTIMICROBIANO-003"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-03",
+      "claim": "CVC re-evaluation threshold: fever 38.3°C (IDSA definition). Dwell >7 days + fever → removal/exchange + paired blood cultures (bacterial x2).",
+      "kind": "threshold",
+      "source_ref": "RULE-ANTIMICROBIANO-003, IDSA 2009"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-04",
+      "claim": "Empiric echinocandin (Anidulafungina/Micafungina/Caspofungina) for candidemia. Dual workup paths (criterio_9: full bacterial+fungal; criterio_10: fungi-only) share same alerta label but differ in scope.",
+      "kind": "vocabulary",
+      "source_ref": "RULE-ANTIMICROBIANO-003, IDSA 2016"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-05",
+      "claim": "3 rules: 2 OK (VERIFIED), 1 AMBIGUOUS dead-code variant. Histogram: 1 VERIFIED (ADOPT), 2 NOT_APPLICABLE. All decision-tree type.",
+      "kind": "metric",
+      "source_ref": "antimicrobiano.yaml"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-06",
+      "claim": "Dose tables (weight criterio_3, renal criterio_4) stored as S3 PNG, not inline. Exceptions: Polimixina B, Linezolida, Oxacilina, Tigeciclina, Clindamicina skip renal adjust.",
+      "kind": "policy",
+      "source_ref": "RULE-ANTIMICROBIANO-003"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "CLU-ANTIMICROBIANO-C-01",
+      "text": "MUST preserve PT-BR vocabularies: VERMELHO/AMARELO/NEUTRO; criterio_N; payload_trilha_antimicrobiano; PAC, COVID-19.",
+      "type": "vocabulary",
+      "source_ref": "RULE-ANTIMICROBIANO-001/003"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-C-02",
+      "text": "MUST retire RULE-ANTIMICROBIANO-002 (calcular_alerta dead code, unreachable). RULE-ANTIMICROBIANO-001 (calcular_alerta_v2) is sole active path.",
+      "type": "invariant",
+      "source_ref": "RULE-ANTIMICROBIANO-001/002"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-C-03",
+      "text": "MUST resolve visibility gap: 12 criteria defined (RULE-ANTIMICROBIANO-003) but only 3,4,5,6,8 surfaced in TrilhaAntimicrobianoModel.get_detalhe(). V2 must define authoritative rendering scope.",
+      "type": "policy",
+      "source_ref": "RULE-ANTIMICROBIANO-003"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-C-04",
+      "text": "MUST migrate dose tables (criterio_3 weight, criterio_4 renal) from S3 PNG to versioned inline lookup (clinical/domains/pharmaco). Document exception drugs: Polimixina B, Linezolida, Oxacilina, Tigeciclina, Clindamicina (no renal adjust).",
+      "type": "unit",
+      "source_ref": "RULE-ANTIMICROBIANO-003"
+    },
+    {
+      "id": "CLU-ANTIMICROBIANO-C-05",
+      "text": "MUST preserve candidemia workup duality (criterio_9: full diagnostic; criterio_10: fungi-only) as distinct rules or branching. Same alerta label masks different workup scopes.",
+      "type": "policy",
+      "source_ref": "RULE-ANTIMICROBIANO-003"
+    }
+  ],
+  "open_questions": [
+    "S3 PNG dose tables: version-control strategy (git vs manual S3 update)?",
+    "criterio_1 >7d: hard threshold or decision-support? Reset on spectrum change?",
+    "Visibility: surface all 12 criteria or maintain 3,4,5,6,8 split?",
+    "RULE-ANTIMICROBIANO-002 criterios==3 gap: known defect or audit discovery?"
+  ],
+  "domains": [
+    "pharmaco",
+    "governance",
+    "platform",
+    "hemodynamics",
+    "electrolyte"
+  ],
+  "systemic_issues": [
+    {
+      "issue": "Dead-code alert path",
+      "rule_ids": ["RULE-ANTIMICROBIANO-002"],
+      "category": "dead-code"
+    },
+    {
+      "issue": "Criteria visibility mismatch (12 defined, only 3,4,5,6,8 rendered)",
+      "rule_ids": ["RULE-ANTIMICROBIANO-003"],
+      "category": "scope-drift"
+    },
+    {
+      "issue": "Dose tables as S3 PNG (not version-controlled)",
+      "rule_ids": ["RULE-ANTIMICROBIANO-003"],
+      "category": "infrastructure"
+    },
+    {
+      "issue": "Echinocandin workup duality (criterio_9/10 same label, different scope)",
+      "rule_ids": ["RULE-ANTIMICROBIANO-003"],
+      "category": "semantic-overlap"
+    }
+  ]
+}

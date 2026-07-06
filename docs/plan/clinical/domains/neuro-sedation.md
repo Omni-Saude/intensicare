@@ -229,19 +229,23 @@ Reconciles nothing in the DEL-\* catalog (**new**). Evidence: Mirrakhimov 2015 (
 inert. This is a *safety-lab-gap* alert (prompts CPK / transaminases / triglycerides + lactate/pH review), not a PRIS
 diagnosis.
 
-### 3.8 Uncontrolled pain — `ALERT-NEUROSED-PAIN-08` (severity: watch)
+### 3.8 Uncontrolled pain — `ALERT-NEUROSED-PAIN-08` (severity-scaling: watch → **urgent**)
 
 ```
-uncontrolled_pain :=
-    ( escala_dor_numerica >= 4                          # VISUAL/NRS moderate-severe; RULE-SEDACAO-001/002 ADOPT
-      OR (3 <= escala_dor_comportamental AND escala_dor_comportamental >= 7) )  # BPS >=7 (COMPORTAMENTAL)
-    on TWO consecutive fluid-balance records            # two-consecutive-confirmation; RULE-SEDACAO-001/002
+uncontrolled_pain :=                                    # severity-scaling; output = worst band. PENDING SAFETY-OFFICER RE-CHECK (R2)
+    MODERATE (watch):  (4 <= escala_dor_numerica <= 6) OR (7 <= escala_dor_comportamental <= 9)
+    SEVERE   (urgent): (escala_dor_numerica >= 7)      OR (escala_dor_comportamental >= 10)   # NRS 7–10 / BPS 10–12
+    both bands confirmed on TWO consecutive fluid-balance records   # two-consecutive-confirmation; RULE-SEDACAO-001/002
 ```
 Reconciles nothing in the DEL-\* catalog (**new** — analgesia pillar). Evidence: PADIS 2018 pain-assessment standard;
 Payen 2001 (BPS). Dual-scale bands carried verbatim from `RULE-SEDACAO-001` (moderate: VISUAL 4–6 / BPS 7–9) and
 `RULE-SEDACAO-002` (severe: VISUAL 7–10 / BPS 10–12); both require the condition true on **two consecutive** balances
-before firing (a built-in PPV protection). Severe-band text may escalate the advisory but the alert severity stays
-watch (pain is not an imminent-life-threat class).
+before firing (a built-in PPV protection). The severe band now emits a **distinct urgent escalation** (ack < 30 min;
+scale maximums **NRS 10 / BPS 12 MUST fire it**) — restoring the escalation that was lost when severe pain was folded
+into watch; moderate pain stays watch. Bands are `low ≤ x ≤ high`, never the `7 <= dor > 10` / `10 <= sinais > 12`
+chained-comparison misparse that silently suppressed the severe grade (SYS-06 / P0-04 / P0-05). This reinstates the
+domain's flagged *single genuine clinical loss* (severe uncontrolled pain) and is the conservative option adopted in
+red-team round 1 — **pending safety-officer re-check (R2)**.
 
 ---
 
@@ -262,8 +266,8 @@ watch (pain is not an imminent-life-threat class).
 | Iatrogenic-delirium risk | BZD infusion + age > 65 + RASS ≤ −2 | Devlin 2018 (PADIS, avoid BZD) | DEL-003 (catalog) |
 | PRIS exposure | propofol continuous > 96 h | Mirrakhimov 2015; Devlin 2018 | RULE-SEDACAO-012 **ADOPT** (fixes `trigliceres` typo) |
 | PRIS safety labs | CPK, TGO/TGP, triglycerides in 48 h | Mirrakhimov 2015 | RULE-SEDACAO-012 **ADOPT** |
-| Pain — moderate | VISUAL 4–6 / BPS 7–9 (2 consecutive) | Devlin 2018; Payen 2001 (BPS) | RULE-SEDACAO-001 **ADOPT** |
-| Pain — severe | VISUAL 7–10 / BPS 10–12 (2 consecutive) | Devlin 2018; Payen 2001 | RULE-SEDACAO-002 **ADOPT** |
+| Pain — moderate (**watch**) | VISUAL 4–6 / BPS 7–9 (2 consecutive) → watch | Devlin 2018; Payen 2001 (BPS) | RULE-SEDACAO-001 **ADOPT** |
+| Pain — severe (**urgent**, restored escalation, pending R2) | VISUAL 7–10 / BPS 10–12 (2 consecutive) → urgent | Devlin 2018; Payen 2001 | RULE-SEDACAO-002 **ADOPT** |
 | NMBA-de-escalation (delegated → respiratory) | P/F > 150 + rocuronium/cisatracurium | Papazian 2010 (ACURASYS); Moss 2019 (ROSE) | RULE-SEDACAO-007 **ADOPT** (`respiratory.md`) |
 | Overdose / high-dose (NOT ported) | ml/h infusion volume | none (UNVERIFIABLE) | RULE-SEDACAO-005/010/015 → **RAT-SEDACAO-01/03** |
 

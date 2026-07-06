@@ -1,0 +1,235 @@
+round: 1
+fixer: F4
+role: security/data
+owned_docs:
+  - docs/plan/design/screens/alert-routing.md
+  - docs/plan/architecture/security-lgpd.md
+  - docs/plan/architecture/data-model.md
+summary: >-
+  Applied the full proposed_fix for 6 adjudicated round-1 findings within the three F4-owned docs.
+  RT1-SEC-01 (critical) made the RRT web-push PHI-free + non-identifying and split dispatch from
+  content-load latency; RT1-UX-01 named/owned the roster source (local rrt_rotation table);
+  RT1-SEC-04 added the one enumerated least-privilege cross-unit RRT scope; RT1-SEC-02 added the
+  versioned append-only alert_enablement entity + audit wiring; RT1-SEC-03 encrypted birth_date;
+  RT1-COMP-02 (alert-routing.md portion only) added the A11Y-GATE checklist subsection. The
+  routing-ladder machine block was edited and re-verified to parse as YAML.
+
+fixes:
+  - finding_id: RT1-SEC-01
+    severity: critical
+    verdict: CONFIRMED
+    owning_doc: docs/plan/design/screens/alert-routing.md
+    status: fixed
+    proposed_fix: >-
+      Make the push payload PHI-free (severity band + opaque deep-link token only per I11); render
+      score/trend/vitals only inside the en-route responder view after in-app OIDC authN; reconcile
+      every place the doc + routing-ladder machine block describe push content; note the latency
+      implication (payload fetch after tap) against the <5s dispatch SLA.
+    files_changed:
+      - docs/plan/design/screens/alert-routing.md
+      - docs/plan/architecture/security-lgpd.md
+    applied: >-
+      The web-push page is now PHI-free AND non-identifying — severity band + generic label ("novo
+      alerta crítico") + opaque deep-link token ONLY; NO score, trend, Estabelecimento/Setor/Leito
+      location, vitals, or patient name on the lock screen (bed+unit+time re-identifies the ICU
+      patient pre-authN). All clinical content renders only inside the authenticated PWA after one
+      OIDC tap; the opaque token resolves the patient server-side post-auth. Latency reconciled: the
+      <5s SLA measures DISPATCH = push-receipt (deliver p95 2s, still met by the smaller body); the
+      post-tap authenticated content fetch adds a SEPARATE content-load p95 (budget <=2s, stated as
+      an addition, RATIFY at C3), not inside the dispatch SLA.
+    edits:
+      alert-routing.md:
+        - "§0: added a 'PHI-free notifications (lock-screen safety)' design-frame LAW bullet"
+        - "§1.1 R3 bullet: page is PHI-free; en-route view fetched server-side post-authN; PER-RAFAEL-02 = post-auth completeness"
+        - "§5.1 Transport bullet: rewrote to severity+label+opaque-token-only body; 'one authenticated tap to the complete card'"
+        - "§5.1 Latency bullet: split dispatch (push-receipt, <5s) vs post-tap content-load p95 (<=2s addition)"
+        - "§11 persona Rafael: PHI-free page -> complete card after authenticated tap"
+        - "§14 constraints table: added PHI-free push payload row (RT1-SEC-01)"
+        - "routing-ladder block: R3 row gained phi_free_push/push_payload/dispatch_sla_measures/content_load_post_authn_p95; added INV-ROUTE-09"
+      security-lgpd.md:
+        - "I11 STRIDE row: payload = severity band + opaque deep-link token only, no PHI/locator pre-authN; contract-tested by REQ-INV-4-S3"
+        - "§3.3 Egress minimization: notifications carry severity band + opaque token only"
+        - "REQ-INV-4-S3: strengthened to assert the VAPID push body has no clinical fields AND no bed/unit locator"
+    cross_doc_followups:
+      - "alert-triage.md §1.1.3 (owner: alerting-ux-specialist) — reconcile lock-screen payload wording to PHI-free"
+      - "product/journey-maps.md MOT-14/MOT-15 (owner: journey author) — replace 'lock-screen payload: score/trend/location' + 'complete without unlocking' with 'one authenticated tap to the complete card'"
+      - "REQ-INV-4-S3 contract test asserting the VAPID push body carries no clinical fields is registered in security-lgpd.md §7 (owned, done)"
+    verification: >-
+      routing-ladder YAML re-parses with R3.phi_free_push=true and INV-ROUTE-09 present; alert-routing
+      §0/§1.1/§5.1/§11 and security-lgpd I11/§3.3/REQ-INV-4-S3 now agree that no PHI or bed/unit
+      locator crosses the pre-authN push. No contradiction remains between the two F4-owned docs.
+
+  - finding_id: RT1-UX-01
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/design/screens/alert-routing.md
+    status: fixed
+    proposed_fix: >-
+      Name and own an on-call/roster/rotation source with a freshness SLA; add a dead-man on
+      empty/stale rotation; keep narrowing gated on ratification; make the MVP broadcast fallback an
+      explicit tested guarantee.
+    applied: >-
+      Named + owned the source as a LOCAL, tenant-scoped rrt_rotation / on-call table (v2 mechanism),
+      admin-maintained via admin-config with audited (INV-1, append-only) changes — the same
+      versioned-config pattern as threshold_config/alert_enablement. Added a freshness SLA (valid only
+      for the named shift; refresh before each shift boundary; lapsed window = stale) and a
+      provably-non-empty dead-man over the RESPONDER/RRT rotation (empty OR stale window pages
+      operations/coordinator before a critical needs the rung; R3 falls back to backup tier + audible
+      board). AMH staff-directory integration recorded as a FUTURE ADR (not an MVP dependency).
+      Live-presence signal remains the sole ratification-gated input; narrowing stays gated, broadcast
+      fallback stays live.
+    edits:
+      alert-routing.md:
+        - "§3.1.1: new subsection naming/owning the local rrt_rotation table, freshness SLA, dead-man, future AMH-directory ADR, presence-stays-open"
+        - "§3.2 Degrade-WIDER bullet: source now owned; only live-presence remains ratification-gated"
+        - "§5.3 dead-man: reads the audited rotation table vs wall-clock shift + freshness SLA; empty OR stale trips it"
+        - "§14 open recon. 1: reworded to 'live-presence signal'; source half resolved (RT1-UX-01)"
+        - "§14 constraints table: added rrt_rotation source row"
+        - "routing-ladder block: added INV-ROUTE-10 (owned rotation source + dead-man + gated presence); open_reconciliations updated"
+    cross_doc_followups:
+      - "amh-freshness.yaml (owner: amh-integration) — OPTIONAL future: register the AMH staff-directory sync source when the ADR is ratified; MVP uses the local table (no amh-freshness entry needed for v2)"
+      - "admin-config.md (owner: alerting-ux-specialist) — surface the rrt_rotation admin-maintenance UI + audited changes (governance parity with threshold_config)"
+      - "data-model.md — rrt_rotation persistence follows the same INV-1 versioned-config pattern; concrete DDL deferred (F4 data-model scope was RT1-SEC-02/03 per task); flagged for data-architect"
+    verification: >-
+      The top unowned dependency is now owned in-doc; §3.1.1/§3.2/§5.3/§14 and the machine block
+      (INV-ROUTE-10) are internally consistent; narrowing remains gated on live-presence ratification
+      with the broadcast fallback live.
+
+  - finding_id: RT1-SEC-04
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/architecture/security-lgpd.md
+    section: "§5.3"
+    status: fixed
+    proposed_fix: >-
+      Add an explicit least-privilege RRT scope to §5.3: tenant-wide subscription limited to
+      critical/urgent streams + minimal bed context, deny-by-default, every PHI read audited, gated on
+      RRT-rotation membership; state it is the one enumerated cross-unit role.
+    applied: >-
+      Added §5.3.1 'The one enumerated cross-unit role — rrt (least-privilege hospital-wide)'. The rrt
+      subscription is tenant-wide but server-side-filtered to critical/urgent streams ONLY (no
+      normal/watch, no routine cross-unit bed-board/patient-browsing); pre-authN push carries only
+      severity+opaque token (no locator), minimal bed context appears only on the authenticated in-app
+      stream post-authN; deny-by-default and active ONLY while the subject is the on-shift RRT rotation
+      member (ties to RT1-UX-01 rotation table), else falls back to tenant+unit; every cross-unit PHI
+      read writes an audit_trail phi.read row (REQ-INV-1-S1). Stated as the single documented exception
+      to I2's tenant+unit binding.
+    edits:
+      security-lgpd.md:
+        - "§5.3 role list: rrt = hospital-wide critical/urgent receive/ack, the one cross-unit role (§5.3.1)"
+        - "§5.3 Enforcement bullet: sole cross-unit subscription is rrt; every other role bound to tenant+unit; no silent tenant-wide grant"
+        - "§5.3.1: new subsection (stream-limited, minimal post-authN bed context, deny-by-default, rotation-gated, audited)"
+        - "I2 STRIDE row: noted the sole cross-unit exception (rrt, §5.3.1)"
+    verification: >-
+      The deny-by-default hole is closed: rrt is neither unit-scoped (which broke hospital-wide
+      dispatch) nor silently tenant-wide; it is an explicit, enumerated, least-privilege, audited
+      cross-unit role reconciling I2 with alert-routing §3.1.
+
+  - finding_id: RT1-SEC-02
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/architecture/data-model.md
+    status: fixed
+    proposed_fix: >-
+      Add a versioned append-only alert_enablement entity with INV-1 anti-mutation; add
+      alert.enable/alert.disable to the audit_trail action vocabulary + a REQ-INV-1 row; encode the
+      safety_critical non-disable rule as a DB/service constraint.
+    applied: >-
+      Added §4.5 alert_enablement: versioned, append-only, scoped tenant/unit/bed x alert_definition
+      (bed>unit>tenant resolution parity with threshold_config), columns enabled/is_safety_critical/
+      version/actor/reason/ratify_ref/valid_from. INV-1 anti-mutation trigger (reuses
+      audit_trail_no_mutation()). A DB trigger alert_enablement_guard() blocks enabled=FALSE for a
+      safety_critical alert unless a RATIFY ratify_ref is present (enforced twice: DB + service).
+      Added alert.enable/alert.disable to the §6 audit_trail action vocabulary; added REQ-INV-1-4 in
+      §9; added an §8 retention row; listed the table in the §2 naming convention; added §10 open-Q 9.
+      Cross-referenced admin-config.md §4.1/§4.2/§4.3 governance and closed its flagged open
+      reconciliation.
+    edits:
+      data-model.md:
+        - "§4.5: new alert_enablement entity + INV-1 trigger + safety-critical non-disable guard trigger"
+        - "§6: audit_trail action vocab += alert.enable | alert.disable"
+        - "§8: retention table += alert_enablement row (indefinite/versioned)"
+        - "§9: added REQ-INV-1-4 (every enable/disable writes immutable row + audit; safety_critical non-disable)"
+        - "§2 item 3: added alert_enablement to the singular-naming list"
+        - "§10: added open-question 9 (safety_critical source join + ratify_ref linkage, C2)"
+    cross_doc_followups:
+      - "admin-config.md (owner: alerting-ux-specialist) — its §4 open reconciliation ('confirm the enable/disable state persistence ... flagged for the data model') is now satisfied; may drop the flag / cite data-model §4.5"
+    verification: >-
+      'safety-critical alerts cannot be silently disabled' is now a verifiable persisted invariant:
+      DDL + two triggers + REQ-INV-1-4 give it persistence, audit, and a DB+service constraint. DDL
+      code fences balanced; doc parses.
+
+  - finding_id: RT1-SEC-03
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/architecture/data-model.md
+    section: "§7 DDL"
+    status: fixed
+    proposed_fix: >-
+      Encrypt birth_date to BYTEA in the §7 DDL and add it to REQ-INV-4-1 (consistent with the PHI
+      inventory); note the age-derivation service.
+    applied: >-
+      §7 DDL now encrypts birth_date to BYTEA via pgp_sym_encrypt(birth_date::text, ...) alongside
+      display_name/mrn — NO plaintext DATE column remains — so the §7 DDL, the §3 delta, the
+      security-lgpd §3.1 PHI inventory, and REQ-INV-4-1/REQ-INV-4-S1 all agree (removed the old 'kept
+      as DATE ... if LGPD-restricted, store encrypted too' comment). Added an age_derivation service
+      note: age (or the age band a scorer needs) is computed server-side from the decrypted value with
+      an audit phi.read; only the non-PHI derived age BAND is cacheable (Redis short-TTL); exact date/
+      age never cached or logged. Added birth_date to REQ-INV-4-1 with a 'no plaintext birth_date in
+      pg_dump' verification.
+    edits:
+      data-model.md:
+        - "§7 DDL: birth_date ALTER ... TYPE BYTEA USING pgp_sym_encrypt(birth_date::text, current_setting('app.dek'))"
+        - "§7: added Age-derivation service note (server-side decrypt, age-band cacheable, no plaintext cache/log)"
+        - "§9 REQ-INV-4-1: added birth_date to the encrypted-PHI list + pg_dump-no-DOB verification"
+    verification: >-
+      The two invariant registers no longer disagree on birth_date; a pg_dump test now asserts no
+      plaintext DOB. security-lgpd.md already listed birth_date as pgcrypto-encrypted (§3.1/§4.1/
+      REQ-INV-4-S1) — both docs now consistent.
+
+  - finding_id: RT1-COMP-02
+    severity: major
+    verdict: CONFIRMED
+    owning_doc: docs/plan/design/accessibility-standard.md
+    f4_scope: "alert-routing.md portion only (the other 5 non-compliant files are owned by others)"
+    status: fixed
+    proposed_fix: >-
+      Add the mandated 'Accessibility gate' A11Y-GATE checklist subsection to alert-routing.md per
+      accessibility-standard.md §8; convert alert-routing's §10 prose into gate-ID citations.
+    applied: >-
+      Added §10.1 'Accessibility gate (A11Y-GATE — per accessibility-standard.md §8)' with a per-ID
+      check-off of all 16 gates (A11Y-GATE-01..16). 14 marked satisfied with the §-citation in
+      alert-routing that satisfies each; 2 marked N/A with rationale (GATE-04 palette CVD method —
+      this screen defines no palette, consumes ratified clinical.* tokens; GATE-13 drag alternative —
+      no drag interactions, rows animate system-driven). Converts §10 prose into gate-ID citations
+      (aria-live per §5.1 + coalescing, 44px ack targets, overlay-stack inheritance, accessible-name
+      order, reduced-motion, etc.).
+    edits:
+      alert-routing.md:
+        - "§10.1: new Accessibility gate subsection, A11Y-GATE-01..16 each checked-off or N/A with rationale"
+    cross_doc_followups:
+      - "admin-config.md, alert-triage.md, clinical-forms.md, design-tokens.md, component-library.md (other owners) — still need their own A11Y-GATE subsections per accessibility-standard §8 (out of F4 write-fence)"
+    verification: >-
+      All 16 A11Y-GATE IDs present in alert-routing.md; subsection placed as §10.1 between §10 and
+      §11; heading order verified.
+
+counts:
+  fixed: 6
+  by_severity: {critical: 1, major: 5}
+  files_touched: 3
+
+machine_block_reverify:
+  file: docs/plan/design/screens/alert-routing.md
+  block: routing-ladder
+  parses_as_yaml: true
+  added: [INV-ROUTE-09, INV-ROUTE-10, "R3.phi_free_push", "R3.push_payload", "R3.dispatch_sla_measures", "R3.content_load_post_authn_p95"]
+  open_reconciliations_after: [live-presence-signal, amh-directory-roster-adr, rrt-push-content-load-p95, urgent-R3-PT10M-signoff, digest-flush-fraction, status-enum-acting-escalated-info]
+
+write_fence_respected: true
+notes: >-
+  All edits are confined to the three F4-owned docs plus this receipt. Cross-doc reconciliations that
+  fall outside the write fence (alert-triage §1.1.3, journey-maps MOT-14/15, admin-config A11Y gate +
+  roster-admin UI, and the other four files' A11Y gates) are enumerated per-finding under
+  cross_doc_followups for the owning agents. Pre-existing markdown lint (MD060 table style, MD040
+  code-fence language) was left as-is to match each doc's existing style; no new fences or tables were
+  left unbalanced.

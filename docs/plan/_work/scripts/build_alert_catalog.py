@@ -53,9 +53,10 @@ def main() -> int:
                   "```yaml alert-spec",
                   yaml.safe_dump(a, allow_unicode=True, sort_keys=False, width=100).rstrip(),
                   "```", ""]
-            rec = a.get("reconciliation") or {}
-            if rec.get("existing_id"):
-                recon_rows.append((rec["existing_id"], aid, rec.get("status"), rec.get("note", "")))
+            recs = a.get("reconciliation") or {}
+            for rec in (recs if isinstance(recs, list) else [recs]):
+                if isinstance(rec, dict) and rec.get("existing_id"):
+                    recon_rows.append((rec["existing_id"], aid, rec.get("status"), rec.get("note", "")))
 
     cat_ids = set()
     bp = WORK / "briefs/existing-alert-catalog.json"

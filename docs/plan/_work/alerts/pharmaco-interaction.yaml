@@ -6,8 +6,9 @@ domain: pharmaco-interaction
 # has a symptom/physiologic confirmation gate or an indication-absence gate to protect PPV.
 # The interaction knowledge base (QT-drug / serotonergic / CNS-depressant / nephrotoxic / duplication
 # classes / renal-dose table) is DECLARATIVE + VERSIONED — see clinical/domains/pharmaco-interaction.md §3.
-# Every input unit is canonical per _work/units/registry.yaml EXCEPT `crcl` (mL/min), which is missing
-# from the registry and used as the mission canonical pending its addition (see domain-doc §7 open question).
+# Every input unit is canonical per _work/units/registry.yaml; creatinine clearance is the registered
+# parameter `clearance_creatinina` (canonical mL/min, Cockcroft-Gault, dosing-only; display alias CrCl,
+# distinct from BSA-normalized taxa_filtracao_glomerular/eGFR per the registry note).
 # Every rule_refs ID has disposition ADOPT / ADOPT-CORRECTED / ADAPT (RULE-ANTIMICROBIANO-003 ADAPT,
 # RULE-PRESCRICAO-027 ADOPT-CORRECTED, RULE-EQUILIBRIO-002 ADAPT). SUPERSEDE/RETIRE rules are referenced
 # only in domain-doc prose (severity remap), never as alert rule_refs (CONTRACTS §alert schema).
@@ -189,15 +190,15 @@ alerts:
     severity: urgent
     trigger:
       logic: >
-        antimicrobiano_eliminacao_renal_ativo == true AND crcl < 30 AND dose_excede_ajuste_renal == true
+        antimicrobiano_eliminacao_renal_ativo == true AND clearance_creatinina < 30 AND dose_excede_ajuste_renal == true
         AND drug NOT IN renal-adjust-exception KB {Polimixina B, Linezolida, Oxacilina, Tigeciclina,
         Clindamicina}. dose_excede_ajuste_renal is computed against the VERSIONED inline renal-dose
         lookup table (domain §3.6, replacing the legacy S3 PNG per CON-0139 / RULE-ANTIMICROBIANO-003).
       window: PT24H
     inputs:
       - {name: antimicrobiano_eliminacao_renal_ativo, type: boolean, unit: "boolean", source: "derived: active antimicrobial matched to renally-cleared KB (domain §3.6) from AMH Gold MedicationRequest", staleness_max: PT12H}
-      - {name: crcl, type: quantity, unit: "mL/min", source: "derived Cockcroft-Gault from creatinina (LOINC 2160-0) + peso + idade + sex; MISSION CANONICAL mL/min — unit MISSING from registry, see domain §7 open question", staleness_max: PT24H}
-      - {name: dose_excede_ajuste_renal, type: boolean, unit: "boolean", source: "derived: prescribed dose > recommended dose for crcl band per versioned renal-dose table (domain §3.6)", staleness_max: PT12H}
+      - {name: clearance_creatinina, type: quantity, unit: "mL/min", source: "derived Cockcroft-Gault from creatinina (LOINC 2160-0) + peso + idade + sex; canonical mL/min per registry clearance_creatinina (display alias CrCl; dosing-only, distinct from taxa_filtracao_glomerular/eGFR)", staleness_max: PT24H}
+      - {name: dose_excede_ajuste_renal, type: boolean, unit: "boolean", source: "derived: prescribed dose > recommended dose for CrCl band per versioned renal-dose table (domain §3.6)", staleness_max: PT12H}
     evidence:
       - {citation: "Rybak MJ et al. Am J Health Syst Pharm 2020;77(11):835-864 (vancomycin therapeutic monitoring)", rule_refs: [RULE-ANTIMICROBIANO-003]}
       - {citation: "Matzke GR et al. Kidney Int 2011;80(11):1122-1137 (drug dosing in AKI/CKD); KDIGO Drug-Induced AKI 2023", rule_refs: [RULE-ANTIMICROBIANO-003]}
@@ -208,10 +209,10 @@ alerts:
       rationale: "CrCl<30 mL/min AND a prescribed dose that exceeds the versioned renal-adjust table AND the drug is not on the no-adjust exception list — a computable, high-specificity mismatch (~2/100 beds/day). The exception KB (Polimixina B/Linezolida/Oxacilina/Tigeciclina/Clindamicina) removes the classic false positives. PPV ~0.65. Urgent because sub/over-dosing a renally-cleared antimicrobial risks toxicity or treatment failure (raised from catalog WARN given the additive AKI feedback)."
     response: {required: "ajuste de dose/intervalo do antimicrobiano à função renal (CrCl); considerar dosagem sérica quando disponível", ack_sla: PT30M}
     test_vectors:
-      - {id: TV-1, kind: fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: true}, expected: fire, note: "vancomicina, CrCl 20, dose above renal-adjusted target"}
-      - {id: TV-2, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: false}, expected: no-fire, note: "renally-cleared drug at CrCl 20 but dose ALREADY adjusted -> no fire"}
-      - {id: TV-3, kind: boundary, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 30, dose_excede_ajuste_renal: true}, expected: no-fire, note: "boundary: CrCl exactly 30 is NOT <30 (strict, vision §3.7 'CrCl < 30 mL/min') -> no fire"}
-      - {id: TV-4, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, crcl: 20, dose_excede_ajuste_renal: true, drug: Linezolida}, expected: no-fire, note: "Linezolida is on the renal-adjust EXCEPTION KB (no renal adjustment needed) -> suppressed (CON-0139)"}
+      - {id: TV-1, kind: fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, clearance_creatinina: 20, dose_excede_ajuste_renal: true}, expected: fire, note: "vancomicina, CrCl 20, dose above renal-adjusted target"}
+      - {id: TV-2, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, clearance_creatinina: 20, dose_excede_ajuste_renal: false}, expected: no-fire, note: "renally-cleared drug at CrCl 20 but dose ALREADY adjusted -> no fire"}
+      - {id: TV-3, kind: boundary, inputs: {antimicrobiano_eliminacao_renal_ativo: true, clearance_creatinina: 30, dose_excede_ajuste_renal: true}, expected: no-fire, note: "boundary: CrCl exactly 30 is NOT <30 (strict, vision §3.7 'CrCl < 30 mL/min') -> no fire"}
+      - {id: TV-4, kind: no-fire, inputs: {antimicrobiano_eliminacao_renal_ativo: true, clearance_creatinina: 20, dose_excede_ajuste_renal: true, drug: Linezolida}, expected: no-fire, note: "Linezolida is on the renal-adjust EXCEPTION KB (no renal adjustment needed) -> suppressed (CON-0139)"}
     reconciliation: {existing_id: DDX-006, status: extended, note: "vs DDX-006 'Antimicrobiano com clearance renal sem ajuste para CrCl'. Same trigger (renally-cleared antimicrobial + CrCl<30 + dose>recommended). EXTENDED: the dose comparison is now against a VERSIONED inline renal-dose table (replacing the legacy S3 PNG, CON-0139) and an explicit no-adjust exception KB (Polimixina B/Linezolida/Oxacilina/Tigeciclina/Clindamicina); severity WARN -> urgent."}
 
   - alert_id: ALERT-PHARMACO-STEWARDSHIP-07

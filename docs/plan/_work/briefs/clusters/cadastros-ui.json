@@ -1,0 +1,206 @@
+{
+  "brief_id": "cluster-cadastros-ui",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/cadastros-ui.yaml",
+    "lines": 863,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/cadastros-ui.yaml",
+      "line_ranges": "1-863"
+    }
+  ],
+  "facts": [
+    {
+      "id": "CLU-CADASTROS-UI-01",
+      "kind": "entity",
+      "claim": "Cadastros-UI cluster manages master-data CRUD for 4 core entities: Empresa (organization), Estabelecimento (facility), Leito (bed), and Usuário (professional/user); each has a React form component with conditional field rendering, permission-gated access, and normalization pipelines.",
+      "source_ref": "cadastros-ui.yaml rules 002-008, 010-011"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-02",
+      "kind": "policy",
+      "claim": "Field editability is constrained by company tipo (manual vs automatica): nome and código fields are always disabled for automatica companies (external-system-synced records), regardless of form mode or admin override; manual companies may edit these fields in modal (creation) mode only.",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-002, RULE-CADASTROS-UI-008"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-03",
+      "kind": "policy",
+      "claim": "Permission-gated visibility gates credentials and CRUD actions: can_manage_camera hides camera login/senha/IP fields; can_manage_usuario gates setores field on user submit and enables professional delete action; can_manage_grupo (implied from FormEditGrupo) gates group member editing.",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-003, RULE-CADASTROS-UI-004, RULE-CADASTROS-UI-010"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-04",
+      "kind": "metric",
+      "claim": "Distribution of 20 extracted rules: validation (10), workflow (4), eligibility (3), decision-tree (2), formula (1), threshold (1). Status: OK (16), AMBIGUOUS (3, flagged for verification), DISCREPANCY (1). Verification verdict: NOT_APPLICABLE (19), DISCREPANCY (1, CEP mask format).",
+      "source_ref": "cadastros-ui.yaml rules 001-020 status/type/verification blocks"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-05",
+      "kind": "vocabulary",
+      "claim": "Brazilian identifiers and formats are preserved and enforced across forms: CPF (11 digits, mask 000.000.000-00, unformatted on submit), CNPJ (14 digits, 00.000.000/0000-00), CEP (8 digits, 00.000-000 — but catalog shows DISCREPANCY: official Correios format is NNNNN-NNN with single hyphen, no period), phone (10-11 digits, length-dependent mask), BRL currency (Intl pt-BR format), byte sizes (1024 base with SI labels).",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-009, RULE-CADASTROS-UI-016 (verify:true, verdict:DISCREPANCY)"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-06",
+      "kind": "policy",
+      "claim": "Form mode (modal vs in_page) gates required-field enforcement: in FormUsuario, nome/cpf/username/password/email rules are applied only in modal (creation) mode; in_page (edit-in-place) mode renders same fields without required rule. Duplicate logic in FormEstabelecimento/FormLeito/FormSetor: they gate field VISIBILITY/DISABLED by mode but enforce required-ness UNCONDITIONALLY (Phase-1 note corrected in catalog).",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-011 with verification-correction addendum"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "CLU-CADASTROS-UI-C-01",
+      "type": "security",
+      "text": "AMBIGUOUS (RULE-CADASTROS-UI-005): new user password field is auto-filled with unformatted CPF digits on CPF input change, using CPF (semi-public identifier) as default. Requires verification: is this a convenience feature (overridable) or a security gap (CPF as initial credential)?",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-005, status:AMBIGUOUS"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-C-02",
+      "type": "security",
+      "text": "AMBIGUOUS (RULE-CADASTROS-UI-006): signature PIN field initialized to hardcoded literal 'Homecare@Vidaconecta' for all users, rendered disabled (non-editable). Requires verification: is this a placeholder (overridden server-side) or an actual shared credential submission?",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-006, status:AMBIGUOUS"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-C-03",
+      "type": "unit",
+      "text": "DISCREPANCY (RULE-CADASTROS-UI-016): CEP (Brazilian postal code) is formatted as 00.000-000 (regex with period + hyphen); official Correios format is NNNNN-NNN (5-3 with single hyphen, explicitly states 'não deverão ser sublinhados ou separados por ponto'). Mask rounds-trip with unformat; requires correction in v2.",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-016, verify:true, verdict:DISCREPANCY, reference:'Correios postal format'"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-C-04",
+      "type": "naming",
+      "text": "AMBIGUOUS (RULE-CADASTROS-UI-001): FilterLeitos passes literal string 'unknown' to onFilter callback (unlike FilterOcupacoes which converts 'todos' to undefined). Requires verification: does backend special-case 'unknown' string as no-filter, or is default occupancy filter silently broken?",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-001, status:AMBIGUOUS, edge_cases note"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-C-05",
+      "type": "policy",
+      "text": "Duplicated logic (not shared code): Form{Estabelecimento,Leito}.tsx independently implement identical disabled=(disableAll || tipo !== 'manual') predicate for nome/código fields (lines 39-60 vs 40-56, commit f9656be). Cleanup candidate for v2.",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-002, notes + RULE-CADASTROS-UI-004"
+    },
+    {
+      "id": "CLU-CADASTROS-UI-C-06",
+      "type": "policy",
+      "text": "RULE-CADASTROS-UI-019: image-file extension check is case-SENSITIVE (PNG/JPG uppercase not matched); likely latent bug since modern file systems and user uploads often preserve original case. Confidence: medium.",
+      "source_ref": "cadastros-ui.yaml RULE-CADASTROS-UI-019, status:OK, notes:'likely latent bug'"
+    }
+  ],
+  "systemic_issues": [
+    {
+      "category": "security",
+      "rules": ["RULE-CADASTROS-UI-005", "RULE-CADASTROS-UI-006"],
+      "description": "User credential defaults (CPF as password, hardcoded PIN) are ambiguous security gaps; verify backend behavior and establish explicit policy on initialization vs placeholder vs submission."
+    },
+    {
+      "category": "data_validation",
+      "rules": ["RULE-CADASTROS-UI-001"],
+      "description": "FilterLeitos tri-state enum handling (literal 'unknown' string vs undefined sentinel) inconsistent with FilterOcupacoes; verify backend contract."
+    },
+    {
+      "category": "unit",
+      "rules": ["RULE-CADASTROS-UI-016"],
+      "description": "CEP mask format (00.000-000 with period) violates official Correios standard (NNNNN-NNN with single hyphen). Requires correction in v2."
+    },
+    {
+      "category": "code_quality",
+      "rules": ["RULE-CADASTROS-UI-002", "RULE-CADASTROS-UI-004"],
+      "description": "Duplicated form-field disabled logic in Form{Estabelecimento,Leito}.tsx (independent implementation, not shared); consolidate to shared utility."
+    },
+    {
+      "category": "edge_case",
+      "rules": ["RULE-CADASTROS-UI-019"],
+      "description": "Image extension check is case-sensitive (PNG/JPG uppercase not matched); likely latent bug on mixed-case user-supplied filenames."
+    }
+  ],
+  "domains_fed": [
+    "governance",
+    "platform",
+    "experience"
+  ],
+  "pt_br_vocabularies": {
+    "company_type": ["manual", "automatica"],
+    "sex_codes": {
+      "M": "Masculino",
+      "F": "Feminino",
+      "O": "Outro",
+      "N": "Não informado"
+    },
+    "uf_codes": "27 IBGE codes (AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO)",
+    "field_labels": [
+      "Nome",
+      "Código",
+      "Ocupação",
+      "Sem preferencia",
+      "Sim",
+      "Não",
+      "Este campo é obrigatório!",
+      "E-mail inválido!",
+      "Login de acesso",
+      "Senha de acesso",
+      "IP da câmera do leito",
+      "Tipo",
+      "Pin assinatura"
+    ]
+  },
+  "load_bearing_rules": [
+    {
+      "id": "RULE-CADASTROS-UI-002",
+      "brief": "Leito/Estabelecimento nome and código locked for automatica companies (external-system-synced) regardless of form mode or admin override",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-005",
+      "brief": "CPF field auto-fills password with unformatted CPF digits for new users (AMBIGUOUS: security gap or convenience?)",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-006",
+      "brief": "Hardcoded 'Homecare@Vidaconecta' signature PIN for all users, disabled/non-editable (AMBIGUOUS: placeholder or actual credential?)",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-008",
+      "brief": "Company tipo field only rendered in modal (creation) mode; not editable after creation. Cor_primaria hex color round-trip strips/re-adds '#' for HTML input type=color",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-010",
+      "brief": "FormUsuario submit normalizes nome/username (trim/lowercase), extracts foto_perfil.b64, unformats CPF, gates setores to can_manage_usuario permission",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-011",
+      "brief": "Required-field validation gates on form mode: FormUsuario applies rules only in modal; FormEstabelecimento/Leito/Setor apply unconditionally. Correction note in Phase-1.",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-016",
+      "brief": "Brazilian identifier masks (CPF/CNPJ/CEP/phone/BRL/bytes) with round-trip unformat. CEP format DISCREPANCY: 00.000-000 (period) vs official Correios NNNNN-NNN (hyphen only)",
+      "verdict": "DISCREPANCY"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-012",
+      "brief": "Shared antd-style required-field rule: {required:true, message:'Este campo é obrigatório!'} applied across all forms",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-013",
+      "brief": "Email format validation: emailPattern regex allows most special chars in local part, domain labels 1-63 chars, TLD optional, anchored match",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "RULE-CADASTROS-UI-004",
+      "brief": "Camera credential fields (login_camera, senha_camera, ip_camera) visibility gated on can_manage_camera permission",
+      "verdict": "NOT_APPLICABLE"
+    }
+  ],
+  "open_questions": [
+    "Does FilterLeitos backend special-case the literal 'unknown' string as no-filter, or is this a latent bug?",
+    "Are RULE-CADASTROS-UI-005 and RULE-CADASTROS-UI-006 security gaps or intentional placeholders overridden server-side?",
+    "Should CEP mask be corrected to official Correios format (NNNNN-NNN, hyphen only) in v2?",
+    "Is FormUsuario the only form that actually gates required-ness by mode, or is Phase-1 correction complete?"
+  ]
+}

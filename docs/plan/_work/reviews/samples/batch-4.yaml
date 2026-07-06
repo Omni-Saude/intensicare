@@ -1,0 +1,770 @@
+batch: 4
+clusters:
+- auth-usuarios
+- eficiencia
+- movimentacao-adt
+- sedacao
+n_items: 15
+items:
+- rule_id: RULE-AUTH-USUARIOS-005
+  cluster: auth-usuarios
+  catalog_rule:
+    id: RULE-AUTH-USUARIOS-005
+    name: Owner-organization object permission predicate
+    category: access-control
+    type: eligibility
+    status: OK
+    description: 'Object-level access granted only when the requesting user''s id equals the object''s owner id
+      (or the object''s own id if it has no owner attribute).
+
+      '
+    logic: "def has_object_permission(request, view, obj):\n    if hasattr(obj, 'owner'): obj = obj.owner\n    return\
+      \ request.user.id == obj.id\n"
+    edge_cases: 'If obj lacks ''owner'', compares user.id to obj.id directly (self-ownership).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-AUTH-USUARIOS-005
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Object-level access granted only when the requesting user's id equals the object's owner id
+    disposition: ADAPT
+    justification: Owner-vs-self object-level authorization is a durable security lesson worth keeping, but the
+      fallback-to-obj.id-when-no-owner mechanism is a legacy shortcut that must be replaced by an explicit ownership
+      field check in v2.
+    evidence:
+    - RULE-AUTH-USUARIOS-005
+    target: architecture/security-lgpd.md#object-level-authorization
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-AUTH-USUARIOS-015
+  cluster: auth-usuarios
+  catalog_rule:
+    id: RULE-AUTH-USUARIOS-015
+    name: GET and PATCH bypass can_manage_usuario permission
+    category: data-validation
+    type: threshold
+    status: OK
+    description: 'UsuarioViewSet declares permission_trilhas=(''can_manage_usuario'',) with exceto_metodo=(''GET'',''PATCH'')
+      meaning read operations and partial updates are exempted from this trilha-permission check (enforced by TrilhasPermissaoMixin,
+      out of partition scope); only POST/PUT/DELETE require the permission.
+
+      '
+    logic: 'escopo = "empresa"
+
+      permission_trilhas = ("can_manage_usuario",)
+
+      exceto_metodo = ("GET", "PATCH")
+
+      # enforcement logic lives in TrilhasPermissaoMixin (core/mixins, out of scope)
+
+      '
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-AUTH-USUARIOS-015
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: meaning read operations and partial updates are exempted from this trilha-permission check
+    disposition: SUPERSEDE
+    justification: The exceto_metodo (GET/PATCH-bypass) mechanism is a legacy method-exemption shortcut that runs
+      counter to CON-0038/CON-0056's mandate of explicit per-route deny-by-default permission declarations; v2 replaces
+      implicit bypass lists with declared per-method permissions.
+    evidence:
+    - RULE-AUTH-USUARIOS-015
+    - CON-0038
+    - CON-0056
+    target: architecture/security-lgpd.md#explicit-per-method-permissions
+    supersedes_note:
+      replaced_by: CON-0038/CON-0056 explicit per-route, per-method permission declarations (deny-by-default)
+      lost: implicit method-exemption list (exceto_metodo); every method now requires an explicit declared permission,
+        including GET/PATCH
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-AUTH-USUARIOS-050
+  cluster: auth-usuarios
+  catalog_rule:
+    id: RULE-AUTH-USUARIOS-050
+    name: GrupoAcesso incoming permissoes payload rewrite
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'On input, if the client sends a non-empty ''permissoes'' dict, it is renamed to ''assign_permissions''
+      before internal validation.
+
+      '
+    logic: "def to_internal_value(data):\n    if bool(data.get(\"permissoes\", {})):\n        data[\"assign_permissions\"\
+      ] = data.pop(\"permissoes\")\n    return super().to_internal_value(data)\n"
+    edge_cases: 'An empty dict/falsy ''permissoes'' value is left untouched (not renamed), so it will not reach
+      assign_permissions and update() permission logic will not run for it.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-AUTH-USUARIOS-050
+    cluster: auth-usuarios
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: it is renamed to 'assign_permissions' before internal validation
+    disposition: RETIRE
+    justification: The permissoes-to-assign_permissions payload key rename is a legacy DRF-serializer input-shaping
+      quirk tied to a specific field-name history; the new API's schema will not need this compatibility rename.
+    evidence:
+    - RULE-AUTH-USUARIOS-050
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-AUTH-USUARIOS-061
+  cluster: auth-usuarios
+  catalog_rule:
+    id: RULE-AUTH-USUARIOS-061
+    name: Context-switch destinations exclude bed level
+    category: access-control
+    type: validation
+    status: OK
+    description: 'The organizational context-switcher (e.g. for changing which company/establishment/sector the
+      UI is scoped to) supports exactly three destination levels — empresa, estabelecimento, setor — explicitly
+      excluding "leito" (bed) as a switchable destination.
+
+      '
+    logic: 'Utils.SwitchDestiny = "empresa" | "estabelecimento" | "setor"   // no "leito" member
+
+      '
+    edge_cases: 'None demonstrated beyond the closed 3-value set.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-AUTH-USUARIOS-061
+    cluster: auth-usuarios
+    category: access-control
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: explicitly excluding "leito" (bed) as a switchable destination
+    disposition: RETIRE
+    justification: The organizational context-switcher's closed 3-value destination set (empresa/estabelecimento/setor,
+      no leito) is legacy frontend UI navigation mechanics of low significance, captured only at low confidence,
+      and will be redesigned from scratch as part of the new UI.
+    evidence:
+    - RULE-AUTH-USUARIOS-061
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-EFICIENCIA-005
+  cluster: eficiencia
+  catalog_rule:
+    id: RULE-EFICIENCIA-005
+    name: Eficiencia v3 criterio_9 - coma without sedation (defined, unwired)
+    category: alert-threshold
+    type: threshold
+    status: DISCREPANCY
+    description: 'Intended - GCS<6 AND absence of any sedative (cetamina/dexmedetomidina/ propofol/tiopental/midazolam
+      via balanco, fenitoina/fenobarbital via adep) in the last 6h -> suspected brain death, initiate donor-potential
+      maintenance. Facade criterio_9 = "Suspeita de ME". Code uses GCS<13 and an AND-combined sedative filter.
+
+      '
+    logic: "return all([\n  handlers.get_number(getattr(evolucao, \"diurna_glasgow\")) < 13,   # docstring/intent:\
+      \ < 6\n  not (\n    balanco_6h.filter(qt_vol_cet__gt=0, qt_vol_dex__gt=0, qt_vol_pro__gt=0,\n            \
+      \          qt_vol_tiop__gt=0, qt_vol_mid__gt=0).exists()\n    or adep_6h.filter(fenitoina__gt=0, fenobarbital__gt=0).exists()\n\
+      \  ),\n]) if (ultima_evolucao and adep_6h and balanco_6h) else False\n"
+    edge_cases: 'GCS threshold is 13 in code, not 6 as documented. The sedative-absence clause uses a single .filter()
+      with comma-separated (AND) conditions, so it only matches a balance record where ALL five infusion sedatives
+      are simultaneously >0 (and, separately, both adep drugs >0) - effectively never, making the "absence" clause
+      almost always True. Unwired.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: moderate
+      reference: 'Clinical triggers for organ-donation referral - ventilated patient with severe neurological injury
+        and GCS <=5 (or GCS <=4 not explained by sedation) prompts referral to the organ procurement organization
+        / brain-death evaluation. NICE CG135 Organ donation for transplantation (clinical trigger: GCS <=4 not explained
+        by sedation, or intention to test brainstem death). GCS: Teasdale & Jennett, Lancet 1974;2:81-84 (range
+        3-15).
+
+        '
+      detail_file: eficiencia-batch1.yaml
+    escalations:
+    - item_id: ESC-P0-009
+      band: P0
+      title: Eficiencia v3 criterio_9 - coma without sedation (defined, unwired)
+      excerpt: GCS<13 implemented vs GCS<6 intended; sedative-absence uses an AND-combined filter (requires all
+        sedatives present at once) rather than the intended OR/any across sedatives, so it almost never excludes.
+  disposition_record:
+    rule_id: RULE-EFICIENCIA-005
+    cluster: eficiencia
+    category: alert-threshold
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: GCS threshold is 13 in code, not 6 as documented
+    disposition: RATIFY
+    justification: P0-escalated coma-without-sedation criterion uses GCS<13 instead of the documented GCS<6, combined
+      with an AND-combined sedative-absence filter that requires all five infusion sedatives present simultaneously
+      to exclude, so it almost never excludes a sedated patient; this suspected-brain-death donor-potential flag
+      must be clinically adjudicated before v2 design.
+    evidence:
+    - ESC-P0-009
+    - RULE-EFICIENCIA-005
+    target: RATIFICATION.md#rat-eficiencia-03
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P0-009
+      band: P0
+    ratify_ref: RAT-EFICIENCIA-03
+- rule_id: RULE-EFICIENCIA-006
+  cluster: eficiencia
+  catalog_rule:
+    id: RULE-EFICIENCIA-006
+    name: Eficiencia v3 criterio_10 - mechanical restraint without agitation (AMARELO, wired)
+    category: alert-threshold
+    type: threshold
+    status: AMBIGUOUS
+    description: 'Mechanical restraint prescribed AND GCS>12 AND (per docstring) absence of RASS>+1 AND absence
+      of delirium. Code requires delirium PRESENT (truthy) and RASS not > 1. Feeds the AMARELO alert.
+
+      '
+    logic: "return all([\n  handlers.get_number(getattr(ultima_evolucao, \"diurna_glasgow\")) > 12,\n  handlers.get_number(getattr(ultima_cpoe,\
+      \ \"contencao_mecanica\")),\n  handlers.get_number(getattr(ultima_evolucao, \"diurna_delirium\")),   # docstring:\
+      \ ABSENCE of delirium\n  not int(getattr(ultima_evolucao, \"rass\")) > 1\n      if getattr(ultima_evolucao,\
+      \ \"rass\", False) else False,\n]) if (ultima_evolucao and ultima_cpoe) else False\n"
+    edge_cases: 'The delirium clause checks PRESENCE (truthy diurna_delirium) whereas the docstring/facade intent
+      is "ausencia de delirium". RASS clause `not int(rass) > 1` -> True when rass <= 1; when rass is falsy the
+      whole criterion is False.
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: moderate
+      reference: 'Devlin JW, Skrobik Y, Gelinas C, et al. PADIS Guidelines (SCCM) for Prevention and Management
+        of Pain, Agitation/sedation, Delirium, Immobility, and Sleep Disruption in Adult ICU Patients. Crit Care
+        Med 2018;46(9):e825-e873 (minimize physical restraint; treat underlying delirium/agitation rather than restrain).
+        Sessler CN, et al. Richmond Agitation-Sedation Scale (RASS), Am J Respir Crit Care Med 2002;166:1338-1344
+        (scale -5..+4; +1 = restless, >=+2 = agitated).
+
+        '
+      detail_file: eficiencia-batch1.yaml
+    escalations:
+    - item_id: ESC-P1-030
+      band: P1
+      title: Eficiencia v3 criterio_10 - mechanical restraint without agitation (AMARELO, wired)
+      excerpt: '*`eficiencia` · `alert-threshold` · AMBIGUOUS/DISCREPANCY*  - **Legacy:** Mechanical restraint prescribed
+        AND GCS>12 AND (per docstring) absence of RASS>+1 AND absence of delirium. Code requires delirium PRESENT
+        (truthy) and RASS not > 1. Feeds the AMARELO alert. - **Deviation:** Delirium clause checks presence of
+        delirium, opposite of the documented "ausencia de delirium" intent (facade RULE-EFIC'
+  disposition_record:
+    rule_id: RULE-EFICIENCIA-006
+    cluster: eficiencia
+    category: alert-threshold
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: DISCREPANCY
+    source_quote: checks PRESENCE (truthy diurna_delirium)
+    disposition: RATIFY
+    justification: P1 band and AMBIGUOUS extraction status both mandate ratification; the mechanical-restraint-without-agitation
+      criterion checks PRESENCE of delirium instead of the documented ABSENCE of delirium, so clinicians must confirm
+      which polarity is clinically correct before the wired AMARELO restraint alert is encoded in v2.
+    evidence:
+    - ESC-P1-030
+    - RULE-EFICIENCIA-006
+    - Devlin JW et al. PADIS Guidelines Crit Care Med 2018;46(9):e825-e873
+    target: RATIFICATION.md#rat-eficiencia-04
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P1-030
+      band: P1
+    ratify_ref: RAT-EFICIENCIA-04
+- rule_id: RULE-EFICIENCIA-008
+  cluster: eficiencia
+  catalog_rule:
+    id: RULE-EFICIENCIA-008
+    name: Eficiencia v3 criterio_2 - ICU discharge readiness (defined, unwired)
+    category: triage-eligibility
+    type: decision-tree
+    status: DISCREPANCY
+    description: 'Intended discharge-readiness gate - >24h admission, no ICU-discharge order, GCS>=11, temp<37.5,
+      good/regular general state, room-air/low-flow O2<=2, no invasive VM or pressors >48h, and (as intended absences)
+      TEC and lactate within range. Multiple checks are miswired.
+
+      '
+    logic: "return all([\n  evolucao.dt_entrada < (now - 24h).date(),\n  not cpoe_24h.aggregate(soma_alta_uti=Sum(\"\
+      alta_uti\")).get(\"soma_alta_uti\", 0),\n  evolucao_24h.aggregate(max_glasgow=Max(\"diurna_glasgow\")).get(\"\
+      max_glasgow\", 0),  # truthiness, not >=11\n  balanco_24h.aggregate(max_temp=Max(\"temp\")).get(\"temp\",\
+      \ 0),                       # WRONG KEY -> default 0 -> falsy\n  evolucao.diurna_estado_geral in [\"Regular\"\
+      , \"Bom\"],\n  evolucao.diurna_ventilacao.strip().lower() in get_ventilacao(\"ar_ambiente\")\n      and get_number(diurna_fluxo_o2)\
+      \ <= 2,\n  evolucao_mais_48h(...).filter(ventilacao in mecanica/invasiva),\n  not balanco_mais_48h.filter(Q(qt_vol_nora=0)|Q(qt_vol_dobuta=0)|Q(qt_vol_nitropru=0)).exists(),\n\
+      \  get_number(tempo_enchimento_capilar) > 5,\n  get_number(diurna_lactato) > 2,\n]) if (windows truthy) else\
+      \ False\n"
+    edge_cases: 'The max_temp aggregate is read with key "temp" (not "max_temp") -> default 0 -> the whole all([...])
+      is always False. The Glasgow check tests truthiness of the max, not >=11. The nora/dobuta/nitropru clause
+      uses Q(=0) OR-combined conditions. The tempo_enchimento_capilar>5 and lactato>2 terms are required TRUE, which
+      contradicts the discharge-readiness intent (they describe an unstable patient).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: none
+      reference: 'No single authoritative published equation exists for an ICU-discharge-readiness boolean gate;
+        SCCM ICU Admission/Discharge/Triage guidelines (Nates et al., Crit Care Med 2016) describe principles only.
+        Individual thresholds are anchored to published references: serum lactate >2 mmol/L marks tissue hypoperfusion/septic
+        shock (Sepsis-3, Singer et al., JAMA 2016;315:801-810) and prolonged capillary refill time (CRT >~3-5 s)
+        marks peripheral hypoperfusion (ANDROMEDA-SHOCK, Hernandez et al., JAMA 2019). Composite gate itself is
+        an internal business rule.
+
+        '
+      detail_file: eficiencia-batch2.yaml
+    escalations:
+    - item_id: ESC-P3-137
+      band: P3
+      title: triage-eligibility
+      excerpt: Wrong aggregate key ("temp" vs "max_temp") makes the criterion permanently False; Glasgow reduced
+        to truthiness rather than >=11; TEC>5 and lactate>2 required TRUE invert the "absence-of-instability" intent.
+        Facade text (RULE-EFICIENCIA-…
+  disposition_record:
+    rule_id: RULE-EFICIENCIA-008
+    cluster: eficiencia
+    category: triage-eligibility
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: the whole all([...]) is always False
+    disposition: ADAPT
+    justification: The composite ICU-discharge-readiness gate is clinically sound in intent, but the wrong 'temp'
+      aggregate key (should be 'max_temp') permanently forces the gate False, the Glasgow check tests truthiness
+      rather than >=11, and TEC>5/lactate>2 are required TRUE which inverts the intended absence-of-instability
+      condition, so v2 must rebuild these four sub-predicates while keeping the overall composite structure.
+    evidence:
+    - ESC-P3-137
+    - RULE-EFICIENCIA-008
+    - Singer M et al. Sepsis-3 JAMA 2016;315(8):801-810
+    target: clinical/domains/early-warning-scores.md#icu-discharge-readiness
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-137
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-EFICIENCIA-010
+  cluster: eficiencia
+  catalog_rule:
+    id: RULE-EFICIENCIA-010
+    name: Eficiencia v3 criterio_7 - delirium/agitation risk bundle (defined, unwired, crashes)
+    category: clinical-scoring
+    type: decision-tree
+    status: DISCREPANCY
+    description: 'OR of many delirium risk factors (SOFA>=5, age>75, dementia/AVC antecedent, antibiotic, bicarbonate<22,
+      no evacuation in 48h, Na>150 or Na<130, mechanical restraint, GCS 13-14, RASS +1..+4, high pain scores).
+
+      '
+    logic: "return any([\n  get_number(diurna_sofa) >= 5,\n  get_number(idade) > 75,\n  antecedente in [\"Demencia,\
+      \ AVC\"],                 # via fromkeys -> inert\n  get_number(cpoe.antibiotico),\n  get_number(diurna_bicabornato)\
+      \ < 22,\n  not evolucao_48h.filter(enf_eliminacoes_intestinais__isnull=False),\n  get_number(diurna_sodio)\
+      \ > 150,\n  get_number(diurna_sodio) < 130,\n  get_number(cpoe.contencao_mecanica),\n  get_number(diurna_glasgow)\
+      \ in [13, 14],\n  int(rass) in range[1, 5] if rass else False,      # range[1,5] -> TypeError (range not subscriptable)\n\
+      \  all([ <mutually exclusive VISUAL and COMPORTAMENTAL pain equalities> ]),\n]) if (ultima_evolucao and ultima_cpoe\
+      \ and ultimo_balanco and balanco_anterior) else False\n"
+    edge_cases: '`int(rass) in range[1, 5]` raises TypeError when rass is truthy (a range object is not subscriptable)
+      - the RASS branch crashes rather than testing +1..+4. The pain sub-block uses all([...]) over mutually exclusive
+      VISUAL / COMPORTAMENTAL equalities, so it is always False. Antecedent check inert (fromkeys). Na>150 and Na<130
+      are separate OR terms. Unwired (would raise if wired and rass present).
+
+      '
+    verification:
+      verdict: DISCREPANCY
+      clinical_impact: none
+      reference: 'Qualitatively maps to established ICU delirium risk factors. PRE-DELIRIC model (van den Boogaard
+        et al., BMJ 2012;344:e420) predicts delirium from age, APACHE-II, coma, admission category, infection, metabolic
+        acidosis, morphine/sedatives, urea, urgent admission. The rule''s bicarbonate<22 (metabolic acidosis), antibiotic
+        (infection), age>75, sedation/coma and agitation (RASS +1..+4) terms align with these validated predictors,
+        but the rule is an ad-hoc OR-bundle, not the PRE-DELIRIC logistic equation.
+
+        '
+      detail_file: eficiencia-batch2.yaml
+    escalations:
+    - item_id: ESC-P3-095
+      band: P3
+      title: clinical-scoring
+      excerpt: '`int(rass) in range[1, 5]` is a runtime bug (subscripting a range) instead of a membership test
+        against range(1,5); the pain all([]) block is unsatisfiable; the antecedent membership is inert.'
+  disposition_record:
+    rule_id: RULE-EFICIENCIA-010
+    cluster: eficiencia
+    category: clinical-scoring
+    catalog_echo:
+      status: DISCREPANCY
+      verdict: DISCREPANCY
+    source_quote: the RASS branch crashes rather than testing +1..+4
+    disposition: ADAPT
+    justification: The delirium/agitation risk-factor OR-bundle qualitatively aligns with PRE-DELIRIC predictors
+      (age, metabolic acidosis, infection, sedation/coma, agitation) but the RASS clause crashes on `range[1, 5]`
+      subscripting, the mutually-exclusive pain sub-block is logically unsatisfiable, and the antecedent membership
+      check is inert, so the mechanism must be rebuilt while preserving the underlying risk-factor set.
+    evidence:
+    - ESC-P3-095
+    - RULE-EFICIENCIA-010
+    - van den Boogaard M et al. PRE-DELIRIC model BMJ 2012;344:e420
+    target: clinical/domains/neuro-sedation.md#delirium-risk-bundle
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-P3-095
+      band: P3
+    ratify_ref: null
+- rule_id: RULE-MOVIMENTACAO-ADT-034
+  cluster: movimentacao-adt
+  catalog_rule:
+    id: RULE-MOVIMENTACAO-ADT-034
+    name: New movimentacao - carry-forward of clinical data from previous
+    category: care-pathway
+    type: workflow
+    status: OK
+    description: 'Creating a subsequent movimentacao deactivates the prior one and clones its prontuario and clinical
+      sub-records (noradrenalina, PCR, ventilacao, sedativos, SOFA), applying any newly supplied values, then regenerates
+      pathways. Test-asserted: omitted sub-collections (e.g. sedativos) inherit from the previous movimentacao;
+      provided sub-collections fully replace (not merge); the new movimentacao links to its predecessor via ultima_movimentacao.
+
+      '
+    logic: "order: get_atributos -> get_ultima_movimentacao(404) -> get_movimentacao(404)\n  -> desativar_ultima_movimentacao\
+      \ (ultima.atual=False)\n  -> gerar_novo_dado_prontuario: clone DadosProntuario(pk of ultima_movimentacao.id)\
+      \ with id/pk=None,\n       movimentacao=new, save; then apply new data via DadosProntuarioSerializer(instance=clone)\n\
+      \  -> for noradrenalina/parada/ventilacao: if new==empty dict skip; else clone prior tuple\n       (trocar_prontuario_do_atributo)\
+      \ then update with new data if provided\n  -> sedativos: if list provided create each; elif prior sedativos\
+      \ exist clone all\n  -> gerar_novo_escore_sofa: clone prior SOFA, call sofa.atualizar_atributos_sofa(), save\n\
+      \  -> gerar_trilhas: CriarTrilhas(new prontuario)\n  -> atualizar_alerta_movimentacao(new.movimentacao.pk)\n\
+      \n# test-asserted (test_movimentacao.py:297-376):\n# nova without sedativos -> new mov.sedativos == prior\
+      \ mov.sedativos (same count, quantidade, nome_sedativo)\n# nova with sedativos=[{nome:\"Sedativo Teste\",\
+      \ quantidade:25}] -> new mov.sedativos == exactly that (len 1)\n# new mov.ultima_movimentacao == prior movimentacao\n"
+    edge_cases: 'Cloning uses id=None/pk=None to force INSERT. gerar_novo_dado_prontuario fetches DadosProntuario
+      by ultima_movimentacao.id (assumes shared pk with prontuario). Empty {} / [] payloads are treated as "no new
+      data, keep clone". Provided sub-collections fully replace (not merge).
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-MOVIMENTACAO-ADT-034
+    cluster: movimentacao-adt
+    category: care-pathway
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: omitted sub-collections (e.g. sedativos) inherit from the previous movimentacao
+    disposition: ADAPT
+    justification: The carry-forward-with-override semantics for a new movimentacao - clone the prior prontuario/SOFA/noradrenalina/sedativos
+      and apply only newly supplied fields, with omitted collections inherited and provided collections fully replacing
+      - is critical continuity-of-care logic IntensiCare v2 must reproduce exactly.
+    evidence:
+    - RULE-MOVIMENTACAO-ADT-034
+    target: clinical/domains/correlation-engine.md#admission-discharge-lifecycle
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-MOVIMENTACAO-ADT-058
+  cluster: movimentacao-adt
+  catalog_rule:
+    id: RULE-MOVIMENTACAO-ADT-058
+    name: Automatic-type bed rejects movimentacao lacking data_entrada
+    category: data-validation
+    type: validation
+    status: AMBIGUOUS
+    description: 'Posting a movimentacao to a bed whose tipo is ''automatica'' with an empty data_entrada is rejected
+      (400).
+
+      '
+    logic: 'leito.tipo = "automatica"; POST with data_entrada="" , dados_prontuario={} -> 400
+
+      '
+    edge_cases: 'Test sets tipo=''automatica'' AND empty data_entrada simultaneously.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-333
+      band: AMBIGUOUS
+      title: data-validation
+      excerpt: Automatic-type bed rejects movimentacao lacking data_entrada
+  disposition_record:
+    rule_id: RULE-MOVIMENTACAO-ADT-058
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo:
+      status: AMBIGUOUS
+      verdict: NOT_APPLICABLE
+    source_quote: Cannot confirm from tests alone whether 'automatica' beds impose an additional data_entrada requirement
+    disposition: RETIRE
+    justification: The AMBIGUOUS confound (empty data_entrada already explains the 400 for any bed type per RULE-057)
+      means no distinct automatica-specific clinical rule can be confirmed here; it carries no clinical weight of
+      its own, so it is retired rather than ratified separately from RULE-057's already-adopted behavior.
+    evidence:
+    - RULE-MOVIMENTACAO-ADT-058
+    - RULE-MOVIMENTACAO-ADT-057
+    target: null
+    supersedes_note: null
+    escalations:
+    - item_id: ESC-AMBIGUOUS-333
+      band: AMBIGUOUS
+    ratify_ref: null
+- rule_id: RULE-MOVIMENTACAO-ADT-061
+  cluster: movimentacao-adt
+  catalog_rule:
+    id: RULE-MOVIMENTACAO-ADT-061
+    name: dados_prontuario payload required
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'The request must contain a dados_prontuario key.
+
+      '
+    logic: "if \"dados_prontuario\" not in request.data:\n    raise {\"dados_prontuario\": \"O envio de dados_prontuario\
+      \ e obrigatorio\"}\n"
+    edge_cases: null
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-MOVIMENTACAO-ADT-061
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: The request must contain a dados_prontuario key
+    disposition: ADOPT
+    justification: A simple, unambiguous required-payload-key check for dados_prontuario on movimentacao creation;
+      carried unchanged into v2's composite validation since there is no discrepancy or ambiguity to correct.
+    evidence:
+    - RULE-MOVIMENTACAO-ADT-061
+    target: clinical/domains/correlation-engine.md#prontuario-required
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-MOVIMENTACAO-ADT-068
+  cluster: movimentacao-adt
+  catalog_rule:
+    id: RULE-MOVIMENTACAO-ADT-068
+    name: Past-prontuário date field hydration
+    category: data-validation
+    type: validation
+    status: OK
+    description: 'When re-displaying a previously recorded prontuário (occupation record) in read/edit-in-page mode,
+      the noradrenalina, parada cardiorrespiratória, and ventilação mecânica horario_inicio string values are parsed
+      into moment objects so the form fields can render them as date/time pickers.
+
+      '
+    logic: "initialValues(values) = {\n  dados_prontuario: {\n    ...values,\n    noradrenalina: values.noradrenalina\
+      \ && { ...values.noradrenalina, horario_inicio: values.noradrenalina.horario_inicio && moment(values.noradrenalina.horario_inicio)\
+      \ },\n    parada_cardiorrespiratoria: values.parada_cardiorrespiratoria && { ...values.parada_cardiorrespiratoria,\
+      \ horario_inicio: values.parada_cardiorrespiratoria.horario_inicio && moment(...) },\n    ventilacao_mecanica:\
+      \ values.ventilacao_mecanica && { ...values.ventilacao_mecanica, horario_inicio: values.ventilacao_mecanica.horario_inicio\
+      \ && moment(...) }\n  }\n}\n"
+    edge_cases: 'horario_fim of ventilacao_mecanica is NOT re-hydrated here (unlike the submit-side transform in
+      RULE-prontuario-FE-06-013), so it is passed through as a raw string.
+
+      '
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-MOVIMENTACAO-ADT-068
+    cluster: movimentacao-adt
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: horario_fim of ventilacao_mecanica is NOT re-hydrated here
+    disposition: ADAPT
+    justification: Rehydrating stored prontuario date strings into moment objects for display (companion to RULE-067's
+      submit-side transform) is sound intent, but the noted gap where ventilacao_mecanica's horario_fim is never
+      rehydrated must be fixed in v2 to keep read and submit transforms symmetric.
+    evidence:
+    - RULE-MOVIMENTACAO-ADT-068
+    - RULE-MOVIMENTACAO-ADT-067
+    target: design/screens/clinical-forms.md#prontuario-hydration
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SEDACAO-021
+  cluster: sedacao
+  catalog_rule:
+    id: RULE-SEDACAO-021
+    name: Sedation manual pathway alert level (count of criteria)
+    category: alert-threshold
+    type: threshold
+    status: OK
+    description: Maps count of satisfied sedation criteria (criterio_1..6) to a 3-level alert.
+    logic: 'n = [criterio_1..criterio_6].count(True)
+
+      if n >= 3: return ''VERMELHO''
+
+      elif n > 0: return ''AMARELO''
+
+      else: return ''NEUTRO''
+
+      '
+    edge_cases: Exactly 3+ -> red; 1-2 -> yellow; 0 -> neutral.
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEDACAO-021
+    cluster: sedacao
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Maps count of satisfied sedation criteria (criterio_1..6) to a 3-level alert.
+    disposition: RATIFY
+    justification: Manual-pathway alert aggregator (>=3 of 6 criteria -> VERMELHO, 1-2 -> AMARELO) is a second of
+      the three non-reconciled sedation alert-aggregation schemes flagged in the cluster brief's systemic issues;
+      whether the manual nurse-entered pathway's vote-count scheme, the wired v3 scheme, or a unified replacement
+      becomes canonical for v2 requires explicit clinical ratification, same as RULE-SEDACAO-014.
+    evidence:
+    - RULE-SEDACAO-021
+    - RULE-SEDACAO-014
+    - RULE-SEDACAO-023
+    target: RATIFICATION.md#rat-sedacao-09
+    supersedes_note: null
+    escalations: []
+    ratify_ref: RAT-SEDACAO-09
+- rule_id: RULE-SEDACAO-023
+  cluster: sedacao
+  catalog_rule:
+    id: RULE-SEDACAO-023
+    name: Sedacao v1 alert (TrilhaSedacaoModel.calcular_alerta)
+    category: alert-threshold
+    type: decision-tree
+    status: OK
+    description: Color alert for the v1 sedation trilha from a fixed subset of integer-flag criteria.
+    logic: 'amarelo  = [criterio_1, criterio_2].count(1)
+
+      vermelho = [criterio_4, criterio_6].count(1)
+
+      if vermelho >= 1: return "VERMELHO"
+
+      elif amarelo  >= 1: return "AMARELO"
+
+      else: return "NEUTRO"
+
+      '
+    edge_cases: Counts only the exact integer value 1 (not other truthy ints). Runs on every save().
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEDACAO-023
+    cluster: sedacao
+    category: alert-threshold
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: Color alert for the v1 sedation trilha from a fixed subset of integer-flag criteria.
+    disposition: SUPERSEDE
+    justification: v1 alert aggregator (amarelo=[c1,c2], vermelho=[c4,c6]) is explicitly noted in the catalog as
+      superseded conceptually by the wired v3 aggregator RULE-SEDACAO-014 and confirmed dead/unused in the source;
+      it is superseded by whichever unified v2 canonical sedation-alert scheme emerges from the RAT-SEDACAO-05/09
+      ratification, with its distinct 4-criterion subset and vote thresholds not carried forward.
+    evidence:
+    - RULE-SEDACAO-023
+    - RULE-SEDACAO-014
+    - RULE-SEDACAO-021
+    target: clinical/domains/neuro-sedation.md#sedation-alert-aggregation
+    supersedes_note:
+      replaced_by: unified v2 sedation alert scheme in clinical/domains/neuro-sedation.md, semantics pending RAT-SEDACAO-05/09
+      lost: v1's distinct 4-criterion (c1,c2,c4,c6) count-based vote thresholds
+    escalations: []
+    ratify_ref: null
+- rule_id: RULE-SEDACAO-027
+  cluster: sedacao
+  catalog_rule:
+    id: RULE-SEDACAO-027
+    name: Unique sedative per prontuario + dose unit
+    category: data-validation
+    type: validation
+    status: OK
+    description: A given sedative drug can appear at most once per prontuario; quantity is in ml.
+    logic: 'Meta.unique_together = (''dados_prontuario'', ''nome_sedativo'')
+
+      quantidade: PositiveIntegerField help_text "Quantidade de Sedativo em ml", validators=[SedativoValidator()]
+
+      on_delete=SET_NULL (nullable FK) - sedative rows survive prontuario deletion.
+
+      '
+    edge_cases: Duplicate drug for same prontuario -> IntegrityError. Overdose criterion uses max ml (>15).
+    verification:
+      verdict: NOT_APPLICABLE
+      clinical_impact: null
+      reference: null
+      detail_file: null
+    escalations: []
+  disposition_record:
+    rule_id: RULE-SEDACAO-027
+    cluster: sedacao
+    category: data-validation
+    catalog_echo:
+      status: OK
+      verdict: NOT_APPLICABLE
+    source_quote: A given sedative drug can appear at most once per prontuario; quantity is in ml.
+    disposition: RETIRE
+    justification: Unique-sedative-per-prontuario DB constraint and its associated ml-quantity field are legacy
+      Tasy-era data-model plumbing for the bespoke manual Sedativo entry model; under ADR-001's platform change,
+      v2 consumes medication data via FHIR MedicationAdministration from the AMH Gold layer rather than owning a
+      proprietary per-drug uniqueness constraint, so this rule is retired with the platform change.
+    evidence:
+    - RULE-SEDACAO-027
+    - ADR001-C-01
+    - ADR001-C-05
+    target: null
+    supersedes_note: null
+    escalations: []
+    ratify_ref: null

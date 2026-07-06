@@ -1,0 +1,178 @@
+round: 2
+lens: alarm-fatigue
+regression_note: >-
+  Re-tested all seven round-1 alarm-fatigue findings against the owning docs. FIXED AND HOLDS:
+  RT1-ALARM-FATIGUE-01 (ppv-ledger now defines PER-CARLOS-02 as a per-patient-day distribution
+  metric, fleet_targets.fp_patient_day_p95_max/gt3_share_max, lines 38-40, 72-78); RT1-ALARM-FATIGUE-02
+  (cross-domain deterioration-cluster fold now specified in correlation-engine.md §5.2 + machine block
+  GROUP-CORR-DETERIORATION-CLUSTER-01 at correlation-engine.yaml lines 248-286); RT1-ALARM-FATIGUE-03
+  (honest 1-6% accounting + five-lever table landed in correlation-engine.md §5.4); RT1-ALARM-FATIGUE-04
+  (per-patient urgent/critical concurrency model landed in alert-engine.md §5.1). FIX DID NOT LAND
+  (regression, re-raised below): RT1-ALARM-FATIGUE-05 (remedy playbook still absent — RT2-ALARM-02) and
+  RT1-ALARM-FATIGUE-06 (FP-deflation neither jointly-gated nor never-acked-counted — RT2-ALARM-05).
+  NEW/RESIDUAL: RT2-ALARM-01, -03, -04.
+findings:
+  - finding_id: RT2-ALARM-01
+    severity: critical
+    claim: >-
+      PER-CARLOS-02 (<3 FP/patient-day) is a DoD line, but NO artifact contains a go-live/untuned
+      achievability computation. At every first intervention exposure the thresholds are seeded at
+      "fleet defaults" with baseline PPV 0.35 (ppv-ledger-draft.yaml line 43), and the tuning loop only
+      raises a "tune-me" recommendation after "2 consecutive [30-day] windows" of dispositioned data
+      (ppv-ledger line 85) — so >=60 days run untuned before the first correction. The only pre-launch
+      calibration (validation-plan §1.1) is shadow-mode in the CONTROL arm, which logs would-have-fired
+      volume but collects no clinician procede/nao-procede disposition, so it cannot estimate PPV or FP
+      at all. Under the plausible untuned inflation flagged in RT1-ALARM-FATIGUE-07 (guideline-locked
+      screens firing ~2-3x est_volume: sepsis 7, ARDS 7, EWS-trend 6, deterioration 6), fleet volume
+      balloons well past 137/100 beds/day at baseline FP fraction ~0.65, driving p95 FP/patient-day and
+      the >3-share far beyond the 3 / 5% gates for the initial exposure window, with NO interim
+      FP-ceiling mitigation named (no phased alert enablement, no delivery-tier downgrade of
+      unvalidated alerts, no launch-only high-PPV subset). The distribution gate was re-defined
+      (RT1-01 fix) but never shown to be satisfiable at launch.
+    falsifiable_check: >-
+      (1) grep -rniE 'shadow|calibrat|untuned|initial deployment|go-live|day-1|ramp|soft.launch'
+      over docs/plan/_work/budgets/ppv-ledger-draft.yaml and docs/plan/delivery/validation-plan.md —
+      the ONLY shadow-mode calibration hit (validation-plan.md line 42) scopes it to the control arm
+      and to "volume estimate"; no FP/PPV disposition is captured in shadow, and no launch-time FP
+      achievability arithmetic exists. (2) ppv-ledger-draft.yaml line 43 confirms baseline ppv 0.35;
+      line 85 confirms the 2-window (>=60-day) tuning latency. (3) validation-plan.md §1.1 diagram shows
+      the QI intervention period runs "Phase-2 alerts ACTIVE with team notification" immediately after a
+      2-week washout whose calibration is fed only by shadow control data. (4) No file computes
+      p95 FP/patient-day or >3-share against the untuned fleet-default configuration; the two gate
+      numbers (3, 5%) appear only as targets, never as a demonstrated launch value.
+    owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+    proposed_fix: >-
+      Add a launch-achievability section computing p95 FP/patient-day and >3-share under the untuned
+      fleet-default configuration at baseline PPV 0.35 and an explicit x2-3 volume-inflation stress
+      (RT1-ALARM-FATIGUE-07). If the gates are not met untuned, specify the interim mitigation as a
+      binding pre-condition of intervention go-live: e.g. launch only alerts whose shadow-estimated
+      volume x (1-PPV) keeps the patient-day FP distribution under gate, delivery-tier-downgrade
+      unvalidated alerts to watch/badge until they earn a promotion, or gate first-exposure enablement
+      on a coordinator-signed calibration from that cluster's own shadow period. State that PER-CARLOS-02
+      is measured but not asserted-met during the calibration window, with the FP ceiling protected by
+      the interim control rather than by tuning that cannot yet have run.
+
+  - finding_id: RT2-ALARM-02
+    severity: major
+    claim: >-
+      REGRESSION — RT1-ALARM-FATIGUE-05 is marked status:fixed in round-1/adjudicated.yaml, but the
+      remedy playbook its own adjudication called for ("What is missing is a documented remedy playbook")
+      never landed. admin-config.md still offers a noisy guideline-locked top-volume alert exactly two
+      routes: mint a new immutable definition version (§1 scope note) or a RATIFY-level escalation
+      (§4.1) — both slow, out-of-loop, committee-gated. The ppv-ledger tuning_recommendation (line 85)
+      still emits only "the suggested threshold delta", which is precisely the remedy that is LOCKED for
+      the highest-volume alerts (sepsis-screen vol 7, ARDS-staging vol 7, EWS-trend vol 6 are all
+      guideline-anchored / non-relaxable below published values, admin-config §4.1). So the very alerts
+      most likely to blow PER-CARLOS-02 (RT2-ALARM-01) have no fast in-governance remedy — the tuning
+      loop is honest-looking but has no reach over its own worst offenders.
+    falsifiable_check: >-
+      grep -rniE 'context.?gate|specificity input|denominator refinement|delivery-tier downgrade|
+      tier downgrade|remedy playbook|threshold-locked|which .*alerts are (threshold|guideline)-locked'
+      over docs/plan/design/screens/admin-config.md AND the whole docs/plan tree (excluding _work/redteam)
+      returns ZERO hits. admin-config.md §3/§4.1/§4.3 enumerate only propose->review->activate,
+      RATIFY escalation, and enable/disable — no permitted-remedy list for a noisy guideline-locked
+      alert, and no statement of which top-volume alerts are threshold-locked. ppv-ledger-draft.yaml
+      line 85 is unchanged from the round-1 walk. Cross-check: round-1/adjudicated.yaml RT1-ALARM-FATIGUE-05
+      resolution.status == fixed, owning_doc admin-config.md — the fix is absent from that doc.
+    owning_doc: docs/plan/design/screens/admin-config.md
+    proposed_fix: >-
+      Add a "Remedies for a noisy guideline-locked alert" subsection to admin-config §3/§4: enumerate
+      the sanctioned in-governance moves that do NOT relax the guideline floor — (a) add a specificity
+      context-gate input via a new definition version (raises PPV without touching the cutoff),
+      (b) denominator/eligibility refinement, (c) delivery-tier downgrade (e.g. urgent->watch) without
+      disabling, (d) RATIFY escalation only when none of the above suffice. Publish the list of which
+      top-volume alerts are threshold-locked so the loop's reach is stated honestly, and wire the
+      ppv-ledger tuning_recommendation to surface the applicable remedy class, not just a threshold delta.
+
+  - finding_id: RT2-ALARM-03
+    severity: major
+    claim: >-
+      alert-engine §5.1 — the section added as the RT1-ALARM-FATIGUE-04 fix — carries an interruptive-load
+      accounting that is (a) STALE and (b) methodologically invalid, and it is explicitly labelled "the
+      honest denominator for any fatigue claim about the top tiers" and "the C3 input for RRT pager-load
+      sizing". (a) The RT1-PATIENT-SAFETY-03 fix moved ALERT-NEUROSED-PAIN-08 from watch to urgent
+      (+3 volume, +1 definition, +3/24h rate-limit), but §5.1 was never recomputed: it still states
+      "critical 24 + urgent 49 = 73 interruptive" (actual urgent-declared est_volume sums to 52 ->
+      76 interruptive), "all 28 urgent/critical definitions" (actual 29), and worst-case "urgent 41 /
+      93/24h" (PAIN-08's 3/24h now belongs to urgent -> 44 / 96). One round-1 fix silently invalidated
+      four numbers in a sibling doc. (b) Independently, the split attributes each dynamic-severity
+      alert's ENTIRE est_volume to its declared max band, so it is neither an upper nor a lower bound
+      on any tier: all six electrolyte alerts are counted "critical" (10 of the 24 critical volume)
+      though their own logic scales hyper/hypo down to urgent/watch for non-extreme values, while
+      ALERT-AKI-KDIGO-STAGE-01 (vol 5) is counted entirely "watch" though stage 3 is critical. The
+      per-tier fatigue denominator is therefore unreliable in both directions.
+    falsifiable_check: >-
+      (a) Sum est_volume_per_100_beds_day over alerts whose declared severity is urgent across the nine
+      catalogs: PROG 2 + NEWS2 5 + SOFA 4 + VASO-ESC 3 + AGITATION 2 + DELIRIUM 5 + PAIN 3 + SEROTONIN 1
+      + RENALADJ 2 + CVC-FEVER 2 + ARDS 7 + DETERIORATION 6 + SCREEN 7 + BUNDLE 3 = 52 (not 49);
+      critical sums to 24 (matches). Count urgent+critical definitions = 15 critical + 14 urgent = 29
+      (not 28). neuro-sedation.yaml PAIN-08: severity urgent (line 197), est_volume 3 (line 218),
+      rate_limit 3/24h (line 215) — confirming the +3/+1/+3 shift the §5.1 numbers predate. Compare
+      alert-engine.md §5.1 lines 141 and 143 verbatim. (b) electrolyte.yaml lines 16/100/228/346 show
+      severity:critical with inline "scaling: ... urgent/watch"; aki.yaml line 9 shows severity:watch
+      with "dynamic: stage 1->watch, stage 2->urgent, stage 3->critical" — proving whole-volume
+      single-band attribution.
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Recompute the §5.1 tally against the current catalogs (urgent volume 52, interruptive 76, 29
+      urgent/critical definitions, worst-case urgent 44 / total 96) and add a CI/build check (or a note
+      in the alert-definition compiler, §2.2) that fails if these hand-maintained aggregates drift from
+      the summed catalog values. Replace whole-volume single-band attribution with a per-band volume
+      split for dynamic-severity alerts (each catalog alert declares the est_volume fraction expected in
+      each band), so the interruptive denominator is an actual per-tier estimate rather than a
+      max-band ceiling; carry the corrected top-tier figure into the C3 RRT pager-load sizing input.
+
+  - finding_id: RT2-ALARM-04
+    severity: minor
+    claim: >-
+      The RT1-ALARM-FATIGUE-04 fix modelled per-PATIENT and per-RRT-PAGER load, but there is still no
+      per-recipient (per-nurse / assigned-clinician) delivery-load model anywhere. watch-tier volume
+      (~46/100 beds/day) delivers a WS push + bed-board badge to the assigned clinician and, on PT60M
+      ack breach, escalates to that same assigned clinician (R2) rather than the RRT (alert-engine §3
+      watch row, §9 band-aware ladder). A bedside nurse holds 4-5 beds (PER-ANA load, per the home-surface
+      concept), so a nurse covering several simultaneously-decompensating patients absorbs each patient's
+      watch WS-pushes AND is the escalation sink for their watch breaches, with no per-recipient
+      concurrency ceiling or load estimate — the exact per-clinician alarm-fatigue surface the fleet
+      mean and the per-patient model both average away.
+    falsifiable_check: >-
+      grep -rniE 'per-nurse|per-recipient|per-clinician load|assigned clinician.*load|inbox load|
+      recipient .*concurrency|R2.*load' over docs/plan (excluding _work/redteam) finds only a
+      response-time-measurement mention (alert-routing.md line 83) and panel notes, NO per-recipient
+      delivery-load or concurrency model. alert-engine.md §5.1 models only "per decompensating
+      patient-day" and "RRT pager-load"; the watch escalation target is the assigned clinician
+      (§3 watch row, §9). No artifact bounds concurrent watch/urgent load on a single nurse holding
+      multiple beds.
+    owning_doc: docs/plan/architecture/alert-engine.md
+    proposed_fix: >-
+      Extend §5.1 with a per-recipient load model: expected and worst-case watch/urgent deliveries per
+      assigned-nurse-shift given the PER-ANA 4-5-bed span and the per-patient distribution already
+      modelled, and state whether a per-recipient coalescing/digest applies to the assigned-clinician
+      watch stream (it must not touch urgent/critical). Feed this into the same C3 sizing conversation
+      as the RRT pager-load figure.
+
+  - finding_id: RT2-ALARM-05
+    severity: minor
+    claim: >-
+      REGRESSION — RT1-ALARM-FATIGUE-06 (FP/patient-day deflates as ack-rate falls because never-acked
+      alerts are excluded from FP) is marked status:fixed, but neither proposed remedy landed. ppv-ledger
+      method.classification still routes a never-acknowledged-until-expiry alert to "ignored" only,
+      "Counts toward ignored_rate ... NOT ppv" (lines 63-66), so it never enters the false_positive count;
+      and there is no explicit joint-gate stating PER-CARLOS-02 and the ignored-rate ceiling must both
+      hold (they sit as two independent fleet_targets). So the original deflation still stands: as overload
+      rises and clinicians stop acknowledging, the dispositioned-FP count and thus p95 FP/patient-day
+      can IMPROVE while real burden worsens — PER-CARLOS-02 can pass on paper precisely when the unit is
+      most overloaded.
+    falsifiable_check: >-
+      ppv-ledger-draft.yaml lines 63-66 (classification.ignored) still say never-acked "Counts toward
+      ignored_rate ... NOT ppv" and it is absent from classification.false_positive (lines 61-62).
+      grep -niE 'both.*hold|jointly|joint gate|conjoin|gated (jointly|with) .*ignored|cannot pass while'
+      over ppv-ledger-draft.yaml returns ZERO hits — no joint-gating clause and no fraction of never-acked
+      high-tier counted toward FP. round-1/adjudicated.yaml RT1-ALARM-FATIGUE-06 resolution.status==fixed,
+      owning_doc ppv-ledger-draft.yaml — the fix is absent from that file.
+    owning_doc: docs/plan/_work/budgets/ppv-ledger-draft.yaml
+    proposed_fix: >-
+      Add an explicit joint gate to fleet_targets: PER-CARLOS-02 is only satisfied when BOTH the
+      fp_patient_day gates hold AND ignored_rate <= ignored_max (both must hold; state PER-CARLOS-02
+      is void when ignored_rate is out of band). Alternatively, count a defined fraction of never-acked
+      high-tier (urgent/critical) alerts toward false_positive so the FP metric cannot deflate as the
+      unit stops acknowledging. State the chosen rule in method.classification.

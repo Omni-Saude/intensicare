@@ -223,13 +223,12 @@ Coverage: CARLOS 12 moments · ANA 11 · FERNANDA 4 · RAFAEL 4 (some moments sh
 - **Persona(s):** RAFAEL.
 - **Trigger:** Critical score/alert anywhere in the hospital dispatches the RRT (US-08).
 - **Steps:** (1) Push hits the corporate smartphone <5s after the score crítico. (2) Lock-screen
-  payload: score, trend, patient location. (3) Rafael accepts and moves; acceptance is timestamped.
+  lock-screen payload: severity band + opaque deep-link ONLY (PHI-free, alert-routing §payload). (3) One tap → authenticated PWA opens full context (score, trend, location; content-load p95 budgeted); Rafael accepts and moves; acceptance is timestamped.
 - **System must show/do:** PER-RAFAEL-01 latency with delivery receipts; retry/backoff (IMP-C-06);
-  payload complete without unlocking-then-navigating; acceptance visible to the unit team.
+  one tap from lock screen to full patient context inside the authenticated PWA; acceptance visible to the unit team.
 - **Success metric:** PER-RAFAEL-01 (<5 s p95); VIS-7.1-03.
 - **Failure modes:** push delivered but silent under OS notification settings (delivery ≠ awareness —
-  receipts + escalation path if unaccepted); payload says "Alerta crítico" with no location (Rafael
-  runs to the app, not the patient); duplicate dispatch when score re-fires mid-response.
+  receipts + escalation path if unaccepted); deep-link fails to resolve (fallback: unit-board context + audited incident); duplicate dispatch when score re-fires mid-response.
 
 ## MOT-15 — En-route review on mobile
 

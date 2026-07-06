@@ -1,0 +1,1251 @@
+shard: formularios-clinicos-p1
+cluster: formularios-clinicos
+rule_count: 23
+rules_with_escalations: 7
+rules:
+- id: RULE-FORMULARIOS-CLINICOS-001
+  name: Pressure-injury (LPP) NPUAP staging enum
+  category: clinical-scoring
+  type: scoring
+  status: OK
+  verify: true
+  description: 'Canonical pressure-injury (Lesao Por Pressao) staging classification used by AvaliacaoGlobal.grau_ou_estagio
+    / estagio_lpp. NPUAP/EPUAP-style stage categories.
+
+    '
+  inputs:
+  - name: grau_ou_estagio / estagio_lpp
+    type: enum
+    unit: null
+    range: suspeita_de_lesao|estagio_i|estagio_ii|estagio_iii|estagio_iv|nao_graduavel
+  outputs:
+  - name: LPP stage
+    type: string
+    unit: null
+  logic: "estagio_lpp() = (\n  (\"suspeita_de_lesao\", \"Suspeita de lesão profunda dos tecidos\"),\n  (\"estagio_i\"\
+    ,   \"I\"),\n  (\"estagio_ii\",  \"II\"),\n  (\"estagio_iii\", \"III\"),\n  (\"estagio_iv\",  \"IV\"),\n  (\"\
+    nao_graduavel\", \"Não graduável ou inclassificável\"),\n)\n"
+  edge_cases: Classification enum; no numeric score. Six categories = NPUAP I-IV + suspected deep tissue injury
+    + unstageable.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-003
+  - RULE-FORMULARIOS-CLINICOS-018
+  merged_from:
+  - RULE-wound-BE-06-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/choices/avaliacao_global.py
+    lines: 127-154
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Backend canonical staging enum. The identical six-value staging set is re-implemented in the frontend
+    wound-assessment forms (RULE-FORMULARIOS-CLINICOS-002 and -003); staging values MATCH across BE and FE (no divergence
+    on staging).
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'NPUAP/EPUAP/PPPIA Pressure Injury Staging System (Edsberg LE et al., Revised NPUAP Pressure Injury
+      Staging System, J Wound Ostomy Continence Nurs 2016;43(6):585-597). Original 6-category NPUAP set: Stage I-IV
+      + Suspected Deep Tissue Injury + Unstageable.'
+    detail_file: formularios-clinicos-batch1.yaml
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-002
+  name: Pressure-injury (LPP) staging + wound-bed composite assessment (nursing / dietitian FE form)
+  category: clinical-scoring
+  type: scoring
+  status: DISCREPANCY
+  verify: true
+  description: 'Frontend structured pressure-injury assessment list (dataFormEnfermagem, duplicated verbatim in
+    dataFormNutricionista) capturing origin, anatomical location, tissue types, secretion, exudate amount, peri-wound
+    skin color, peri-wound edema (4 cm distance thresholds) and NPUAP-style stage.
+
+    '
+  inputs:
+  - name: tipo_lpp
+    type: enum
+    unit: null
+    range: nova_lesao|lesao_previa
+  - name: estagio_lpp
+    type: enum
+    unit: null
+    range: suspeita_de_lesao|estagio_i|estagio_ii|estagio_iii|estagio_iv|nao_graduavel
+  - name: edema_tecido
+    type: enum
+    unit: null
+    range: see logic
+  outputs:
+  - name: wound record
+    type: object
+    unit: null
+  logic: "formList per LPP:\n  tipo_lpp {nova_lesao, lesao_previa (prévia à admissão)}\n  local_lpp: select from\
+    \ localLesoes (anatomical sites vocabulary, RULE-FORMULARIOS-CLINICOS-020)\n  tipo_tecido multicheck {fibrina_esfacelos,\
+    \ granulacao, necrose, epitelizado}\n  tipo_secrecao multicheck {ausente, fetida, purulenta, serosa, sanguinolenta}\n\
+    \  exsudato {nada, escasso, moderado, grande}          # FE nursing: 4 options\n  cor_pele {rosa_ou_normal,\
+    \ vermelho_brilhante_palida, branca_cinza_hipopigmentada,\n            vermelho_escuro_sem_empalidecimento,\
+    \ preta_hiperpigmentada}\n  edema_tecido {minimo_edema, edema_sem_sulco_menor_4cm (<4cm), edema_sem_sulco_maior_4cm\
+    \ (>=4cm),\n                edema_com_sulco_menor_4cm (<4cm), crepitacao_edema_com_sulco_maior_4cm (>=4cm)}\
+    \  # 4cm boundary\n  estagio_lpp {suspeita_de_lesao (deep tissue), estagio_i..iv, nao_graduavel}\n  curativo(string)\n"
+  edge_cases: 'Peri-wound edema classified by a 4 cm radius boundary using >= vs < (crepitation escalates to top
+    tier). Stage set matches NPUAP I-IV + suspected deep tissue + unstageable.
+
+    '
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-001
+  - RULE-FORMULARIOS-CLINICOS-003
+  - RULE-FORMULARIOS-CLINICOS-004
+  - RULE-FORMULARIOS-CLINICOS-018
+  - RULE-FORMULARIOS-CLINICOS-019
+  - RULE-FORMULARIOS-CLINICOS-020
+  divergence: 'Peri-wound edema top-tier VALUE diverges from the backend canonical enum: this FE nursing/dietitian
+    form stores "crepitacao_edema_com_sulco_maior_4cm" (dataFormEnfermagem.ts:220; dataFormNutricionista.ts:307),
+    whereas the backend model (avaliacao_global.py:110) and the TecEnfermagem FE form (RULE-FORMULARIOS-CLINICOS-003)
+    both store "crepitacao_maior_4cm" for the same clinical label. Same finding, two different stored codes -> cross-discipline
+    data inconsistency; the backend agrees with TecEnfermagem, NOT with nursing/dietitian. Additionally, EXUDATE
+    (exsudato) diverges: backend avaliacao_global.py:117-125 offers 5 options {nada, escasso, pequeno, moderado,
+    grande}, but this FE form offers only 4 {nada, escasso, moderado, grande} - the "pequeno" option is dropped
+    in the frontend.
+
+    '
+  merged_from:
+  - RULE-wound-FE-01-039
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormEnfermagem.ts
+    lines: 107-247
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormNutricionista.ts
+    lines: 192-335
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: duplicate
+  notes: 'LPP list is duplicated (disabledOnEdit) in dataFormNutricionista.ts:192-335 with identical values, and
+    present commented-out in dataFormFarmaceutico.ts:72-212. Staging (estagio_lpp) and origin (tipo_lpp) values
+    MATCH the backend; only edema top value and exsudato option-count diverge (see divergence). Status upgraded
+    OK->DISCREPANCY during BE/FE reconciliation.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Bates-Jensen Wound Assessment Tool (BWAT), item ''Peripheral Tissue Edema'' (5-level, 4 cm boundary)
+      and item ''Exudate Amount'' (5-level: none/scant/small/moderate/large); plus NPUAP staging as in RULE-001.
+      Bates-Jensen BM, formerly Pressure Sore Status Tool.'
+    detail_file: formularios-clinicos-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-060
+    band: P2
+    title: Pressure-injury (LPP) staging + wound-bed composite assessment (nursing / dietitian FE form)
+    excerpt: 'Peri-wound edema top-tier VALUE diverges from the backend canonical enum: this FE nursing/dietitian
+      form stores "crepitacao_edema_com_sulco_maior_4cm" (dataFormEnfermagem.ts:220; dataFormNutricionista.ts:307),
+      whereas the backend model (avaliacao_global.py:…'
+- id: RULE-FORMULARIOS-CLINICOS-003
+  name: Nursing-technician (TecEnfermagem) tegumentary LPP list variant
+  category: clinical-scoring
+  type: scoring
+  status: DISCREPANCY
+  verify: true
+  description: 'TecEnfermagem pressure-injury list, reached via a lesions multicheck, reuses the LPP staging/wound-bed
+    structure of RULE-FORMULARIOS-CLINICOS-002 but stores a DIVERGENT peri-wound-edema top-tier value.
+
+    '
+  inputs:
+  - name: lesoes
+    type: enum[] (multicheck)
+    unit: null
+    range: lpp|outras_lesoes
+  outputs:
+  - name: wound record
+    type: object
+    unit: null
+  logic: "lesoes multicheck {lpp, outras_lesoes}\n  lpp -> LPP formList (same structure as RULE-FORMULARIOS-CLINICOS-002)\n\
+    \         BUT edema_tecido top option value = \"crepitacao_maior_4cm\"\n         (dataFormTecEnfermagem.ts:467;\
+    \ matches backend, differs from nursing/dietitian FE)\n  outras_lesoes -> other-lesion formList (same structure\
+    \ as RULE-FORMULARIOS-CLINICOS-019)\n"
+  edge_cases: Same clinical label, different stored value -> data inconsistency across disciplines for the same
+    wound finding.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-001
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-004
+  - RULE-FORMULARIOS-CLINICOS-019
+  divergence: 'edema_tecido top value = "crepitacao_maior_4cm" (dataFormTecEnfermagem.ts:467). This MATCHES the
+    backend canonical (avaliacao_global.py:110) but DIFFERS from the nursing/dietitian FE forms (RULE-FORMULARIOS-CLINICOS-002)
+    which use "crepitacao_edema_com_sulco_maior_4cm".
+
+    '
+  merged_from:
+  - RULE-tecnursing-FE-01-076
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormTecEnfermagem.ts
+    lines: 340-553
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: variant
+  notes: 'Kept SEPARATE from RULE-FORMULARIOS-CLINICOS-002 as a discipline-specific variant (TecEnfermagem form),
+    not merged. The enum value drift is the load-bearing DISCREPANCY.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: Bates-Jensen Wound Assessment Tool (BWAT), 'Peripheral Tissue Edema' item (5-level, 4 cm boundary);
+      NPUAP staging as RULE-001.
+    detail_file: formularios-clinicos-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-061
+    band: P2
+    title: Nursing-technician (TecEnfermagem) tegumentary LPP list variant
+    excerpt: edema_tecido top value = "crepitacao_maior_4cm" (dataFormTecEnfermagem.ts:467). This MATCHES the backend
+      canonical (avaliacao_global.py:110) but DIFFERS from the nursing/dietitian FE forms (RULE-FORMULARIOS-CLINICOS-002)
+      which use "crepitacao_edema_com_sulc…
+- id: RULE-FORMULARIOS-CLINICOS-004
+  name: Peri-wound edema classification - 4 cm threshold enum (backend canonical)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Peri-wound edema classification enum encoding numeric extent thresholds around the 4 cm boundary
+    (with and without pitting/sulco, plus crepitation). Backend canonical definition.
+
+    '
+  inputs:
+  - name: edema_tecido category
+    type: enum
+    unit: cm (extent around wound)
+    range: null
+  outputs:
+  - name: edema classification
+    type: string
+    unit: null
+  logic: "edema_tecido() = (\n  (\"minimo_edema\",              \"Mínimo edema ao redor da ferida.\"),\n  (\"edema_sem_sulco_menor_4cm\"\
+    , \"Edema sem fazer sulco que se estende < 4 cm ao redor da ferida.\"),\n  (\"edema_sem_sulco_maior_4cm\", \"\
+    Edema sem fazer sulco que se estende >= 4 cm ao redor da ferida.\"),\n  (\"edema_com_sulco_menor_4cm\", \"Edema\
+    \ com sulco que se estende < 4 cm ao redor da ferida.\"),\n  (\"crepitacao_maior_4cm\",      \"Crepitação e/ou\
+    \ edema com formação de sulco estende-se >= 4 cm.\"),\n)\n"
+  edge_cases: Boundary at 4 cm; '< 4 cm' vs '>= 4 cm' partitions. Labels distinguish pitting (sulco) vs non-pitting;
+    top tier adds crepitation.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-003
+  divergence: 'Top-tier stored VALUE differs by implementation for the same clinical label (''crepitation and/or
+    pitting edema extending >= 4 cm''): backend + TecEnfermagem FE use "crepitacao_maior_4cm"; nursing + dietitian
+    FE (dataFormEnfermagem.ts:220, dataFormNutricionista.ts:307) use "crepitacao_edema_com_sulco_maior_4cm". NEW
+    reconciliation finding: backend agrees with TecEnfermagem, diverges from nursing/dietitian.
+
+    '
+  merged_from:
+  - RULE-wound-BE-06-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/choices/avaliacao_global.py
+    lines: 92-115
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This enum, together with cor_pele (avaliacao_global.py:67-90) and exsudato (117-125), resembles a wound-assessment
+    scale (Sessing/PUSH-like). Only category labels are stored; no numeric score is computed in this partition.
+    Status upgraded OK->DISCREPANCY during BE/FE reconciliation. verify=true: alert-threshold with a plausible published
+    wound-scale anchor.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Bates-Jensen Wound Assessment Tool (BWAT), item ''Peripheral Tissue Edema'': 1=none; 2=non-pitting
+      <4 cm; 3=non-pitting >4 cm; 4=pitting <4 cm; 5=crepitus and/or pitting >4 cm.'
+    detail_file: formularios-clinicos-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-075
+    band: P2
+    title: Peri-wound edema classification - 4 cm threshold enum (backend canonical)
+    excerpt: 'Top-tier stored VALUE differs by implementation for the same clinical label (''crepitation and/or
+      pitting edema extending >= 4 cm''): backend + TecEnfermagem FE use "crepitacao_maior_4cm"; nursing + dietitian
+      FE (dataFormEnfermagem.ts:220, dataFormNutricionis…'
+- id: RULE-FORMULARIOS-CLINICOS-005
+  name: Nursing cardiovascular assessment enums with capillary-refill (TEC) > 5 s alert
+  category: alert-threshold
+  type: validation
+  status: OK
+  verify: true
+  description: Cardiovascular exam enums plus a boolean capillary-refill (TEC) > 5 s perfusion alert.
+  inputs:
+  - name: avaliacao_cardiologica.tec_maior_5s
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: cardiovascular assessment
+    type: object
+    unit: null
+  logic: 'pressao_arterial {normotenso, hipotensao, hipertensao, instavel (Instável Hemodinamicamente)}
+
+    frequencia_cardiaca {normocardio, bradicardico, taquicardio}
+
+    ritmo_cardiaco {ritmo_sinusal, arritmia, marcapasso, sopro_cardiaco}
+
+    tec_maior_5s(boolean) "Tempo de Enchimento Capilar maior que 5 segundos?"
+
+    '
+  edge_cases: TEC > 5 s is a peripheral-perfusion alert (capillary refill time).
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-010
+  - RULE-FORMULARIOS-CLINICOS-032
+  merged_from:
+  - RULE-nursing-FE-01-043
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormEnfermagem.ts
+    lines: 424-472
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'pressao_arterial / frequencia_cardiaca categorical enums are reused in the Fisioterapeuta and Farmaceutico
+    cardio sections (RULE-FORMULARIOS-CLINICOS-032). verify=true: alert-threshold carrying a plausible published
+    clinical anchor (capillary refill time).
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Capillary refill time (CRT). Standard reference: normal CRT <2 s (adults; up to ~3 s in elderly);
+      prolonged/abnormal >2-3 s indicates impaired peripheral perfusion. Sepsis resuscitation literature (ANDROMEDA-SHOCK,
+      Hernandez et al. JAMA 2019) uses CRT >3 s as the abnormal target. StatPearls, Capillary Refill Time.'
+    detail_file: formularios-clinicos-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-076
+    band: P2
+    title: Nursing cardiovascular assessment enums with capillary-refill (TEC) > 5 s alert
+    excerpt: The capillary-refill (TEC) alert boolean fires only at >5 s, which is substantially more lenient than
+      the published abnormal threshold (>2-3 s; sepsis literature uses >3 s). Consequently it does NOT flag the
+      3-5 s prolonged-refill window that reference stan…
+- id: RULE-FORMULARIOS-CLINICOS-006
+  name: Nursing-technician diet block ranges (subset)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: false
+  description: 'TecEnfermagem diet block with route booleans, acceptance enum and vomit / gastric-residue numeric
+    ranges (no HGT/prophylaxis, unlike nurse/dietitian forms).
+
+    '
+  inputs:
+  - name: vomitos / residuo_gastrico
+    type: number
+    unit: ml
+    range: 0-10000
+  outputs:
+  - name: diet assessment
+    type: object
+    unit: null
+  logic: 'booleans: dieta_zero, dieta_via_oral, enteral_sne_gtt, nutricao_parenteral
+
+    aceitacao {total, parcial, recusado}
+
+    vomitos 0-10000; residuo_gastrico 0-10000
+
+    '
+  edge_cases: Omits hgt_max/hgt_min and indicacao_profilaxia present in nurse/dietitian diet blocks (other partitions).
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-012
+  merged_from:
+  - RULE-tecnursing-FE-01-075
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormTecEnfermagem.ts
+    lines: 289-339
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Numeric bounds are input-validation ranges (0-10000 ml), not clinical decision thresholds -> verify=false.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-007
+  name: Home-care incident triage - urgency grade and symptom classification
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Home-care incident record captures trigger type, urgency grade, and a symptom classification multicheck
+    used for triage.
+  inputs:
+  - name: tipo_acionamento
+    type: enum
+    unit: null
+    range: intercorrencia|ocorrencia
+  - name: grau_urgencia
+    type: enum
+    unit: null
+    range: normal|urgencia|sem_urgencia|emergencia
+  - name: classificacao_intercorrencia
+    type: enum[] (multicheck)
+    unit: null
+    range: symptom list
+  outputs:
+  - name: triage record
+    type: object
+    unit: null
+  logic: "tipo_acionamento {intercorrencia, ocorrencia}\ngrau_urgencia {normal, urgencia, sem_urgencia, emergencia}\n\
+    classificacao_intercorrencia multicheck: sintomas_respiratorios, sintomas_urinarios, sintomas_gripais,\n  taquicardia,\
+    \ bradicardia, febre, cefaleia, prostracao, problemas_estoma, nauseas_e_vomitos, hipodermoclise,\n  hipoglicemia,\
+    \ hiperglicemia, dor_abdominal, confusao_mental, constipacao_intestinal, dor_garganta, edemas,\n  problemas_oculares,\
+    \ problemas_vaginais, problemas_penianos, reacao_alergica, dor_precordial, lesoes_cutaneas,\n  crise_convulsiva,\
+    \ sincope\nobservacao(string)\n"
+  edge_cases: grau_urgencia set is an unordered enum (normal/sem_urgencia both benign; emergencia most severe).
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-009
+  - RULE-FORMULARIOS-CLINICOS-015
+  - RULE-FORMULARIOS-CLINICOS-017
+  merged_from:
+  - RULE-intercorrencia-FE-01-069
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormIntercorrencia.ts
+    lines: 23-87
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Not a formal published triage scale (4 unordered urgency values) -> verify=false.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-008
+  name: Physiotherapy early-mobilization eligibility flags
+  category: triage-eligibility
+  type: eligibility
+  status: OK
+  verify: false
+  description: Physiotherapy global assessment captures edema grade, general state, delirium, and two boolean contraindications
+    to early mobilization.
+  inputs:
+  - name: instabilidade_hemodinamica_grave
+    type: boolean
+    unit: null
+    range: null
+  - name: contraindicacao_de_mobilizacao_precoce
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: mobilization eligibility flags
+    type: boolean set
+    unit: null
+  logic: 'edema {sem_edema, edema1 (MMII1), edema2 (MMII2), edema3 (MMII3), anasarca}
+
+    estado_geral {grave, regular}
+
+    presenca_delirium(boolean)
+
+    instabilidade_hemodinamica_grave(boolean)
+
+    contraindicacao_de_mobilizacao_precoce(boolean)
+
+    '
+  edge_cases: The two booleans gate whether early mobilization/physiotherapy is appropriate; the form does not auto-block
+    conduct on them.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-016
+  - RULE-FORMULARIOS-CLINICOS-032
+  - RULE-FORMULARIOS-CLINICOS-033
+  merged_from:
+  - RULE-physio-FE-01-051
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFisioterapeuta.ts
+    lines: 24-77
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: '''Dados do Paciente'' subgroup delegates to FieldSetDadosPacienteFisioterapeuta (React component, out
+    of partition). Boolean contraindication flags carry no numeric threshold to verify -> verify=false.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-009
+  name: Home-care incident intervention/conduct with conditional specific-intervention
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: Interventions performed during an incident; a boolean flag reveals a required free-text specific
+    intervention.
+  inputs:
+  - name: intervencao
+    type: enum[] (multicheck)
+    unit: null
+    range: see logic
+  - name: realizado_intervencao_especifica
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: intervention record
+    type: object
+    unit: null
+  logic: "intervencao multicheck {passagem_sne, passagem_sng, troca_traqueostomia, passagem_sonda_gastrostomia,\n\
+    \  exames_laboratoriais, acesso_venoso_central, acesso_venoso_periferico}\nrealizado_intervencao_especifica\
+    \ == true -> qual_intervencao_especifica (string)\nobservacao(string) \"Conduta\"\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-007
+  - RULE-FORMULARIOS-CLINICOS-015
+  merged_from:
+  - RULE-intercorrencia-FE-01-070
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormIntercorrencia.ts
+    lines: 88-133
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-010
+  name: Physician physical-exam enums and conditional reveals
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Physical-exam findings with several select options that conditionally reveal max-length-constrained
+    free-text fields, plus pupil/edema/elimination enums. Includes a TEC > 5 s capillary-refill flag.
+
+    '
+  inputs:
+  - name: exame_fisico.tipos_exame
+    type: enum[] (multicheck)
+    unit: null
+    range: includes tec_5s (TEC > 5s)
+  - name: exame_fisico.pupilas
+    type: enum
+    unit: null
+    range: isocoricas|mioticas|midriaticas|anisocoricas
+  - name: exame_fisico.edema
+    type: enum[] (multicheck)
+    unit: null
+    range: mmss|mmii|outros
+  outputs:
+  - name: exam findings
+    type: object
+    unit: null
+  logic: "tipos_exame options include regular_estado_geral, lesao_de_pele, tec_5s (TEC>5s), piora_clinica,\n  acesso_venoso_central,\
+    \ vomitos_no_periodo, desnutricao, febre, sonda_vesical_de_demora, edema_periferico\npupilas {isocoricas, mioticas,\
+    \ midriaticas, anisocoricas}\nedema multicheck {mmss, mmii, outros}; outros -> outros_edema (string, max 255)\n\
+    eliminacoes_vesicais {regular, aumentada, diminuida, coloracao}; coloracao -> coloracao_eliminacoes_vesicais\
+    \ (string, max 255)\neliminacoes_intestinais {normal, diarreia, constipado}\nausculta_cardiaca {sem_alteracoes,\
+    \ outros}; outros -> outros_ausculta_cardiaca (string, max 255)\nausculta_pulmonar {sem_alteracoes, mv_bilateral\
+    \ (MV + bilateral com creptos difusos)}\nintercorrencias (string, max 50)\n"
+  edge_cases: Free-text reveals enforce maxLength (255 or 50).
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-005
+  - RULE-FORMULARIOS-CLINICOS-021
+  - RULE-FORMULARIOS-CLINICOS-023
+  - RULE-FORMULARIOS-CLINICOS-024
+  merged_from:
+  - RULE-medico-FE-01-034
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFormularioMedico.ts
+    lines: 136-269
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: tec_5s reiterates the >5s capillary-refill alert (see RULE-FORMULARIOS-CLINICOS-005). Categorized data-validation
+    form -> verify=false.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-011
+  name: Nursing global assessment enums and risk conditionals
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Nurse global assessment with edema severity scale, general-state enum, boolean signs, isolation-precaution
+    set, and assistance-risk multicheck that conditionally opens allergy note and wound lists.
+
+    '
+  inputs:
+  - name: avaliacao_global.edema
+    type: enum
+    unit: null
+    range: sem_edema|edema1|edema2|edema3|anasarca
+  - name: avaliacao_global.riscos_assistenciais
+    type: enum[] (multicheck)
+    unit: null
+    range: see logic
+  outputs:
+  - name: global assessment
+    type: object
+    unit: null
+  logic: "edema {sem_edema, edema1 (MMII1), edema2 (MMII2), edema3 (MMII3), anasarca}  // ordinal edema grading\n\
+    estado_geral {grave, regular}\nbooleans: hipocorado, ictericia, febre, cianose\nprecaucoes_isolamento multicheck\
+    \ {padrao, contato, goticulas, aerossois, vigilancia}\nriscos_assistenciais multicheck {queda, alergia, sangramento,\
+    \ trombose_venosa, delirium, broncoaspiracao,\n  flebite, alteracao_glicemica, lpp, outras_lesoes}\nconditions:\
+    \ alergia -> observacao_alergia(string);\n            lpp -> LPP list (RULE-FORMULARIOS-CLINICOS-002);\n   \
+    \         outras_lesoes -> lesion list (RULE-FORMULARIOS-CLINICOS-019)\n"
+  edge_cases: Edema scale MMII1..3 is an ordinal lower-limb edema grade.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-008
+  - RULE-FORMULARIOS-CLINICOS-019
+  merged_from:
+  - RULE-nursing-FE-01-038
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormEnfermagem.ts
+    lines: 25-306
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: riscos_assistenciais enum duplicated in Fisioterapeuta (dataFormFisioterapeuta.ts:48-63) and Farmaceutico
+    (dataFormFarmaceutico.ts:48-63, conditions commented out).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-012
+  name: Nursing-technician respiratory assessment with aspiration conditional
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: TecEnfermagem respiratory exam; an aspiration boolean reveals a per-shift aspiration count; O2 flow
+    bounded 0-1000.
+  inputs:
+  - name: aspiracao
+    type: boolean
+    unit: null
+    range: null
+  - name: litros_por_minuto
+    type: number
+    unit: L/min
+    range: 0-1000
+  outputs:
+  - name: respiratory assessment
+    type: object
+    unit: null
+  logic: 'secrecao_traqueal {pouca, media, grande, aspiracao_ausente}; aspecto {mucoide, purulenta, mucopurulenta,
+    sanguinolenta}
+
+    tosse {eficaz, nao_eficaz, ausente}; dreno_de_torax {esquerdo, direito, bilateral, ausente}
+
+    aspecto_da_secrecao {espessa, purulenta, serosa, fluida_hialina, hematica, sendimentos}; data_troca_selo(date)
+
+    aspiracao == true -> nr_aspiracoes_plantao (string, "Nº de aspirações x plantão")
+
+    dispositivos multicheck {ausente, tqt, cateter_o2, mascara_o2, vni, vm}
+
+    litros_por_minuto: number 0-1000
+
+    '
+  edge_cases: O2 flow ceiling 1000 L/min is physiologically implausible (same loose bound as physio o2_minuto).
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-006
+  - RULE-FORMULARIOS-CLINICOS-032
+  merged_from:
+  - RULE-tecnursing-FE-01-073
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormTecEnfermagem.ts
+    lines: 114-215
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-013
+  name: Nursing-technician genitourinary with diaper-change conditional
+  category: data-validation
+  type: decision-tree
+  status: OK
+  verify: false
+  description: TecEnfermagem genitourinary exam; selecting 'fralda' (diaper) in the diuresis multicheck reveals
+    a 24 h change-count field.
+  inputs:
+  - name: diurese
+    type: enum[] (multicheck)
+    unit: null
+    range: ausente|presente|svd|sva|fralda
+  - name: nr_trocas_24h
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: genitourinary assessment
+    type: object
+    unit: null
+  logic: 'booleans: edema_bolsa_escrotal, lesoes, secrecao_uretral, secrecao_vaginal
+
+    diurese multicheck {ausente, presente, svd, sva, fralda}; fralda -> nr_trocas_24h (string, "Nº trocas/24 horas")
+
+    '
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-030
+  merged_from:
+  - RULE-tecnursing-FE-01-074
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormTecEnfermagem.ts
+    lines: 216-288
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Nursing genitourinary (RULE-FORMULARIOS-CLINICOS-030) has no fralda conditional.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-014
+  name: Nursing-technician high-cost drug/antibiotic list and other info
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'TecEnfermagem records high-cost drugs/antibiotics with administration route and body site (route
+    ''outras'' reveals free text), plus equipment-in-use (with ''outros'' reveal), bathing type and 24 h incidents.
+
+    '
+  inputs:
+  - name: medicamentos[].via_administracao
+    type: enum[] (multicheck)
+    unit: null
+    range: ev|im|sc|sl|it|outras
+  - name: medicamentos[].local
+    type: enum[] (multicheck)
+    unit: null
+    range: mid|mie|msd|mse|vjd|vje
+  outputs:
+  - name: medication + other-info record
+    type: object
+    unit: null
+  logic: "medicamentos formList: nome(string); via_administracao multicheck {ev, im, sc, sl, it, outras};\n  outras\
+    \ -> outras_vias(string); local multicheck {mid, mie, msd, mse, vjd, vje}\nequipamentos_em_uso multicheck {aspirador,\
+    \ concentrador, nebulizador, cilindro_de_o2, oximetro, outros};\n  outros -> outros_equipamentos(string)\nbanho\
+    \ multicheck {leito, aspersao}\nintercorrencias_24h(string)\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-023
+  - RULE-FORMULARIOS-CLINICOS-024
+  merged_from:
+  - RULE-tecnursing-FE-01-077
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormTecEnfermagem.ts
+    lines: 555-655
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: 'Administration-route/site codes (EV/IM/SC/SL/IT; MID/MIE/MSD/MSE/VJD/VJE) are clinical abbreviations.
+    verify=true because Phase-1 category is drug-dosing (per taxonomy rule), though the rule itself only captures
+    route/site vocabulary, not dose calculations.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published clinical reference exists. This rule captures an internal data-capture
+      vocabulary (drug name + administration-route multicheck + body-site multicheck + equipment/bath/incident fields)
+      for the TecEnfermagem form. The route codes (EV=endovenosa/IV, IM=intramuscular, SC=subcutanea, SL=sublingual,
+      IT=intratecal, outras=other) and body-site codes (MID/MIE/MSD/MSE = membro inferior/superior direito/esquerdo;
+      VJD/VJE = veia jugular direita/esquerda) are standard Brazilian-Portuguese clinical abbreviations, but the
+      list is a proprietary form vocabulary, not a scored scale, formula, or dose calculator. There is no equation,
+      coefficient, unit conversion, valid-range bound, rounding step, or score-band cutoff to audit against a guideline.
+
+      '
+    detail_file: formularios-clinicos-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-284
+    band: UNVERIFIABLE
+    title: Nursing-technician high-cost drug/antibiotic list and other info
+    excerpt: 'Internal-review flag (not a defect). Legacy vocabulary and conditional-reveal logic reproduce the
+      rule''s logic field verbatim (dataFormTecEnfermagem.ts:555-655): route multicheck {ev,im,sc,sl,it,outras}
+      with outras->outras_vias…'
+- id: RULE-FORMULARIOS-CLINICOS-015
+  name: Home-care incident disposition/outcome enum
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: Disposition of an incident, from referral to medical/nursing/APH/hospital visits through telephone
+    guidance to home death.
+  inputs:
+  - name: itens_desfecho
+    type: enum
+    unit: null
+    range: see logic
+  outputs:
+  - name: disposition
+    type: enum
+    unit: null
+  logic: "itens_desfecho options: encaminhada_visita_medica, encaminhada_visita_enfermagem, encaminhado_visita_aph_medico,\n\
+    \  encaminhado_hospital_prestador, encaminhado_hospital_familiar, encaminhada_visita_fisio,\n  orientacao_telefonica,\
+    \ obito_domiciliar\n"
+  edge_cases: obito_domiciliar (home death) is a terminal disposition.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-007
+  - RULE-FORMULARIOS-CLINICOS-009
+  merged_from:
+  - RULE-intercorrencia-FE-01-071
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormIntercorrencia.ts
+    lines: 134-173
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: relato_gastos (cost report) free-text group follows (174-185).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-016
+  name: Physiotherapy conduct enums (respiratory & motor techniques)
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: Physiotherapy interventions selectable as respiratory and motor technique multichecks.
+  inputs:
+  - name: fisioterapia_respiratoria / fisioterapia_motora
+    type: enum[] (multicheck)
+    unit: null
+    range: see logic
+  outputs:
+  - name: therapy conduct
+    type: enum set
+    unit: null
+  logic: "fisioterapia_respiratoria multicheck {manobras_higiene_bronquica, padroes_ventilatorios,\n  tecnicas_de_reexpansao_pulmonar,\
+    \ tosse_dirigida, tosse_assistida, tosse_induzida,\n  treinamento_de_musculatura_respiratoria, aspiracao_de_via_aerea_superiore_traqueostomia,\n\
+    \  bag_squeezing, ajuste_de_oxigenoterapia, epap, ajuste_de_parametros_ventilatorios, aspiracao}\nuso_de_cough_assist(string)\n\
+    fisioterapia_motora multicheck {cinesioterapia_passiva, cinesioterapia_ativo_assistida, cinesioterapia_ativa,\n\
+    \  cinesioterapia_ativa_livre, cinesioterapia_resistida, sedestacao_no_leito, sedestacao_fora_do_leito,\n  ortostatismo,\
+    \ deambulacao, treino_de_marcha, treino_de_equilibrio, exercicios_calistenicos,\n  exercicios_isometricos, alongamento,\
+    \ mobilizacao_passiva, posicionamento_funcional, crioterapia,\n  termoterapia, eletroterapia}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-008
+  - RULE-FORMULARIOS-CLINICOS-032
+  - RULE-FORMULARIOS-CLINICOS-033
+  merged_from:
+  - RULE-physio-FE-01-055
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFisioterapeuta.ts
+    lines: 758-859
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-017
+  name: Intercorrencia (clinical incident/complication) domain-concept icon
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: 'A dedicated icon component ''Intercorrencia.jsx'' exists, named after the Portuguese clinical term
+    ''intercorrência'' (adverse event / complication / unplanned clinical occurrence). Its existence as a first-class
+    icon signals a distinct feature/workflow for recording or flagging clinical intercorrências, though no logic
+    is present in this icon file (only SVG artwork).
+
+    '
+  inputs: []
+  outputs: []
+  logic: '# No executable logic in this file; icon existence is the only evidence.
+
+    ICON_NAME "Intercorrencia" => implies elsewhere: a workflow/form/list for
+
+    recording patient "intercorrências" (adverse events/complications).
+
+    '
+  edge_cases: 'AMBIGUOUS: the actual intercorrência recording workflow (fields, required data, severity classification,
+    who may record it) is not part of this partition and was not observed; this entry documents only the domain
+    concept''s existence based on the icon naming. (The concrete incident forms are RULE-FORMULARIOS-CLINICOS-007/009/015.)
+
+    '
+  confidence: low
+  related:
+  - RULE-FORMULARIOS-CLINICOS-007
+  - RULE-FORMULARIOS-CLINICOS-009
+  - RULE-FORMULARIOS-CLINICOS-015
+  merged_from:
+  - RULE-CLINICAL-FE-09-013
+  sources:
+  - repo: trilhas-frontend
+    path: src/icons/Intercorrencia.jsx
+    lines: 1-9
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: No logic beyond SVG markup found; kept as AMBIGUOUS per ground rules (not dropped, to avoid silent loss).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-300
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Intercorrencia (clinical incident/complication) domain-concept icon
+- id: RULE-FORMULARIOS-CLINICOS-018
+  name: Pressure-injury (LPP) origin classification enum (tipo_lpp, backend serializer)
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Every pressure-injury (LPP) record must be classified as either a ''new lesion'' (arose during this
+    care episode) or a ''lesion prior to admission'' (pre-existing) - a two-value enum hardcoded directly in the
+    serializer rather than sourced from the shared choices module.
+
+    '
+  inputs:
+  - name: tipo_lpp
+    type: string (choice)
+    unit: null
+    range: nova_lesao | lesao_previa
+  outputs:
+  - name: tipo_lpp
+    type: string (choice)
+    unit: null
+  logic: "tipo_lpp = ChoiceField(choices=(\n    (\"nova_lesao\", \"Nova lesão\"),\n    (\"lesao_previa\", \"Lesão\
+    \ prévia a admissão\"),\n), allow_null=True, allow_blank=True)\n"
+  edge_cases: allow_null and allow_blank both True -> the field can be submitted empty despite being a clinically
+    meaningful classification.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-003
+  merged_from:
+  - RULE-lpp-BE-07-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/lesao_por_pressao.py
+    lines: 8-15
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'New-vs-prior-to-admission distinction is the standard basis for hospital-acquired vs community-acquired
+    pressure-injury quality reporting. Identical inline choices are duplicated verbatim in LPPPDFSerializer.tipo_lpp
+    (same file, lines 62-70) for PDF display (ListChoiceField). Values MATCH the FE forms (RULE-FORMULARIOS-CLINICOS-002/003)
+    tipo_lpp {nova_lesao, lesao_previa} - no divergence.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-019
+  name: Other-lesion (non-pressure) assessment list
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Structured list for non-pressure lesions with type, location, aspect, dressing, and dressing-change
+    frequency.
+  inputs:
+  - name: tipo_lesao
+    type: enum
+    unit: null
+    range: see logic
+  - name: frequencia_troca
+    type: enum
+    unit: null
+    range: dia|mes|ano
+  outputs:
+  - name: lesion record
+    type: object
+    unit: null
+  logic: "formList: tipo_lesao {ferida_cirurgica, escoriacao, equimose, queimadura, ulcera_vascular,\n  ulcera_neuropatica,\
+    \ ferida_arma_fogo}; local_lesao(localLesoes); aspecto(string);\n  curativo(string); frequencia_troca {dia,\
+    \ mes, ano}\n"
+  edge_cases: null
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-003
+  - RULE-FORMULARIOS-CLINICOS-020
+  merged_from:
+  - RULE-wound-FE-01-040
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormEnfermagem.ts
+    lines: 248-302
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Duplicated in dataFormTecEnfermagem.ts:495-549; commented-out in dataFormFarmaceutico.ts:213-267.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-020
+  name: Anatomical lesion / catheter-insertion site enumeration
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Enumerated anatomical sites used to locate skin lesions/pressure injuries and vascular catheter/access
+    insertion points (e.g. sacro/cóccix, trocanter, calcanhar/heel, and central-line sites subclávia/jugular/femural/radial).
+
+    '
+  inputs:
+  - name: local
+    type: string
+    unit: null
+    range: see enumeration (44 sites)
+  outputs:
+  - name: label
+    type: string
+    unit: null
+  logic: 'Values: orelha_direita, orelha_esquerda, escapular_direita, escapular_esquerda,
+
+    maleolo_direito, maleolo_esquerdo, cabeca, sacro_coccix, trocanter_direito,
+
+    trocanter_esquerdo, toronozelo_lateral, toronozelo_medial,
+
+    tuberosidade_esquiatica_direita, tuberosidade_esquiatica_esquerda,
+
+    calcanhar_direito, calcanhar_esquerdo, abdomen_direito, abdomen_esquerdo,
+
+    torax_direito, torax_esquerdo, msd, mse, mid, mie, subclavia_direita,
+
+    subclavia_esquerda, jugular_interna_direita, jugular_interna_esquerda,
+
+    femural_direita, femural_esquerda, radial_direita, radial_esquerda, sacral,
+
+    coccix, abdomen, mediastino, esterno, safena, inframaria_d, inframaria_e,
+
+    perianal, perineo, cervical
+
+    '
+  edge_cases: 'Verbatim typos preserved: ''toronozelo_lateral''/''toronozelo_medial'' (intended tornozelo = ankle),
+    ''inframaria_d/e'' (intended inframamária = inframammary). MSD/MSE/MID/MIE = upper/lower right/left limbs. Both
+    sacro_coccix and separate sacral + coccix entries exist (redundant regions).
+
+    '
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-002
+  - RULE-FORMULARIOS-CLINICOS-019
+  merged_from:
+  - RULE-lesoes-FE-02-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/localLesoes.ts
+    lines: 1-73
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Shared vocabulary serving both lesion and vascular/surgical-access forms.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-021
+  name: Home-care chronic-diagnosis catalog (backend humanize map + frontend physician multicheck)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: 'The 16-code chronic/critical homecare-diagnosis catalog. Backend maps each code to a display label
+    (humanize_choice_diagnostico); frontend presents the identical 16 codes as a physician multicheck with a free-text
+    observation. Same underlying vocabulary captured on both sides.
+
+    '
+  inputs:
+  - name: val / diagnostico.tipos_diagnostico
+    type: string code / enum[]
+    unit: null
+    range: one of the 16 keys below
+  outputs:
+  - name: label / diagnoses
+    type: string / enum set
+    unit: null
+  logic: "# Backend: humanize_choice_diagnostico(val) = motivos[val]   (direct dict index, no default)\n# Frontend:\
+    \ multicheck options[].value  (same 16 codes) + diagnostico.observacao(string)\nmotivos = {\n  \"doenca_arterial_corononariana\"\
+    :      \"Doença arterial corononariana\",\n  \"doenca_pulmonar_obstrutiva_cronica\": \"Doença pulmonar obstrutiva\
+    \ crônica\",\n  \"esclerose_lateral_amiotrofica\":      \"Esclerose Lateral Amiotrófica\",\n  \"fibrilacao_atrial_cronica\"\
+    :          \"Fibrilação atrial crônica\",\n  \"diabetes_mellitus_tipo1\":            \"Diabetes Mellitus tipo\
+    \ 1\",\n  \"diabettes_mellitus_tipo2\":           \"Diabettes Mellitus tipo 2\",\n  \"cirrose_hepatica\":  \
+    \                 \"Cirrose hepática\",\n  \"pos_operatorio_de_cirurgia\":         \"Pós-operatório de cirurgia\
+    \ abdominal\",\n  \"encefalopatia_pos_avc\":              \"Encefalopatia pós AVC\",\n  \"encefalopatia_anoxica_isquemica\"\
+    :    \"Encefalopatia anóxica isquêmica\",\n  \"demencia_senil\":                     \"Demência senil\",\n \
+    \ \"doença_de_alzheimer\":                \"Doença de Alzheimer\",   # key carries cedilla; others ASCII\n \
+    \ \"doenca_de_parkinson\":                \"Doença de Parkinson\",\n  \"ventilacao_mecanica_prolongada\":  \
+    \   \"Ventilação Mecânica prolongada\",\n  \"desnutricao_cronica\":                \"Desnutrição crônica\",\n\
+    \  \"polineuropatia_do_doente_critico\":   \"Polineuropatia do doente crítico\",\n}\n"
+  edge_cases: 'Load-bearing verbatim typos in the CODE keys (shared BE+FE): ''corononariana'', ''diabettes_mellitus_tipo2'',
+    and the Alzheimer key ''doença_de_alzheimer'' carries a cedilla while all other keys are ASCII. The ''pos_operatorio_de_cirurgia''
+    key''s label silently narrows to ''de cirurgia abdominal''. Backend uses direct dict indexing with NO default
+    -> KeyError on any code not in this map.
+
+    '
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-010
+  divergence: '(1) Frontend defect: the multicheck options array ends with a stray trailing comma (dataFormFormularioMedico.ts:79)
+    producing a sparse array hole / undefined option; the backend map has no such hole. (2) Backend humanize_choice_diagnostico
+    raises KeyError for unlisted codes (no default), whereas the frontend is a plain option list (unlisted stored
+    codes simply would not render). The 16 code keys and labels themselves MATCH exactly between BE and FE (including
+    all typos and the cedilla).
+
+    '
+  merged_from:
+  - RULE-diagnostico-BE-09-001
+  - RULE-medico-FE-01-031
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/templatetags/formulario.py
+    lines: 13-33
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFormularioMedico.ts
+    lines: 22-83
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  notes: 'True cross-implementation duplicate (backend humanize map vs frontend multicheck of the same catalog),
+    merged. Canonical choices likely also live on the Diagnostico model (different partition). Status DISCREPANCY
+    preserved from both source entries (BE key typos + FE sparse-array hole).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-165
+    band: P3
+    title: data-validation
+    excerpt: '(1) Frontend defect: the multicheck options array ends with a stray trailing comma (dataFormFormularioMedico.ts:79)
+      producing a sparse array hole / undefined option; the backend map has no such hole. (2) Backend humanize_choice_diagnosti…'
+- id: RULE-FORMULARIOS-CLINICOS-022
+  name: Vascular-access / dressing tracked-field enum
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Maps device/dressing tracking field codes to labels, defining the set of attributes recorded for
+    indwelling devices and dressings (catheter in-use, insertion/dressing dates, next change, phlebitis, palpable
+    thrill, external-institution insertion).
+
+    '
+  inputs:
+  - name: value
+    type: string field code
+    unit: null
+    range: one of the 10 keys
+  outputs:
+  - name: label
+    type: string ("" if unknown)
+    unit: null
+  logic: "get_humanized_name(value) = {\n  em_uso:\"Em uso\", local:\"Local\", data_insercao:\"Data de insercao\"\
+    ,\n  data_curativo:\"Data do curativo\", curativo:\"Curativo\",\n  aspecto_do_curativo:\"Aspecto do curativo\"\
+    , data_proxima_troca:\"Data da proxima troca\",\n  inserido_em_outra_instituicao:\"Inserido em outra instituicao\"\
+    ,\n  fremito_palpavel:\"Fremito palpavel\", flebite:\"Flebite\",\n}.get(value, \"\")\n"
+  edge_cases: Uses .get(value, "") so unknown codes render as empty string (no error).
+  confidence: medium
+  related: []
+  merged_from:
+  - RULE-diagnostico-BE-09-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/templatetags/formulario.py
+    lines: 156-170
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'fremito_palpavel (palpable thrill) and flebite (phlebitis) indicate AV-fistula / peripheral-line monitoring;
+    data_proxima_troca drives dressing-change scheduling. Field catalog only; thresholds/scheduling elsewhere.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-FORMULARIOS-CLINICOS-023
+  name: Physician in-use invasive devices vocabulary
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Multicheck of invasive devices currently in use.
+  inputs:
+  - name: dispositivos_em_uso.tipos_dispositivo
+    type: enum[] (multicheck)
+    unit: null
+    range: see logic
+  outputs:
+  - name: devices
+    type: enum set
+    unit: null
+  logic: 'options { gastrostomia, traquestomia, jejunostopia, svd, avp, picc, avc, sne }
+
+    '
+  edge_cases: Typos in labels (Traquestomia, Jejunostopia) preserved verbatim.
+  confidence: high
+  related:
+  - RULE-FORMULARIOS-CLINICOS-024
+  merged_from:
+  - RULE-medico-FE-01-032
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFormularioMedico.ts
+    lines: 95-115
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: null
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

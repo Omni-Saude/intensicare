@@ -1,0 +1,214 @@
+barrier: 3
+swept:
+- latency.yaml stage p95 sum vs 30s ceiling — PROD owned pipeline Sigma = poll 1000 + normalize 500 + evaluate 5000
+  + persist 500 + deliver 2000 = 9000ms = 9s << 30000ms (VIS-C-09). PASS.
+- RRT <5s push (PER-RAFAEL-01 / CON-0092 / PER-C-06) vs deliver stage — deliver p95 2000ms < 5000ms push budget.
+  PASS (alert-engine.md sec8.1 check, observability-slo.md sec3 check, latency.yaml budget_check both agree).
+- 'MVP latency decomposition arithmetic — FAIL (conflict B3-001): observability-slo.md sec3 MVP column sums to 33s
+  > 30s.'
+- 'Per-domain evaluation_mode (alert-engine.md sec1.1 matrix) vs latency_assumption_ms (domain-interfaces/*.yaml):
+  sepsis(hybrid,5000), aki(micro-batch,300000), electrolyte(micro-batch,300000), hemodynamics(hybrid/NRT,5000),
+  respiratory(hybrid/NRT,30000), neuro-sedation/delirium(micro-batch,30000), pharmaco/drug(micro-batch,30000), correlation(hybrid/micro-batch,8000)
+  all CONSISTENT. early-warning-scores INCONSISTENT — FAIL (conflict B3-002).'
+- 'Alternativa-B trigger decision table EXISTS — system-architecture.md sec6.1 rows T1-T6. CRITICAL batch-fed alert
+  families enumerated: electrolyte CRIT band (ELY-POTASSIUM/SODIUM/CALCIUM/etc.) is COVERED by T2 and flagged as
+  strongest escape-hatch candidate in latency.yaml, alert-engine.md sec1.1, amh-freshness.yaml labs_electrolytes;
+  HEMO-LACTATE-CLEARANCE-02 (lactate Gold batch 30min << 2h clinical window), SEPSIS-ORGAN/SHOCK (hybrid, qSOFA
+  NRT leg fires, lab-context-stale label), PHARMACO-QTC/CNS (T6 batch-sufficient; acute physiologic legs RR/SpO2
+  are NRT), CORR-* (out of MVP stage budget) all documented/acceptable. No un-surfaced CRITICAL-on-batch alert.
+  PASS.'
+- Fleet-weighted PPV = volume-weighted mean of target_ppv over 50 alerts = 91.11 / 137 = 0.665 >= 0.60 (VIS-7.1-02).
+  PASS.
+- 'Fleet volume = 137 est_volume_per_100_beds_day across 50 alerts = 1.37/patient-day. Alarm-fatigue sanity: FP/patient-day
+  = 1.37*(1-0.665) = 0.459 << 3 (CON-0088/PER-CARLOS-02); total 1.37/patient-day << ~7.5 ceiling; ~5x below legacy
+  200/day baseline. PASS.'
+- 'target_ppv < 0.5 scan across 50-alert catalog + 32-alert ppv-ledger-draft: NONE strictly below 0.5. Catalog floor
+  0.55 (NEUROSED-SCREEN-GAP-05, SEPSIS-PCT-RISING-05 0.58); legacy ledger floor 0.50 (AKI-005/RESP-004/HEMO-004/DEL-003/DEL-004/DDX-004/DDX-005).
+  PASS.'
+- 'Per-domain volume 3x-out-of-family scan: EWS 23, neuro-sed 22, respiratory 22, sepsis 17, hemo 14, pharmaco 14,
+  electrolyte 10, aki 9, correlation 6 (mean ~15). Max/mean = 1.5x. No domain 3x out of family. PASS.'
+- 'Correlation suppression-vs-amplification accounting: CORR-SEPSIS-AKI-01 folds SEP-002/AKI-001..004, CORR-RESP-HEMO-02
+  folds RESP-002/HEMO-003, CORR-QTC-ELEC-03 amplifies watch->critical AND folds DDX-001/ELY-002/ELY-006 — all 3
+  net-suppress member pushes. CORR-EXAM-REDUND-04 net-ADDITIVE — FAIL (conflict B3-004).'
+- PPV budget dual-source reconciliation (ppv-ledger-draft.yaml 32 legacy ids vs alerts/*.yaml 50 catalog ids) —
+  divergent values on same alerts — FLAG (conflict B3-003).
+- CON-SEED-01 canonical single-statement check — dual 'single canonical' claims — FLAG (conflict B3-005).
+computed:
+  fleet_ppv_weighted: 0.665
+  fleet_volume_per_100_beds_day: 137
+  derived:
+    fp_per_patient_day_at_weighted_ppv: 0.459
+    prod_owned_pipeline_sum_s: 9
+    deliver_vs_rrt_push_s: 2 < 5
+    per_domain_volume:
+      early-warning-scores: 23
+      neuro-sedation: 22
+      respiratory: 22
+      sepsis: 17
+      hemodynamics: 14
+      pharmaco-interaction: 14
+      electrolyte: 10
+      aki: 9
+      correlation-engine: 6
+conflicts:
+- conflict_id: B3-001
+  barrier: 3
+  severity: blocking
+  description: 'The MVP latency decomposition breaches the 30s ceiling it claims to preserve, and the two canonical
+    artifacts disagree on it. observability-slo.md sec3 stage table (lines 69-75) lists an MVP column with evaluate
+    ceiling "26,000 ms (re-scoped so 30s-Sigma_other_owned=26,000 ms)" AND deliver ceiling "5,000 ms" (from IMP-C-14
+    alert p95 <5s MVP). Those MVP cells sum to poll 1000 + normalize 500 + evaluate 26000 + persist 500 + deliver
+    5000 = 33,000 ms = 33 s > 30,000 ms, yet the Sigma row asserts "<=30,000 ms by construction" and sec3 (line
+    85) claims it "restates [latency.yaml]... no numeric change." It is precisely the "adding intra-budget numbers
+    against the ceiling" error the CON-SEED-01 resolution says it fixed. latency.yaml avoids the breach only by
+    holding the deliver stage at its PROD 2,000 ms even at MVP (stages: deliver has p95_ms 2000 and NO MVP ceiling;
+    evaluate p95_ms_mvp_ceiling 26000 -> 1000+500+26000+500+2000 = 30000 exactly), which silently drops IMP-C-14''s
+    MVP alert relaxation (<5s). The evaluate MVP re-scoping "30000 - sum(other owned stages 4000) = 26000" (latency.yaml
+    line 56) used the PROD deliver (2000), not the MVP deliver (5000); with the IMP-C-14 MVP deliver the correct
+    headroom is 30000 - (1000+500+500+5000) = 23,000 ms.'
+  artifacts:
+  - docs/plan/architecture/observability-slo.md
+  - docs/plan/_work/budgets/latency.yaml
+  - docs/plan/architecture/alert-engine.md
+  constraint_refs:
+  - CON-SEED-01
+  - VIS-C-09
+  - IMP-C-13
+  - IMP-C-14
+  proposed_resolution: Set the evaluate MVP ceiling to 23,000 ms (= 30000 - poll 1000 - normalize 500 - persist
+    500 - deliver_MVP 5000) and make deliver_MVP = 5,000 ms explicit in latency.yaml stages, so the MVP column sums
+    to exactly 30,000 ms and honours IMP-C-14's <5s MVP alert budget. Correct observability-slo.md sec3 evaluate
+    MVP cell from 26,000 to 23,000 ms and drop the false "no numeric change" claim (the MVP column DOES differ from
+    latency.yaml today). PROD numbers (Sigma 9s) are unaffected.
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Set the evaluate MVP ceiling to 23,000 ms (= 30000 - poll 1000 - normalize 500 - persist 500 - deliver_MVP
+      5000) and make deliver_MVP = 5,000 ms explicit in latency.yaml stages, so the MVP column sums to exactly 30,000
+      ms and honours IMP-C-14's <5s MVP alert budget. Correct observability-slo.md sec3 evaluate MVP cell from 26,000
+      to 23,000 ms and drop the false "no numeric change" claim (the MVP column DOES differ from latency.yaml today).
+      PROD numbers (Sigma 9s) are unaffected.
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B3-002
+  barrier: 3
+  severity: blocking
+  description: 'early-warning-scores is the flagship NRT domain but its domain-interface latency justification describes
+    a batch domain, contradicting its canonical evaluation_mode and the source routing. alert-engine.md sec1.1 classifies
+    it "near-real-time ... This is the sole path that requires a sub-batch data feed to honor VIS-C-09" and amh-freshness.yaml
+    routes its vitals through vitals_operational (MLLP, "freshness_slo: p95 <5s", holding vitals_gold as "analytical/replay
+    source only"). But domain-interfaces/early-warning-scores.yaml sets latency_assumption_ms: 30000 with the justification
+    "The 30s budget is dominated by AMH Gold/Athena read latency, bounded by ... the Silver-Entities P95 < 30 min
+    batch path (ADR001-F-02)" and lists every vital input as "AMH Gold Observation LOINC ...". A NRT domain whose
+    latency is justified by the 30-min Gold batch path cannot meet VIS-C-09 (<30s) and would perpetually satisfy
+    the Alternativa-B T1 trigger. The number is also out of family: the hybrid/NRT siblings sepsis and hemodynamics
+    declare latency_assumption_ms 5000, while the domain with the tightest required latency declares the loosest
+    (30000).'
+  artifacts:
+  - docs/plan/_work/domain-interfaces/early-warning-scores.yaml
+  - docs/plan/architecture/alert-engine.md
+  - docs/plan/_work/platform/amh-freshness.yaml
+  constraint_refs:
+  - VIS-C-09
+  - ADR001-C-01
+  - ADR001-F-02
+  - ADR001-F-08
+  proposed_resolution: 'Rewrite early-warning-scores.yaml''s latency justification to reflect its NRT mode: latency
+    is bounded by the vitals_operational (MLLP) 2s source-freshness row + the 9s owned pipeline, NOT the 30-min
+    Gold batch; annotate the vital-sign inputs as "operational MLLP feed (NRT); AMH Gold is analytical/replay only
+    per amh-freshness.yaml." If the intended number is the domain''s own compute+dispatch budget, align it with
+    the hybrid/NRT siblings (~5000 ms); keep 30000 only if it denotes the VIS-C-09 end-to-end envelope and say so
+    explicitly.'
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: 'Rewrite early-warning-scores.yaml''s latency justification to reflect its NRT mode: latency is bounded
+      by the vitals_operational (MLLP) 2s source-freshness row + the 9s owned pipeline, NOT the 30-min Gold batch;
+      annotate the vital-sign inputs as "operational MLLP feed (NRT); AMH Gold is analytical/replay only per amh-freshness.yaml."
+      If the intended number is the domain''s own compute+dispatch budget, align it with the hybrid/NRT siblings
+      (~5000 ms); keep 30000 only if it denotes the VIS-C-09 end-to-end envelope and say so explicitly.'
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B3-003
+  barrier: 3
+  severity: minor
+  description: 'The PPV budget is stated in two artifacts that assign different targets to the same clinical alert
+    with no canonical pointer. ppv-ledger-draft.yaml (32 legacy catalog ids) calls itself "the machine-readable
+    budget that binds every alert type to a PPV target" and sets e.g. ELY-001 "Hipercalemia K+ > 6,5 mmol/L" ppv_target:
+    0.75; the new domain catalog alerts/electrolyte.yaml ALERT-ELY-POTASSIUM-01 (same alert) sets target_ppv: 0.88.
+    Similar drift exists across the SEP/AKI/HEMO/DDX families, and only the 50-alert catalogs carry est_volume (so
+    the fleet PPV computation can only use them). Which set binds US-25 tuning gates is unstated.'
+  artifacts:
+  - docs/plan/_work/budgets/ppv-ledger-draft.yaml
+  - docs/plan/_work/alerts/electrolyte.yaml
+  - docs/plan/_work/alerts/sepsis.yaml
+  - docs/plan/_work/alerts/aki.yaml
+  constraint_refs:
+  - CON-SEED-10
+  - VIS-7.1-02
+  proposed_resolution: Declare the 50-alert domain catalogs (alerts/*.yaml target_ppv + est_volume) canonical for
+    the v2 design and the binding PPV budget; re-scope ppv-ledger-draft.yaml to a legacy-id reconciliation/mapping
+    layer only (add an explicit legacy-id -> new ALERT-* map) and reconcile the divergent values, or delete the
+    duplicate per-alert ppv_target numbers from the ledger so a single source of truth remains.
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Declare the 50-alert domain catalogs (alerts/*.yaml target_ppv + est_volume) canonical for the v2
+      design and the binding PPV budget; re-scope ppv-ledger-draft.yaml to a legacy-id reconciliation/mapping layer
+      only (add an explicit legacy-id -> new ALERT-* map) and reconcile the divergent values, or delete the duplicate
+      per-alert ppv_target numbers from the ledger so a single source of truth remains.
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B3-004
+  barrier: 3
+  severity: minor
+  description: CORR-EXAM-REDUND-04 is filed under the correlation engine's suppression model but is net-additive,
+    not net-suppressive. The other three correlations each fold >=2 member pushes into one (SEPSIS-AKI folds SEP-002/AKI-001..004;
+    RESP-HEMO folds RESP-002/HEMO-003; QTC-ELEC amplifies watch->critical and folds DDX-001/ELY-002/ELY-006). CORR-EXAM-REDUND-04's
+    own note states "Standalone (no member alert to suppress); a stewardship signal, not a fold of existing deterioration
+    alerts" — it adds +2 est_volume_per_100_beds_day with no offsetting member-volume reduction. Crediting it as
+    a "correlation" muddies the suppression-vs-amplification accounting the alarm-fatigue budget relies on.
+  artifacts:
+  - docs/plan/_work/alerts/correlation-engine.yaml
+  - docs/plan/_work/budgets/ppv-ledger-draft.yaml
+  constraint_refs:
+  - VIS-7.1-04
+  - CON-0088
+  proposed_resolution: Reclassify CORR-EXAM-REDUND-04 as an efficiency/stewardship alert (its own bucket, matching
+    its legacy RULE-EFICIENCIA-007 lineage) rather than a deterioration correlation, and exclude it from correlation
+    suppression accounting so the fleet fatigue math does not implicitly credit it with folding member alerts. Its
+    +2 volume stays counted in the fleet total (already is).
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Reclassify CORR-EXAM-REDUND-04 as an efficiency/stewardship alert (its own bucket, matching its legacy
+      RULE-EFICIENCIA-007 lineage) rather than a deterioration correlation, and exclude it from correlation suppression
+      accounting so the fleet fatigue math does not implicitly credit it with folding member alerts. Its +2 volume
+      stays counted in the fleet total (already is).
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B3-005
+  barrier: 3
+  severity: minor
+  description: CON-SEED-01's resolution is stated with two competing "single canonical" claims rather than once.
+    alert-engine.md sec8 header says "ONE canonical decomposition - resolves CON-SEED-01", while latency.yaml line
+    84 says "This file IS the single canonical decomposition CON-SEED-01 asks for." observability-slo.md sec3 correctly
+    defers ("operationalizes the resolution already recorded ... in latency.yaml and alert-engine.md sec8 ... no
+    numeric change"), but the two upstream anchors each self-describe as THE single canonical source, and (per B3-001)
+    they have in fact drifted on the MVP column — so the ambiguity is not harmless.
+  artifacts:
+  - docs/plan/architecture/alert-engine.md
+  - docs/plan/_work/budgets/latency.yaml
+  - docs/plan/architecture/observability-slo.md
+  constraint_refs:
+  - CON-SEED-01
+  proposed_resolution: Designate alert-engine.md sec8 as the sole canonical PROSE statement of the CON-SEED-01 resolution
+    and latency.yaml as its machine-readable companion (single source of numbers). Reword latency.yaml line 84 from
+    "This file IS the single canonical decomposition" to "machine-readable companion to the canonical decomposition
+    in alert-engine.md sec8"; keep observability-slo.md as a downstream restatement that must not introduce numbers
+    absent from latency.yaml (ties to B3-001 fix).
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Designate alert-engine.md sec8 as the sole canonical PROSE statement of the CON-SEED-01 resolution
+      and latency.yaml as its machine-readable companion (single source of numbers). Reword latency.yaml line 84
+      from "This file IS the single canonical decomposition" to "machine-readable companion to the canonical decomposition
+      in alert-engine.md sec8"; keep observability-slo.md as a downstream restatement that must not introduce numbers
+      absent from latency.yaml (ties to B3-001 fix).
+    countersign: clinical-safety-officer pending (batched)

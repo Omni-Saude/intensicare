@@ -1,0 +1,97 @@
+{
+  "brief_id": "cluster-trilhas-engine",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/trilhas-engine.yaml",
+    "lines": 910,
+    "read_complete": true
+  },
+  "source_files": [
+    {
+      "path": "docs/rules/extraction/phase2/catalog/trilhas-engine.yaml",
+      "line_ranges": "1-910"
+    }
+  ],
+  "facts": [
+    {
+      "id": "CLU-TRILHAS-ENGINE-01",
+      "claim": "Care-pathway routing and composition engine: 2 bed types (automatica=5 v3 pathways, homecare=2 static); 9 clinical pathways (sedacao, estabilizacao, ventilacao, sepse, antimicrobiano, nutricao, equilibrio, profilaxia, glosa_zero) each with Tasy source model and fixed criteria counts (6–16), consumed by novo_etl_schema scoring.",
+      "kind": "entity",
+      "source_ref": "RULE-TRILHAS-ENGINE-001/002/009"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-02",
+      "claim": "Rule-count histogram: 18 total rules; status breakdown: 13 OK, 2 DISCREPANCY, 3 AMBIGUOUS; verification breakdown: 17 NOT_APPLICABLE, 1 UNVERIFIABLE (RULE-TRILHAS-ENGINE-017 drug-dosing surfacing via opaque image asset, no machine-readable dose values).",
+      "kind": "metric",
+      "source_ref": "trilhas-engine.yaml rules 1–18; verdict summary"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-03",
+      "claim": "Category distribution: care-pathway dominates with 11 rules (pathway composition, dispatch, bootstrap, humanization, enrollment, refusal); alert-threshold 2; triage-eligibility 3; drug-dosing 1; scheduling-operational 1. Pathways are clinical intent; remainder are operational.",
+      "kind": "metric",
+      "source_ref": "trilhas-engine.yaml categories"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-04",
+      "claim": "Systemic issues: (a) v2/v3 duplication: disabled v2 pathways remain in trilha_automatica.models, risking accidental reversion (RULE-001/010). (b) Implicit queryset ordering: RULE-003 'automatica' relies on default Trilha PK vs 'homecare' explicit -criado_em. (c) Encounter-scope bug: RULE-012 AtualizarTrilhasV3 re-links v3 pathways without nr_atendimento filter, risking cross-encounter stale re-pointing if patient has prior admissions.",
+      "kind": "other",
+      "source_ref": "RULE-001/003/012"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-05",
+      "claim": "API/enum inconsistencies: (a) RULE-014 accept sends boolean true, RULE-015 refuse sends string 'false' for aceito field. (b) RULE-018 pathway-type enum has two copies (AssistidoChoices, ObservacaoChoices) with identical slugs but diverged labels (sepse='Sepse' vs 'SEPSE'; piora_clinica misses accent) and field widths (65 vs 20 chars).",
+      "kind": "other",
+      "source_ref": "RULE-014/015/018"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-06",
+      "claim": "Domains fed: sepsis, respiratory, sedation, hemodynamic-stability, antimicrobial-stewardship, nutrition, fluid-balance, prophylaxis, early-warning-scores, clinical-efficiency, platform (dispatch/UI), governance. Trilhas-engine is composition & routing layer only; domain-specific clinical logic (scoring, thresholds) lives downstream in trilha-specific clusters + novo_etl_schema.",
+      "kind": "entity",
+      "source_ref": "RULE-001/002/009"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "CLU-TRILHAS-ENGINE-C01",
+      "text": "MUST preserve PT-BR terminology verbatim: trilha, leito, ocupacao, dados_prontuario, movimentacao, assistido, alerta, criterios, recomendacoes, intervencoes, motivo_descartado, atraso, dosagens, tipo_de_leito, piora_clinica. No English localization without domain sign-off.",
+      "type": "naming",
+      "source_ref": "CLAUDE.md §4"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-C02",
+      "text": "MUST resolve v2/v3 duplication: v3 models canonical (RULE-001). Disabled v2 code in trilha_automatica.models must be deleted or gated by version config. Current state (no gate) invites accidental reversion.",
+      "type": "policy",
+      "source_ref": "RULE-001/010"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-C03",
+      "text": "MUST verify pathway encounter-scoping (RULE-012): if per-encounter, missing nr_atendimento filter is a bug; if per-patient, ratify with design doc. 'AMBIGUOUS' disposition blocks adoption.",
+      "type": "invariant",
+      "source_ref": "RULE-012"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-C04",
+      "text": "MUST explicitly order RULE-003 'automatica' queryset (replace implicit PK first() with documented .order_by(...)). Ensures deterministic behavior matching 'homecare' clarity.",
+      "type": "invariant",
+      "source_ref": "RULE-003"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-C05",
+      "text": "MUST consolidate pathway-type enums (AssistidoChoices, ObservacaoChoices → single source-of-truth) to prevent label drift and field-width divergence. RULE-018 pre-flagged DISCREPANCY.",
+      "type": "naming",
+      "source_ref": "RULE-018"
+    },
+    {
+      "id": "CLU-TRILHAS-ENGINE-C06",
+      "text": "MUST standardize protocol acceptance API contract (RULE-014/015): decide if aceito accepts boolean true and string 'false' interchangeably, document coercion rule.",
+      "type": "invariant",
+      "source_ref": "RULE-014/015"
+    }
+  ],
+  "open_questions": [
+    "RULE-012: are pathways per-encounter (nr_atendimento) or per-patient-lifetime? Affects re-link logic (bug vs feature).",
+    "RULE-003: is implicit 'automatica' queryset ordering (PK) intentional, or undetected implementation dependency?",
+    "RULE-017: are drug dosages (UNVERIFIABLE, image-only) documented elsewhere (paper guideline, dosing DB) as authoritative source?",
+    "Are only Sepse/Profilaxia interactive, or will v2 add more interactive pathways (RULE-005)?"
+  ]
+}

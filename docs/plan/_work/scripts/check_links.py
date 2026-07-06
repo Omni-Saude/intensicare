@@ -31,7 +31,16 @@ def anchors_of(path: Path) -> set[str]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except Exception:  # noqa: BLE001
         return out
-    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    # Strip fenced blocks with a line-based state machine — robust to odd/unbalanced fences,
+    # where a pair-matching regex would swallow real headings (root cause found in barrier C).
+    kept, in_fence = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            kept.append(line)
+    text = "\n".join(kept)
     for m in HEADING_RE.finditer(text):
         base = slugify(m.group(2))
         n = seen.get(base, 0)

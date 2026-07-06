@@ -1,0 +1,92 @@
+{
+  "brief_id": "cluster-auditoria-logs",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/auditoria-logs.yaml",
+    "lines": 1389,
+    "read_complete": true
+  },
+  "facts": [
+    {
+      "id": "CLU-AUDITORIA-LOGS-01",
+      "claim": "Unconditional platform-wide HTTP audit logging: every request/response async-persisted via Celery, PostgreSQL, 14-day hard-delete retention.",
+      "kind": "policy",
+      "source_ref": "RULE-016, RULE-017, RULE-005, RULE-018"
+    },
+    {
+      "id": "CLU-AUDITORIA-LOGS-02",
+      "claim": "Log captures: user PK, method/path/body/headers, response status/body, device enum (7), client IP+routable flag, GeoIP2 city, criado_em with inclusive day boundaries (00:00:00 to 23:59:59.999999).",
+      "kind": "entity",
+      "source_ref": "RULE-016, RULE-004, RULE-001, RULE-019, RULE-020"
+    },
+    {
+      "id": "CLU-AUDITORIA-LOGS-03",
+      "claim": "Request body fallback: GET→querydict or POST→querydict or json.loads(body) or error. Response: json.loads or utf-8 or error. Binary bodies logged as errors only.",
+      "kind": "workflow",
+      "source_ref": "RULE-002, RULE-003"
+    },
+    {
+      "id": "CLU-AUDITORIA-LOGS-04",
+      "claim": "Dashboard: LoginRequiredMixin only (no staff check despite /admin/); any authenticated user sees all IPs, geolocation, request/response bodies; detail-page by pk, no ownership scoping.",
+      "kind": "policy",
+      "source_ref": "RULE-022"
+    },
+    {
+      "id": "CLU-AUDITORIA-LOGS-05",
+      "claim": "Eight discrepancies: range() off-by-one (RULE-010: 399→warning, RULE-013: dead), ORM AND/OR bug (RULE-009: exclude never matches), incomplete device mapping (RULE-012), double-encoding JSON (RULE-014), dead code (RULE-024, 026), ambiguous access (RULE-022), geo cascade scope (RULE-034).",
+      "kind": "policy",
+      "source_ref": "RULE-009, RULE-010, RULE-012, RULE-013, RULE-014, RULE-022, RULE-024, RULE-026, RULE-034"
+    },
+    {
+      "id": "CLU-AUDITORIA-LOGS-06",
+      "claim": "Dead whitelist entries (origem, cpf would raise FieldError); path filter missing from geo cascades (EstadoLogView, CityLogView); is_html() heuristic triggers on any '<' + '>' (false-positives).",
+      "kind": "policy",
+      "source_ref": "RULE-030, RULE-031, RULE-032"
+    }
+  ],
+  "histogram": {
+    "by_type": {
+      "formula": 1,
+      "decision_tree": 11,
+      "threshold": 3,
+      "workflow": 11,
+      "eligibility": 1,
+      "validation": 9
+    },
+    "by_status": {
+      "OK": 20,
+      "DISCREPANCY": 8,
+      "AMBIGUOUS": 6,
+      "UNVERIFIABLE": 1
+    },
+    "by_verdict": {
+      "NOT_APPLICABLE": 35,
+      "UNVERIFIABLE": 1
+    }
+  },
+  "load_bearing_rules": [
+    {"id": "RULE-AUDITORIA-LOGS-016", "what": "Central audit payload assembly from request/response (user, path, method, status, IP, headers, bodies, device, geo).", "verdict": "OK"},
+    {"id": "RULE-AUDITORIA-LOGS-018", "what": "Unconditional LogMiddleware.process_response() logs every HTTP response, no filtering.", "verdict": "OK"},
+    {"id": "RULE-AUDITORIA-LOGS-017", "what": "Asynchronous Celery task dispatch (salvar_log.apply_async) on 'trilhas' exchange.", "verdict": "OK"},
+    {"id": "RULE-AUDITORIA-LOGS-005", "what": "14-day hard-delete retention via limpar_logs (QuerySet.delete bypasses soft-delete mixin).", "verdict": "OK"},
+    {"id": "RULE-AUDITORIA-LOGS-020", "what": "GeoIP2 city lookup on logged IP (async); private IPs also queried; failures recorded.", "verdict": "OK"},
+    {"id": "RULE-AUDITORIA-LOGS-022", "what": "Dashboard: LoginRequiredMixin only, no staff check, any authenticated user sees all audit data.", "verdict": "AMBIGUOUS"},
+    {"id": "RULE-AUDITORIA-LOGS-001", "what": "Date-range inclusive boundaries: criado_em__gte→time.min, criado_em__lte→time.max.", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-AUDITORIA-LOGS-009", "what": "Status chart exclude bug: .exclude(isnull AND range) ANDs conditions (mutually exclusive), removes zero rows.", "verdict": "DISCREPANCY"},
+    {"id": "RULE-AUDITORIA-LOGS-012", "what": "Device icon mapping incomplete: get_icon() missing tablet/email/touch branches; RULE-004 produces all 7.", "verdict": "DISCREPANCY"}
+  ],
+  "systemic_issues": [
+    {"category": "Off-by-one range() bugs", "rules": ["RULE-010", "RULE-013"], "detail": "range(100,399) excludes 399; range(100,599) excludes 599."},
+    {"category": "Logic error (AND/OR confusion)", "rules": ["RULE-009"], "detail": ".exclude(A=x, B=y) ANDs conditions; mutually exclusive = always True."},
+    {"category": "Dead code", "rules": ["RULE-024", "RULE-026", "RULE-013"], "detail": "Nested EstadoLogView, _tag() methods, is_status_code() filter."},
+    {"category": "Incomplete implementation", "rules": ["RULE-012"], "detail": "get_icon() missing branches for tablet/email/touch."},
+    {"category": "Double-encoding", "rules": ["RULE-014"], "detail": "pretty_json(string) uses json.dumps not json.loads."},
+    {"category": "Inconsistent filter scope", "rules": ["RULE-030", "RULE-031"], "detail": "Dead whitelist entries (origem, cpf); missing 'path' in geo cascades."},
+    {"category": "Broad heuristic", "rules": ["RULE-032"], "detail": "is_html() triggers on any '<' + '>' pair."},
+    {"category": "Access control ambiguity", "rules": ["RULE-022"], "detail": "LoginRequired only, no staff check despite /admin/ URL."}
+  ],
+  "domains": ["platform", "governance"],
+  "pt_br_vocabulary": {
+    "critical_fields": "criado_em (timestamp, inclusive day gte/lte), dispositivo (7-enum), geolocalizacao (GeoIP2), ip_publico (routable), deletado_em (soft-delete unused), estado (region), país (country)"
+  }
+}

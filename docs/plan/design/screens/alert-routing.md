@@ -17,6 +17,7 @@ Every claim cites a source: a ledger constraint (`CON-*`), a brief fact (`VIS-*`
 - **Severity is always triple-encoded — color + icon + shape + text** (`CON-SEED-11`, WCAG 1.4.1); never color alone. `clinical.*` tokens are structurally separate from tenant `brand.*` (`CON-0041`/`ADR-C-08`/`DES-C-01`) — rebranding can never change what a severity color *means*, nor which tier it routes to.
 - **Deny-by-default, server-enforced** route/recipient permission ahead of shell render; the API independently authorizes every dispatch (`CON-0038`/`CON-0047`/`ADR-C-05`/`ADR-C-14`). The client renders only what the server already authorized.
 - **Advisory + auditable.** Every routed alert is written to the prontuário at NGS Level 2 (`VIS-C-07`); routing suggests *who acts and how loudly*, never the clinical decision — the physician remains responsible (`VIS-C-08`). **Every delivery decision is an immutable audit row** (§8; `INV-1`/`CON-0066`; LGPD + CFM 2.299/2021).
+- **PHI-free notifications (lock-screen safety).** The web-push page is **pre-authentication** and can surface on a lock screen or a wrong/roamed device, so it carries **no PHI and nothing patient-identifying** — **severity band + opaque deep-link token only** (NO score, trend, location, vitals, or name; bed+unit+time alone re-identifies the ICU patient). All clinical content renders **only inside the authenticated PWA after the responder taps through** (`CON-0038`/`CON-0047` deny-by-default; security-lgpd I11 / REQ-INV-4-S3; LGPD Art. 46; HAZ-034). §5.1 specifies the mechanics and the **dispatch-vs-content-load** latency split.
 - **Web only.** Delivery is the responsive web app + PWA web push; a native app is WON'T (product-spec §4). §5 specifies the PWA mechanics.
 
 ---
@@ -40,7 +41,7 @@ Routing is a **four-rung ladder** every alert occupies and can only **ascend**. 
 | `urgent` | **LARANJA** | `clinical.severity.urgent` | exclamation | triangle | R2 |
 | `watch` | **AMARELO** | `clinical.severity.watch` | eye | rounded-square | R1 |
 | `normal` | **NEUTRO** | `clinical.severity.normal` | check-circle | circle | R0 |
-| *attended* | **ASSISTIDO** | `clinical.assisted` | ring + check | ring | (climb stilled) |
+| *attended* | **ASSISTIDO** | `clinical.status.attended` | person-check | additive corner badge — composited **alongside** the true severity color+icon+shape, **never replacing** it | (additive; climb stilled, severity unchanged) |
 
 **Climb law (the four invariants of the spine):**
 
@@ -54,8 +55,8 @@ Routing is a **four-rung ladder** every alert occupies and can only **ascend**. 
 ### 1.1 The three surfaces (one event, three views, one channel)
 
 - **R0 — Dashboard chip.** A Radix HoverCard/Popover count-badge (canonical count-badge primitive, `ADR-C-06`; fixes the legacy dual implementation `DES-3-01`/`DES-5-02`) showing per-band counts (`crítico N · urgente N · alerta N`) and the single nearest-to-breach countdown for the signed-in clinician's patients. `normal`/INFO advisories live and quietly coalesce here (§4). Opening it drops the Escalation Rail scoped to **"Meus pacientes"**.
-- **R1/R2 — Unit board.** Each bed tile carries its **worst active severity** as border + glow + status ball (preserved `CollapseCard`/`Ball`, `DES-3-05`/`DES-8-01`) plus a mini countdown ring when an alert on that bed is climbing. `watch`/`urgent` live here ambiently; on ack the tile flips to **ASSISTIDO** (desaturated, ring stopped, `DES-2-03`). Same channel as chip and rail (`CON-0053`).
-- **R3 — RRT web push.** `critical` (and aged-out `urgent`) pages the RRT physician's corporate smartphone in **< 5 s** (`CON-0092`/`PER-C-06`; deliver stage p95 2 s < 5 s, `budgets/latency.yaml` L69/L79). One tap opens the **en-route responder view**: `Estabelecimento ▸ Setor ▸ Leito`, latest vitals each with its own staleness timestamp, scores + 24 h trend (`PER-RAFAEL-02`), the *why* panel (`alert-triage §4`), and two 1-tap actions **Aceitar** / **A caminho**. Desfecho documentation < 1 min runs off this surface via the form engine (`alert-triage §3`; `PER-RAFAEL-03`).
+- **R1/R2 — Unit board.** Each bed tile carries its **worst active severity** as border + glow + status ball (preserved `CollapseCard`/`Ball`, `DES-3-05`/`DES-8-01`) plus a mini countdown ring when an alert on that bed is climbing. `watch`/`urgent` live here ambiently; on ack the tile gains the **ASSISTIDO** state — an **additive `clinical.status.attended` corner badge (`person-check` icon) composited *alongside* the unchanged severity color+icon+shape**, ring stopped (`DES-2-03`); the live severity is **never desaturated or masked** (a `critical` under response still reads `critical` — design-language.md §4, design-tokens.md §6.5). Same channel as chip and rail (`CON-0053`).
+- **R3 — RRT web push.** `critical` (and aged-out `urgent`) pages the RRT physician's corporate smartphone in **< 5 s** (`CON-0092`/`PER-C-06`; deliver stage p95 2 s < 5 s, `budgets/latency.yaml` L69/L79). **The page itself is PHI-free** — severity band + a generic label ("novo alerta crítico") + an opaque deep-link token only; **no** score, trend, `Estabelecimento▸Setor▸Leito` location, vitals, or patient name on the lock screen (§0; I11 / REQ-INV-4-S3, security-lgpd §2.2/§7; §5.1). **One authenticated tap** (in-app OIDC, `MOT-14`) then opens the **en-route responder view**, whose clinical content is fetched **server-side post-authN**: latest vitals each with its own staleness timestamp, scores + 24 h trend (`PER-RAFAEL-02` — read as **post-auth completeness**), the *why* panel (`alert-triage §4`), and two 1-tap actions **Aceitar** / **A caminho**. Desfecho documentation < 1 min runs off this surface via the form engine (`alert-triage §3`; `PER-RAFAEL-03`).
 
 ### 1.2 The ladder faithfully amplifies upstream mis-tiering — gated on RATIFY *(must_fix MF-09)*
 
@@ -110,12 +111,44 @@ presence(role) = { at-workstation | on-unit-mobile | remote | scrubbed-in/busy |
 
 The rung a band enters is unchanged; the resolver fills in **to whom** each rung's push is addressed. R0/R1 are ambient (whole unit / signed-in clinician); R2 targets the OWNER's device; R3 targets the RESPONDER rotation.
 
+### 3.1.1 The roster / on-call / RRT-rotation source — named + owned *(RT1-UX-01)*
+
+The resolver's `← roster`, `← roster + on-call`, and `← on-call, location-free` inputs above were
+previously "specified in no brief" — the model's top **unowned** dependency, so the anchor <5 s
+targeted RRT dispatch could not ship. **v2 decision: the source is a local, tenant-scoped
+`rrt_rotation` / on-call rotation table**, admin-maintained — **not** an external feed for MVP:
+
+- **Mechanism (v2, owned).** A **local rotation table** (per `tenant_id`, scoped by `unit`/`setor` and
+  by role OWNER / COVERING / RESPONDER) holds current + upcoming shift assignments and the RRT rotation.
+  It is **admin-maintained** through the `admin-config.md` governance surface, and **every change is
+  audited** (append-only, `INV-1` — the same versioned-config pattern as `threshold_config` and
+  `alert_enablement`, `data-model.md` §4.5/§6). It is operational config, not clinical data.
+- **Freshness SLA.** The rotation is **valid only for the shift it names** and MUST be refreshed
+  **before each shift boundary**; the resolver treats a rotation whose active window has lapsed as
+  **stale**. Freshness target: **the active RRT (RESPONDER) rotation entry is non-empty and current for
+  the wall-clock shift, checked continuously** (dead-man below). Staleness never silences a page — it
+  triggers **degrade-WIDER** (§3.2) and raises a coordinator flag.
+- **Provably-non-empty RRT rotation — dead-man.** A **dead-man check** runs continuously over the
+  RESPONDER/RRT rotation: an **empty *or* lapsed-window** active rotation **pages operations/coordinator
+  *before* a critical needs the rung** (§5.3, MF-04), and R3 falls back to the **backup tier + audible
+  board fallback** so no `critical` is ever sole-routed to an empty rotation. This is the
+  persistence-backed form of §5.3's "provably non-empty at all times."
+- **Future integration (ADR-deferred).** An **AMH staff-directory / on-call integration** (reading the
+  authoritative hospital roster instead of a locally-maintained table) is recorded as a **future ADR** —
+  desirable, but **not** an MVP dependency; the local table ships v2 so the ladder does not block on an
+  unbuilt feed. When ratified, the directory becomes the table's upstream sync source.
+- **Live presence stays open.** The rotation *source* is now owned; the **live-presence signal**
+  (`at-workstation | on-unit-mobile | remote | scrubbed-in/busy | off-shift`) remains the one
+  ratification-gated input (§3.2) — until it is reliable the resolver runs **shadow-mode with
+  severity-broadcast live** and **narrowing stays gated** (open recon. 1). Rotation *membership* (who is
+  on the RRT this shift) is **not** presence and ships with the table.
+
 ### 3.2 Safety rails on the resolver (tested invariants, not behaviors)
 
 - **CRIT parallel multicast — never waits on an owner timer** *(salvage: B)*. `critical` fans out to owner chip **+** unit board **+** RRT web push **simultaneously** in the first wave; a <5-min window cannot afford a sequential owner-no-ack timer (score-clinical-safety-officer-b.yaml salvage; HAZ-025/HAZ-033; `MOT-14`).
 - **Presence widens, never narrows.** If the OWNER is `scrubbed-in/busy`, `remote`, or `off-unit` at fire time, the resolver routes to COVERING (and, for CRIT, RESPONDER) **immediately in parallel** and marks the owner chip "notificado, indisponível". A busy-marked-available owner costs **at most the Tier-1 ack-SLA** before widening — never more (score-clinical-safety-officer-b.yaml must_fix; contract-tested).
 - **Off-shift never resolves as OWNER; presence never gates CRIT** — encoded as tested invariants (score-clinical-ux-researcher-b.yaml must_fix; HAZ-025).
-- **Degrade WIDER, never narrower** *(salvage: B)*. Roster/presence are specified in **no brief** and are the model's top dependency. Until they are ratified as reliable, the resolver runs in **shadow mode with severity-broadcast live** (owner-unknown ⇒ route to unit board + on-call as if all present). A stale roster must **widen** reach, never silence a recipient (score-clinical-*-b.yaml must_fix; HAZ-025/HAZ-029). **Open dependency (C3):** roster/on-call source + live-presence signal — ratification-gated before any narrowing ships.
+- **Degrade WIDER, never narrower** *(salvage: B)*. The **rotation source is now owned** — a local, audited `rrt_rotation` / on-call table (§3.1.1). What remains ratification-gated is the **live-presence signal**, which is specified in no brief. Until presence is reliable, the resolver runs in **shadow mode with severity-broadcast live** (owner/presence-unknown ⇒ route to unit board + on-call as if all present). A stale rotation **or** stale presence must **widen** reach, never silence a recipient (score-clinical-*-b.yaml must_fix; HAZ-025/HAZ-029). **Open dependency (C3):** live-presence signal — ratification-gated before any narrowing ships; the rotation table itself ships v2 (§3.1.1).
 - **Day/night recipient reshaping** *(salvage: B)*. The same CRIT resolves to different humans at 10h vs 03h: by day OWNER=Carlos at a workstation; at night Carlos "cobre chamadas remotas" (`personas` flow) so he is `remote` → CRIT routes on-site RRT (Rafael) **primary** + a **remote awareness push** to Carlos, never assuming a remote attending can act now (`MOT-18`).
 
 ### 3.3 Recipient-level suppression — "is someone already acting?" *(salvage: B, scoped)*
@@ -197,8 +230,8 @@ Delivery is the responsive web app + **PWA web push** (native app WON'T, product
 
 ### 5.1 PWA push mechanics
 
-- **Transport.** Service Worker + Push API + VAPID; the RRT device holds a push subscription per authenticated session. `critical`/escalated-`urgent` fires a push **deep-linked to the patient** carrying the en-route payload (score + trend + `Estabelecimento ▸ Setor ▸ Leito` + latest vitals, `PER-RAFAEL-02`; `MOT-14`) so the payload is complete **without unlock-then-navigate**.
-- **Latency.** deliver-stage p95 **2 s < 5 s** RRT budget (`budgets/latency.yaml` L69/L79; `CON-0092`/`PER-C-06`/`PER-RAFAEL-01`). Bed-board and push share the **one channel/latency class** (`ADR-C-13`) so they cannot disagree.
+- **Transport.** Service Worker + Push API + VAPID; the RRT device holds a push subscription per authenticated session. `critical`/escalated-`urgent` fires a push whose **body is PHI-free and non-identifying** — a **severity band + a generic label ("novo alerta crítico") + an opaque deep-link token** only. It carries **no** score, trend, `Estabelecimento▸Setor▸Leito` location, vitals, or patient name, because a lock-screen preview is **pre-authentication** and bed+unit+time alone re-identifies the ICU patient (§0; I11 / REQ-INV-4-S3, security-lgpd §2.2/§3.3/§7; HAZ-034; LGPD Art. 46). The opaque token resolves the patient **server-side only after** the responder taps and the PWA completes in-app OIDC authN; the complete en-route card (`PER-RAFAEL-02` — **post-auth** completeness) then renders. This replaces the earlier "payload complete without unlock-then-navigate" with **"one authenticated tap to the complete card."**
+- **Latency (dispatch vs content-load).** The **<5 s SLA is the *dispatch* budget — time to push *receipt*** (the interruptive page landing on the device): deliver-stage p95 **2 s < 5 s** (`budgets/latency.yaml` L69/L79; `CON-0092`/`PER-C-06`/`PER-RAFAEL-01`). Making the push PHI-free does **not** regress dispatch — the severity+token body is smaller and still arrives < 5 s. The clinical content now loads on a **separate, post-tap authenticated fetch** (deep-link → OIDC re-validate → server-side payload resolve), which adds a **content-load p95 *on top of*** the dispatch SLA, **not inside it**. Budget: an additional **≤ 2 s p95** for tap→complete-card (same deliver-class round-trip; the auth step is a warm-session token refresh, not a full login) — so **push-receipt p95 ≈ 2 s** and **tap-to-complete-card p95 ≈ 2 s more**, stated as an addition; the exact figure is **co-owned with latency-architecture and RATIFY at C3** (open recon. 5). Bed-board and push share the **one channel/latency class** (`ADR-C-13`) so they cannot disagree.
 - **At-least-once + effectively-once UX.** ARQ native retry + exponential backoff on every notification (`INV-6`/`CON-0071`); each push carries the `dedup_key` + a monotonic `version`; the client dedups on it (`CON-0045`/`ADR-C-12`). Acking from the push marks ASSISTIDO on board + chip in the same instant.
 
 ### 5.2 Push-undeliverable is itself an escalation event *(salvage: B)*
@@ -209,8 +242,8 @@ A push not channel-acked within its budget is **never a silent no-op** — it is
 
 An empty top rung is **silent non-delivery** (score-clinical-safety-officer-a.yaml MF; HAZ-025). Requirements:
 
-- **R3 targets an on-call rotation/role, not a person** (Concept A R3), with a **backup tier** on PT2M breach.
-- **The rotation MUST be provably non-empty at all times**, enforced by a **dead-man alarm on an unstaffed rotation** — an unstaffed R3 pages operations/coordinator *before* a critical needs it.
+- **R3 targets an on-call rotation/role, not a person** (Concept A R3) — the **owned local `rrt_rotation` table** (§3.1.1), with a **backup tier** on PT2M breach.
+- **The rotation MUST be provably non-empty at all times**, enforced by a **dead-man alarm on an unstaffed *or stale* rotation** — an empty or lapsed-window R3 pages operations/coordinator *before* a critical needs it, and R3 falls back to backup tier + audible board so no `critical` is ever sole-routed to an empty rung. The check reads the **audited rotation table** (§3.1.1) against wall-clock shift and its **freshness SLA**; an empty *or* stale active window both trip the dead-man.
 - **External watchdog** (`INV-5`/`CON-0070`, outside the ECS service) probes `/api/v1/health` every **≤ 30 s** (aligned to `VIS-C-09`); the **staleness watchdog** (alert-on-no-alerts per `(unit, domain)`) converts pipeline silence into a paged operational alert (alert-engine §7.2). Delivery receipts make delivery≠awareness observable.
 
 ---
@@ -261,7 +294,7 @@ Timer-driven promotion can fire **many R2→R3 climbs at once** when a cohort of
 - **Lifecycle** (`severity-model` L109; alert-triage §2): `raised · acknowledged · acting · resolved · expired · escalated`.
 - **Timer states (per row):** `contando` · `próximo do limite` (breach-imminent, color shifts to next band) · `estourado → escalonado` · `pausado` (acked/ASSISTIDO).
 - **Rung/channel states:** on-rung R0–R3 · `suprimido` (cooldown, `×N` count) · `agrupado no orçamento` (budget-coalesced digest, normal/watch only) · `silenciado (manutenção)` / `silenciado (horário noturno)` (muted, still logged) · `escalonado` · `re-paginado (reserva)` (backup tier after R3 breach).
-- **Recipient states** *(graft: B):* `entregue/não reconhecido` · `escalando (↑)` · **ASSISTIDO** (blue override, timers stopped, lower-tier same-key demoted) · `dono indisponível` (presence widened) · `push não entregue → escalado`.
+- **Recipient states** *(graft: B):* `entregue/não reconhecido` · `escalando (↑)` · **ASSISTIDO** (additive `clinical.status.attended` badge rendered alongside the unchanged severity — **never** a severity override or desaturation; timers stopped, lower-tier same-key demoted) · `dono indisponível` (presence widened) · `push não entregue → escalado`.
 - **Realtime (whole surface):** `ao vivo` · `reconectando` (shared backoff, `ADR-C-12`) · `defasado` (last-updated stamp + freshness veil, fixing silent staleness `ADR-0017`) · `offline`. All from the ONE channel.
 - **Loading:** content-shaped skeleton rail (`ADR-0016`), never a full-viewport blocking loader (`DES-5-07`); staff keep triaging other rows.
 - **Partial failure:** an un-hydrated row shows inline error + retry, not a screen-wide `Modal.error` (`ADR-C-11`).
@@ -278,11 +311,75 @@ Timer-driven promotion can fire **many R2→R3 climbs at once** when a cohort of
 - **Contrast:** all `clinical.*` + timer-label tokens contrast-checked over the neumorphic **dark** and light surfaces before ship; legibility never depends on the severity glow. `prefers-contrast` flattens elevation to a solid high-contrast border. Board severity legible **by shape + color at meters** for the night monitor-wall glance (`CON-SEED-11`; `MOT-18`).
 - **Audible R3 cue** is paired with the visible assertive announcement (never the only channel) and is user-mutable per session without muting the visual page.
 
+### 10.1 Accessibility gate (A11Y-GATE — per `accessibility-standard.md` §8) *(RT1-COMP-02)*
+
+Per-ID check-off against the binding gate; each item is satisfied on this surface or marked **N/A**
+with rationale. This subsection converts §10's prose into gate-ID citations — `accessibility-standard.md`
+§8 treats a missing gate subsection as a back-to-owner completeness failure (equivalent to a missing
+test-vector set).
+
+- [x] **A11Y-GATE-01** (text/critical contrast, SC 1.4.3/1.4.6) — §10: all `clinical.*` + timer-label
+      tokens contrast-checked over dark **and** light before ship; `critical` numerics on the rail /
+      en-route card meet AAA 7:1 (`A11Y-REQ-01`). Tokens are consumed here, not defined.
+- [x] **A11Y-GATE-02** (non-text contrast, SC 1.4.11) — §10: severity borders/glow, status ball,
+      countdown ring, and `focus-visible` rings ≥ 3:1 against adjacent surfaces, in both themes.
+- [x] **A11Y-GATE-03** (never color-alone) — §0 / §1: severity is **triple-encoded — color + icon +
+      shape + text** on every rung row, badge, chip, and the PHI-free push severity band (§1 encoding
+      table + §9 states).
+- [ ] **A11Y-GATE-04** (palette CVD ΔE method) — **N/A**: this screen **defines no severity palette**;
+      it consumes the ratified `clinical.*` tokens whose CVD/ΔE validation is owned by
+      `accessibility-standard.md` §2.2 + `design-tokens.md`. No hex is proposed or edited here.
+- [x] **A11Y-GATE-05** (≤ 3 Hz flash; reduced-motion) — §2.2 / §10: the countdown ring + the row-rise
+      climb animation are decoration; **`prefers-reduced-motion` removes them**, leaving the numeric
+      `MM:SS` and an instantaneous rung change. No pulsing/flashing severity treatment is used
+      (`A11Y-REQ-13`) — a new `critical` uses a static high-contrast border + text, never a pulse.
+- [x] **A11Y-GATE-06** (icon+shape distinct at smallest size) — §1 encoding table + §10: severity is
+      legible **by shape + color at meters** for the night monitor-wall; icon+shape pairs differ for
+      every band at the smallest rail-chip / badge render size.
+- [x] **A11Y-GATE-07** (encoding from live severity, no hardcoded literal) — §0 MAX-severity
+      aggregation + §1: every severity glyph derives from the alert's **current aggregated** band;
+      **ASSISTIDO** is an additive badge composited *alongside* the true severity, **never** replacing
+      or desaturating it (§1 / §9) — no hardcoded `'VERMELHO'`-style literal anywhere.
+- [x] **A11Y-GATE-08** (overlay Esc/back/focus-trap/depth ≤ 2) — the **Escalation Rail is a non-modal
+      inline panel** (no focus trap; roving-tabindex list, §10). Any **drawer it opens** (bed detail via
+      Enter, §10) inherits the global overlay-stack contract (`A11Y-REQ-07..11`,
+      `accessibility-standard.md` §3): Esc / back close only the topmost, `role="dialog"` + `aria-modal`,
+      focus restored to the rail row; stack depth ≤ 2.
+- [x] **A11Y-GATE-09** (aria-live per §5.1 + coalescing) — §10 live regions: `assertive` for a new
+      `critical` and **any SLA breach / climb**, `polite` for lower-severity arrivals / de-escalations.
+      **One live-region container per severity tier**, coalesced at ≥ ~1 announcement / 2 s under bursts
+      (shift-storm §7 / handover cohort), stating count + latest (`A11Y-REQ-16/17`) — the **visual**
+      page is never delayed, only the spoken narration is debounced.
+- [x] **A11Y-GATE-10** (accessible-name order) — §10: each announcement follows **severity →
+      triggering parameter + value + trend → location (bed/patient)** (`A11Y-REQ-18`), plus rung change +
+      recipient; never severity/location alone.
+- [x] **A11Y-GATE-11** (24 px floor / 44 px ack) — **Aceitar / Atribuir / Escalar agora / Adiar** and
+      the 1-tap push actions **Aceitar / A caminho** meet the **44×44** floor (`CON-0091`/`PER-C-05`,
+      `A11Y-REQ-21`); every other rail pointer target meets the 24×24 floor (`A11Y-REQ-20`).
+- [x] **A11Y-GATE-12** (no pure #FFF/#000; prefers-contrast) — §10: `prefers-contrast` flattens the
+      neumorphic elevation to a solid high-contrast border; legibility never depends on the severity
+      glow; surfaces use the ADR-0002/0003 near-black/near-white, never pure `#FFF`/`#000`
+      (`A11Y-REQ-23/24`).
+- [ ] **A11Y-GATE-13** (drag alternative) — **N/A**: this screen has **no drag interactions**. Rail
+      rows *animate* between rung groups on timer breach (system-driven, not user-draggable); all actions
+      are click / tap / keyboard.
+- [x] **A11Y-GATE-14** (accessible authentication) — **authentication is OIDC via IAM Identity Center
+      (no PIN)**; the RRT push→tap flow completes **in-app OIDC authN** before any clinical content
+      renders (§5.1), and any clinical e-signature / ack weight follows `accessibility-standard.md` §7 +
+      `security-lgpd.md` §5.1 (no shared-PIN, a non-cognitive-only path, `A11Y-REQ-25`).
+- [x] **A11Y-GATE-15** (custom-component name/role/state) — every custom primitive on the rail
+      (severity chip, status **Ball**, countdown timer, budget ring, ASSISTIDO badge, rung rows) exposes
+      an accessible name/role/state (§9 states + §10 roving-tabindex) — no bare `<div onClick>`
+      (SC 4.1.2).
+- [x] **A11Y-GATE-16** (form engine no redundant entry) — the **desfecho** documentation form off the
+      en-route / triage surface (§1.1) runs on the schema-driven form engine, which MUST NOT re-ask data
+      already captured earlier in the same flow (SC 3.3.7); binds `form-engine-designer` (`alert-triage §3`).
+
 ---
 
 ## 11. How each persona succeeds
 
-- **Dr. Rafael — RRT (anchor).** Sits at R3, receives **only what earned R3** (critical direct + aged-out urgent), web push < 5 s (`PER-RAFAEL-01`/`CON-0092`) with a complete en-route response card (`PER-RAFAEL-02`); **Aceitar** stops the R3 clock and pre-empts the backup re-page; **A caminho** signals en route; desfecho < 1 min (`PER-RAFAEL-03`). Never touched by `watch`/`normal` noise; day/night reshaping makes him primary at night (§3.2).
+- **Dr. Rafael — RRT (anchor).** Sits at R3, receives **only what earned R3** (critical direct + aged-out urgent), web push < 5 s (`PER-RAFAEL-01`/`CON-0092`) — a **PHI-free page** (severity + opaque token) that becomes a **complete en-route response card after one authenticated tap** (`PER-RAFAEL-02` = **post-auth** completeness, §5.1); **Aceitar** stops the R3 clock and pre-empts the backup re-page; **A caminho** signals en route; desfecho < 1 min (`PER-RAFAEL-03`). Never touched by `watch`/`normal` noise; day/night reshaping makes him primary at night (§3.2).
 - **Enf. Ana — nurse (catcher).** Lives at R1/R2; auto-computed scores (`PER-ANA-01`); the row names the deranged parameter (`PER-ANA-02`/`PER-C-04`); one-click **Aceitar** stops the climb and flips the bed to ASSISTIDO (`PER-ANA-03`/`PER-C-05`); she sees the coverage countdown and can **Escalar agora**; her guaranteed backup is the COVERING chain (§3.1).
 - **Dr. Carlos — intensivista.** The strict ladder + normal/watch budget keeps him at chip/board and never pages him unless something reaches `critical` or ages out — cutting his 200-alert/80%-FP load toward < 3 FP/patient-day (`PER-C-02`); presence widening covers him when he scrubs in; correlation-collapse gives him one story, not three (`MOT-13`).
 - **Dra. Fernanda — coordenadora.** The delivery ledger **is** her quality instrument: live per-rung counts, mean time-to-ack per band, **escalation-breach rate**, budget-depletion noise diagnostic, and the snooze-as-silence governance pattern — continuous, exportable to hospital quality tooling (`PER-FERNANDA-02`/`PER-C-08`; `MOT-19`).
@@ -341,13 +438,15 @@ Timer-driven promotion can fire **many R2→R3 climbs at once** when a cohort of
 | `CON-0182`/HAZ-010 never-downgrade (MAX-severity) | C3 | §1 |
 | `INV-1`/`CON-0066` every decision audited · `VIS-C-07`/`VIS-C-13` nothing silent | B/C3 | §8, §4.3 |
 | `INV-5`/`CON-0070` dead-man · `INV-6`/`CON-0071` at-least-once delivery | B/C3 | §5.2, §5.3 |
+| `rrt_rotation` local roster/on-call/RRT-rotation source (owned, audited) — RT1-UX-01 | B/C3 | §3.1.1, §5.3 |
+| PHI-free push payload (I11 / REQ-INV-4-S3; no PHI/locator pre-authN) — RT1-SEC-01 | B | §0, §1.1, §5.1 |
 | `CON-0045/0046/0053`/`DES-C-05` one realtime channel | C3 | §0, §5.1 |
 | `CON-SEED-11` triple-encoded severity · `CON-0041`/`ADR-C-08` clinical/brand decoupling | C2 | §0, §1, §10 |
 | HAZ-025/026/027/029/034 routing-safety hazards | veto-gate | §3–§5, §8 |
 | `SYS-C-03` band-assignment RATIFY before ladder ships | ship-gate | §1.2 |
 
 **Open reconciliations (recorded, not resolved — CONTRACTS §5):**
-1. **Roster / on-call source + live-presence signal** — required by §3, specified in no brief; degrade-wider shadow-mode is the default until ratified (C3, amh-integration + platform-reliability).
+1. **Live-presence signal** — required by §3.2, specified in no brief; degrade-wider shadow-mode is the default until ratified (C3, amh-integration + platform-reliability). **Resolved for the source half (RT1-UX-01):** the roster / on-call / RRT-rotation **source** is now owned — a local, tenant-scoped, admin-maintained, audited `rrt_rotation` table (§3.1.1), with an AMH staff-directory integration deferred to a future ADR; only **live presence** remains ratification-gated before any narrowing ships.
 2. **PT10M urgent→R3 climb** vs the 30-min URG action window — clinical sign-off (C3; §2.3).
 3. **Forced digest-flush fraction** of the watch PT2H window (§4.4) — clinical sign-off (C3).
 4. **Status enum extension** `acting`/`escalated` (and delivery-only `info`/`normal` for Tier-4 advisory rows) — data-architect (C2), per `severity-model` + alert-triage reconciliation notes.
@@ -361,7 +460,7 @@ ladder:
   - {rung: R0, surface: dashboard-chip,        band: normal,   tier: 4, ack_sla: null,  climb_to: null, paging: false, rate_limited: true}
   - {rung: R1, surface: unit-board-badge,      band: watch,    tier: 3, ack_sla: PT60M, climb_to: R2,   paging: false, rate_limited: true}
   - {rung: R2, surface: board+targeted-push,   band: urgent,   tier: 2, ack_sla: PT10M, climb_to: R3,   paging: true,  rate_limited: true}
-  - {rung: R3, surface: rrt-webpush+audible,   band: critical, tier: 1, ack_sla: PT2M,  climb_to: backup-tier, paging: true, rate_limited: false, rrt_push_sla: PT5S}
+  - {rung: R3, surface: rrt-webpush+audible,   band: critical, tier: 1, ack_sla: PT2M,  climb_to: backup-tier, paging: true, rate_limited: false, rrt_push_sla: PT5S, phi_free_push: true, push_payload: severity-band+opaque-deeplink-token-only, dispatch_sla_measures: push-receipt, content_load_post_authn_p95: PT2S}
 invariants:
   - id: INV-ROUTE-01
     text: "critical and urgent alerts are NEVER budget-suppressed, budget-demoted, digest-held, rate-limited, or maintenance/quiet-muted"
@@ -387,8 +486,14 @@ invariants:
   - id: INV-ROUTE-08
     text: "every routing/delivery decision writes one immutable audit_trail row"
     source: [INV-1, CON-0066, VIS-C-07]
+  - id: INV-ROUTE-09
+    text: "the web-push page is PHI-free and non-identifying (severity band + opaque deep-link token only; NO score/trend/location/vitals/name on the lock screen); all clinical content renders only inside the authenticated PWA post-tap; the <5s SLA measures dispatch=push-receipt, and the post-tap authenticated content fetch adds a separate content-load p95 on top of (not inside) the dispatch SLA"
+    source: [security-lgpd.md#I11, REQ-INV-4-S3, HAZ-034, LGPD-Art-46, MOT-14]
+  - id: INV-ROUTE-10
+    text: "the roster/on-call/RRT-rotation source is a local, tenant-scoped, admin-maintained, audited rrt_rotation table (v2); the active RRT rotation is provably non-empty via a dead-man on an empty-or-stale window; live-presence stays ratification-gated (narrowing gated) while the rotation table ships v2"
+    source: [RT1-UX-01, INV-1, HAZ-025, admin-config.md#roster, data-model.md#4.5]
 ship_gates:
   - "upstream band assignment clears SYS-C-03 RATIFY before the strict ladder ships (MF-09)"
   - "shift-change jitter + charge-nurse batch triage view ship with v1 (MF-06, MF-07)"
-open_reconciliations: [roster-presence-source, urgent-R3-PT10M-signoff, digest-flush-fraction, status-enum-acting-escalated-info]
+open_reconciliations: [live-presence-signal, amh-directory-roster-adr, rrt-push-content-load-p95, urgent-R3-PT10M-signoff, digest-flush-fraction, status-enum-acting-escalated-info]
 ```

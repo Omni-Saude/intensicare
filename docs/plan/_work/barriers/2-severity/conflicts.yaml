@@ -1,0 +1,285 @@
+barrier: 2
+swept:
+- path: docs/plan/_work/platform/severity-model.yaml
+  role: canonical law (4 bands, 9-transition lifecycle, mappings)
+- path: docs/plan/architecture/alert-engine.md
+  checked:
+  - severity §3 table
+  - aggregation §3.1 max-severity-wins
+  - lifecycle state-machine §9 (6 states / 9 transitions)
+  - delivery tiers
+  - ack/action SLAs
+  verdict: bands/tiers/SLAs/transition-set identical; watch-escalation descriptor + escalate actor deviate (see
+    B2-002/B2-003)
+- path: docs/plan/architecture/data-model.md
+  checked:
+  - alert_definition_version.severity enum §4.1
+  - correlation_event.severity §4.2
+  - status/resolution vocab refs
+  - threshold_config delta §3
+  - open-questions §10
+  verdict: severity enum values agree; three engine-flagged C2 reconciliations (bed_id, acting/escalated, info)
+    neither adopted nor recorded (see B2-001)
+- path: docs/plan/architecture/api/openapi.yaml
+  checked:
+  - Severity enum
+  - AlertStatus enum
+  - Resolution enum
+  - ack/act/resolve/escalate endpoints + valid-from transitions
+  - ThresholdConfig.bed_id
+  verdict: severity + lifecycle enums identical; ThresholdConfig.bed_id and AlertStatus acting/escalated exposed
+    as real (defers to data-model, see B2-001); escalate permits clinician actor (see B2-002)
+- path: docs/plan/architecture/api/asyncapi.yaml
+  checked:
+  - Severity enum §schemas
+  - alert.* lifecycle event names
+  - bed_grid latest_score_severity/active_alert_severity
+  verdict: consistent — Severity enum {normal,watch,urgent,critical}; lifecycle raised/acknowledged/acting/resolved/escalated/expired
+- path: docs/plan/design/design-tokens.md
+  checked:
+  - clinical.severity.* four bands §6
+  - color+icon+shape encodings
+  - legacy statusTrilha map §6.3
+  - catalog CRIT/URG/WARN/INFO map §6.4
+  - clinical.status.attended §6.5
+  verdict: encodings + both legacy maps identical to law; attended token naming/semantics differ from alert-routing
+    (see B2-004)
+- path: docs/plan/design/design-language.md
+  checked:
+  - §2.4 color+icon+shape triple-encoding table
+  - §4 ASSISTIDO additive-not-override disposition
+  verdict: encodings identical; attended is additive-never-masking (contradicted by alert-routing, see B2-004)
+- path: docs/plan/design/screens/alert-triage.md
+  checked:
+  - severity-tiered routing §1
+  - lifecycle §2 (raise→ack→act→resolve + escalated/expired)
+  - ack/resolution semantics
+  - ack/action SLAs §2.6
+  verdict: states/tiers/SLAs identical; escalation described as system+timer only (consistent with law, diverges
+    from openapi/alert-routing manual escalate — see B2-002)
+- path: docs/plan/design/screens/alert-routing.md
+  checked:
+  - R0–R3 tier ladder §1
+  - ack-SLA climb table §2
+  - encoding table §1
+  - states §9
+  - routing-ladder yaml block
+  verdict: tiers/SLAs/legacy-color pairing identical; reconciles watch-escalation to clinician (see B2-003); permits
+    clinician manual escalate (B2-002); attended token `clinical.assisted`/override wording (B2-004)
+- path: docs/plan/design/screens/command-center.md
+  checked:
+  - four-band scale §4.1
+  - max-severity-wins §4.4
+  - clinical.status.attended §4.2
+  - tiers/SLAs
+  verdict: fully consistent with law and design-tokens
+- path: docs/plan/design/screens/patient-timeline.md
+  checked:
+  - severity encoding §0
+  - max-severity aggregation §7
+  - lifecycle/ack semantics §8
+  - staleness
+  verdict: fully consistent with law
+- path: docs/plan/_work/alerts/*.yaml
+  files:
+  - aki
+  - correlation-engine
+  - early-warning-scores
+  - electrolyte
+  - hemodynamics
+  - neuro-sedation
+  - pharmaco-interaction
+  - respiratory
+  - sepsis
+  checked:
+  - every `severity:` value
+  verdict: PASS — all severity values ∈ {normal, watch, urgent, critical}
+- path: whole docs/plan tree
+  checked:
+  - legacy NEUTRO/AMARELO/LARANJA/VERMELHO → band
+  - catalog INFO/WARN/URG/CRIT → band
+  verdict: 4-color statusTrilha map + catalog map identical across law/design/api/screens; 3-color legacy VERMELHO
+    mapping diverges in two clinical-domain docs (see B2-005)
+conflicts:
+- conflict_id: B2-001
+  barrier: 2
+  severity: blocking
+  description: 'The three severity/lifecycle schema reconciliations the alert engine explicitly flags "→ C2 / data-architect"
+    are neither adopted nor recorded in the authoritative data model, while the API contract already exposes two
+    of them as real fields — so the persistence contract and the API/engine contracts diverge and C2 cannot close.
+    (1) bed_id: alert-engine.md §6 "This engine EXTENDS it with a nullable `bed_id` column ... Reconciliation (→
+    C2 / data-architect): adding `bed_id` extends the `DM-T-05` schema; flagged for the data model" and openapi.yaml
+    ThresholdConfig "extended with a nullable `bed_id` per `alert-engine.md` §6 (flagged for data-model reconciliation,
+    barrier C2)" with a working `/thresholds/resolve` (bed ≻ unit ≻ tenant) — but data-model.md §3 threshold_config
+    delta lists only audit mirroring ("Every write is mirrored into `audit_trail`") and adds NO bed_id column, and
+    §10 open-questions never mentions it. (2) status enum acting/escalated: alert-engine.md §9 "`acting` and `escalated`
+    extend the data-model `status` enum ... Reconciliation (→ C2 / data-architect): add `acting` + `escalated`"
+    and openapi.yaml AlertStatus "Extends the current `alert.status` DB enum (`active/acknowledged/resolved/expired`,
+    `DM-VOCAB-04`) with `acting` and `escalated` — flagged for data-model reconciliation at barrier C2" — but data-model.md
+    never restates or extends the alert.status enum. (3) severity `info`/`normal` row: severity-model.yaml data_model_alert_severity
+    note and design-tokens.md §6.4 route "add a delivery-only `info` value to the `alert.severity` enum" to the
+    data-architect — but data-model.md §4.1 declares alert_definition_version.severity as "normal|watch|urgent|critical"
+    while never reconciling the alert-row enum (DM-VOCAB-03 = watch/urgent/critical), so a `normal`-band definition
+    (e.g. sepsis.yaml L251, respiratory.yaml L152, correlation-engine.yaml L191, early-warning-scores.yaml L163)
+    has no persistable alert row. Five artifacts defer to data-model.md; data-model.md is silent on all three.'
+  artifacts:
+  - docs/plan/architecture/data-model.md
+  - docs/plan/architecture/alert-engine.md
+  - docs/plan/architecture/api/openapi.yaml
+  - docs/plan/_work/platform/severity-model.yaml
+  - docs/plan/design/design-tokens.md
+  constraint_refs:
+  - CON-SEED-11
+  - DM-VOCAB-03
+  - DM-VOCAB-04
+  - DM-T-05
+  - INV-1
+  proposed_resolution: 'In data-model.md, add the reconciliation explicitly: (a) ADD `bed_id VARCHAR NULL` to threshold_config
+    with the bed≻unit≻tenant resolution note and UNIQUE(tenant_id,unit,bed_id, score_type); (b) EXTEND the alert.status
+    enum to {active, acknowledged, acting, resolved, escalated, expired} (or document acting=acknowledged+intervention_started_at
+    and escalated=boolean flag, per the engine''s alternative) so it matches openapi AlertStatus; (c) ADD a delivery-only
+    `info`/`normal` value to alert.severity (or explicitly ratify "normal band creates no alert row") and align
+    alert_definition_version.severity accordingly. Record each in §10 open-questions until ratified.'
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: 'In data-model.md, add the reconciliation explicitly: (a) ADD `bed_id VARCHAR NULL` to threshold_config
+      with the bed≻unit≻tenant resolution note and UNIQUE(tenant_id,unit,bed_id, score_type); (b) EXTEND the alert.status
+      enum to {active, acknowledged, acting, resolved, escalated, expired} (or document acting=acknowledged+intervention_started_at
+      and escalated=boolean flag, per the engine''s alternative) so it matches openapi AlertStatus; (c) ADD a delivery-only
+      `info`/`normal` value to alert.severity (or explicitly ratify "normal band creates no alert row") and align
+      alert_definition_version.severity accordingly. Record each in §10 open-questions until ratified.'
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B2-002
+  barrier: 2
+  severity: minor
+  description: 'Disagreement on WHO may drive the escalate transition. The canonical law lists actor `system` only:
+    severity-model.yaml transitions `{from: raised, to: escalated, actor: system, ...}` and `{from: acknowledged,
+    to: escalated, actor: system, ...}`; alert-engine.md §9 renders both as "system (timer)"; alert-triage.md §1.2
+    states "Escalation is a system+timer transition, always audited (INV-1)." But two artifacts additionally permit
+    a clinician-initiated escalation: openapi.yaml POST /alerts/{alertId}/escalate — "This endpoint additionally
+    allows a clinician to **manually pull the escalation trigger early** ... the `triggered_by` field on the response
+    distinguishes `system` from a `user_id`"; and alert-routing.md §2.2 — "**Escalar agora** — a clinician skips
+    the timer and promotes now ... Always allowed; audited." The transition SET, names, and count are identical
+    everywhere (9 transitions); only the permitted actor for raised→escalated / acknowledged→escalated differs.'
+  artifacts:
+  - docs/plan/_work/platform/severity-model.yaml
+  - docs/plan/architecture/alert-engine.md
+  - docs/plan/architecture/api/openapi.yaml
+  - docs/plan/design/screens/alert-routing.md
+  - docs/plan/design/screens/alert-triage.md
+  constraint_refs:
+  - INV-1
+  - CON-0066
+  proposed_resolution: Amend severity-model.yaml (and alert-engine.md §9) so the raised→escalated and acknowledged→escalated
+    transitions list actor `system | clinician (manual "Escalar agora")`, and note the manual path is an early trigger
+    of the same transition (audited, with triggered_by). This makes the canonical actor set match the API and routing
+    screen.
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Amend severity-model.yaml (and alert-engine.md §9) so the raised→escalated and acknowledged→escalated
+      transitions list actor `system | clinician (manual "Escalar agora")`, and note the manual path is an early
+      trigger of the same transition (audited, with triggered_by). This makes the canonical actor set match the
+      API and routing screen.
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B2-003
+  barrier: 2
+  severity: blocking
+  description: 'The canonical law is internally inconsistent about whether/where a `watch` alert escalates, and
+    the engine contradicts the routing screen on the escalation target. severity-model.yaml gives watch `ack_sla:
+    PT60M` (L30) yet its delivery descriptor says "...no mobile page; no escalation" (L32); alert-engine.md §3 repeats
+    watch as "Tier 3 — WS push + bed-board badge; no page; no escalation." But the lifecycle transition set escalates
+    ANY band that has an ack-window: severity-model.yaml `{from: raised, to: escalated, actor: system, sla: "ack-window
+    breach", trigger: "page next tier (RRT)"}` and alert-engine.md §9 "raised | escalated | system (timer) | ack-window
+    breached → page next tier (RRT)" — and watch HAS an ack-window (PT60M). So (a) it is ambiguous whether watch
+    escalates at all, and (b) where the escalation-descriptor and the transition disagree, the transition says "page
+    next tier (RRT)", which directly contradicts alert-routing.md §2 "**`watch` climbs to a clinician, never to
+    the RRT.** An unacked `watch` promotes to R2 (assigned clinician''s device) ... Only `urgent` and `critical`
+    ever reach R3/RRT." alert-routing reconciles it; the law and alert-engine do not.'
+  artifacts:
+  - docs/plan/_work/platform/severity-model.yaml
+  - docs/plan/architecture/alert-engine.md
+  - docs/plan/design/screens/alert-routing.md
+  constraint_refs:
+  - CON-0064
+  - CAT-C-04
+  proposed_resolution: 'In severity-model.yaml and alert-engine.md §9, make the raised→escalated transition band-aware:
+    watch (ack-SLA PT60M breach) climbs to the assigned clinician (R2), NOT to RRT; only urgent and critical page
+    the next tier (RRT). Update the watch delivery descriptor from "no escalation" to "no page AT RAISE; escalates
+    to assigned clinician on PT60M ack breach" so §3 and §9 agree with alert-routing §2.'
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: 'In severity-model.yaml and alert-engine.md §9, make the raised→escalated transition band-aware: watch
+      (ack-SLA PT60M breach) climbs to the assigned clinician (R2), NOT to RRT; only urgent and critical page the
+      next tier (RRT). Update the watch delivery descriptor from "no escalation" to "no page AT RAISE; escalates
+      to assigned clinician on PT60M ack breach" so §3 and §9 agree with alert-routing §2.'
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B2-004
+  barrier: 2
+  severity: minor
+  description: 'The "attended/ASSISTIDO" status modifier has divergent token name, icon, and — more importantly
+    — additive-vs-override semantics across artifacts. design-tokens.md §6.5 defines `clinical.status.attended`
+    = "blue `#4C9FE8` dot/badge, `person-check` icon, additive corner badge ... rendered **alongside** the true
+    severity color+icon+shape, **never replacing it**"; design-language.md §4 "do not port ASSISTIDO as a severity
+    override ... additive `clinical.status.attended` badge that composites *alongside* — never in place of — the
+    true severity"; command-center.md §4.2 matches (additive, "a `critical` under response still reads `critical`").
+    But alert-routing.md §1 encoding table (L43) names the token `clinical.assisted` with icon "ring + check" /
+    shape "ring", and its prose describes an OVERRIDE-flavored treatment: §1.1 "on ack the tile flips to **ASSISTIDO**
+    (desaturated, ring stopped)" and §9 "**ASSISTIDO** (blue override, timers stopped, lower-tier same-key demoted)."
+    The `clinical.assisted` name, "ring + check" icon, and "desaturated/override" wording conflict with the canonical
+    `clinical.status.attended`, `person-check`, additive-never-masking design.'
+  artifacts:
+  - docs/plan/design/screens/alert-routing.md
+  - docs/plan/design/design-tokens.md
+  - docs/plan/design/design-language.md
+  - docs/plan/design/screens/command-center.md
+  constraint_refs:
+  - CON-SEED-11
+  - ADR-C-09
+  proposed_resolution: Update alert-routing.md to use the canonical token `clinical.status.attended` with the `person-check`
+    icon and additive-corner-badge treatment, and replace "desaturated / blue override" wording with "additive attended
+    badge alongside the unchanged severity color+icon+shape" — so ack never desaturates/masks a live severity (the
+    patient-safety intent of design-language.md §4).
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Update alert-routing.md to use the canonical token `clinical.status.attended` with the `person-check`
+      icon and additive-corner-badge treatment, and replace "desaturated / blue override" wording with "additive
+      attended badge alongside the unchanged severity color+icon+shape" — so ack never desaturates/masks a live
+      severity (the patient-safety intent of design-language.md §4).
+    countersign: clinical-safety-officer pending (batched)
+- conflict_id: B2-005
+  barrier: 2
+  severity: minor
+  description: 'The legacy statusTrilha color VERMELHO is not mapped identically everywhere. Canonical law severity-model.yaml
+    `legacy_statusTrilha` maps `VERMELHO: critical` (and design-tokens.md §6.3, alert-routing.md §1, command-center.md
+    §4.1 all agree VERMELHO↔critical). But two clinical-domain docs map the same legacy top color to a different
+    band: early-warning-scores.md L227 — "Proprietary aggregate NEUTRO/AMARELO/VERMELHO (RULE-PIORA-CLINICA-010)
+    **SUPERSEDED** by NEWS2 low/medium/high → `normal/watch/urgent`" (VERMELHO→urgent); hemodynamics.md L242 — "VERMELHO→`critical`/`urgent`,
+    AMARELO→`watch`, NEUTRO→`normal`" (VERMELHO→critical or urgent). These are 3-color legacy variants (no LARANJA)
+    being superseded by score banding, but the same legacy color/rule cited by the canonical map (RULE-PIORA-CLINICA-010)
+    yields a different band, so the mapping is not identical wherever mentioned.'
+  artifacts:
+  - docs/plan/_work/platform/severity-model.yaml
+  - docs/plan/clinical/domains/early-warning-scores.md
+  - docs/plan/clinical/domains/hemodynamics.md
+  constraint_refs:
+  - CON-SEED-11
+  - CON-0183
+  - CON-0182
+  proposed_resolution: Add a note to severity-model.yaml legacy_statusTrilha (and cross-reference the domain docs)
+    distinguishing the 4-color statusTrilha map (VERMELHO→critical) from per-domain 3-color aggregate supersessions
+    where the top legacy color maps to the aggregate score's top band (NEWS2 high→urgent; hemodynamic staging→urgent/critical).
+    State explicitly that VERMELHO→urgent in a NEWS2-aggregate context is intentional, not a re-map of the statusTrilha
+    law, so the divergence is documented rather than contradictory.
+  resolution:
+    status: decided
+    decided_by: orchestrator-chair
+    decision: Add a note to severity-model.yaml legacy_statusTrilha (and cross-reference the domain docs) distinguishing
+      the 4-color statusTrilha map (VERMELHO→critical) from per-domain 3-color aggregate supersessions where the
+      top legacy color maps to the aggregate score's top band (NEWS2 high→urgent; hemodynamic staging→urgent/critical).
+      State explicitly that VERMELHO→urgent in a NEWS2-aggregate context is intentional, not a re-map of the statusTrilha
+      law, so the divergence is documented rather than contradictory.
+    countersign: clinical-safety-officer pending (batched)

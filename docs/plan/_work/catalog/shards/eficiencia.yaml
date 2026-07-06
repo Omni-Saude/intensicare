@@ -1,0 +1,857 @@
+shard: eficiencia
+cluster: eficiencia
+rule_count: 12
+rules_with_escalations: 9
+rules:
+- id: RULE-EFICIENCIA-001
+  name: Eficiencia v3 alert aggregation (calcular_alerta_v2, wired)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Maps the computed criteria booleans of the Eficiencia v3 model to the final alert enum. The wired
+    path (save() -> calcular_criterios() -> calcular_alerta_v2()) uses only criterio_10 and criterio_3 for AMARELO
+    and criterio_5 for VERMELHO. A legacy calcular_alerta() with a different criteria mapping is defined but never
+    called.
+
+    '
+  inputs:
+  - criterio_3 (boolean)
+  - criterio_5 (boolean)
+  - criterio_10 (boolean)
+  outputs:
+  - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+  logic: '# save():
+
+    #   self.calcular_criterios()
+
+    #   self.alerta = self.calcular_alerta_v2()
+
+    #   if self.alerta == "NEUTRO": self.assistido = False
+
+    #
+
+    # calcular_criterios() ONLY computes:
+
+    #   self.criterio_3  = calcular_criterio_3()
+
+    #   self.criterio_5  = calcular_criterio_5()
+
+    #   self.criterio_10 = calcular_criterio_10()
+
+    #   (criterio_1,2,4,6,7,8,9 are commented out -> remain null)
+
+    #
+
+    # calcular_alerta_v2() (USED):
+
+    amarelo = [criterio_10, criterio_3].count(True)
+
+    vermelho = [criterio_5].count(True)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo >= 1: return "AMARELO"
+
+    else:            return "NEUTRO"
+
+    #
+
+    # calcular_alerta() (UNUSED legacy):
+
+    #   amarelo = [criterio_1, criterio_5, criterio_6, criterio_7, criterio_9].count(True)
+
+    #   vermelho = [criterio_2, criterio_3, criterio_4, criterio_8].count(True)
+
+    '
+  edge_cases: 'Only criterio_3, criterio_5, criterio_10 are ever computed; all other criteria stay null and never
+    contribute. Because criterio_5 (the sole VERMELHO trigger) is permanently False in code (see RULE-EFICIENCIA-004),
+    the wired alert can in practice only reach AMARELO (via c3 or c10) or NEUTRO. conta_criterios_automatica() (counts
+    truthy c1..c10) also exists but is not used by the alert.
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-002
+  - RULE-EFICIENCIA-004
+  - RULE-EFICIENCIA-006
+  - RULE-EFICIENCIA-012
+  merged_from:
+  - RULE-eficiencia-BE-03-080
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 60-65, 115-157, 206-216
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Wired production alert path for the v3 model. The three feeding criteria are RULE-EFICIENCIA-002 (c3,
+    AMARELO), RULE-EFICIENCIA-004 (c5, VERMELHO), RULE-EFICIENCIA-006 (c10, AMARELO).
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EFICIENCIA-002
+  name: Eficiencia v3 criterio_3 - unjustified RBC transfusion at Hb>=7 (AMARELO, wired)
+  category: triage-eligibility
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - Hb>=7 AND packed-RBC ("Concentrado de hemacias com filtro") prescribed AND absence of
+    SCA / Melena / Enterorragia / AVC isquemico (I64) / AVC hemorragico / TCE. Feeds the AMARELO alert. Restrictive
+    transfusion threshold (Hb>=7 in absence of active bleeding, acute brain injury or acute coronary syndrome).
+
+    '
+  inputs:
+  - evolucao.diurna_hemoglobina (float, g/dL)
+  - evolucao.enf_aspecto_intestinais (string; Melena/Enterorragia)
+  - evolucao.diag_inter_1..5, diagnostico_1..4 (strings)
+  - cpoe.concentrado_hemacias (float/units)
+  outputs:
+  - criterio_3 (boolean)
+  logic: "ultimo_balanco  = balancos_leito.first()\nultima_cpoe     = cpoe_leito.first()\nultima_evolucao = evolucao_leito.first()\n\
+    return all([\n  getattr(ultima_evolucao, \"diurna_hemoglobina\", 0) or 0 >= 7,   # precedence bug\n  getattr(ultima_cpoe,\
+    \ \"concentrado_hemacias\", 0),\n  all([\n    not \"SCA - Sindrome coronariana aguda\"\n        in vars(ultima_evolucao).fromkeys((\"\
+    diag_inter_1\"..\"diag_inter_5\")).values(),\n    not getattr(ultima_evolucao, \"enf_aspecto_intestinais\")\
+    \ in [\"Melena\", \"Enterorragia\"],\n    not list(filter(lambda x: x.startswith(\"I64\"),\n               \
+    \     vars(ultima_evolucao).fromkeys((\"diagnostico_1\"..\"diagnostico_4\")))),\n  ]),\n]) if (ultimo_balanco\
+    \ and ultima_cpoe and ultima_evolucao) else False\n"
+  edge_cases: 'Operator precedence - `diurna_hemoglobina or 0 >= 7` parses as `diurna_hemoglobina or (0 >= 7)`,
+    i.e. truthiness of the Hb value; the Hb>=7 threshold is NEVER actually applied (fires on any non-empty Hb plus
+    an RBC order). fromkeys() builds a dict whose values are all None, so the SCA and I64 (AVC) exclusions are vacuously
+    True (non-functional). Melena/ Enterorragia exclusion does work.
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-001
+  - RULE-EFICIENCIA-003
+  - RULE-EFICIENCIA-012
+  divergence: 'Code vs intent/facade: Hb>=7 threshold is defeated by operator precedence (any truthy Hb + RBC prescription
+    satisfies it), and the SCA/AVC diagnosis exclusions are inert (fromkeys None-values bug). Facade text (RULE-EFICIENCIA-012)
+    states the intended Hb>=7 rule.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-083
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 436-494
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 111-118
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Wired (AMARELO via calcular_alerta_v2). Facade alert label is "Reavaliar indicacao de transfusao de hemacias
+    (Hb>7)" with recommendation body stating Hb>=7.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'Carson JL, Guyatt G, Heddle NM, et al. Clinical Practice Guidelines From the AABB: Red Blood Cell
+      Transfusion Thresholds and Storage. JAMA. 2016;316(19):2025-2035. Restrictive threshold - transfusion not
+      indicated until Hb <7 g/dL for hemodynamically stable hospitalized adults incl. critically ill; explicit exceptions
+      for acute coronary syndrome. Origin: Hebert PC, et al. TRICC trial, NEJM 1999;340:409-417.
+
+      '
+    detail_file: eficiencia-batch1.yaml
+  escalations:
+  - item_id: ESC-P1-055
+    band: P1
+    title: Eficiencia v3 criterio_3 - unjustified RBC transfusion at Hb>=7 (AMARELO, wired)
+    excerpt: '*`eficiencia` · `triage-eligibility` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - Hb>=7 AND
+      packed-RBC ("Concentrado de hemacias com filtro") prescribed AND absence of SCA / Melena / Enterorragia /
+      AVC isquemico (I64) / AVC hemorragico / TCE. Feeds the AMARELO alert. Restrictive transfusion threshold (Hb>=7
+      in absence of active bleeding, acute brain injury or acute coronary syndrome). - **'
+- id: RULE-EFICIENCIA-003
+  name: Eficiencia v3 criterio_4 - RBC transfusion at Hb 6-7, 2 units (defined, unwired)
+  category: triage-eligibility
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - Hb strictly between 6 and 7 AND >=2 units packed RBC prescribed AND absence of SCA /
+    Melena / Enterorragia / AVC / TCE. Reconsider giving a 2nd RBC unit. Defined but not computed (commented out
+    in calcular_criterios).
+
+    '
+  inputs:
+  - evolucao.diurna_hemoglobina (float, g/dL)
+  - cpoe.concentrado_hemacias (float, units)
+  - evolucao diagnosis / enf_aspecto_intestinais fields
+  outputs:
+  - criterio_4 (boolean)
+  logic: "return all([\n  6 < handlers.get_number(getattr(ultima_evolucao, \"diurna_hemoglobina\")) < 7,\n  handlers.get_number(getattr(ultima_cpoe,\
+    \ \"concentrado_hemacias\", 0)) >= 2,\n  all([\n    not \"SCA - Sindrome coronariana aguda\"\n        in vars(ultima_evolucao).fromkeys((\"\
+    diag_inter_1\"..\"diag_inter_5\")).values(),\n    not getattr(ultima_evolucao, \"enf_aspecto_intestinais\")\
+    \ in [\"Melena\", \"Enterorragia\"],\n    not list(filter(lambda x: x.startswith(\"I64\"),\n               \
+    \     vars(ultima_evolucao).fromkeys((\"diagnostico_1\"..\"diagnostico_4\")))),\n  ]),\n]) if (ultimo_balanco\
+    \ and ultima_cpoe and ultima_evolucao) else False\n"
+  edge_cases: 'Hb open interval (6,7). >=2 units required. The Hb threshold here is correctly parenthesized (unlike
+    criterio_3). Diagnosis exclusions (SCA/AVC) are non-functional due to the fromkeys None-values bug; Melena/Enterorragia
+    exclusion works. Unwired.
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-002
+  - RULE-EFICIENCIA-012
+  divergence: 'SCA/AVC diagnosis exclusions are inert (fromkeys None-values bug); Hb 6-7 and >=2-unit thresholds
+    themselves are implemented correctly. Facade text (RULE-EFICIENCIA-012) labels this "Hb>6 / 2u"; v3 restricts
+    the upper bound to Hb<7 because Hb>=7 is handled by criterio_3.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-084
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 496-559
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 119-126
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Unwired (calcular_criterio_4 commented out in calcular_criterios).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Carson JL, et al. AABB RBC Transfusion Thresholds, JAMA 2016;316(19):2025-2035 (restrictive threshold,
+      single-unit transfusion / reassess-after-each-unit practice). Single-unit policy reinforced by ISBT Patient
+      Blood Management (Red Cell Restrictive Transfusion Thresholds and Single-Unit Transfusion).
+
+      '
+    detail_file: eficiencia-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-085
+    band: P2
+    title: Eficiencia v3 criterio_4 - RBC transfusion at Hb 6-7, 2 units (defined, unwired)
+    excerpt: SCA/AVC diagnosis exclusions are inert (fromkeys None-values bug); Hb 6-7 and >=2-unit thresholds themselves
+      are implemented correctly. Facade text (RULE-EFICIENCIA-012) labels this "Hb>6 / 2u"; v3 restricts the upper
+      bound to Hb<7 because Hb>=7 is handled …
+- id: RULE-EFICIENCIA-004
+  name: Eficiencia v3 criterio_5 - platelet transfusion at Plt>25000 (VERMELHO, wired)
+  category: triage-eligibility
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - platelet concentrate ("Concentrado de plaquetas com filtro") prescribed in the last 6h
+    AND platelets>25000 AND absence of Melena / Enterorragia / AVC / TCE AND absence of a CVC / double-lumen dialysis
+    catheter prescription in the last 4h. Feeds the VERMELHO alert.
+
+    '
+  inputs:
+  - cpoe.concentrado_plaquetas, cpoe.cateter_duplo_hemod, cpoe.cateter_venoso_central
+  - evolucao platelets / enf_aspecto_intestinais / diagnostico_1..4
+  outputs:
+  - criterio_5 (boolean)
+  logic: "cpoe_6hrs = cpoe_leito.filter(dt_atualizacao_cpoe__gte = now() - timedelta(hours=6))\ncpoe_4hrs = cpoe_leito.filter(dt_atualizacao_cpoe__gte\
+    \ = now() - timedelta(hours=6))   # BUG: 6h, not 4h\nreturn all([\n  cpoe_6hrs.exclude(concentrado_plaquetas=0).exists(),\n\
+    \  handlers.get_number(getattr(ultima_cpoe, \"diurna_plaquetas\", 0)) > 25000,   # WRONG MODEL FIELD\n  all([\n\
+    \    not getattr(ultima_evolucao, \"enf_aspecto_intestinais\") in [\"Melena\", \"Enterorragia\"],\n    not list(filter(lambda\
+    \ x: x.startswith(\"I64\"),\n                    vars(ultima_evolucao).fromkeys((\"diagnostico_1\"..\"diagnostico_4\"\
+    )))),\n    not cpoe_4hrs.exclude(cateter_duplo_hemod=0, cateter_venoso_central=0).exists(),\n  ]),\n]) if (ultimo_balanco\
+    \ and ultima_cpoe and ultima_evolucao and cpoe_6hrs) else False\n"
+  edge_cases: 'Platelet threshold reads ultima_cpoe.diurna_plaquetas, which does NOT exist on the CPOE model (diurna_plaquetas
+    lives on evolucao) -> getattr default 0 -> ">25000" is always False -> this VERMELHO criterion never fires.
+    The cpoe_4hrs window is defined with hours=6 (copy-paste of cpoe_6hrs), so the intended 4h catheter window is
+    actually 6h. I64 (AVC) exclusion inert (fromkeys None-values bug).
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-001
+  - RULE-EFICIENCIA-012
+  divergence: 'Platelet value pulled from wrong model field (ultima_cpoe.diurna_plaquetas, absent -> always 0) so
+    the sole wired VERMELHO trigger is permanently False; 4h CVC/CDL window mistakenly set to 6h; I64 exclusion
+    inert. Facade text (RULE-EFICIENCIA-012) states the intended Plq>25000 rule.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-085
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 561-617
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 127-134
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Wired (VERMELHO via calcular_alerta_v2) but permanently False due to the wrong-field bug. Facade alert
+    label "Reavaliar indicacao de transfusao de plaquetas para Plq> 25.000."
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'Kaufman RM, Djulbegovic B, Gernsheimer T, et al. Platelet Transfusion: A Clinical Practice Guideline
+      From the AABB. Ann Intern Med. 2015;162(3):205-213. Prophylactic threshold 10x10^9/L (10,000/uL) for therapy-induced
+      hypoproliferative thrombocytopenia; transfuse for elective CVC placement at <20,000/uL; no prophylactic indication
+      above these thresholds absent procedure or active bleeding.
+
+      '
+    detail_file: eficiencia-batch1.yaml
+  escalations:
+  - item_id: ESC-P1-056
+    band: P1
+    title: Eficiencia v3 criterio_5 - platelet transfusion at Plt>25000 (VERMELHO, wired)
+    excerpt: '*`eficiencia` · `triage-eligibility` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - platelet
+      concentrate ("Concentrado de plaquetas com filtro") prescribed in the last 6h AND platelets>25000 AND absence
+      of Melena / Enterorragia / AVC / TCE AND absence of a CVC / double-lumen dialysis catheter prescription in
+      the last 4h. Feeds the VERMELHO alert. - **Deviation:** Platelet value pulled from w'
+- id: RULE-EFICIENCIA-005
+  name: Eficiencia v3 criterio_9 - coma without sedation (defined, unwired)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - GCS<6 AND absence of any sedative (cetamina/dexmedetomidina/ propofol/tiopental/midazolam
+    via balanco, fenitoina/fenobarbital via adep) in the last 6h -> suspected brain death, initiate donor-potential
+    maintenance. Facade criterio_9 = "Suspeita de ME". Code uses GCS<13 and an AND-combined sedative filter.
+
+    '
+  inputs:
+  - evolucao.diurna_glasgow (GCS)
+  - balanco.qt_vol_cet/dex/pro/tiop/mid (ml/h, last 6h)
+  - adep.fenitoina/fenobarbital (last 6h)
+  outputs:
+  - criterio_9 (boolean)
+  logic: "return all([\n  handlers.get_number(getattr(evolucao, \"diurna_glasgow\")) < 13,   # docstring/intent:\
+    \ < 6\n  not (\n    balanco_6h.filter(qt_vol_cet__gt=0, qt_vol_dex__gt=0, qt_vol_pro__gt=0,\n              \
+    \        qt_vol_tiop__gt=0, qt_vol_mid__gt=0).exists()\n    or adep_6h.filter(fenitoina__gt=0, fenobarbital__gt=0).exists()\n\
+    \  ),\n]) if (ultima_evolucao and adep_6h and balanco_6h) else False\n"
+  edge_cases: 'GCS threshold is 13 in code, not 6 as documented. The sedative-absence clause uses a single .filter()
+    with comma-separated (AND) conditions, so it only matches a balance record where ALL five infusion sedatives
+    are simultaneously >0 (and, separately, both adep drugs >0) - effectively never, making the "absence" clause
+    almost always True. Unwired.
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-012
+  divergence: 'GCS<13 implemented vs GCS<6 intended; sedative-absence uses an AND-combined filter (requires all
+    sedatives present at once) rather than the intended OR/any across sedatives, so it almost never excludes.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-089
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 878-912
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 147-150
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Unwired (calcular_criterio_9 commented out in calcular_criterios).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'Clinical triggers for organ-donation referral - ventilated patient with severe neurological injury
+      and GCS <=5 (or GCS <=4 not explained by sedation) prompts referral to the organ procurement organization
+      / brain-death evaluation. NICE CG135 Organ donation for transplantation (clinical trigger: GCS <=4 not explained
+      by sedation, or intention to test brainstem death). GCS: Teasdale & Jennett, Lancet 1974;2:81-84 (range 3-15).
+
+      '
+    detail_file: eficiencia-batch1.yaml
+  escalations:
+  - item_id: ESC-P0-009
+    band: P0
+    title: Eficiencia v3 criterio_9 - coma without sedation (defined, unwired)
+    excerpt: GCS<13 implemented vs GCS<6 intended; sedative-absence uses an AND-combined filter (requires all sedatives
+      present at once) rather than the intended OR/any across sedatives, so it almost never excludes.
+- id: RULE-EFICIENCIA-006
+  name: Eficiencia v3 criterio_10 - mechanical restraint without agitation (AMARELO, wired)
+  category: alert-threshold
+  type: threshold
+  status: AMBIGUOUS
+  verify: true
+  description: 'Mechanical restraint prescribed AND GCS>12 AND (per docstring) absence of RASS>+1 AND absence of
+    delirium. Code requires delirium PRESENT (truthy) and RASS not > 1. Feeds the AMARELO alert.
+
+    '
+  inputs:
+  - cpoe.contencao_mecanica
+  - evolucao.diurna_glasgow, evolucao.diurna_delirium, evolucao.rass
+  outputs:
+  - criterio_10 (boolean)
+  logic: "return all([\n  handlers.get_number(getattr(ultima_evolucao, \"diurna_glasgow\")) > 12,\n  handlers.get_number(getattr(ultima_cpoe,\
+    \ \"contencao_mecanica\")),\n  handlers.get_number(getattr(ultima_evolucao, \"diurna_delirium\")),   # docstring:\
+    \ ABSENCE of delirium\n  not int(getattr(ultima_evolucao, \"rass\")) > 1\n      if getattr(ultima_evolucao,\
+    \ \"rass\", False) else False,\n]) if (ultima_evolucao and ultima_cpoe) else False\n"
+  edge_cases: 'The delirium clause checks PRESENCE (truthy diurna_delirium) whereas the docstring/facade intent
+    is "ausencia de delirium". RASS clause `not int(rass) > 1` -> True when rass <= 1; when rass is falsy the whole
+    criterion is False.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EFICIENCIA-001
+  - RULE-EFICIENCIA-012
+  divergence: 'Delirium clause checks presence of delirium, opposite of the documented "ausencia de delirium" intent
+    (facade RULE-EFICIENCIA-012). GCS>12 and RASS<=1 gates match intent.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-090
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 914-937
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 151-154
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Wired (AMARELO via calcular_alerta_v2). AMBIGUOUS - presence-vs-absence of delirium ambiguity preserved
+    as implemented.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'Devlin JW, Skrobik Y, Gelinas C, et al. PADIS Guidelines (SCCM) for Prevention and Management of
+      Pain, Agitation/sedation, Delirium, Immobility, and Sleep Disruption in Adult ICU Patients. Crit Care Med
+      2018;46(9):e825-e873 (minimize physical restraint; treat underlying delirium/agitation rather than restrain).
+      Sessler CN, et al. Richmond Agitation-Sedation Scale (RASS), Am J Respir Crit Care Med 2002;166:1338-1344
+      (scale -5..+4; +1 = restless, >=+2 = agitated).
+
+      '
+    detail_file: eficiencia-batch1.yaml
+  escalations:
+  - item_id: ESC-P1-030
+    band: P1
+    title: Eficiencia v3 criterio_10 - mechanical restraint without agitation (AMARELO, wired)
+    excerpt: '*`eficiencia` · `alert-threshold` · AMBIGUOUS/DISCREPANCY*  - **Legacy:** Mechanical restraint prescribed
+      AND GCS>12 AND (per docstring) absence of RASS>+1 AND absence of delirium. Code requires delirium PRESENT
+      (truthy) and RASS not > 1. Feeds the AMARELO alert. - **Deviation:** Delirium clause checks presence of delirium,
+      opposite of the documented "ausencia de delirium" intent (facade RULE-EFIC'
+- id: RULE-EFICIENCIA-007
+  name: Eficiencia v3 criterio_1 - repeated exams within minimum-repeat windows (defined, unwired)
+  category: scheduling-operational
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Flags when more than one exam is re-ordered inside its minimum-repeat window. Each exam class has
+    a window in days; if more than one distinct window-sum is positive across all windows combined, the criterion
+    fires and exames_repetidos is set to the human-readable list of offending exams.
+
+    '
+  inputs:
+  - cpoe exam columns aggregated (Sum) per window over cpoe(dt >= now - window)
+  outputs:
+  - criterio_1 (boolean)
+  - exames_repetidos (string)
+  logic: '# Minimum-repeat windows (days) as implemented in the aggregate calls:
+
+    #   5d : endoscopia_digestiva, tomo_abdome, tomo_abdome_contraste, tomo_torax
+
+    #   7d : usg_urinaria, coagulograma, hemocultura_bacterias, hemocultura_fungos,
+
+    #        cultura_urina, cultura_swab_perianal
+
+    #  14d : ferritina, angio_torax
+
+    #  21d : ecg_transtoracico, ecg_transesofagico, colonoscopia, fibrinogenio,
+
+    #        dimero, usg_partes_moles, usg_abdome, broncoscopia
+
+    #  30d : eletroencefalograma, rm_cranio
+
+    # For each window w: Sum(column) over cpoe(dt >= now.astimezone() - w)
+
+    resultado = len([v for v in all_window_sums.values() if v is not None and v > 0]) > 1
+
+    if resultado: exames_repetidos = ", ".join(labels of positive sums)
+
+    '
+  edge_cases: 'Threshold is >1 positive exam-sum across ALL windows COMBINED (not a per-exam count). Docstring lists
+    additional exams (tomo_cranio<48h, eletroneuromiografia<30d, etc.) that the implemented aggregate OMITS; the
+    aggregate call list is authoritative over the docstring. Uses datetime.now().astimezone(). Unwired.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EFICIENCIA-012
+  merged_from:
+  - RULE-eficiencia-BE-03-081
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 218-354
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 96-102
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Unwired. Window/exam mapping captured verbatim from the aggregate calls. In get_detalhe(), the facade
+    criterio_1 alert label is suffixed with exames_repetidos.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-EFICIENCIA-008
+  name: Eficiencia v3 criterio_2 - ICU discharge readiness (defined, unwired)
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended discharge-readiness gate - >24h admission, no ICU-discharge order, GCS>=11, temp<37.5,
+    good/regular general state, room-air/low-flow O2<=2, no invasive VM or pressors >48h, and (as intended absences)
+    TEC and lactate within range. Multiple checks are miswired.
+
+    '
+  inputs:
+  - evolucao.dt_entrada, diurna_glasgow, diurna_estado_geral, diurna_ventilacao, diurna_fluxo_o2, tempo_enchimento_capilar,
+    diurna_lactato
+  - balanco.temp, qt_vol_nora/qt_vol_dobuta/qt_vol_nitropru
+  - cpoe.alta_uti
+  outputs:
+  - criterio_2 (boolean)
+  logic: "return all([\n  evolucao.dt_entrada < (now - 24h).date(),\n  not cpoe_24h.aggregate(soma_alta_uti=Sum(\"\
+    alta_uti\")).get(\"soma_alta_uti\", 0),\n  evolucao_24h.aggregate(max_glasgow=Max(\"diurna_glasgow\")).get(\"\
+    max_glasgow\", 0),  # truthiness, not >=11\n  balanco_24h.aggregate(max_temp=Max(\"temp\")).get(\"temp\", 0),\
+    \                       # WRONG KEY -> default 0 -> falsy\n  evolucao.diurna_estado_geral in [\"Regular\", \"\
+    Bom\"],\n  evolucao.diurna_ventilacao.strip().lower() in get_ventilacao(\"ar_ambiente\")\n      and get_number(diurna_fluxo_o2)\
+    \ <= 2,\n  evolucao_mais_48h(...).filter(ventilacao in mecanica/invasiva),\n  not balanco_mais_48h.filter(Q(qt_vol_nora=0)|Q(qt_vol_dobuta=0)|Q(qt_vol_nitropru=0)).exists(),\n\
+    \  get_number(tempo_enchimento_capilar) > 5,\n  get_number(diurna_lactato) > 2,\n]) if (windows truthy) else\
+    \ False\n"
+  edge_cases: 'The max_temp aggregate is read with key "temp" (not "max_temp") -> default 0 -> the whole all([...])
+    is always False. The Glasgow check tests truthiness of the max, not >=11. The nora/dobuta/nitropru clause uses
+    Q(=0) OR-combined conditions. The tempo_enchimento_capilar>5 and lactato>2 terms are required TRUE, which contradicts
+    the discharge-readiness intent (they describe an unstable patient).
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-012
+  divergence: 'Wrong aggregate key ("temp" vs "max_temp") makes the criterion permanently False; Glasgow reduced
+    to truthiness rather than >=11; TEC>5 and lactate>2 required TRUE invert the "absence-of-instability" intent.
+    Facade text (RULE-EFICIENCIA-012) describes the intended clinical-improvement discharge.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-082
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 356-434
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 103-110
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Unwired (calcular_criterio_2 commented out in calcular_criterios).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'No single authoritative published equation exists for an ICU-discharge-readiness boolean gate; SCCM
+      ICU Admission/Discharge/Triage guidelines (Nates et al., Crit Care Med 2016) describe principles only. Individual
+      thresholds are anchored to published references: serum lactate >2 mmol/L marks tissue hypoperfusion/septic
+      shock (Sepsis-3, Singer et al., JAMA 2016;315:801-810) and prolonged capillary refill time (CRT >~3-5 s) marks
+      peripheral hypoperfusion (ANDROMEDA-SHOCK, Hernandez et al., JAMA 2019). Composite gate itself is an internal
+      business rule.
+
+      '
+    detail_file: eficiencia-batch2.yaml
+  escalations:
+  - item_id: ESC-P3-137
+    band: P3
+    title: triage-eligibility
+    excerpt: Wrong aggregate key ("temp" vs "max_temp") makes the criterion permanently False; Glasgow reduced to
+      truthiness rather than >=11; TEC>5 and lactate>2 required TRUE invert the "absence-of-instability" intent.
+      Facade text (RULE-EFICIENCIA-…
+- id: RULE-EFICIENCIA-009
+  name: Eficiencia v3 criterio_6 - frailty / palliative-appropriateness (defined, unwired)
+  category: triage-eligibility
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Three OR-combined frailty patterns using age, length of stay (LOS), SAPS3, SOFA, antecedents, gastrostomy,
+    dialysis, ventilation and noradrenaline to flag patients for whom palliative care should be considered.
+
+    '
+  inputs:
+  - evolucao.idade, dt_entrada, admissao_saps3, diurna_sofa, ant_pessoal_1..5, enf_gastrostomia, diurna_ventilacao
+  - cpoe.hemodialise
+  - balanco.qt_vol_nora
+  outputs:
+  - criterio_6 (boolean)
+  logic: "return any([\n  all([ idade >= 80, any([ LOS >= 7,  SAPS3 > 50, SOFA >= 3 ]) ]),\n  all([ idade > 70,\
+    \  any([ LOS > 15,  SAPS3 > 70, SOFA >= 5 ]) ]),\n  all([ any([\n          idade > 70,\n          antecedente\
+    \ in {\"Acamado previamente\", \"Demencia de Alzheimer\",\n                          \"Demencia senil\", \"\
+    Cancer\"},   # via fromkeys -> inert\n          gastrostomia,\n          cpoe.hemodialise,\n          ventilacao\
+    \ in <mecanica>,\n          qt_vol_nora > 20,\n          SOFA >= 5,\n       ]) ]),\n]) if (ultima_evolucao and\
+    \ ultima_cpoe) else False\n# LOS = handlers.diferenca_dias(dt_entrada)\n"
+  edge_cases: 'The antecedent membership uses vars().fromkeys().values() (all None), so the antecedent-list check
+    is non-functional; however the third OR branch still fires via age/gastrostomy/dialysis/ventilation/noradrenaline>20/SOFA>=5.
+    Age tiers 80/70, SAPS3 50/70, SOFA 3/5, LOS 7/15 captured verbatim. Unwired.
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-012
+  merged_from:
+  - RULE-eficiencia-BE-03-086
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 619-740
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 135-138
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'Status OK (thresholds sound); antecedent-list sub-check is inert but does not block the other predicates.
+    Unwired.
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published guideline defines a palliative/frailty-appropriateness trigger with these
+      exact composite cutoffs (age 80/70, LOS 7/15 d, SAPS3 50/70, SOFA 3/5). Component severity scores are validated
+      (SAPS 3: Moreno et al., Intensive Care Med 2005; SOFA: Vincent et al., Intensive Care Med 1996) but the trigger
+      thresholds and OR-combination are an internal institutional triage rule.
+
+      '
+    detail_file: eficiencia-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-289
+    band: UNVERIFIABLE
+    title: Eficiencia v3 criterio_6 - frailty / palliative-appropriateness (defined, unwired)
+    excerpt: Thresholds are clinically plausible and internally consistent but not traceable to a single authoritative
+      source -> internal business rule, flagged for internal clinical review (do NOT treat as wrong). Extraction
+      status OK. The…
+- id: RULE-EFICIENCIA-010
+  name: Eficiencia v3 criterio_7 - delirium/agitation risk bundle (defined, unwired, crashes)
+  category: clinical-scoring
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'OR of many delirium risk factors (SOFA>=5, age>75, dementia/AVC antecedent, antibiotic, bicarbonate<22,
+    no evacuation in 48h, Na>150 or Na<130, mechanical restraint, GCS 13-14, RASS +1..+4, high pain scores).
+
+    '
+  inputs:
+  - evolucao.idade, diurna_sofa, diurna_bicabornato, diurna_sodio, diurna_glasgow, rass, contencao
+  - cpoe.antibiotico, cpoe.contencao_mecanica
+  - balanco pain fields (VISUAL / COMPORTAMENTAL)
+  outputs:
+  - criterio_7 (boolean)
+  logic: "return any([\n  get_number(diurna_sofa) >= 5,\n  get_number(idade) > 75,\n  antecedente in [\"Demencia,\
+    \ AVC\"],                 # via fromkeys -> inert\n  get_number(cpoe.antibiotico),\n  get_number(diurna_bicabornato)\
+    \ < 22,\n  not evolucao_48h.filter(enf_eliminacoes_intestinais__isnull=False),\n  get_number(diurna_sodio) >\
+    \ 150,\n  get_number(diurna_sodio) < 130,\n  get_number(cpoe.contencao_mecanica),\n  get_number(diurna_glasgow)\
+    \ in [13, 14],\n  int(rass) in range[1, 5] if rass else False,      # range[1,5] -> TypeError (range not subscriptable)\n\
+    \  all([ <mutually exclusive VISUAL and COMPORTAMENTAL pain equalities> ]),\n]) if (ultima_evolucao and ultima_cpoe\
+    \ and ultimo_balanco and balanco_anterior) else False\n"
+  edge_cases: '`int(rass) in range[1, 5]` raises TypeError when rass is truthy (a range object is not subscriptable)
+    - the RASS branch crashes rather than testing +1..+4. The pain sub-block uses all([...]) over mutually exclusive
+    VISUAL / COMPORTAMENTAL equalities, so it is always False. Antecedent check inert (fromkeys). Na>150 and Na<130
+    are separate OR terms. Unwired (would raise if wired and rass present).
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-012
+  divergence: '`int(rass) in range[1, 5]` is a runtime bug (subscripting a range) instead of a membership test against
+    range(1,5); the pain all([]) block is unsatisfiable; the antecedent membership is inert.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-087
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 742-828
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 139-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Unwired (calcular_criterio_7 commented out in calcular_criterios).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'Qualitatively maps to established ICU delirium risk factors. PRE-DELIRIC model (van den Boogaard
+      et al., BMJ 2012;344:e420) predicts delirium from age, APACHE-II, coma, admission category, infection, metabolic
+      acidosis, morphine/sedatives, urea, urgent admission. The rule''s bicarbonate<22 (metabolic acidosis), antibiotic
+      (infection), age>75, sedation/coma and agitation (RASS +1..+4) terms align with these validated predictors,
+      but the rule is an ad-hoc OR-bundle, not the PRE-DELIRIC logistic equation.
+
+      '
+    detail_file: eficiencia-batch2.yaml
+  escalations:
+  - item_id: ESC-P3-095
+    band: P3
+    title: clinical-scoring
+    excerpt: '`int(rass) in range[1, 5]` is a runtime bug (subscripting a range) instead of a membership test against
+      range(1,5); the pain all([]) block is unsatisfiable; the antecedent membership is inert.'
+- id: RULE-EFICIENCIA-011
+  name: Eficiencia v3 criterio_8 - low-support step-down readiness (defined, unwired)
+  category: triage-eligibility
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - >24h ICU AND absence of pressors/tachypnea/hypotension/ tachycardia AND absence of high
+    O2 / invasive-ventilation / deep-sedation markers (step-down readiness). The implemented clause list contradicts
+    the documented absence intent.
+
+    '
+  inputs:
+  - evolucao.dt_entrada, diurna_ventilacao, diurna_fluxo_o2, diurna_fio2, diurna_peep, diurna_glasgow, rass
+  - balanco qt_vol_nora, fr, pam, fc
+  outputs:
+  - criterio_8 (boolean)
+  logic: "return all([\n  diferenca_dias(dt_entrada) > 1,\n  not all([ balanco_4h.filter(qt_vol_nora__gt=0, fr__lt=25,\
+    \ pam__lt=60, fc__gt=100) ]),\n  ventilacao in <espontanea> and get_number(fluxo_o2) > 5,     # duplicated identical\
+    \ clause\n  ventilacao in <espontanea> and get_number(fluxo_o2) > 5,\n  get_number(diurna_fio2) > 45,\n  get_number(diurna_peep)\
+    \ > 10,\n  get_number(diurna_glasgow) < 13,\n  int(rass) < -2 if rass else False,\n]) if (ultima_evolucao and\
+    \ balanco_4h and ultimo_balanco) else False\n"
+  edge_cases: 'The clause list requires fio2>45, peep>10, GCS<13 and RASS<-2 all TRUE, which describes a HIGH-support
+    patient - the opposite of the documented step-down ("ausencia de") intent. The spontaneous-vent + fluxo_o2>5
+    clause is duplicated identically. Unwired.
+
+    '
+  confidence: medium
+  related:
+  - RULE-EFICIENCIA-012
+  divergence: 'Implemented conditions invert the documented "absence-of-high-support" intent (they require FiO2>45,
+    PEEP>10, GCS<13, RASS<-2 to be TRUE); one spontaneous-ventilation clause is duplicated.
+
+    '
+  merged_from:
+  - RULE-eficiencia-BE-03-088
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_eficiencia.py
+    lines: 830-876
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 143-146
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: Unwired (calcular_criterio_8 commented out in calcular_criterios).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: none
+    reference: 'No single authoritative equation for an ICU step-down-readiness boolean; the relevant published
+      anchors are ventilator-liberation / SBT-readiness criteria (ACCP/ATS 2017 ventilator liberation guideline,
+      Ouellette et al., Chest 2017; AARC SBT CPG 2024): readiness requires LOW support - FiO2 <=0.40-0.50, PEEP
+      <=8-10 cmH2O, and RASS near 0 (light sedation). These confirm the direction: FiO2>45%, PEEP>10, GCS<13 and
+      RASS<-2 describe a HIGH-support / deeply sedated patient, the opposite of step-down readiness.
+
+      '
+    detail_file: eficiencia-batch2.yaml
+  escalations:
+  - item_id: ESC-P3-138
+    band: P3
+    title: triage-eligibility
+    excerpt: Implemented conditions invert the documented "absence-of-high-support" intent (they require FiO2>45,
+      PEEP>10, GCS<13, RASS<-2 to be TRUE); one spontaneous-ventilation clause is duplicated.
+- id: RULE-EFICIENCIA-012
+  name: Eficiencia active alert-text payload catalog (get_payload_trilha_eficiencia / eficiencia_automatica)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: 'Shared display payload returned by get_payload_trilha_eficiencia(). It is imported by the v3 model
+    (import at module top) and rendered by get_detalhe() to build the alert text of each fired criterion. Defines
+    the alert label + recommendation text for the 10 efficiency criteria, including the evidence-based transfusion
+    restriction thresholds. Wired as the active "eficiencia_automatica" payload.
+
+    '
+  inputs:
+  - fired criterio_N (from the v3 predicate rules) selects which text to show
+  outputs:
+  - per-criterion {alerta, recomendacoes} text blocks
+  logic: "# get_payload_trilha_eficiencia() -> dict criterio_1..criterio_10:\ncriterio_1  alerta: \"Reavaliar solicitacao\
+    \ redundante dos exames:\"\n            (get_detalhe appends self.exames_repetidos)\n            rec: reavaliar\
+    \ beneficio de repetir exame em curto periodo\ncriterio_2  alerta: \"Avaliar alta da UTI por melhora clinica\"\
+    \n            rec: paciente estavel hemodinamicamente, bom padrao respiratorio,\n                 afebril, sem\
+    \ intercorrencias -> considerar alta da UTI\ncriterio_3  alerta: \"Reavaliar indicacao de transfusao de hemacias\
+    \ (Hb>7)\"\n            rec: sem beneficio de transfusao para Hb>=7 na ausencia de\n                 sangramento\
+    \ ativo, lesao cerebral aguda ou SCA\ncriterio_4  alerta: \"Reavaliar indicacao de 2u de transfusao de hemacias\
+    \ (Hb>6)\"\n            rec: sem beneficio de >1u para Hb>6 nas mesmas ausencias;\n                 considerar\
+    \ prescrever apenas 1u\ncriterio_5  alerta: \"Reavaliar indicacao de transfusao de plaquetas para Plq> 25.000.\"\
+    \n            rec: sem beneficio de transfusao profilatica sem procedimento\n                 invasivo ou sangramento\
+    \ ativo\ncriterio_6  alerta: \"Considerar inicio de Cuidados paliativos.\"\ncriterio_7  alerta: \"Alto risco\
+    \ para Delirium, realizar medidas de controle.\"\ncriterio_8  alerta: \"Indicar mobilizacao, deambular, sentar\
+    \ em poltrona e levar ao banheiro.\"\ncriterio_9  alerta: \"Suspeita de ME: iniciar manutencao do potencial\
+    \ doador de orgaos.\"\ncriterio_10 alerta: \"Reavaliar indicacao de contencao mecanica.\"\n"
+  edge_cases: 'Text/display only - no compute. criterio_3 alert LABEL reads "(Hb>7)" while its recommendation body
+    states "Hb>=7" (label >7 vs body >=7); criterio_4 label "(Hb>6)"; platelet label "Plq> 25.000". The actual threshold
+    logic is enforced (buggily) by the v3 predicate code (RULE-EFICIENCIA-002..004).
+
+    '
+  confidence: high
+  related:
+  - RULE-EFICIENCIA-001
+  - RULE-EFICIENCIA-002
+  - RULE-EFICIENCIA-003
+  - RULE-EFICIENCIA-004
+  - RULE-EFICIENCIA-005
+  - RULE-EFICIENCIA-006
+  - RULE-EFICIENCIA-007
+  - RULE-EFICIENCIA-008
+  - RULE-EFICIENCIA-009
+  - RULE-EFICIENCIA-010
+  - RULE-EFICIENCIA-011
+  merged_from:
+  - RULE-eficiencia-BE-01-016
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_eficiencia.py
+    lines: 94-155
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'NAMING HAZARD - the SAME facade file also defines a module-level dict payload_trilha_eficiencia (lines
+    1-91) whose content is SEDATION/analgesia (overdose de sedoanalgesia, BNM, PRIS, dor moderada/intensa, TRE),
+    identical to the sedacao module dict; it is mislabeled/unused for efficiency (belongs conceptually to cluster
+    ''sedacao''). Only get_payload_trilha_eficiencia() (this rule) is wired as eficiencia_automatica and imported
+    by the v3 model. This catalog is the alert-text half of criteria RULE-EFICIENCIA-002..011.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Red Blood Cell Transfusion 2023 AABB International Guidelines (Carson et al., JAMA 2023) - restrictive
+      strategy, transfuse when Hb <7 g/dL in hemodynamically stable hospitalized adults (8 g/dL for pre-existing
+      cardiovascular disease); TRICC (Hebert et al., NEJM 1999). Platelet Transfusion AABB CPG (Kaufman et al.,
+      Ann Intern Med 2015; updated AABB/ICTMG 2025) - prophylactic threshold 10x10^3/uL for stable nonbleeding patients;
+      higher counts require active bleeding or invasive procedure.
+
+      '
+    detail_file: eficiencia-batch2.yaml
+  escalations: []

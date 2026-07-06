@@ -1,0 +1,489 @@
+shard: profilaxia
+cluster: profilaxia
+rule_count: 8
+rules_with_escalations: 2
+rules:
+- id: RULE-PROFILAXIA-001
+  name: Prophylaxis v1 - hyperglycemia subcutaneous insulin NPH sliding regimen
+  category: drug-dosing
+  type: formula
+  status: OK
+  verify: true
+  description: 'Subcutaneous insulin regimen for recurrent hyperglycemia in the ICU (profilaxia v1 criterio_7),
+    with an IV-insulin alternative (criterio_8).
+
+    '
+  inputs:
+  - name: peso
+    type: float
+    unit: kg
+  - name: HGT (capillary glucose)
+    type: float
+    unit: mg/dl
+  outputs:
+  - name: NPH total daily dose
+    type: float
+    unit: U
+  - name: regular insulin correction
+    type: float
+    unit: U
+  logic: "criterio_7 (hiperglicemia, insulina subcutanea):\n  Insulin NPH: 0.3 to 0.5 U/kg/day, divided 3x/day (before\
+    \ meals).\n  Correction (regular insulin): +1 U for each 50 mg/dl of HGT above\n  150 mg/dl measured over the\
+    \ last 24h, divided 3x/day.\n  Also: notify nutrition service for diet adjustment.\ncriterio_8 (hiperglicemia,\
+    \ insulina endovenosa) - alternative:\n  recurrent hyperglycemia -> prescribe \"Insulina em BIC - Protocolo\
+    \ de\n  controle glicemico UTI\" (IV insulin per institutional protocol)\n  instead of NPH; notify nutrition\
+    \ service.\n"
+  edge_cases: Correction reference point is 150 mg/dl; increment step is 50 mg/dl. Coefficient range 0.3-0.5 U/kg/day
+    inclusive.
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-002
+  - RULE-PROFILAXIA-003
+  - RULE-PROFILAXIA-007
+  merged_from:
+  - RULE-profilaxia-BE-01-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_profilaxia.py
+    lines: 46-59
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'criterio_8 IV-insulin recommendation is duplicated in nutricao criterio_10 (cross-cluster, out of scope
+    here). v1-only: criteria 7/8 are commented out of the v3 pathway (RULE-PROFILAXIA-008), so there is no v3 counterpart.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ADA Standards of Care in Diabetes (Diabetes Care) inpatient glycemic management + Umpierrez et al.
+      RABBIT-2 (Diabetes Care 2007) basal-bolus protocol: insulin-naive hospitalized T2DM starting total daily dose
+      (TDD) 0.3-0.5 U/kg/day. The correction (supplemental) sliding-scale increment and the NPH-three-times-daily
+      split are institutional protocol specifics, not a single published standard.
+
+      '
+    detail_file: profilaxia-batch1.yaml
+  escalations: []
+- id: RULE-PROFILAXIA-002
+  name: Prophylaxis v1 - VTE anticoagulation dosing by renal function and BMI
+  category: drug-dosing
+  type: decision-tree
+  status: OK
+  verify: true
+  description: 'Pharmacologic VTE (venous thromboembolism) prophylaxis dosing surfaced by profilaxia v1 criterio_4
+    (high VTE risk) and criterio_5 (formal indication without prophylaxis).
+
+    '
+  inputs:
+  - name: creatinina
+    type: float
+    unit: mg/dl
+  - name: TRS (renal replacement therapy)
+    type: bool
+    unit: null
+  - name: IMC (BMI)
+    type: float
+    unit: kg/m2
+  outputs:
+  - name: anticoagulant regimen
+    type: string
+    unit: null
+  logic: "criterio_4 (alto risco TEV): enoxaparina 40 mg 1x/dia;\n  IF creatinina > 2.0 OR paciente em TRS -> heparina\
+    \ 5000 U 8/8h;\n  IF IMC > 40 -> enoxaparina 60 mg 1x/dia.\ncriterio_5 (indicacao formal sem profilaxia): enoxaparina\
+    \ 40 mg 1x/dia;\n  IF creatinina > 2.0 OR TRS -> heparina 5000 U 12/12h.\n"
+  edge_cases: 'Creatinine cutoff strictly > 2.0 mg/dl. BMI cutoff strictly > 40 kg/m2. INTERNAL INCONSISTENCY (recorded
+    verbatim, NOT reconciled): for the same renal condition (creatinina > 2.0 or TRS) the heparin frequency differs
+    between the two criteria - criterio_4 prescribes heparina 5000 U 8/8h while criterio_5 prescribes heparina 5000
+    U 12/12h. These are two distinct clinical indications in source, so the difference may be intentional; kept
+    exactly as written.
+
+    '
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-001
+  - RULE-PROFILAXIA-003
+  - RULE-PROFILAXIA-007
+  merged_from:
+  - RULE-profilaxia-BE-01-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_profilaxia.py
+    lines: 23-36
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Status kept OK per Phase 1 - the 8/8h vs 12/12h difference is an intra-rule difference between two separate
+    criteria (criterio_4 vs criterio_5), not a cross-implementation copy divergence, so it is not a reconciliation
+    DISCREPANCY. v1-only: criteria 4/5 are commented out of the v3 pathway (RULE-PROFILAXIA-008), so there is no
+    v3 counterpart.
+
+    '
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ACCP/CHEST Antithrombotic Therapy for VTE Prophylaxis and ASH 2018 Guidelines for VTE prophylaxis
+      in hospitalized medical patients: enoxaparin 40 mg SC once daily standard prophylaxis; unfractionated heparin
+      (UFH) 5000 U SC q8h or q12h accepted for severe renal impairment (CrCl <30 mL/min, where LMWH is avoided/UFH
+      preferred); increased/weight-adjusted LMWH dosing for morbid obesity (BMI >= 40).
+
+      '
+    detail_file: profilaxia-batch1.yaml
+  escalations: []
+- id: RULE-PROFILAXIA-003
+  name: Prophylaxis v1 alert aggregation (amarelo/vermelho scoring)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Profilaxias v1 alert severity aggregation - criterio_1 raises AMARELO, criterio_4 or criterio_9
+    raise VERMELHO.
+
+    '
+  inputs:
+  - name: criterio_1 (amarelo); criterio_4, criterio_9 (vermelho)
+    type: int flag (truthy)
+    unit: null
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+    unit: null
+  logic: 'amarelo = [criterio_1].count(True)
+
+    vermelho = [criterio_4, criterio_9].count(True)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo >= 1: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    '
+  edge_cases: Count-based aggregation; any single truthy criterio in a tier trips that tier. Vermelho evaluated
+    before amarelo.
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-004
+  - RULE-PROFILAXIA-002
+  - RULE-PROFILAXIA-007
+  merged_from:
+  - RULE-profilaxia-BE-03-019
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha8.py
+    lines: 124-141
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'v1 variant of RULE-PROFILAXIA-004 (v3 alert). Difference from v3 is a version-variant difference, NOT
+    a discrepancy: v1 vermelho tier = {criterio_4, criterio_9}; v3 vermelho tier = {criterio_9} only (criterio_4
+    commented out). TrilhaOitoSintetico in the same file is labelled tipo=eficiencia - a name/label mismatch noted
+    for downstream cleanup.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PROFILAXIA-004
+  name: Prophylaxis v3 alert aggregation (amarelo/vermelho scoring)
+  category: alert-threshold
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'Profilaxia v3 alert severity aggregation - criterio_1 raises AMARELO, criterio_9 raises VERMELHO;
+    on NEUTRO the record is marked unassisted.
+
+    '
+  inputs:
+  - name: criterio_1 (amarelo), criterio_9 (vermelho)
+    type: boolean
+    unit: null
+  outputs:
+  - name: alerta
+    type: enum {VERMELHO, AMARELO, NEUTRO}
+    unit: null
+  logic: 'amarelo = [criterio_1].count(True)
+
+    vermelho = [criterio_9].count(True)
+
+    if vermelho >= 1: return "VERMELHO"
+
+    elif amarelo >= 1: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    # save(): if alerta == "NEUTRO": assistido = False
+
+    '
+  edge_cases: 'Only criterio_1 and criterio_9 are computed by calcular_criterios(); criteria 2..8 are commented
+    out. criterio_4 remains in v1''s vermelho tier but is commented out of v3''s, so v3 vermelho depends on criterio_9
+    alone.
+
+    '
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-003
+  - RULE-PROFILAXIA-005
+  - RULE-PROFILAXIA-006
+  - RULE-PROFILAXIA-008
+  merged_from:
+  - RULE-profilaxia-BE-03-091
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_profilaxia.py
+    lines: 123-140, 181-190
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'v3 variant of RULE-PROFILAXIA-003. balancos/evolucao/cpoe querysets are keyed by self.leito.nr_atendimento
+    (not self.nr_atendimento) - noted as an implementation detail, not a rule divergence.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PROFILAXIA-005
+  name: Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophylaxis indicated but absent (AMARELO)
+  category: care-pathway
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: 'criterio_1 predicate: no PPI/cimetidine prescribed AND at least one stress-ulcer prophylaxis indication
+    present (noradrenaline in balance; OR mechanical ventilation >48h; OR platelets <= 50000; OR no enteral/oral
+    diet logged >24h; OR high-risk admission diagnosis).
+
+    '
+  inputs:
+  - name: cpoe.omeprazol/pantoprazol/esomeprazol/cimetidina; balanco.qt_vol_nora, qt_vol_dieta; evolucao.diurna_plaquetas,
+      diurna_ventilacao, diag_inter_1..4
+    type: float / string
+    unit: null
+  outputs:
+  - name: criterio_1
+    type: boolean
+    unit: null
+  logic: "diagnosticos_intern = [\n  \"Traumatismo cranio-encefalico - TCE\",\n  \"Acidente vascular cerebral isquemico\
+    \ - AVCi\",\n  \"Acidente vascular cerebral hemorragico\" \"Grande queimado\",   # implicit-concat bug -> single\
+    \ fused string\n  \"SEPSE\",\n  \"Pos- operatorio recente de cirurgia abdominal\",\n  \"Cirrose hepatica\",\n\
+    \  \"Hemorragia digestiva alta - HDA\",\n]\nreturn any([\n  all([ not get_number(cpoe.omeprazol), not get_number(cpoe.pantoprazol),\n\
+    \        not get_number(cpoe.esomeprazol), not get_number(cpoe.cimetidina),\n        get_number(balanco.qt_vol_nora)\
+    \ ]),\n  evolucao(dt_atualizacao >= now - 50h).annotate(vent=Lower(diurna_ventilacao))\n        .filter(vent\
+    \ in ventilacao_mecanica | ventilacao_mecanica_invasiva),\n  get_number(evolucao.diurna_plaquetas) <= 50000,\n\
+    \  not balanco(dt_atualizacao >= now - 26h).filter(qt_vol_dieta__gt=0).exists(),\n  list(filter(lambda x: x\
+    \ in diagnosticos_intern,\n       vars(ultima_evolucao).fromkeys((\"diag_inter_1\",\"diag_inter_2\",\"diag_inter_3\"\
+    ,\"diag_inter_4\")))),  # inert\n]) if (ultima_prescricao and ultimo_balanco and ultima_evolucao\n       and\
+    \ evolucao_50h and balanco_26h) else False\n"
+  edge_cases: 'Documented "48h" ventilation window is implemented as now-50h; documented "24h" diet window is implemented
+    as now-26h. The high-risk-diagnosis list membership check is non-functional: dict.fromkeys(("diag_inter_1"...))
+    iterates the literal KEY NAMES, never the evolucao field VALUES, so no real diagnosis is ever matched (per systemic
+    finding RULE-systemic-BE-03-001). One list entry is a Python implicit-string-concatenation bug: "Acidente vascular
+    cerebral hemorragico" "Grande queimado" fuse into a single string "Acidente vascular cerebral hemorragicoGrande
+    queimado", merging two distinct diagnoses into one unmatchable entry.
+
+    '
+  confidence: high
+  divergence: 'Intent (docstring) vs implementation divergence: (1) docstring "ventilacao mecanica ha mais de 48h"
+    but code uses timedelta(hours=50); (2) docstring "dieta ... ha mais de 24h" but code uses timedelta(hours=26);
+    (3) the diagnosis-of-admission branch is inert (fromkeys iterates key names, not values) so that entire OR-clause
+    never contributes; (4) string-concat bug fuses "hemorragico"+"Grande queimado". The PPI-absence+noradrenaline
+    branch and the platelets<=50000 branch are sound and functional.
+
+    '
+  merged_from:
+  - RULE-profilaxia-BE-03-092
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_profilaxia.py
+    lines: 192-281
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'AMARELO criterion. Verified verbatim against source (concat bug at line 207; 50h at line 217; 26h at line
+    220; <=50000 at line 257). verify=true because it is an eligibility predicate with published clinical anchors
+    (stress-ulcer prophylaxis indications: mechanical ventilation >48h and coagulopathy platelets<=50000). Recommendation/action
+    text for this criterio_1 lives in the v3 facade RULE-PROFILAXIA-008; the v1 facade equivalent is criterio_1
+    in RULE-PROFILAXIA-007.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'Cook DJ et al. "Risk Factors for Gastrointestinal Bleeding in Critically Ill Patients." N Engl J
+      Med 1994;330:377-381 (Canadian Critical Care Trials Group). Two independent risk factors for clinically important
+      GI bleeding: respiratory failure = mechanical ventilation >48h (OR 15.6) and coagulopathy = platelet count
+      <50,000/mm3 OR INR >1.5 OR PTT >2x ULN (OR 4.3). ASPEN/ASHP stress-ulcer prophylaxis guidance adds high-risk
+      conditions (TBI, extensive burns, sepsis, hepatic failure, GI bleed) as accepted additional indications.
+
+      '
+    detail_file: profilaxia-batch1.yaml
+  escalations:
+  - item_id: ESC-P1-049
+    band: P1
+    title: Prophylaxis v3 criterio_1 - GI stress-ulcer (LAMGD) prophylaxis indicated but absent (AMARELO)
+    excerpt: '*`profilaxia` · `care-pathway` · DISCREPANCY/DISCREPANCY*  - **Legacy:** criterio_1 predicate: no
+      PPI/cimetidine prescribed AND at least one stress-ulcer prophylaxis indication present (noradrenaline in balance;
+      OR mechanical ventilation >48h; OR platelets <= 50000; OR no enteral/oral diet logged >24h; OR high-risk admission
+      diagnosis). - **Deviation:** Intent (docstring) vs implementation diverge'
+- id: RULE-PROFILAXIA-006
+  name: Prophylaxis v3 criterio_9 - invasive device prescribed (VERMELHO)
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'criterio_9 predicate: prescription of double-lumen central venous puncture OR double-lumen hemodialysis
+    catheter OR indwelling bladder catheter (device-associated infection risk trigger).
+
+    '
+  inputs:
+  - name: cpoe.puncao_cateter_duplo, cpoe.cateter_duplo_hemod, cpoe.sonda_vesical_demora
+    type: float
+    unit: null
+  outputs:
+  - name: criterio_9
+    type: boolean
+    unit: null
+  logic: "ultima_prescricao = cpoe_leito.first()\nreturn any([\n  get_number(cpoe.puncao_cateter_duplo),\n  get_number(cpoe.cateter_duplo_hemod),\n\
+    \  get_number(cpoe.sonda_vesical_demora),\n]) if ultima_prescricao else False\n"
+  edge_cases: Uses the latest CPOE prescription only (cpoe_leito.first()).
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-004
+  - RULE-PROFILAXIA-008
+  - RULE-PROFILAXIA-007
+  merged_from:
+  - RULE-profilaxia-BE-03-093
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_profilaxia.py
+    lines: 540-563
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'VERMELHO criterion. Verified verbatim against source. In v3 the criteria 2-8 exist only as commented-out
+    algorithms (documented but inactive). Recommendation/action text for this criterio_9 lives in the v3 facade
+    RULE-PROFILAXIA-008; the v1 facade equivalent is criterio_9 in RULE-PROFILAXIA-007.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PROFILAXIA-007
+  name: Prophylaxis v1 - LAMGD (stress-ulcer) prophylaxis, mobilization & invasive-device catalog
+  category: care-pathway
+  type: decision-tree
+  status: OK
+  verify: false
+  description: 'profilaxia v1 recommendation catalog for the non-dosing criteria: stress-ulcer (LAMGD) prophylaxis
+    start/stop, early mobilization, insertion bundles, and device-dwell reassessment (criteria 1, 2, 3, 6, 9, 10,
+    11).
+
+    '
+  inputs:
+  - name: criterio flags 1/2/3/6/9/10/11
+    type: bool
+    unit: null
+  - name: cateter vascular dwell time
+    type: float
+    unit: days
+  outputs:
+  - name: alerta + recomendacoes
+    type: string
+    unit: null
+  logic: "criterio_1 ausencia de profilaxia LAMGD -> IBP (esomeprazol VO/SNE, ou\n           pantoprazol VO, ou\
+    \ omeprazol VO/SNE diluido em bicarbonato).\ncriterio_2 alto risco lesao gastrica sem profilaxia -> IBP (esomeprazol\n\
+    \           preferencialmente, ou pantoprazol, ou cimetidina EV, ou omeprazol VO/EV).\ncriterio_3 profilaxia\
+    \ LAMGD sem indicacao formal -> avaliar SUSPENDER\n           (uso intrahospitalar aumenta pneumonia nosocomial\
+    \ e PAVM);\n           dieta oral/enteral em pacientes estaveis dispensa a profilaxia.\ncriterio_6 indicacao\
+    \ de mobilizacao precoce -> deambular, sedestacao em\n           poltrona, cicloergometro ativo, levar ao banheiro.\n\
+    criterio_9 procedimento invasivo -> aplicar bundle do Protocolo Institucional\n           de Prevencao de IRAs\
+    \ (presencial ou teleUTI).\ncriterio_10 avaliar retirada de cateter vascular implantado ha mais de 10 dias\n\
+    \           (avaliar integridade, sinais flogisticos, hemocultura 2 amostras);\n           SVD sem sedoanalgesia\
+    \ continua -> preferir sondagem de alivio 4/4h-6/6h.\ncriterio_11 procedimento invasivo -> monitorar (enfermeira\
+    \ a distancia) e\n           preencher bundles de insercao (corrente sanguinea, cateter urinario, PAVM).\n"
+  edge_cases: Device reassessment cutoff strictly > 10 days (criterio_10, "ha mais de 10 dias").
+  confidence: high
+  related:
+  - RULE-PROFILAXIA-008
+  - RULE-PROFILAXIA-003
+  - RULE-PROFILAXIA-001
+  - RULE-PROFILAXIA-002
+  - RULE-PROFILAXIA-005
+  - RULE-PROFILAXIA-006
+  merged_from:
+  - RULE-profilaxia-BE-01-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_profilaxia.py
+    lines: 1-22, 37-84
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'This is the v1 facade recommendation catalog (payload_trilha_profilaxia); = profilaxia_automatica. Criteria
+    4/5 (VTE dosing) are RULE-PROFILAXIA-002 and criteria 7/8 (insulin) are RULE-PROFILAXIA-001 (extracted separately
+    by Phase 1). v1 variant of the reduced v3 facade RULE-PROFILAXIA-008.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PROFILAXIA-008
+  name: Prophylaxis v3 - reduced active criteria set facade (LAMGD + insertion bundle only)
+  category: care-pathway
+  type: decision-tree
+  status: AMBIGUOUS
+  verify: false
+  description: 'profilaxia v3 facade recommendation catalog returning ONLY criterio_1 (LAMGD prophylaxis) and criterio_9
+    (invasive-procedure insertion bundle); criteria 2-8 are commented out in source.
+
+    '
+  inputs:
+  - name: criterio_1 / criterio_9 flags
+    type: bool
+    unit: null
+  outputs:
+  - name: alerta + recomendacoes
+    type: string
+    unit: null
+  logic: "criterio_1 ausencia de profilaxia LAMGD -> esomeprazol VO/SNE\n           (preferencialmente) ou pantoprazol\
+    \ VO ou cimetidina EV ou\n           omeprazol VO/EV.\ncriterio_9 procedimento invasivo -> preencher Bundle\
+    \ de prevencao de IRAs\n           associado a dispositivo (presencial ou a distancia).\n"
+  edge_cases: 'The commented-out criteria 3-8 in this file are copy-pasted SEPSE thresholds (Falencia respiratoria
+    VMI iniciada <24h, Hipotensao refrataria DVA <6h, PAS<90/PAM<60, TEC>3s, lactato>=3 mmol/L, oliguria diurese<=0.5
+    ml/kg/h) that do NOT belong to prophylaxis - dead code, ignored by runtime.
+
+    '
+  confidence: medium
+  related:
+  - RULE-PROFILAXIA-007
+  - RULE-PROFILAXIA-004
+  - RULE-PROFILAXIA-005
+  - RULE-PROFILAXIA-006
+  merged_from:
+  - RULE-profilaxia-BE-01-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: core/facade/trilha_profilaxia_v3.py
+    lines: 1-51
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Consumed by trilha_automatica/models/trilhas_v3/trilha_profilaxia.py (predicates RULE-PROFILAXIA-005/006).
+    AMBIGUOUS because the v3 catalog is far sparser than the v1 catalog (RULE-PROFILAXIA-007) yet is the active
+    payload for the v3 model - unclear whether intentional narrowing or incomplete migration. NOT merged with v1
+    (variant), NOT merged with the v3 predicates (facade covers two criteria; predicates are per-criterion) - cross-referenced
+    via related instead.
+
+    '
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-303
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Prophylaxis v3 - reduced active criteria set facade (LAMGD + insertion bundle only)

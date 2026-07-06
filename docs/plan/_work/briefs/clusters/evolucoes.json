@@ -1,0 +1,74 @@
+{
+  "brief_id": "cluster-evolucoes",
+  "authority": "audit",
+  "source": {
+    "path": "docs/rules/extraction/phase2/catalog/evolucoes.yaml",
+    "lines": 2687,
+    "read_complete": true
+  },
+  "source_files": [
+    {"path": "docs/rules/extraction/phase2/catalog/evolucoes.yaml", "line_ranges": "1-2687"}
+  ],
+  "facts": [
+    {"id": "CLU-EVOLUCOES-01",
+     "claim": "77 rules cover multi-professional evolution forms (11 roles: medico, enfermagem, tecnico_enfermagem, fisioterapeuta, farmaceutico, fonoaudiologo, musicoterapeuta, nutricionista, psicologo, terapeuta, intercorrencia): dynamic form engine, doc lifecycle with signing (Cryptocubo) and release to Tasy/AMH Docs, carry-forward of previous form/vitals/24h indicators.",
+     "kind": "entity", "source_ref": "evolucoes.yaml 001-077"},
+    {"id": "CLU-EVOLUCOES-02",
+     "claim": "SOFA (escore_sofa, 0-24) is an opaque pre-computed value; no sub-score formula exists here though component labs/vitals (creatinina, bilirrubinas, plaquetas, glasgow, pas/pad, po2/paco2/fio2, temperatura, FC) are present.",
+     "kind": "metric", "source_ref": "RULE-EVOLUCOES-001, -002"},
+    {"id": "CLU-EVOLUCOES-03",
+     "claim": "Lifecycle salvo(draft,default)->liberado(signed)->inativo(voided); confirmed against BE model, correcting a Phase-1 'rascunho' guess.",
+     "kind": "policy", "source_ref": "RULE-EVOLUCOES-026, -042, -043"},
+    {"id": "CLU-EVOLUCOES-04",
+     "claim": "Tasy release uses hardcoded tipo->code map (medico=1151, enfermagem=1203, fisioterapeuta=1251, terapeuta=5, nutricionista=1133, psicologo=1131, musicoterapeuta=2332, fonoaudiologo=1121, intercorrencia=2584); tecnico_enfermagem excluded.",
+     "kind": "vocabulary", "source_ref": "RULE-EVOLUCOES-009, -010"},
+    {"id": "CLU-EVOLUCOES-05",
+     "claim": "Signing needs CPF+PIN, release needs CPF; inativo evolutions immutable; only original author may edit a non-inactive evolution regardless of liberado state.",
+     "kind": "policy", "source_ref": "RULE-EVOLUCOES-051..054"},
+    {"id": "CLU-EVOLUCOES-06",
+     "claim": "Form engine (Campo/CampoType) has 11 field types with required/min/max/regex/mask + 'conditions' show-if map, plus group-level 'anulavel' (soft-void, nulls data on submit rather than deleting).",
+     "kind": "entity", "source_ref": "RULE-EVOLUCOES-021, -049, -072..074"},
+    {"id": "CLU-EVOLUCOES-histogram",
+     "claim": "Status: OK=61, DISCREPANCY=9, AMBIGUOUS=7 (77 total). Type: validation=29, workflow=27, decision-tree=15, threshold=2, eligibility=2, scoring=1, formula=1. Category: care-pathway=36, data-validation=34, clinical-scoring=4, billing-administrative=2, triage-eligibility=1. verdict: NOT_APPLICABLE=72, UNVERIFIABLE=4, DISCREPANCY=1 (no rule verified). No escalation bands in shard.",
+     "kind": "metric", "source_ref": "computed from evolucoes.yaml"}
+  ],
+  "constraints": [
+    {"id": "CLU-EVOLUCOES-C-01", "text": "MUST preserve 3-state lifecycle, author-only-edit, no-edit-when-void; MUST NOT allow inactivating a released record silently (legacy destroy() skips its own guard, RULE-EVOLUCOES-030).",
+     "type": "invariant", "source_ref": "RULE-EVOLUCOES-030, -051, -052, -055"},
+    {"id": "CLU-EVOLUCOES-C-02", "text": "MUST NOT port RULE-EVOLUCOES-025 (dt_assinatura stamped from dt_registro, not real signing timestamp) -- record the true signing moment.",
+     "type": "invariant", "source_ref": "RULE-EVOLUCOES-025"},
+    {"id": "CLU-EVOLUCOES-C-03", "text": "RASS and encounter-number MUST use one canonical type platform-wide -- legacy has RASS number vs string (RULE-EVOLUCOES-003), encounter id number/numero_atendimento vs string/nr_atendimento (RULE-EVOLUCOES-075).",
+     "type": "unit", "source_ref": "RULE-EVOLUCOES-003, -075"}
+  ],
+  "open_questions": [
+    "RULE-EVOLUCOES-057: required field excluded from Meta.fields in all action variants -- live bug or suppressed elsewhere? needs runtime check.",
+    "RULE-EVOLUCOES-017/018: get_pk on BalancoHidrico and Empresa-instance-vs-pk mismatch unresolved without out-of-partition model files."
+  ],
+  "load_bearing_rules": [
+    {"id": "RULE-EVOLUCOES-001", "what": "SOFA field opaque pre-computed, no local formula", "verdict": "UNVERIFIABLE"},
+    {"id": "RULE-EVOLUCOES-003", "what": "RASS typed number (Ocupacao) vs string (Prontuario)", "verdict": "DISCREPANCY"},
+    {"id": "RULE-EVOLUCOES-010", "what": "Tasy tipo->code map; tecnico_enfermagem excluded", "verdict": "N/A"},
+    {"id": "RULE-EVOLUCOES-023", "what": "'time' CampoType declared, no render branch", "verdict": "DISCREPANCY"},
+    {"id": "RULE-EVOLUCOES-025", "what": "dt_assinatura from dt_registro, not signing timestamp", "verdict": "DISCREPANCY"},
+    {"id": "RULE-EVOLUCOES-029", "what": "anterior_indicadores skips visibility filter", "verdict": "DISCREPANCY"},
+    {"id": "RULE-EVOLUCOES-030", "what": "destroy() voids without validar_inativacao guard", "verdict": "DISCREPANCY"},
+    {"id": "RULE-EVOLUCOES-043", "what": "Canonical lifecycle; FE/BE reconciled, no drift", "verdict": "OK"},
+    {"id": "RULE-EVOLUCOES-056", "what": "Nutritionist form uniquely requires 3 sub-assessments", "verdict": "OK"},
+    {"id": "RULE-EVOLUCOES-065", "what": "SubFormString inverts annulment-disable logic", "verdict": "DISCREPANCY"}
+  ],
+  "systemic_issues": [
+    {"issue": "Type drift, same clinical concept across models", "rule_ids": ["RULE-EVOLUCOES-003", "RULE-EVOLUCOES-075"]},
+    {"issue": "Dead/inert validation code", "rule_ids": ["RULE-EVOLUCOES-030", "RULE-EVOLUCOES-055", "RULE-EVOLUCOES-057"]},
+    {"issue": "Read vs write lookup asymmetry + inverted conditional logic", "rule_ids": ["RULE-EVOLUCOES-006", "RULE-EVOLUCOES-028", "RULE-EVOLUCOES-065", "RULE-EVOLUCOES-022"]},
+    {"issue": "Authoritative timestamp discarded for stale field", "rule_ids": ["RULE-EVOLUCOES-025"]},
+    {"issue": "Visibility drift between adjacent endpoints", "rule_ids": ["RULE-EVOLUCOES-007", "RULE-EVOLUCOES-029"]},
+    {"issue": "Declared-vs-implemented vocabulary gaps", "rule_ids": ["RULE-EVOLUCOES-023", "RULE-EVOLUCOES-062"]}
+  ],
+  "feeds_v2_domains": ["early-warning-scores", "sepsis", "platform", "governance", "experience"],
+  "pt_br_vocabulary": {
+    "status_enum": ["salvo", "liberado", "inativo"],
+    "gender_enum": {"M": "Masculino", "F": "Feminino", "O": "Outro", "N": "Nao informado"},
+    "clinical_terms": ["escore_sofa", "rass", "parada_cardiorespiratoria", "lpp"]
+  },
+  "notes": "Full catalog (2687 lines / 77 rules) read end-to-end. Load-bearing subset only; disposition agents get the full shard."
+}

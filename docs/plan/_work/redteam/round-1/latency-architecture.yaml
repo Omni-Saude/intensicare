@@ -1,0 +1,188 @@
+round: 1
+lens: latency-architecture
+findings:
+  - finding_id: RT1-LAT-01
+    severity: critical
+    claim: >-
+      The load-bearing NRT early-warning path (US-01/02/03, MEWS/NEWS2/qSOFA <30s) depends on the owned
+      MLLP HL7 listener ingesting clinical vitals outside Athena/Gold — which directly contradicts ADR-001's
+      load-bearing sentence ("reads clinical data ONLY from the AMH Gold layer via Amazon Athena",
+      ADR001-C-01). The deliverable set is internally contradictory about whether this is lawful/available:
+      alert-engine.md §1.2 RECORDS it as an unresolved conflict routed to barrier C3 ("Strictly, ADR001-C-01
+      forbids own ingestion... I record and route it rather than decide it"), while observability-slo.md §3
+      and amh-freshness.yaml commit to it as a live MVP capability ("use the ... operational MLLP feed and can
+      meet the full 30s end-to-end promise TODAY"; "Interim: read vitals from the operational MLLP feed for
+      NRT scoring"). system-architecture.md §3.3 papers over the collision by silently re-scoping ADR001-C-01
+      from "all clinical data" to "clinical analytics" ("keeps ADR001-C-01 intact for clinical analytics") — a
+      reinterpretation ADR-001 does not sanction and CONTRACTS §5 forbids resolving silently. If C3 rules the
+      MLLP feed violates ADR001-C-01, every NRT/hybrid domain collapses to micro-batch (30-min Gold-bound) and
+      VIS-C-09 <30s becomes unachievable, so bedside deterioration alerts are delayed up to ~30 min.
+    falsifiable_check: >-
+      (1) Read system-architecture.md line 7 (the load-bearing sentence) and line 157 (§3.3 option 1 re-scoping
+      C-01 to "clinical analytics"). (2) Read alert-engine.md lines 34-40 (§1.2): the NRT-vs-Athena conflict is
+      explicitly "recorded and routed", NOT resolved, owner amh-integration-architect, signoff C3. (3) Read
+      observability-slo.md line 82: "use the 2s gold-availability row via the operational MLLP feed and can meet
+      the full 30s end-to-end promise (VIS-C-09) TODAY". (4) Read amh-freshness.yaml lines 34-48 (vitals_gold
+      fallback + vitals_operational): MLLP is presented as the interim NRT source. (5) Read latency.yaml
+      nrt_path_caveat (lines ~93-97): "<30s ONLY with a sub-batch operational feed. Under a strict Athena-only
+      reading of ADR001-C-01 this requires the Alternativa-B dedicated MSK topic." Confirm: the same capability
+      is simultaneously (a) unresolved/routed to C3, (b) delivered "today", and (c) contingent on a "strict vs
+      non-strict" reading of C-01 that no doc adjudicates. That is an unreconciled contradiction on the single
+      most load-bearing platform constraint.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Pick ONE reconciliation and make every doc agree. Either (a) formally amend/annotate ADR001-C-01 to admit
+      a single operational NRT vitals feed (MLLP) as a sanctioned exception distinct from "clinical analytics
+      reads", get amh-integration-architect + CTO/AMH signoff, and record it as a ledger decision — then delete
+      the "unresolved/routed to C3" framing in alert-engine.md §1.2; OR (b) keep MLLP unresolved and STOP
+      asserting NRT <30s "today" in observability-slo.md §3 and amh-freshness.yaml until C3 signoff, downgrading
+      those domains to micro-batch with an explicit hazard-log entry for the resulting ~30-min early-warning
+      latency. Do not ship docs that both defer and commit the same capability.
+  - finding_id: RT1-LAT-02
+    severity: critical
+    claim: >-
+      The dead-man's switch (INV-5) is defeated by shared fate on its paging path. observability-slo.md §4.2
+      specifies the external watchdog escalates by paging "on-call via the same interruptive channel as a
+      critical clinical alert (Tier 1, alert-engine.md §3)". Tier 1 IS IntensiCare's own ARQ→WS/mobile-push
+      delivery layer — the exact subsystem whose failure the watchdog exists to detect. When the delivery layer
+      is down (a primary trigger for the watchdog), the watchdog's page rides the same dead path and no human is
+      notified: "sistema cai e ninguém sabe" is reintroduced. Compounding it: the watchdog emits only
+      healthcheck_probe_result into AMP, but no "no-data"/heartbeat-absence alarm is defined on that metric, so
+      if the CloudWatch canary/Lambda itself stops (disabled schedule, IAM failure) its silence is undetected;
+      and both the watchdog and the watched system depend on the same inherited AMP/Grafana backend (ADR001-C-06),
+      so an AMP outage blinds both simultaneously. IMP-C-05 explicitly requires the watchdog to NOT share fate
+      with the thing it watches.
+    falsifiable_check: >-
+      (1) observability-slo.md line 127 (§4.2 Escalation): watchdog pages "via the same interruptive channel as
+      a critical clinical alert (Tier 1, alert-engine.md §3)". (2) alert-engine.md line 70 (§3 critical row):
+      Tier 1 = "WS push + mobile page to RRT + bed-board + audible" — i.e. IntensiCare's own ARQ/push delivery
+      layer. (3) Confirm the failure the watchdog watches (§4 preamble line 91: "an Athena poll starts failing,
+      scores freeze, no new alert fires") and the delivery-layer failure mode (INV-6, §5) both route the page
+      through that same delivery layer. (4) Grep observability-slo.md and alert-engine.md for any "no data" /
+      "heartbeat absence" / "probe absence" alarm on healthcheck_probe_result — none exists. (5) §4.2 line 128
+      emits the probe result to AMP (ADR001-C-06), the same backend §1 says IntensiCare inherits — confirm no
+      independent (non-AMP, non-IntensiCare-delivery) paging channel is specified.
+    owning_doc: docs/plan/architecture/observability-slo.md
+    proposed_fix: >-
+      Route the external watchdog's page through a provider fully independent of IntensiCare's delivery layer
+      and of AMP alert evaluation — e.g. AWS SNS→PagerDuty/Opsgenie invoked directly by the Lambda/canary, not
+      via ARQ/WS/mobile-push and not via a Grafana/AMP alert rule. Add a "no-data" alarm on
+      healthcheck_probe_result (page if the metric is absent for > 2 probe intervals) so a dead watchdog is
+      itself detected. State explicitly that the paging path must not share fate with (a) the ECS service, (b)
+      the delivery layer, or (c) the AMP backend, and verify this in the INV-5 chaos test (kill delivery layer →
+      assert page still arrives).
+  - finding_id: RT1-LAT-03
+    severity: major
+    claim: >-
+      The "poll" stage p95 of 1,000 ms is not credible for the micro-batch/Athena path and silently omits
+      Athena query execution from the budget. latency.yaml assigns poll=1,000ms with assumption "Event pickup
+      from Redis stream (NRT) OR expedited micro-batch Athena trigger" — but "trigger" is the scheduling event,
+      not the SELECT round-trip. No stage in the 5-stage decomposition accounts for the actual Athena query
+      (queue + Iceberg metadata/partition planning + S3 scan), whose real p95 is typically several seconds even
+      for trivial queries — the docs' own health-check example assumes athena last_query_latency_ms:340, which
+      is below Athena's practical query floor. Consequently the headline "owned pipeline Σ = 9s" holds only for
+      the NRT (Redis) path; for every micro-batch domain (AKI, electrolytes, drug, delirium, sepsis/hemo/resp
+      lab legs) the poll stage is under-budgeted and the 9s figure is not the true owned-pipeline p95. This
+      matters most for the expedited electrolyte CRIT poll (K+>6.5, "fatal in minutes-hours") where poll-stage
+      cost is repeatedly incurred.
+    falsifiable_check: >-
+      (1) latency.yaml stage "poll" (p95_ms:1000, assumption line) — confirm it names only "event pickup"/"
+      trigger" and that no stage models Athena SELECT execution. (2) observability-slo.md line 109: health JSON
+      "athena": last_query_latency_ms 340 — compare against Amazon Athena documented behavior (query queuing +
+      planning routinely yields multi-second p95 for cold/partitioned Iceberg scans; sub-second is not a safe
+      p95 assumption). (3) latency.yaml budget_check.owned_pipeline_sum_ms:9000 is computed from the single
+      poll=1000 number and applied as the owned-pipeline bound for all paths, though stage source_freshness
+      carries a separate p95_ms_batch_path but poll does NOT carry a separate batch value. Confirm no
+      micro-batch poll p95 is stated anywhere.
+    owning_doc: docs/plan/_work/budgets/latency.yaml
+    proposed_fix: >-
+      Split the poll stage into two budgeted numbers: poll_nrt (Redis event pickup, ~1s) and poll_micro_batch
+      (Athena query round-trip) with an evidence-based p95 (measure a representative Gold Iceberg partition
+      query; do not assume <1s). Recompute the owned-pipeline Σ separately for the NRT and micro-batch paths and
+      state both. Correct the health-check example to a realistic Athena latency, or relabel it as the cheap
+      connectivity ping vs. a real domain query. Reflect the same split in alert-engine.md §8.1 and
+      observability-slo.md §3.
+  - finding_id: RT1-LAT-04
+    severity: major
+    claim: >-
+      IntensiCare makes concrete per-domain Gold poll-cadence promises (electrolytes ~1-2 min expedited, sepsis
+      ~5 min, respiratory ABG ~5 min, meds ~15 min, AKI ~15-30 min) that depend on Athena concurrent-query
+      headroom which is never quantified. Athena enforces an account/region-level concurrent DML query quota
+      (default ~20-25). At the multi-hospital target (4 hospitals × ~2 ICUs, per-tenant Athena workgroups,
+      ADR001-C-07) the number of overlapping polls across ~8 domains × tenants can exceed that quota at peak,
+      forcing queries to queue so the "~1-2 min" electrolyte freshness is not actually achieved. The docs
+      dismiss this as "an AMH-DP-side capacity conversation ... not something IntensiCare provisions itself"
+      (observability-slo.md §6 lever 4) — but the poll-cadence and expedited-electrolyte freshness commitments
+      are IntensiCare's, so the capacity dependency cannot be waved to AMH without a headroom analysis.
+    falsifiable_check: >-
+      (1) system-architecture.md §3.2 table (lines 143-151) and alert-engine.md §1.1 table (lines 23-32): all
+      poll cadences are asserted per domain, including electrolytes "~1-2 min (expedited)". (2) Grep the whole
+      docs/plan tree for "concurren", "workgroup quota", "queries per", "DPU", "service quota", "cost per scan"
+      — the only hits are observability-slo.md §6 lever 4 and the "Beyond trial scale" row, both of which defer
+      the concern to AMH without a number. (3) Confirm no artifact computes peak concurrent poll count = Σ over
+      domains×tenants of (beds-independent poll frequency) against any Athena concurrency ceiling, and no
+      artifact bounds per-query scan cost. The 1-2 min electrolyte freshness is therefore an unbacked promise.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Add a poll-concurrency budget: enumerate peak concurrent Athena queries at the 240-bed / 4-hospital tier
+      (domains × tenants × cadence), compare to the target region's Athena concurrent-query quota, and state
+      the required quota / workgroup partitioning explicitly as a dependency negotiated with the AMH platform
+      team (not merely "escalate if it becomes a bottleneck"). Tie the expedited-electrolyte 1-2 min cadence to
+      a proven concurrency+cost headroom, or relabel it as a best-effort target with the frozen-value guard and
+      the Alternativa-B trigger as the real mitigation.
+  - finding_id: RT1-LAT-05
+    severity: major
+    claim: >-
+      The 9s owned-pipeline p95 is validated only at steady-state trickle load (capacity model uses ~6 rows/min
+      at 30 beds, ~18 at 90, ~48 at 240 beds) and is never modeled at the VIS-C-11 throughput target of >500
+      alerts/min that the same deliverables commit to. The deliver stage (2s p95) assumes ARQ enqueue→push at
+      rest; under an alert storm the queue depth, ARQ worker saturation, at-least-once retry amplification
+      (exponential backoff against a degraded push provider multiplies outbound attempts), and single-node
+      Redis pub/sub fan-out to "hundreds of concurrently-viewing clinicians" all degrade deliver p95 — none of
+      which is quantified. Worse, critical alerts are "never rate-limited" (alert-engine.md §5 carve-out), so a
+      storm of criticals (mass event, monitor malfunction, or a mis-tuned threshold firing across all beds)
+      cannot be shed and produces an unbounded delivery queue, breaking both the <5s RRT push (CON-0092) and the
+      30s SLO exactly when load is highest.
+    falsifiable_check: >-
+      (1) observability-slo.md §6 capacity table (lines 171-176): the only modeled ingest/alert rates are ~6/
+      ~18/~48 rows-min steady state; the >500/min target appears only as a "headroom vs VIS-C-11" column with no
+      queueing analysis. (2) latency.yaml budget_check notes: the 9s Σ is a linear per-event p95 sum with the
+      caveat that it OVER-estimates true p95 "since stages are not perfectly correlated" — an assumption that
+      inverts under queueing/contention, where p95 UNDER-estimates. (3) alert-engine.md §5 line 102: "critical
+      severity ... never rate-limited" — confirm no admission-control/backpressure mechanism bounds critical
+      volume. (4) observability-slo.md §6 lever 2 asserts single-node Redis is "adequate through the
+      multi-hospital tier" with no fan-out number. Confirm no artifact reconciles the 9s latency budget with
+      the >500/min throughput target under a burst.
+    owning_doc: docs/plan/architecture/observability-slo.md
+    proposed_fix: >-
+      Add an alert-storm capacity/latency analysis: model deliver-stage p95 and ARQ queue depth at ≥500
+      alerts/min (and at a worst-case all-beds-critical burst), size ARQ worker count and Redis pub/sub fan-out
+      to hold deliver p95 < 2s (and RRT push < 5s) under that load, and specify backpressure/coalescing for the
+      never-rate-limited critical class (e.g. per-source storm detection that pages one operational alert
+      instead of N criticals) so the queue cannot grow unbounded. State the 9s budget's validity range as a
+      function of arrival rate.
+  - finding_id: RT1-LAT-06
+    severity: major
+    claim: >-
+      §6 claims to "supply the quantified trigger ADR-001 left qualitative", but the primary trigger row T1 is
+      only half-quantified: "Vitals-driven ingest→alert p95 > 30s AND the MLLP path (§3.3 option 1) CANNOT
+      close it → ACTIVATE Alternativa B". The second conjunct ("MLLP path cannot close it") has no measurable
+      criterion — no metric, threshold, or observation window defines "cannot close it" — so T1 is not
+      operationally decidable, defeating the section's stated purpose. It also presumes the MLLP path is
+      deployed and measurable, yet whether MLLP is a sanctioned MVP component is exactly the question left
+      unresolved in RT1-LAT-01. As written, an operator cannot determine from telemetry whether T1 is met.
+    falsifiable_check: >-
+      (1) system-architecture.md §6.1 table row T1 (line 279): the condition is "> 30s (VIS-C-09) AND the MLLP
+      path (§3.3 option 1) cannot close it" — confirm no numeric/observable definition of "cannot close it" is
+      given anywhere in §6 (contrast T3/T4 which cite concrete thresholds 30min / 99.5%). (2) alert-engine.md
+      §1.2 line 39 restates the trigger as "exactly VIS-C-09 p95 < 30s applied to vitals-driven scores" — i.e.
+      only the first conjunct is quantified. (3) Confirm §6.2 activation mechanics and OQ-1/OQ-3 do not supply
+      the missing measurable criterion. The self-description "supplies the quantification ADR-001 left
+      qualitative" (line 160/271) is therefore only partially true.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Make T1 fully measurable: define "MLLP path cannot close it" as a concrete, telemetry-observable
+      condition — e.g. "with the MLLP feed enabled, vitals-driven ingest→alert p95 remains > 30s (or MLLP feed
+      availability < X% / MLLP-path p95 > Ys) sustained over an N-hour window" — using metrics already emitted
+      (§3/§5). Resolve the dependency on RT1-LAT-01 first (T1 cannot reference an MLLP path whose lawfulness is
+      undecided). Cross-update alert-engine.md §1.2.

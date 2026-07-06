@@ -1,0 +1,153 @@
+round: 2
+lens: latency-architecture
+regression_note: >-
+  Re-tested all six RT1-LAT findings marked `fixed` in round-1/adjudicated.yaml. All six fixes
+  LANDED and hold: RT1-LAT-01 (MLLP↔ADR001-C-01) reconciled via the new ADR
+  _work/adrs/operational-vitals-ingress.md (RAT-INGRESS-01) + rewritten system-architecture.md §3.3,
+  alert-engine.md §1.2, amh-freshness.yaml vitals_operational/vitals_gold split — the "unresolved/routed"
+  and "Interim MLLP" framings are gone. RT1-LAT-02 (dead-man shared fate) fixed with a genuine out-of-band
+  SNS→pager path + no-data alarm + §4.2.1 failure-domain table. RT1-LAT-03 (poll stage) fixed: poll split
+  into poll_nrt(1000ms)/poll_micro_batch(8000ms) with per-path Σ 9s/16s in latency.yaml + alert-engine §8.1
+  + observability §3. RT1-LAT-04 (concurrency) fixed with system-architecture.md §3.4 poll-concurrency
+  budget. RT1-LAT-05 (storm) fixed with observability-slo.md §6.1. RT1-LAT-06 (T1 half-quantified) fixed:
+  §6.1 T1 now has telemetry-observable conjuncts (a) p95>30s/7d, (b) MLLP unavail >0.5% bed-hours.
+  Residual/new issues below sit in the areas those fixes touched.
+findings:
+  - finding_id: RT2-LAT-01
+    severity: major
+    claim: >-
+      The RT1-LAT-06 "fix" quantified the Alternativa-B T1(a) trigger but bound it to the WRONG metric,
+      leaving it inoperable for its primary case. §6.1 T1 rationale states condition (a) — "vitals
+      ingest→alert p95 > 30s while the MLLP feed is healthy" — is read from "the `stage:*` latency
+      histograms (observability-slo.md §3)". But those histograms cover ONLY the owned pipeline
+      (poll_nrt|poll_micro_batch|normalize|evaluate|persist|deliver), whose NRT Σ is budgeted at 9s and
+      which "essentially never" exceeds 30s absent a delivery storm. The quantity whose breach actually
+      justifies activating Alternativa B — the operational MLLP path's monitor-emit→queryable latency,
+      the "≈2s gold-availability row 0" (latency.yaml source_freshness, `included_in_slo:false`) — is
+      EXCLUDED from those stage spans and is instrumented by NO metric. So a chronically-slow-but-live
+      MLLP feed (e.g. monitors posting every 60-120s, or an MLLP parse backlog putting bedside→alert at
+      ~45s, above the 30s clinical target yet below the 5-min staleness/frozen-value threshold) trips
+      neither T1(a) (owned pipeline still 9s), nor T1(b) (feed is "available"), nor the §4.3 staleness
+      watchdog (a vital did arrive within 5min). The trigger ADR-001 left qualitative is now numeric but
+      unfireable for exactly the degradation it exists to catch.
+    falsifiable_check: >-
+      (1) system-architecture.md line 303 T1 rationale reproduces verbatim: "Both conjuncts read from
+      metrics already emitted: the `stage:*` latency histograms (observability-slo.md §3) give the p95".
+      (2) observability-slo.md §1.1 Traces row: `stage` enum = `poll_nrt|poll_micro_batch|normalize|
+      evaluate|persist|deliver` — the first span is poll_nrt (Redis event pickup), i.e. AFTER the vital
+      is already in the operational store; there is no monitor-emit→queryable / MLLP-ingest-lag span.
+      (3) grep observability-slo.md + amh-freshness.yaml + system-architecture.md for any metric measuring
+      the operational-path source freshness: the only freshness metrics are `amh_gold_freshness_seconds`
+      (§3 row-0, "per domain/table" — the GOLD BATCH path only) and `vital_staleness_seconds` per bed
+      (§4.3 — age since last vital, a staleness gauge, NOT an ingest-latency histogram, and NOT the metric
+      T1 cites). (4) latency.yaml stage `source_freshness` p95_ms:2000 carries `included_in_slo:false` and
+      is not emitted as a histogram anywhere. Therefore T1(a)'s cited signal cannot observe the value in
+      T1(a)'s condition — confirm by walking the four artifacts above.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      Add a first-class instrumented metric for the operational NRT path's ingest latency — e.g. an
+      `nrt_vital_ingest_lag_seconds` histogram measuring monitor/ORU timestamp (OBX/OBR observation time or
+      MSH-7) → operational-store queryable time — to observability-slo.md §1.1 signal inventory and §3
+      (as row-0 for the NRT path, mirroring amh_gold_freshness_seconds for the batch path). Redefine T1(a)
+      to the SUM (nrt source freshness + owned poll_nrt→deliver Σ) so it measures the true vitals
+      bedside→alert p95 the clinical <30s target refers to, not the owned pipeline alone. Cross-update the
+      §6.1 rationale, OQ-1, and alert-engine.md §1.2 second bullet.
+  - finding_id: RT2-LAT-02
+    severity: major
+    claim: >-
+      The RT1-LAT-03 poll_micro_batch 8s p95 and the RT1-LAT-04 concurrency budget (§3.4) are each
+      internally reasonable but are NOT jointly validated, and their interaction breaks the CRIT electrolyte
+      path exactly at peak. §3.4 concedes bursts of "~20-30 in-flight Athena queries when expedited
+      electrolyte polls across all tenants align", sitting "close enough to [Athena's low-tens
+      per-account/Region concurrent-DML] default that it must be treated as a negotiated dependency".
+      latency.yaml poll_micro_batch (8000ms) is a single-query p95 "dominated by Athena queue+planning
+      overhead" — i.e. queue-wait-dominated. Near/above the concurrency ceiling, additional queries are
+      throttled/queued by Athena, inflating that queue wait precisely during the all-tenant expedited-poll
+      burst. No artifact states the 8s p95 holds AT the ~20-30 concurrent burst, so the electrolyte-CRIT
+      micro-batch Σ (16s, hence bedside→alert = 30min + 16s) is unvalidated at peak load. Worse, §3.4's
+      only backpressure lever "widens cadence for low-acuity domains first (delirium, meds), NEVER the CRIT
+      electrolyte or vitals paths" — so under quota saturation the one path that matters keeps polling into
+      a saturated workgroup and its poll latency degrades unbounded, with no mitigation named.
+    falsifiable_check: >-
+      (1) system-architecture.md §3.4 line 176 reproduces "bursting to ~20-30 when expedited electrolyte
+      polls across all tenants align" and "the burst envelope sits close enough to that default that it
+      must be treated as a negotiated dependency". (2) §3.4 line 182 backpressure lever 3 reproduces
+      "widens cadence for low-acuity domains first (delirium, meds), never the CRIT electrolyte or vitals
+      paths". (3) latency.yaml lines 53-57 poll_micro_batch assumption: "queue wait + query planning +
+      S3/Iceberg scan ... multi-second, dominated by Athena queue+planning overhead" with p95_ms:8000 —
+      grep the assumption text and §3.4 for any statement that 8s holds under N-concurrent load: none
+      exists; the 8s is stated for "the narrow high-watermark reads this engine issues", implicitly at low
+      concurrency. The two numbers (8s per-poll, 20-30 concurrent near a low-tens quota) are never
+      reconciled, and the backpressure carve-out proves the CRIT path is deliberately left unprotected —
+      confirm by walking §3.4 + latency.yaml poll_micro_batch.
+    owning_doc: docs/plan/architecture/system-architecture.md
+    proposed_fix: >-
+      In §3.4 state the poll_micro_batch 8s p95 as valid only below a stated concurrency threshold, and
+      require the pilot storm/load test to measure poll_micro_batch p95 AT the ~20-30 concurrent burst (a
+      breach re-opens the micro-batch Σ at C3, mirroring latency.yaml's existing "pilot-measured p95
+      replaces this"). Give the CRIT electrolyte/vitals paths a real saturation mitigation — e.g. a
+      reserved-concurrency slot / dedicated high-priority workgroup lane per §3.4 lever 2 so the CRIT poll
+      cannot be queued behind low-acuity polls — since widening low-acuity cadence does not free a slot the
+      CRIT poll is already contending for. Tie OQ-5's negotiated quota explicitly to holding poll_micro_batch
+      p95 ≤ 8s at peak.
+  - finding_id: RT2-LAT-03
+    severity: major
+    claim: >-
+      The RT1-LAT-01 reconciliation (adopted via the ratify path) repeatedly promises a hazard-log entry
+      as the safety net for the branch where RAT-INGRESS-01 is REJECTED — but that hazard-log entry does
+      not exist. Because RAT-INGRESS-01 is still "pending platform-team ratification", the plan is currently
+      operating in the un-ratified state whose documented fallback is "the pure-batch reading (with a
+      hazard-log entry for the ~30-min early-warning latency it reintroduces)". hazard-log.md contains no
+      such entry: HAZ-033 ("ingestion-to-alert latency SLO breach") covers a DIFFERENT failure — pipeline
+      latency exceeding 30s under backpressure/load — is status `mitigated`, and its mitigations
+      (critical-path prioritization, storm load test) do not address the architectural fallback in which
+      the ENTIRE bedside early-warning path (MEWS/NEWS2/qSOFA) degrades to ~30-min batch latency because
+      the operational-ingress clarification was rejected. The promised mitigation is a dangling reference.
+    falsifiable_check: >-
+      (1) system-architecture.md §3.3 line 159 reproduces the promise: "if the platform team rejects the
+      scope reading, the fallback is either the pure-batch reading (with a hazard-log entry for the ~30-min
+      early-warning latency it reintroduces) or an accelerated Alternativa-B decision". (2) The ADR
+      _work/adrs/operational-vitals-ingress.md (Considered Options 1 + Ratification note) makes the same
+      promise: "then only with an explicit hazard-log entry for the ~30-min early-warning latency it
+      reintroduces" and "A rejection forces Option 1 (pure batch, with the ~30-min early-warning latency
+      hazard logged)". (3) amh-freshness.yaml vitals_gold.fallback reverts to the Alternativa-B trigger on
+      rejection. (4) grep docs/plan/clinical/hazard-log.md for any HAZ row keyed to
+      pure-batch/RAT-INGRESS-01/early-warning ~30-min latency: none — HAZ-033 (line 42) is
+      backpressure-latency, status `mitigated`, spec_ref latency.yaml/alert-engine §8, and does not mention
+      RAT-INGRESS-01 rejection or the 30-min early-warning fallback. Confirm the promised entry is absent.
+    owning_doc: docs/plan/clinical/hazard-log.md
+    proposed_fix: >-
+      Add a HAZ row (e.g. HAZ-034) — hazard "RAT-INGRESS-01 rejected → bedside early-warning scores fall
+      back to pure Gold-batch ingest → ~30-min bedside→alert latency for MEWS/NEWS2/qSOFA", situation
+      "clinician relies on real-time deterioration alerting that is silently 30 min stale", harm "delayed
+      recognition of acute deterioration". Owner amh-integration-architect; mitigation = the accelerated
+      Alternativa-B decision path (system-architecture.md §6) with an interim UI staleness banner; status
+      `open` until RAT-INGRESS-01 is ratified. Note the Alt-B remedy is Fase-4-gated, so an MVP-time
+      rejection needs an explicit interim control, not just "activate Alt B".
+  - finding_id: RT2-LAT-05
+    severity: minor
+    claim: >-
+      latency.yaml's `nrt_path_caveat` was not updated by the RT1-LAT-01 fix and now contradicts the
+      adopted reconciliation. It still states NRT vitals scores "can meet bedside→alert <30s ONLY with a
+      sub-batch operational feed. Under a strict Athena-only reading of ADR001-C-01 this requires the
+      Alternativa-B dedicated MSK topic (ADR001-F-08)" — framing the Fase-4 MSK topic as the mechanism and
+      never mentioning the operational MLLP ingress (RAT-INGRESS-01) that every other deliverable now
+      designates as the MVP sub-batch path. A reader of latency.yaml alone concludes NRT <30s needs the
+      Fase-4 MSK escape hatch, directly contradicting observability-slo.md line 84 ("NRT-path domains ...
+      can meet the full 30 s end-to-end promise (VIS-C-09) today [via the operational MLLP feed]") and
+      system-architecture.md §3.3.
+    falsifiable_check: >-
+      (1) latency.yaml lines 113-117 (`nrt_path_caveat`) reproduce verbatim and contain no reference to the
+      MLLP operational ingress or RAT-INGRESS-01 — only the MSK topic. (2) observability-slo.md line 84
+      asserts the same domains meet 30s "today" via the operational MLLP feed. (3) system-architecture.md
+      §3.3 + alert-engine.md §1.2 + amh-freshness.yaml vitals_operational all present the existing Phase-1
+      MLLP listener (not MSK) as the sanctioned MVP mechanism, with MSK reserved as the Fase-4 T1 escape
+      hatch only. The nrt_path_caveat is thus stale relative to the ratify-path reconciliation — confirm by
+      diffing its MSK-only framing against §3.3.
+    owning_doc: docs/plan/_work/budgets/latency.yaml
+    proposed_fix: >-
+      Update nrt_path_caveat to state that NRT vitals reach the operational store sub-batch via the existing
+      Phase-1 HL7 MLLP listener under the RAT-INGRESS-01 clarification (pending ratification), Gold remaining
+      the sole analytical source; the dedicated MSK topic is the Fase-4 escape hatch activated only if the
+      §6 T1 trigger fires — not the MVP mechanism. Keeps latency.yaml consistent with §3.3, alert-engine
+      §1.2 and observability §3.

@@ -5,7 +5,9 @@ domain: early-warning-scores
 # (ADR001-C-04). Every input unit is canonical per _work/units/registry.yaml.
 
 consumes:
-  # --- vitals (AMH Gold Observation via Athena; ADR001-C-01) ---
+  # --- vitals: operational MLLP feed (NRT), ~2s source-freshness (amh-freshness.yaml vitals_operational).
+  #     The AMH Gold Observation LOINCs below are the ANALYTICAL/REPLAY source only (vitals_gold), held per
+  #     amh-freshness.yaml as "analytical/replay source only" — NOT the NRT read path that honours VIS-C-09 (B3-002). ---
   - {quantity: heart_rate, unit: "bpm", source: "AMH Gold Observation LOINC 8867-4"}
   - {quantity: respiratory_rate, unit: "rpm", source: "AMH Gold Observation LOINC 9279-1"}
   - {quantity: systolic_blood_pressure, unit: "mmHg", source: "AMH Gold Observation LOINC 8480-6"}
@@ -56,11 +58,16 @@ emits_events:
     meaning: "Patient meets step-down/discharge stability composite (ALERT-EWS-DISCHARGE-READINESS-04); advisory to the physician."
     fields: [mpi_id, encounter_id, criteria_met, algorithm_version, detected_at]
 
-latency_assumption_ms: 30000
-# p95 ingestion->alert < 30s (VIS-C-09). Scorers are pure deterministic functions (SCORERS-C-01);
-# compute cost is sub-millisecond. The 30s budget is dominated by AMH Gold/Athena read latency, bounded
-# by the inherited 99.5% data-availability SLO (ADR001-C-10) and the Silver-Entities P95 < 30 min batch
-# path (ADR001-F-02) — the Fase-4 MSK streaming escape hatch is the mitigation if ICU cadence needs sub-minute freshness.
+latency_assumption_ms: 5000
+# NRT domain (alert-engine.md sec1.1: "the sole path that requires a sub-batch data feed to honor VIS-C-09").
+# This number is the domain's own compute+dispatch budget, aligned with its hybrid/NRT siblings sepsis and
+# hemodynamics (5000 ms) — it is NOT justified by the 30-min Gold batch path (B3-002). Scorers are pure
+# deterministic functions (SCORERS-C-01) with sub-millisecond compute; the 5000 ms is dispatch + headroom.
+# The BINDING end-to-end latency is bounded by the vitals_operational MLLP source-freshness row (p95 ~2s,
+# amh-freshness.yaml) + the 9s owned pipeline (latency.yaml owned_pipeline_sum) ~= 11s << the VIS-C-09 30s
+# envelope. AMH Gold/Athena (Silver-Entities P95 < 30 min batch, ADR001-F-02) is the analytical/REPLAY source
+# only (vitals_gold) and does NOT gate this NRT path; ADR-001's Alternativa-B MSK streaming topic (ADR001-F-08)
+# is the escape hatch ONLY if the MLLP operational feed is unavailable, consistent with evaluation_mode=near-real-time.
 
 volume_estimate_per_100_beds_day: 23
 # Sum of the four EWS alerts' est_volume_per_100_beds_day: NEWS2-DETERIORATION-01 (5) + TREND-RISING-02 (6)

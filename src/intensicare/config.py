@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     secret_key: SecretStr = SecretStr("change-me-in-production")
 
     # API
-    api_host: str = "0.0.0.0"  # noqa: S104  # intentional bind-all default for container deploys; override via API_HOST
+    api_host: str = "0.0.0.0"  # nosec B104  # noqa: S104  # intentional bind-all default for container deploys; override via API_HOST
     api_port: int = 8000
     api_reload: bool = False
     api_workers: int = 1

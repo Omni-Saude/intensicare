@@ -17,7 +17,8 @@ OUT = ROOT / "docs/plan/traceability-matrix.md"
 
 
 def esc_md(s) -> str:
-    return str(s or "").replace("|", "\\|").replace("\n", " ")
+    # U+2223 instead of escaping: keeps naive row parsers (check_matrix) correct
+    return str(s or "").replace("|", "∣").replace("\n", " ")
 
 
 def main() -> int:
@@ -70,7 +71,11 @@ def main() -> int:
         r = records[rid]
         tgt = r.get("target") or "—"
         if tgt != "—":
-            tgt = f"[{tgt.split('#')[0].split('/')[-1]}#{tgt.split('#')[1] if '#' in tgt else ''}]({tgt})"
+            # link at file granularity (verified to exist); section anchors in the machine
+            # records are advisory and get wired during the build (blueprint §6)
+            path, _, frag = tgt.partition("#")
+            label = path.split("/")[-1] + (f" §{frag}" if frag else "")
+            tgt = f"[{esc_md(label)}]({path})"
         lines.append(
             f"| {rid} | {esc_md(name_of.get(rid, ''))[:60]} | {cluster_of.get(rid, '?')} "
             f"| {esc_md(verdict_of.get(rid, ''))} | {r['disposition']} | {tgt} "
@@ -80,8 +85,12 @@ def main() -> int:
               "| Item | Band | Rule | Outcome | Where |", "|---|---|---|---|---|"]
     for it in sorted(esc["items"], key=lambda x: x["item_id"]):
         r = res.get(it["item_id"], {})
-        out = r.get("outcome", "MISSING")
-        where = "RATIFICATION.md" if out == "RATIFY" else "traceability (disposition)"
+        out = r.get("outcome")
+        if not out and it["band"] in {"P2", "P3"}:
+            d = (records.get(it["rule_id"]) or {}).get("disposition", "?")
+            out = f"RESOLVED-BY-DISPOSITION ({d})"
+        out = out or "MISSING"
+        where = "RATIFICATION.md" if "RATIFY" in out else "traceability (disposition)"
         lines.append(f"| {it['item_id']} | {it['band']} | {it['rule_id']} | {out} | {where} |")
 
     lines += ["", "## Legacy design ADRs (18)", "",

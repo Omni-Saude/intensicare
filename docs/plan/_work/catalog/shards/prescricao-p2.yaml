@@ -1,0 +1,993 @@
+shard: prescricao-p2
+cluster: prescricao
+rule_count: 20
+rules_with_escalations: 7
+rules:
+- id: RULE-PRESCRICAO-022
+  name: Horario prescricao manage_data payload injection
+  category: scheduling-operational
+  type: workflow
+  status: OK
+  verify: false
+  description: On write, the parent continuous-prescription id and the leito id are injected into the payload from
+    nested-route kwargs when present as strings.
+  inputs:
+  - name: prescricoes__pk (URL kwarg)
+    type: string (uuid)
+    unit: null
+  - name: ocupacoes__pk (URL kwarg)
+    type: string (uuid)
+    unit: null
+  outputs:
+  - name: data["prescricao_continua"]
+    type: string (uuid)
+    unit: null
+  - name: data["leito"]
+    type: string (uuid)
+    unit: null
+  logic: 'if isinstance(prescricao, str): data["prescricao_continua"] = prescricao
+
+    if isinstance(leito, str): data["leito"] = leito
+
+    '
+  edge_cases: ''
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-033
+  merged_from:
+  - RULE-prescricao-BE-08-033
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/horario_prescricao.py
+    lines: 36-48
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ''
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-023
+  name: Suspended horario blocks all administration actions
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: A suspended horario cannot be checked, edited, or acted upon. Clicking a suspended tag shows a warning
+    and no modal/action opens; all check handlers are guarded by !suspenso.
+  inputs:
+  - name: horario.suspenso
+    type: boolean
+    unit: null
+    range: null
+  - name: horario.id
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: action
+    type: enum {warning, open-modal, quick-check, none}
+    unit: null
+  logic: "onClick(tag):\n  if (horario.suspenso) message.warning(\"Horario suspenso, nao e possivel realizar acoes\"\
+    )\n  else if (asbutton && !horario.id) openCheckModal()\nonClick(dots/info btn):\n  if (!horario.administrado\
+    \ && !horario.motivo_nao_administrado && !horario.suspenso) openCheckModal()\nonClick(check btn):\n  if (!horario.checado_por\
+    \ && !horario.suspenso) onOk({ body:{administrado:true}, horarioId:horario.id })\n"
+  edge_cases: 'The dots/info button opens the modal ONLY when the horario is pending (not administered, not refused,
+    not suspended). The right-side check button fires ONLY when nobody has checked it yet (checado_por falsy) and
+    it is not suspended.
+
+    '
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-011
+  - RULE-PRESCRICAO-018
+  merged_from:
+  - RULE-presc-FE-04-002
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/HorarioCheck/HorarioCheck.tsx
+    lines: 150-236
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: All action controls also require can_manage_prescricao (see RULE-presc-FE-04-015).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-024
+  name: Quick "administered" check without reason
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Clicking the right-hand circle button on a pending horario marks it administered directly (administrado:true)
+    with no modal, provided it is not yet checked and not suspended.
+  inputs:
+  - name: horario.checado_por
+    type: object|null
+    unit: null
+    range: null
+  - name: horario.suspenso
+    type: boolean
+    unit: null
+    range: null
+  - name: horario.id
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: patchBody
+    type: object { administrado:true }
+    unit: null
+  logic: "if (!horario.checado_por && !horario.suspenso):\n  onOk({ body: { administrado: true }, horarioId: horario.id\
+    \ })\n# onOk with horarioId + body -> PATCH (see RULE-presc-FE-04-006)\n"
+  edge_cases: 'Only rendered when can_manage_prescricao is true. Does not capture qtd_exportada; the ml-based fluid-balance
+    quantity is captured only via the full CheckModalContent path.
+
+    '
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-025
+  - RULE-PRESCRICAO-012
+  merged_from:
+  - RULE-presc-FE-04-004
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/HorarioCheck/HorarioCheck.tsx
+    lines: 212-236
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: ''
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-025
+  name: Administration-check form value construction
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: 'When submitting the administration-check modal, the payload is transformed: reason is set only when
+    not administered; exported quantity defaults to the prescribed quantity; the free-text "outros" reason overrides
+    the select; the changed time is only sent when the hour was edited.'
+  inputs:
+  - name: rawValues.administrado
+    type: boolean
+    unit: null
+    range: null
+  - name: motivoNaoAdministrado
+    type: string (enum value or "outros")
+    unit: null
+    range: null
+  - name: rawValues.qtd_exportada
+    type: number
+    unit: ml
+    range: null
+  - name: quantidade
+    type: number
+    unit: ml
+    range: null
+  - name: editHour
+    type: boolean
+    unit: null
+    range: null
+  - name: rawValues.horario
+    type: moment
+    unit: null
+    range: null
+  outputs:
+  - name: SendValue
+    type: object
+    unit: null
+  logic: "values.motivo_nao_administrado =\n  rawValues.administrado ? undefined\n  : motivoNaoAdministrado ===\
+    \ \"outros\" ? form.getFieldValue(\"outros_motivos\")\n  : form.getFieldValue(\"motivo_nao_administrado\")\n\
+    values.qtd_exportada =\n  rawValues.administrado ? (rawValues.qtd_exportada ? rawValues.qtd_exportada : quantidade)\n\
+    \  : undefined\nvalues.outros_motivos = undefined            # stripped from payload\nvalues.horario = editHour\
+    \ ? rawValues.horario.format(\"HH:mm\") : undefined\n"
+  edge_cases: 'qtd_exportada falls back to the prescribed `quantidade` when the field is empty AND administrado
+    is true. When not administered, qtd_exportada is cleared. horario is omitted unless the clock-edit toggle was
+    used.
+
+    '
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-001
+  - RULE-PRESCRICAO-030
+  - RULE-PRESCRICAO-013
+  merged_from:
+  - RULE-presc-FE-04-006
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/CheckModalContent/CheckModalContent.tsx
+    lines: 39-59
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: initialValues seed administrado=true and qtd_exportada=quantidade (lines 61-64).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-026
+  name: Revert administration check requires justification
+  category: care-pathway
+  type: workflow
+  status: OK
+  verify: false
+  description: Reverting a previously-checked horario requires a mandatory free-text cancellation justification
+    and sets administrado=false on the horario.
+  inputs:
+  - name: justificativa_cancelamento
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: patchBody
+    type: object { justificativa_cancelamento, administrado:false }
+    unit: null
+  logic: 'ModalRevertCheck form: field justificativa_cancelamento required (defaultFormRules).
+
+    onOk(value): onOk({ body: { ...value, administrado:false }, horarioId: horario.id })
+
+    '
+  edge_cases: The revert always forces administrado=false regardless of prior state.
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-017
+  - RULE-PRESCRICAO-034
+  merged_from:
+  - RULE-presc-FE-04-009
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/ModalRevertCheck/ModalRevertCheck.tsx
+    lines: 27-40
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: onOk merge with administrado:false is in HorarioCheck.tsx lines 245-254.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-027
+  name: Antibiotic course tracking list (with malformed field)
+  category: scheduling-operational
+  type: workflow
+  status: DISCREPANCY
+  verify: false
+  description: List of antibiotics in use with start/end dates, renal/hepatic dose-adjustment note and adjustment
+    date, and positive-culture note; one row-field is malformed (uses key "Data" instead of "label").
+  inputs:
+  - name: antibiotico
+    type: string
+    unit: null
+    range: null
+  - name: data_inicio / data_fim / data_reajuste
+    type: date
+    unit: null
+    range: null
+  outputs:
+  - name: antibiotic course record
+    type: object
+    unit: null
+  logic: "formList: antibiotico(string, disabledOnEdit), data_inicio(date, disabledOnEdit), data_fim(date, disabledOnEdit),\n\
+    \  reajuste_funcao_renal_hepatica(string), data_reajuste(date) [defined as { Data:\"Data reajuste\", nome:[\"\
+    data_reajuste\"], type:\"date\" } — has no `label` key],\n  cura_positiva(string, disabledOnEdit)\n"
+  edge_cases: The data_reajuste field object omits `label` and instead has a stray `Data` property (line 401) ->
+    renders without a proper label.
+  confidence: high
+  merged_from:
+  - RULE-pharma-FE-01-058
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFarmaceutico.ts
+    lines: 367-414
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: DISCREPANCY = malformed field descriptor (key `Data` vs `label`).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-187
+    band: P3
+    title: scheduling-operational
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-PRESCRICAO-028
+  name: Prescription-dose administration/cancellation lifecycle
+  category: care-pathway
+  type: workflow
+  status: AMBIGUOUS
+  verify: false
+  description: A scheduled medication administration time (Prescricao.Horario) carries "administrado" (administered)
+    and "suspenso" (suspended) booleans, an optional "motivo_nao_administrado" (reason not administered), and a
+    server-computed "can_delete" eligibility flag; when updating/cancelling a dose, the SendValue payload additionally
+    supports "qtd_exportada" (quantity exported, e.g. to a billing/pharmacy system) and "justificativa_cancelamento"
+    (cancellation justification).
+  inputs:
+  - name: administrado
+    type: boolean
+    unit: null
+    range: null
+  - name: suspenso
+    type: boolean
+    unit: null
+    range: null
+  - name: motivo_nao_administrado
+    type: string, optional
+    unit: null
+    range: presumed required when administrado=false (implied by shape, not enforced in this partition)
+  - name: qtd_exportada
+    type: number, optional
+    unit: null
+    range: null
+  - name: justificativa_cancelamento
+    type: string, optional
+    unit: null
+    range: null
+  outputs:
+  - name: Horario lifecycle state
+    type: derived
+    unit: null
+  logic: "// shape-only inference, no explicit validation code in this partition:\nif administrado == false:\n \
+    \ motivo_nao_administrado SHOULD be populated (not enforced by a validator in this partition)\ncan_delete: boolean\
+    \   // opaque server-computed deletion-eligibility flag\nSendValue (PATCH/POST payload) may include: motivo_nao_administrado,\
+    \ administrado,\n           qtd_exportada, justificativa_cancelamento, horario\n"
+  edge_cases: motivo_nao_administrado remains optional at the type level even when administrado is explicitly false,
+    so nothing in this partition prevents submitting a not-administered dose without a reason.
+  confidence: medium
+  related:
+  - RULE-PRESCRICAO-008
+  - RULE-PRESCRICAO-030
+  - RULE-PRESCRICAO-014
+  merged_from:
+  - RULE-prescricao-FE-07-001
+  sources:
+  - repo: trilhas-frontend
+    path: src/@types/models/Prescricao.d.ts
+    lines: 19-41
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: qtd_exportada suggests integration with a billing/pharmacy export process (category billing-administrative
+    overlap), but no such logic is present in this frontend partition.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-302
+    band: AMBIGUOUS
+    title: care-pathway
+    excerpt: Prescription-dose administration/cancellation lifecycle
+- id: RULE-PRESCRICAO-029
+  name: Not-administered reason enum (motivo_nao_administrado)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Closed set of coded reasons a scheduled dose was not administered, mapped to human labels. Defined
+    on the frontend (select options) and the backend (model choices + PDF humanize filter).
+  inputs:
+  - name: motivo_nao_administrado
+    type: enum/string
+    unit: null
+    range: recusa_paciente | medicacao_suspensa | nao_tem_farmacia | outros(frontend-only)
+  outputs:
+  - name: label
+    type: string
+    unit: null
+  logic: '# Frontend enum (src/utils/motivosNaoAdministrado.ts) - FOUR options:
+
+    recusa_paciente    -> "Paciente recusou a administração"   (patient refused)
+
+    medicacao_suspensa -> "Medicação suspensa pelo médico"     (suspended by physician)
+
+    nao_tem_farmacia   -> "Em falta na farmácia"               (out of stock)
+
+    outros             -> "Outros"                              (other)   # frontend-only
+
+
+    # Backend PrescricaoChoices.motivo() and templatetags humanize_choice - THREE codes only:
+
+    recusa_paciente    -> "Paciente recusou a administração"
+
+    medicacao_suspensa -> "Medicação suspensa pelo médico"
+
+    nao_tem_farmacia   -> "Em falta na farmácia"
+
+    # humanize_choice(val) = motivos[val]   # dict index, NO default -> KeyError on any other value
+
+    '
+  edge_cases: Backend model field motivo_nao_administrado is a FREE CharField (not enum-constrained). humanize_choice
+    does keyless dict indexing -> KeyError on any value outside the three codes. pdf_prescription_v2 prints the
+    raw stored code instead (no crash).
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-030
+  - RULE-PRESCRICAO-009
+  divergence: 'Cross-implementation divergence: the FRONTEND enum defines FOUR options including ''outros'' -> ''Outros'';
+    the BACKEND (PrescricaoChoices.motivo() and templatetags humanize_choice) defines only THREE codes with NO ''outros''.
+    When the frontend picks ''outros'' it actually stores the free-text ''outros_motivos'' string (RULE-PRESCRICAO-030),
+    i.e. a value the backend enum does not recognise; humanize_choice (v1 PDF) then raises KeyError on that value
+    (and on any code outside the three). v2 PDF prints the raw code and does not crash.'
+  merged_from:
+  - RULE-medicacao-FE-02-001
+  - RULE-prescricao-BE-06-004
+  - RULE-prescricao-BE-09-003
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/motivosNaoAdministrado.ts
+    lines: 1-18
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: frontend-copy
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/choices/prescricao.py
+    lines: 5-11
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/templatetags/prescricao.py
+    lines: 7-14
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: duplicate
+  notes: 'NEW divergence surfaced during reconciliation: none of the three source captures was flagged in Phase
+    1, but comparing them shows the frontend adds a 4th ''outros'' option that the backend enum / humanize_choice
+    cannot map (KeyError). Labels otherwise match verbatim.'
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-175
+    band: P3
+    title: data-validation
+    excerpt: 'Cross-implementation divergence: the FRONTEND enum defines FOUR options including ''outros'' -> ''Outros'';
+      the BACKEND (PrescricaoChoices.motivo() and templatetags humanize_choice) defines only THREE codes with NO
+      ''outros''. When the fronten…'
+- id: RULE-PRESCRICAO-030
+  name: Not-administered reason enum with "outros" free-text requirement
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: When a medication is marked NOT administered, a reason must be selected from a fixed enum; choosing
+    "outros" requires an additional free-text field.
+  inputs:
+  - name: motivo_nao_administrado
+    type: enum
+    unit: null
+    range: recusa_paciente | medicacao_suspensa | nao_tem_farmacia | outros
+  - name: outros_motivos
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: reasonPayload
+    type: string
+    unit: null
+  logic: "motivo select options (utils/motivosNaoAdministrado):\n  recusa_paciente   -> \"Paciente recusou a administracao\"\
+    \n  medicacao_suspensa-> \"Medicacao suspensa pelo medico\"\n  nao_tem_farmacia  -> \"Em falta na farmacia\"\
+    \n  outros            -> \"Outros\"\nBoth fields required (defaultFormRules). If motivo == \"outros\", render\
+    \ required\n\"outros_motivos\" input; final reason = outros_motivos, else = motivo_nao_administrado.\n"
+  edge_cases: 'The reason select and (conditionally) the outros_motivos input are both required. Only shown when
+    the administered radio is "Nao".
+
+    '
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-029
+  - RULE-PRESCRICAO-025
+  merged_from:
+  - RULE-presc-FE-04-008
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/CheckModalContent/CheckModalContent.tsx
+    lines: 133-154
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: Enum definition lives in src/utils/motivosNaoAdministrado.ts (cross-partition, utils). Same enum is used
+    for label lookup in HorarioCheck popover.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-031
+  name: Add-new-horario requires a time (HH:mm)
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: Creating a new administration horario requires a mandatory time picker; the value is serialized as
+    HH:mm and posted as a new horario.
+  inputs:
+  - name: horario
+    type: moment
+    unit: null
+    range: null
+  outputs:
+  - name: postBody
+    type: object { horario:"HH:mm" }
+    unit: null
+  logic: 'field "horario" required (defaultFormRules).
+
+    onFinish: values.horario = rawValues.horario.format("HH:mm"); onOk({ body: values })  # no horarioId -> POST
+
+    '
+  edge_cases: rawValues.horario.format is called unconditionally; a missing time is prevented by the required rule.
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-016
+  merged_from:
+  - RULE-presc-FE-04-013
+  sources:
+  - repo: trilhas-frontend
+    path: src/components/Prescricao/AsButtonModalContent/AsButtonModalContent.tsx
+    lines: 11-32
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: ''
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-032
+  name: Horario de prescricao - autor padrao 'sistema'
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: On save, if a prescription time-slot has no creator, it is assigned to the user with username "sistema";
+    if that user is missing a ValidationError is raised.
+  inputs:
+  - name: self.criado_por
+    type: FK Usuario
+    unit: null
+    range: null
+  outputs:
+  - name: criado_por (defaulted) or ValidationError
+    type: FK Usuario
+    unit: null
+  logic: "if not self.criado_por:\n    try:\n        self.criado_por = Usuario.objects.get(username=\"sistema\"\
+    )\n    except Usuario.DoesNotExist:\n        raise ValidationError(\"Usuario sistema nao encontrado\")\nreturn\
+    \ super().save(...)\n"
+  edge_cases: Only defaults when criado_por is unset. Hard dependency on a seed "sistema" user.
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-020
+  merged_from:
+  - RULE-prescricao-BE-06-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/horarios_prescricao.py
+    lines: 62-70
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Auto-generated slots (RULE-prescricao-BE-06-001) rely on this to attribute authorship to the system.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-033
+  name: Horario prescricao scoped to parent prescricao continua
+  category: scheduling-operational
+  type: validation
+  status: OK
+  verify: false
+  description: Prescription-schedule-slot (HorariosPrescricao) records are only listable/retrievable when scoped
+    to their parent continuous prescription id from the nested route, excluding soft-deleted rows.
+  inputs:
+  - name: prescricoes__pk (URL kwarg)
+    type: uuid
+    unit: null
+  outputs:
+  - name: queryset
+    type: queryset
+    unit: null
+  logic: "HorariosPrescricao.objects_without_deleted\n  .select_related(\"prescricao_continua\")\n  .filter(prescricao_continua_id=kwargs[\"\
+    prescricoes__pk\"])\n"
+  edge_cases: Uses objects_without_deleted (excludes soft-deleted), unlike Entrada/Saida/SinaisVitais viewsets.
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-022
+  merged_from:
+  - RULE-prescricao-BE-08-032
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/views/horario_prescricao.py
+    lines: 30-34
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ''
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-034
+  name: Only the checking user may cancel a scheduled dose
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: A scheduled prescription dose can only be cancelled by the same user who originally checked/administered
+    it (checado_por); any other user attempting cancellation is rejected.
+  inputs:
+  - name: instance.checado_por
+    type: user reference
+    unit: null
+    range: null
+  - name: requesting user
+    type: user reference
+    unit: null
+    range: null
+  outputs:
+  - name: ValidationError raised if invalid
+    type: exception
+    unit: null
+  logic: "@staticmethod\ndef validar_cancelamento(instance, validated_data, user):\n    if instance.checado_por\
+    \ != user:\n        raise ValidationError(\"O cancelamento só pode ser feito pelo usuario que checou a prescrição!\"\
+    )\n"
+  edge_cases: ''
+  confidence: high
+  related:
+  - RULE-PRESCRICAO-008
+  - RULE-PRESCRICAO-026
+  - RULE-PRESCRICAO-017
+  merged_from:
+  - RULE-prescricao-BE-07-009
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/horario_prescricao.py
+    lines: 301-306
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: ''
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-035
+  name: Non-administration reason validation (effectively unreachable guard)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: A validation intended to require either "administrado" or a "motivo_nao_administrado" is only ever
+    invoked from a call site that has already guaranteed motivo_nao_administrado is truthy, making the check itself
+    practically unable to raise.
+  inputs:
+  - name: validated_data.administrado
+    type: boolean (nullable)
+    unit: null
+    range: null
+  - name: validated_data.motivo_nao_administrado
+    type: string (nullable)
+    unit: null
+    range: null
+  outputs:
+  - name: ValidationError raised if invalid (in practice, never)
+    type: exception
+    unit: null
+  logic: "@staticmethod\ndef validar_motivo(validated_data):\n    if not (validated_data.get(\"administrado\", None)\
+    \ or validated_data.get(\"motivo_nao_administrado\", None)):\n        raise ValidationError(\"É necessário informar\
+    \ o motivo da prescrição não administrada\")\n# Call site (update(), RULE-prescricao-BE-07-006):\n#   if administrado\
+    \ is False and motivo_nao_administrado:  <- already guarantees motivo truthy\n#       validar_motivo(validated_data)\n"
+  edge_cases: 'Because the only call site already checked `validated_data.get("motivo_nao_administrado")` is truthy
+    before calling this, the `or motivo_nao_administrado` half of the condition inside validar_motivo is always
+    True at that point, so the ValidationError branch is unreachable via this call path.
+
+    '
+  confidence: medium
+  related:
+  - RULE-PRESCRICAO-008
+  - RULE-PRESCRICAO-030
+  merged_from:
+  - RULE-prescricao-BE-07-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/horario_prescricao.py
+    lines: 279-287
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: AMBIGUOUS whether validar_motivo is intended to also be called from other, out-of-scope call sites where
+    the guarantee would not hold (which would make the check meaningful there); as implemented within this file
+    it is dead validation.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-176
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-PRESCRICAO-036
+  name: Checagem lock — cannot alter administration status once set (unused in this scope)
+  category: data-validation
+  type: validation
+  status: AMBIGUOUS
+  verify: false
+  description: A static validator exists asserting that once a scheduled dose's "administrado" field has been set
+    to any non-null value, it cannot be altered again — but this method is not called anywhere within the files
+    examined in this partition.
+  inputs:
+  - name: instance.administrado
+    type: boolean (nullable)
+    unit: null
+    range: null
+  outputs:
+  - name: ValidationError raised if invalid
+    type: exception
+    unit: null
+  logic: "@staticmethod\ndef validar_alteracao_dado(instance, validated_data):\n    if instance.administrado is\
+    \ not None:\n        raise ValidationError(\"Você não pode alterar a checagem da prescrição!\")\n"
+  edge_cases: Unused within this partition's update() flow (RULE-prescricao-BE-07-006 does not call it).
+  confidence: medium
+  related:
+  - RULE-PRESCRICAO-008
+  merged_from:
+  - RULE-prescricao-BE-07-008
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/serializers/horario_prescricao.py
+    lines: 289-292
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Recorded because it encodes a real business rule even if apparently dead code here; may be invoked from
+    a view or another serializer outside trilha_homecare/api/v1/serializers/.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-AMBIGUOUS-336
+    band: AMBIGUOUS
+    title: data-validation
+    excerpt: Checagem lock — cannot alter administration status once set (unused in this scope)
+- id: RULE-PRESCRICAO-037
+  name: Pharmacist global assessment (risks with dead conditionals)
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: Pharmacist global assessment reuses the assistance-risk multicheck but all conditional reveals (allergy
+    note, LPP list, other-lesion list) are commented out, so no fields open on selection.
+  inputs:
+  - name: avaliacao_global.riscos_assistenciais
+    type: enum[] (multicheck)
+    unit: null
+    range: see logic
+  - name: presenca_de_delirium
+    type: boolean
+    unit: null
+    range: null
+  outputs:
+  - name: global assessment
+    type: object
+    unit: null
+  logic: "idade(number, disabledOnEdit), peso(number), estado_geral {grave,regular}\nriscos_assistenciais multicheck\
+    \ {queda,alergia,sangramento,trombose_venosa,delirium,broncoaspiracao,\n  flebite,alteracao_glicemica,lpp,outras_lesoes}\n\
+    conditions: {} // alergia/lpp/outras_lesoes blocks all commented out\npresenca_de_delirium(boolean)\n"
+  edge_cases: Selecting alergia/lpp/outras_lesoes opens NO detail field (unlike nursing RULE-038).
+  confidence: high
+  merged_from:
+  - RULE-pharma-FE-01-057
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFarmaceutico.ts
+    lines: 22-275
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: DISCREPANCY = risk categories present but their required-detail logic is disabled vs the nurse form.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-177
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-PRESCRICAO-038
+  name: Pharmacist prophylaxis checklist
+  category: care-pathway
+  type: validation
+  status: OK
+  verify: false
+  description: Free-text prophylaxis fields covering constipation/diarrhea, delirium, glycemic control, tube meds,
+    VTE, stress-ulcer, analgesia and sedation.
+  inputs:
+  - name: profilaxias.*
+    type: string
+    unit: null
+    range: null
+  outputs:
+  - name: prophylaxis plan
+    type: object
+    unit: null
+  logic: 'strings: profilaxia_constipacao_diarreia, profilaxia_delirium, profilaxia_controle_glicemico,
+
+    medicamento_sonda, profilaxia_tev(TEV/VTE), profilaxia_ulcera_estresse, analgesia, sedacao
+
+    '
+  edge_cases: All optional free-text.
+  confidence: high
+  merged_from:
+  - RULE-pharma-FE-01-059
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFarmaceutico.ts
+    lines: 415-461
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: TEV = tromboembolismo venoso (VTE prophylaxis).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-039
+  name: Pharmacist intervention vocabulary
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: Multicheck vocabulary of pharmacist interventions/conducts.
+  inputs:
+  - name: conduta_farmaceutica.condutas
+    type: enum[] (multicheck)
+    unit: null
+    range: 33 options
+  outputs:
+  - name: interventions
+    type: enum set
+    unit: null
+  logic: 'options include: ajuste_de_dose_de_medicamento, ajuste_de_dose_de_antimicrobiano, ajuste_de_posologia,
+
+    ausencia_ou_aprazamento_incorreto, correcao_de_eletrólitos, diluição, estabilidade,
+
+    indicacao_medicamento_alternativo, indicacao_de_forma_farmaceutica, dosagem_sérica,
+
+    interacao_medicamentosa_x_alimento_nutriente, interacao_medicamentosa_contra_indicada,
+
+    medicamentos_contra_indicados_via_sonda, nao_padrao_atendido, nao_padrao_substituido, ajuste_de_prescricao,
+
+    inclusao_exclusao_de_medicamento, substituicao_de_via_endovenosa_por_oral, substitiicao_de_antimicrobiano,
+
+    reconstituinte, sinalizacao_de_alegria, subdosagem_superdosagem, sugestao_suspensao_de_antimicrobiano,
+
+    sugestao_suspensao_outros_medicamentos, transcricao_de_prescricao_medica, tratamento_com_atb_duracao_alteracao,
+
+    velocidade_de_infusao, via_de_administracco, profilaxia_para_tev, profixia_para_lamg,
+
+    orientacoes_de_armazenamento_de_medicamentos
+
+    '
+  edge_cases: Contains typos in values (substitiicao, via_de_administracco, profixia, sinalizacao_de_alegria) that
+    persist to stored data.
+  confidence: high
+  merged_from:
+  - RULE-pharma-FE-01-061
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFarmaceutico.ts
+    lines: 540-677
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: The value sinalizacao_de_alegria ('signaling of joy') is almost certainly a typo for 'alergia' (allergy)
+    — recorded verbatim.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []
+- id: RULE-PRESCRICAO-040
+  name: Pharmacist form variable/file naming mismatch
+  category: data-validation
+  type: validation
+  status: DISCREPANCY
+  verify: false
+  description: The pharmacist form file declares and exports a const named dataFormFisioterapeuta though its content
+    and filename are pharmaceutical.
+  inputs:
+  - name: N/A
+    type: null
+    unit: null
+    range: null
+  outputs:
+  - name: N/A
+    type: null
+    unit: null
+  logic: 'dataFormFarmaceutico.ts: `const dataFormFisioterapeuta = [...]; export default dataFormFisioterapeuta;`
+
+    Content = pharmacist groups (Antibioticos em uso, Profilaxias, Conciliacao Medicamentosa, Conduta farmaceutica).
+
+    Two files therefore both define a symbol named dataFormFisioterapeuta.
+
+    '
+  edge_cases: Cosmetic to runtime (default export) but a maintenance/traceability hazard.
+  confidence: high
+  merged_from:
+  - RULE-pharma-FE-01-056
+  sources:
+  - repo: trilhas-frontend
+    path: src/utils/dataForms/dataFormFarmaceutico.ts
+    lines: 1-3,690-693
+    commit: f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
+    role: primary
+  notes: DISCREPANCY = filename says farmaceutico, symbol says fisioterapeuta.
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations:
+  - item_id: ESC-P3-178
+    band: P3
+    title: data-validation
+    excerpt: Non-formula rule; correctness defined by legacy behavior itself (see sources).
+- id: RULE-PRESCRICAO-041
+  name: Prescricao continua day filter
+  category: data-validation
+  type: validation
+  status: OK
+  verify: false
+  description: 'Continuous-prescription records can be filtered by an exact-match ''dia'' (day) query parameter
+    via django-filter, wired into PrescricaoViewSet.
+
+    '
+  inputs:
+  - name: dia
+    type: date
+    unit: null
+    range: null
+  outputs:
+  - name: filtered queryset
+    type: queryset
+    unit: null
+  logic: "class PrescricaoContinuaFilter(FilterSet):\n    class Meta:\n        model = PrescricaoContinua\n    \
+    \    fields = (\"dia\",)\n"
+  edge_cases: Exact match only; no range/date-lookup support.
+  confidence: high
+  merged_from:
+  - RULE-filtro-BE-08-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/api/v1/filters/prescricao.py
+    lines: 9-12
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Used by trilha_homecare/api/v1/views/prescricao.py (filter_class = PrescricaoContinuaFilter).
+  verification:
+    verdict: NOT_APPLICABLE
+    clinical_impact: null
+    reference: null
+    detail_file: null
+  escalations: []

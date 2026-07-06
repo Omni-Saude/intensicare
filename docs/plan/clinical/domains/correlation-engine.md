@@ -12,7 +12,13 @@ The Correlation Engine is the **multi-domain reasoning layer** that sits above t
 not to stage any single organ system; it is to detect **causal chains and dangerous co-occurrences that no
 single detector can see**, and to emit **one richer alert per chain that REPLACES its member alerts** so the
 clinician sees a single, explained, actionable signal instead of a cluster of simultaneous single-domain
-alarms. This is the central alarm-fatigue lever (baseline ignored-rate 25% → goal ≤ 10%, VIS-7.1-04).
+alarms. It is **one alarm-fatigue lever of five, not "the" lever**: on its own catalog volumes it directly
+removes only a **defensible ~1–6 %** of fleet push traffic (honest arithmetic in §5.4), so the fleet
+ignored-rate target (25 % → ≤ 10 %, VIS-7.1-04) is a **combined outcome of five levers** — enumerated with
+their owning specs in §5.4 — never a figure this engine delivers alone. What this engine contributes is
+(a) higher per-push PPV (a correlation is ≥ as specific as its most-specific member) and (b) two folding
+layers that cut how many concurrent pushes a deteriorating patient generates: the pairwise causal-correlation
+fold (§5.1) and the cross-domain deterioration-cluster fold (§5.2).
 
 Vision §4.1 (VIS-4-03) fixes **exactly three cross-domain clinical correlations**; this domain implements all
 three, plus one efficiency correlation carried from the `eficiencia` cluster:
@@ -22,7 +28,7 @@ three, plus one efficiency correlation carried from the `eficiencia` cluster:
 | 1 | **Sepsis + AKI** — "sepse é #1 causa de AKI" | septic organ dysfunction / shock → renal hypoperfusion + inflammation → KDIGO ≥ 1 | `ALERT-CORR-SEPSIS-AKI-01` (critical) |
 | 2 | **Respiratory + Hemodynamic** — "SDRA + choque" | moderate/severe ARDS concurrent with shock → combined cardiopulmonary failure, RV strain | `ALERT-CORR-RESP-HEMO-02` (critical) |
 | 3 | **Drug + Electrolyte** — "QTc + K⁺/Mg²⁺" | QT-prolonging drug + QTc > 500 ms + hypoK/hypoMg → Torsades substrate | `ALERT-CORR-QTC-ELEC-03` (critical, by amplification) |
-| 4 | **Redundant diagnostic ordering** (efficiency) | repeat same-class exam order within its reassessment window | `ALERT-CORR-EXAM-REDUND-04` (normal) |
+| 4 | **Redundant diagnostic ordering** (efficiency/**stewardship** — **not** a deterioration correlation; excluded from the suppression-vs-amplification accounting, §5) | repeat same-class exam order within its reassessment window | `ALERT-CORR-EXAM-REDUND-04` (normal) |
 
 **Out of scope (explicit):** the correlation engine does **not** re-derive any physiological threshold — every
 member threshold is owned and cited by the member domain. It does **not** perform automatic diagnosis and does
@@ -53,7 +59,8 @@ Member events consumed (source domain → event):
 
 Events emitted (full field lists in the interface contract): `correlation.sepsis_aki.detected`,
 `correlation.resp_hemo.detected`, `correlation.qtc_electrolyte.detected`, `correlation.redundant_exam.detected`,
-and the control event `correlation.member_suppressed` (§5).
+the cross-domain `correlation.deterioration_cluster.detected` (§5.2), and the control event
+`correlation.member_suppressed` (§5).
 
 ## 3. Temporal join windows
 
@@ -142,30 +149,143 @@ Per-class window test: a new exam order fires if a prior **same-class** order/re
 reassessment window `W(class)` (hemograma 5 d, bioquímica 7 d, RX tórax rotina 14 d, marcadores tireoide 21 d,
 sorologias 30 d). **Corrected** from `RULE-EFICIENCIA-007`'s legacy defect, which summed positive window-hits
 **across unrelated classes** into one undifferentiated threshold (ADAPT — same cost/burden intent, fixed
-mechanism). Severity `normal` keeps it out of the deterioration-alarm budget. Evidence: RULE-EFICIENCIA-007
-(ADAPT) + Choosing Wisely critical-care policy (Halpern, *Crit Care Med* 2014).
+mechanism). This is an **efficiency/stewardship** alert (`category: efficiency-stewardship`), **not** a
+deterioration correlation: it is standalone and folds **no** member alert, so it is **excluded from the
+suppression-vs-amplification accounting** (§5, B3-004); severity `normal` additionally keeps it out of the
+deterioration-alarm attention budget. Evidence: RULE-EFICIENCIA-007 (ADAPT) + Choosing Wisely critical-care
+policy (Halpern, *Crit Care Med* 2014).
 
-## 5. Suppression vs amplification (the alarm-fatigue mechanism)
+## 5. Folding, amplification, and the honest alarm-fatigue accounting
 
-A correlation **REPLACES** its member alerts. When a clinical correlation (1/2/3) fires, the engine emits
-`correlation.member_suppressed` to the alert dispatcher with `{correlation_alert_id, suppressed_member_alert_ids,
-suppress_until, reason}`. For the correlation's dedup/cooldown window the dispatcher **pushes only the
-correlation** to the clinician and **folds** the member alerts. Two invariants protect safety:
+The engine reduces *delivered pushes* through **two folding layers** — a pairwise **causal-correlation** fold
+(§5.1) and a cross-domain **deterioration-cluster** fold (§5.2) — plus, for one chain, an explicit
+**amplification** (§5.1). §5.3 states the two safety invariants both layers obey; §5.4 gives the honest,
+arithmetic-bounded contribution of the engine to the fleet fatigue target and names the other levers that carry
+the rest.
 
-1. **No signal is lost from the record.** Each member alert is still computed and still written to the prontuário
-   at NGS-2 (VIS-C-07); suppression is a *presentation* fold, never a *computation* skip. This reuses the
-   corrected acknowledgement/rollup semantics of `RULE-ALERTAS-006`/`-007`/`-010` (ADAPT) and the dedup/cooldown
-   intent of `RULE-ALERTAS-016` (ADAPT), lifted from ad-hoc bed-type React plumbing to an explicit severity-rank
-   fold.
-2. **Suppression never downgrades severity.** The correlation's severity is `max(member severities)` for chains
-   1–2 and an explicit **amplification** to critical for chain 3. This is the direct fix for the legacy
-   last-writer-wins bug `RULE-PIORA-CLINICA-010` / `RULE-ALERTAS-003` (P0/DISCREPANCY) where a later AMARELO could
-   silently overwrite an earlier VERMELHO — v2 uses an explicit severity-rank comparison, never alphabetical sort
-   (`RULE-ALERTAS-010`) and never loop-order overwrite.
+### 5.1 Pairwise causal-correlation fold + amplification (chains 1/2/3)
 
-Net effect on the alarm budget: the ~4 correlated deterioration alerts **replace ~9–10 member pushes/100
-beds/day** (each clinical correlation folds ≥ 2 members), lifting per-push PPV (correlations are ≥ as specific as
-their most-specific member) while cutting push count — both levers of VIS-7.1-02 / VIS-7.1-04.
+A causal correlation **REPLACES** its member alerts with one new, richer, self-explaining alert. When a clinical
+correlation (1/2/3) fires, the engine emits `correlation.member_suppressed` to the alert dispatcher with
+`{correlation_alert_id, suppressed_member_alert_ids, suppress_until, reason}`. For the correlation's dedup/cooldown
+window the dispatcher **pushes only the correlation** and **folds** the member alerts. Chain 3 additionally
+**amplifies** — two WARN members become one `critical` (the TdP substrate, §4.3). This is the fold the three
+vision-sanctioned pairs (VIS-4-03) produce; it does **not** cover a deterioration that lights up EWS + Sepsis +
+Hemo without matching one of the three pairs — that residual is the job of §5.2.
+
+**BREAK-THROUGH rule — the fold cooldown is a concurrency dedup, never a silence for escalation (HAZ-026-safe,
+HAZ-027-safe) — [RT2-PATIENT-SAFETY-01].** The fold suppresses only the **re-push of a member instance that was
+already concurrent with the correlation at push time**. It NEVER suppresses a severity escalation or a new
+interruptive member. On **each evaluation cycle** the engine **re-evaluates every folded member's current
+severity**, and:
+
+- a **NEW member alert** that joins an existing fold at severity **≥ urgent** — a member instance not part of the
+  correlation at push time (e.g. `ALERT-SEPSIS-SHOCK-03` firing at hour 6 of a live `ALERT-CORR-SEPSIS-AKI-01`
+  fold, or an AKI KDIGO stage-3 event arriving after a stage-1 member was folded) — **RE-NOTIFIES IMMEDIATELY at
+  its own delivery tier**, regardless of the correlation's cooldown (`PT12H`/`PT4H`/`PT8H`);
+- a **severity INCREASE within any folded member domain** (`watch→urgent→critical`) likewise **breaks through and
+  re-pages at the higher tier** the same cycle it is detected;
+- only a member re-firing at **unchanged-or-lower** severity, **still concurrent** with the live correlation, is
+  folded.
+
+This **composes with, and never overrides,** the never-suppress-critical invariant (§5.3 inv. 2; `alert-routing.md`
+§4 banner; `architecture/alert-engine.md` §5 carve-outs; HAZ-026): `critical`/`urgent` are never budget-suppressed,
+rate-limited, or maintenance-muted, and the fold cooldown is **not** an exception to that for a new or escalating
+member. The §6 recommended default ("never fold across a *higher* member severity than the correlation's own") is
+**necessary but not sufficient on its own**: because all three correlations are themselves `critical`, an
+*equal-severity* `critical` member would otherwise fold silently — the break-through rule closes exactly that gap
+(a new-or-escalating `critical` member delivers even when the correlation is already `critical`). Verified by the
+`SEPSIS-AKI-01` break-through test vectors (`_work/alerts/correlation-engine.yaml`).
+
+### 5.2 Cross-domain deterioration-cluster fold (shared-physiology suppression group) — [RT1-ALARM-FATIGUE-02]
+
+The three pairwise correlations catch three *specific* causal pairs. They do **not** catch the common case where
+**one physiological deterioration co-fires several domains at once** — e.g. an evolving septic shock that
+simultaneously trips the **EWS** trend (NEWS2/MEWS rising), the **Sepsis** screen / organ-dysfunction alert, and
+the **Hemodynamic** shock / vasopressor alert off the *same* falling MAP + rising lactate. `Sepsis↔EWS`,
+`Sepsis↔Hemo` and `EWS↔Hemo` are **not** among the three pairs, so without a further net a single decompensation
+delivers many concurrent urgent/critical pushes for one patient, each counted as an independent alert. The
+**deterioration-cluster fold** is the presentation-layer net that closes this gap: concurrent deterioration
+pushes that share a patient, a time window, and a physiological driver are folded into **ONE
+`deterioration-cluster` notification** (`correlation.deterioration_cluster.detected`). Machine form in
+`_work/alerts/correlation-engine.yaml` (`cross_domain_grouping:` → `GROUP-CORR-DETERIORATION-CLUSTER-01`).
+
+- **Grouping key** = `mpi_id + encounter_id` **AND** an **overlapping cluster window** **AND** a **shared
+  physiological driver**:
+  - *Cluster window* — the member pushes must fall inside a rolling **`cluster_window` (default PT1H, config,
+    RAT-CORR-01)**. The fold is about *concurrency*, so the window is short (a fraction of the members' cooldowns),
+    **not** a causal-latency window like §3's PT72H; two pushes more than `cluster_window` apart are separate
+    clusters.
+  - *Shared physiological driver* — the concurrent members must be driven by the **same overlapping input axis**,
+    read from the triggering-input sets the members already carry (no re-derivation, §2). Two named axes cover the
+    co-fire cases the finding lists: **(a) perfusão/circulatório** — falling `pressao_arterial_media`, rising
+    `lactato_arterial`, rising `dose_vasopressor`, rising HR / falling SBP → co-fires EWS + Sepsis + Hemo;
+    **(b) respiratório** — falling `spo2`/`relacao_pao2_fio2`, rising `fio2` / RR → co-fires EWS + Sepsis +
+    Respiratory. A cluster **names its driver** in the notification so the clinician sees *what one thing* is
+    deteriorating. Members with **no** shared input axis are **not** folded — they are genuinely independent
+    problems and must stay separate pushes.
+- **What folds.** Any concurrent deterioration push (severity `watch`/`urgent`/`critical`) for that key —
+  including a **fired pairwise correlation** (§5.1) plus a leftover member the pair did not fold, or two/three
+  bare domain alerts when no pairwise correlation applies. The efficiency/stewardship chain 4 and any
+  `normal`-band advisory are **never** cluster members (B3-004; only deterioration signals cluster).
+- **The cluster notification** carries: **`severity = max(member severities)`**; the **ordered member list** with,
+  per member, its **own severity, triggering parameter + value + trend, and evidence citation intact** (§8
+  explainability applies per member — nothing is summarized away); the **named driver**; and each member's
+  deep-link so the clinician can open any single-domain detail. It emits `correlation.deterioration_cluster.detected`
+  and one `correlation.member_suppressed` per folded member.
+- **Delivery.** The single cluster push is delivered on the **highest member's delivery tier** — a `critical`
+  member still pages the RRT on the Tier-1 path (`severity-model.yaml`; `alert-triage.md §1`), so folding **cuts
+  the number of interruptions without demoting the loudest one**. The cluster fold **composes with, and never
+  overrides**, the alert-engine / alert-routing invariant that `critical`/`urgent` are never budget-suppressed,
+  rate-limited or maintenance-muted — a fold is one richer push at the top severity, not a dropped or delayed one.
+- **Accounting.** In the fatigue metrics a cluster is recorded as **N members folded → 1 delivered push**
+  (delivered-push count drops by `N−1`); each folded member still counts **individually** toward PPV
+  (`ppv-ledger-draft.yaml`), so the fold feeds only the push-count / ignored-rate reduction and never inflates PPV
+  (§5.4).
+
+### 5.3 Two safety invariants both folding layers obey
+
+1. **No signal is lost from the record — folding ≠ suppression.** Every member alert is still **computed**, still
+   individually **dispositionable**, and still written to the prontuário at NGS-2 (VIS-C-07); only the *push* is
+   deduplicated. The member's content (parameter, value, trend, threshold, evidence) is preserved verbatim inside
+   the fold, never collapsed to a bare count. This reuses the corrected acknowledgement/rollup semantics of
+   `RULE-ALERTAS-006`/`-007`/`-010` (ADAPT) and the dedup/cooldown intent of `RULE-ALERTAS-016` (ADAPT), lifted
+   from ad-hoc bed-type React plumbing to an explicit severity-rank fold.
+2. **Folding never downgrades severity.** The folded alert's severity is `max(member severities)` (pairwise chains
+   1–2 and every deterioration cluster) or an explicit **amplification** to `critical` (chain 3). This is the
+   direct fix for the legacy last-writer-wins bug `RULE-PIORA-CLINICA-010` / `RULE-ALERTAS-003` (P0/DISCREPANCY)
+   where a later AMARELO could silently overwrite an earlier VERMELHO — v2 uses an explicit severity-rank
+   comparison, never alphabetical sort (`RULE-ALERTAS-010`) and never loop-order overwrite, and a `critical`
+   member is never masked under a lower-severity summary (HAZ-026-safe).
+
+### 5.4 Honest alarm-fatigue accounting — the engine is one lever of five — [RT1-ALARM-FATIGUE-03]
+
+**What the engine directly removes.** The **3 clinical correlations** fire ≈ **4/100 beds/day** (SEPSIS-AKI 2 +
+RESP-HEMO 1 + QTC-ELEC 1; EXAM-REDUND is net-additive, excluded per B3-004), each folding ≥ 2 members — so the
+pairwise layer folds on the order of **~8 member pushes** and nets **~4 fewer delivered pushes** per 100 beds/day.
+Against the summed fleet catalog volume of **≈ 137 pushes/100 beds/day** (Σ `est_volume_per_100_beds_day` over the
+ten `_work/alerts/*.yaml` catalogs) that is a **gross fold of ~6 % and a net push reduction of ~1–3 %**. The
+cross-domain cluster fold (§5.2) adds further reduction whenever a decompensation co-fires domains, but its
+magnitude scales with **co-fire frequency, which is not yet measured** — so the engine's **total
+directly-attributable push reduction is a defensible ~1–6 %**, an order of magnitude short of a 15-point
+ignored-rate swing. **This engine does not, and is not claimed to, carry the 25 % → ≤ 10 % target by itself.**
+
+**The levers that actually carry ignored-rate 25 % → ≤ 10 % (VIS-7.1-04)**, each owned elsewhere:
+
+| # | Lever | What it does for fatigue | Owning spec |
+|---|-------|--------------------------|-------------|
+| 1 | **Per-alert PPV budgets** | every alert ships a `ppv_budget` (target PPV ≥ 0.60) so low-value alerts never enter the stream | each `_work/alerts/*.yaml` `ppv_budget`; ledger `_work/budgets/ppv-ledger-draft.yaml` |
+| 2 | **Suppression machinery** (dedup / cooldown / rate-limit / maintenance / budget-coalescing) | collapses duplicate and low-tier volume before delivery | `architecture/alert-engine.md §5`; `design/screens/alert-routing.md §4` |
+| 3 | **Severity-tiered delivery** | only `urgent`/`critical` interrupt; `watch`/`normal` go to badge/digest, not a push | `_work/platform/severity-model.yaml`; `design/screens/alert-triage.md §1` |
+| 4 | **Cross-domain folding** (this engine) | §5.1 pairwise + §5.2 deterioration-cluster — the ~1–6 % above | `clinical/domains/correlation-engine.md §5` (here) |
+| 5 | **Threshold tuning loop** | per-alert PPV-vs-volume governance retunes noisy alerts over time | `design/screens/admin-config.md §3`; ppv-ledger tuning recommendation; US-23/US-25/US-26 |
+
+The 25 % → ≤ 10 % figure is the **combined, measured** outcome of levers 1–5 validated against real fleet
+telemetry, **not** a quantity this engine produces alone. Whether the five together close the full gap is a
+fleet-level empirical question **routed to C3** (ppv-ledger fleet-target validation); this doc claims only lever 4
+and its bounded ~1–6 %. **Chain 4 (`ALERT-CORR-EXAM-REDUND-04`) is excluded from all of the above accounting
+(B3-004):** it is an efficiency/stewardship alert that folds **no** member and is net-additive (+2 volume, still
+counted in the fleet total), so the fatigue math must not credit it with member suppression.
 
 ## 6. RATIFY-pending rules — designed-to-default
 
@@ -229,8 +349,11 @@ declares `latency_assumption_ms: 8000` as the compute+dispatch budget once both 
 (ADR001-F-02) rather than the vision < 30 s ingestion-to-alert SLO (VIS-C-09) — the batch path cannot meet 30 s
 today, and ADR-001 names a dedicated MSK streaming channel as the Fase-4 escape hatch — and (b) the **join window
 itself** (a correlation cannot fire before its slower member exists). Correlated-alert volume ≈ 6/100 beds/day
-(SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 + EXAM-REDUND 2), with a **net reduction** in total pushes because each
-clinical correlation folds ≥ 2 member alerts.
+(SEPSIS-AKI 2 + RESP-HEMO 1 + QTC-ELEC 1 + EXAM-REDUND 2). The **3 clinical correlations** each fold ≥ 2 member
+alerts and the deterioration-cluster fold (§5.2) folds concurrent co-fires, for a **bounded ~1–6 % direct push
+reduction — see the honest accounting in §5.4** (the engine is one alarm-fatigue lever of five, not the whole
+25 % → ≤ 10 % swing). The EXAM-REDUND 2 is an efficiency/stewardship addition (net-additive, folds no member) and
+is **excluded from the suppression accounting** (B3-004), though its +2 volume stays in the fleet total.
 
 ## 10. Open questions
 
@@ -302,5 +425,6 @@ interfaces:
     - correlation.resp_hemo.detected
     - correlation.qtc_electrolyte.detected
     - correlation.redundant_exam.detected
+    - correlation.deterioration_cluster.detected   # cross-domain shared-physiology fold (§5.2, GROUP-CORR-DETERIORATION-CLUSTER-01)
     - correlation.member_suppressed
 ```

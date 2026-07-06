@@ -1,0 +1,1617 @@
+shard: sepse-p1
+cluster: sepse
+rule_count: 33
+rules_with_escalations: 24
+rules:
+- id: RULE-SEPSE-001
+  name: SEPSE v1 alert maiores/menores dual threshold
+  category: clinical-scoring
+  type: scoring
+  status: OK
+  verify: true
+  description: 'SEPSE v1 alert from two criterion groups: 9 major (criterio_1..9) and 11 minor (criterio_10..20).
+    Requires simultaneous major AND minor thresholds.
+
+    '
+  inputs:
+  - criterio_1..9 (maiores) (int flag (1))
+  - criterio_10..20 (menores) (int flag (1))
+  outputs:
+  - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+  logic: 'maiores = [criterio_1..criterio_9].count(1)
+
+    menores = [criterio_10..criterio_20].count(1)
+
+    if maiores >= 3 and menores >= 4: return "VERMELHO"
+
+    elif maiores >= 2 and menores >= 3: return "AMARELO"
+
+    else: return "NEUTRO"
+
+    '
+  edge_cases: Uses AND between groups (both must clear). Contrast with v3 which uses OR (RULE-sepse-BE-03-100).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-003
+  - RULE-SEPSE-004
+  merged_from:
+  - RULE-sepse-BE-03-014
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilha4.py
+    lines: 139-174
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: v3 counterpart (TrilhaSepseV3Model.calcular_alerta) changed AND to OR - see notes on RULE-sepse-BE-03-100.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published reference defines the specific "N maiores AND M menores" aggregation. Closest external
+      standards for the underlying screening concept: Bone RC et al. ACCP/SCCM Consensus (SIRS, "any >=2 of 4" pooled
+      criteria), Chest 1992; Singer M et al. The Third International Consensus Definitions for Sepsis and Septic
+      Shock (Sepsis-3), JAMA 2016;315(8):801-810 (qSOFA "any >=2 of 3"); ILAS (Instituto Latino Americano de Sepse)
+      screening protocol 2018.'
+    detail_file: sepse-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-192
+    band: UNVERIFIABLE
+    title: SEPSE v1 alert maiores/menores dual threshold
+    excerpt: Internal business rule. count(1) counts int 1 (Python True==1 also counts). Logic hand-traced against
+      legacy trilha4.py:139-174 and matches the catalog pseudocode exactly. The dual-axis AND aggregation is an
+      institutional desig…
+- id: RULE-SEPSE-002
+  name: SEPSE v3 alert maiores/menores (OR thresholds) + risk message
+  category: clinical-scoring
+  type: scoring
+  status: DISCREPANCY
+  verify: true
+  description: 'SEPSE v3 alert from 11 major (criterio_1..11) and 9 minor (criterio_12..20) criteria; VERMELHO when
+    either major>=3 OR minor>=4; AMARELO when major>=2 OR minor>=3. Also emits a risk message.
+
+    '
+  inputs:
+  - criterio_1..11 (maiores) (boolean)
+  - criterio_12..20 (menores) (boolean)
+  outputs:
+  - alerta (enum {VERMELHO, AMARELO, NEUTRO})
+  - mensagem (string)
+  logic: 'maiores = [criterio_1..criterio_11].count(True)
+
+    menores = [criterio_12..criterio_20].count(True)
+
+    if maiores >= 3 or menores >= 4: alerta = "VERMELHO"
+
+    elif maiores >= 2 or menores >= 3: alerta = "AMARELO"
+
+    else: alerta = "NEUTRO"
+
+    mensagem = "" if NEUTRO else ("Moderado risco para SEPSE." if AMARELO else "Alto risco para SEPSE.")
+
+    # save(): if alerta == "NEUTRO": assistido = False
+
+    '
+  edge_cases: count(True) only counts boolean True. Group boundary changed vs v1.
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-003
+  - RULE-SEPSE-004
+  - RULE-SEPSE-058
+  - RULE-SEPSE-007
+  - RULE-SEPSE-008
+  - RULE-SEPSE-009
+  - RULE-SEPSE-010
+  - RULE-SEPSE-011
+  - RULE-SEPSE-012
+  - RULE-SEPSE-013
+  - RULE-SEPSE-014
+  - RULE-SEPSE-015
+  - RULE-SEPSE-016
+  - RULE-SEPSE-017
+  - RULE-SEPSE-018
+  - RULE-SEPSE-019
+  - RULE-SEPSE-020
+  - RULE-SEPSE-021
+  - RULE-SEPSE-022
+  - RULE-SEPSE-023
+  - RULE-SEPSE-024
+  - RULE-SEPSE-025
+  - RULE-SEPSE-026
+  divergence: v1 (RULE-SEPSE-001) requires maiores AND menores (>=3 AND >=4 -> VERMELHO; >=2 AND >=3 -> AMARELO);
+    v3 uses OR (maiores>=3 OR menores>=4 -> VERMELHO; >=2 OR >=3 -> AMARELO) and shifts the major group to 11 criteria
+    (criterio_11 moved from minor to major).
+  merged_from:
+  - RULE-sepse-BE-03-100
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 187-231
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY vs v1 (RULE-sepse-BE-03-014): v1 required maiores AND menores; v3 uses OR and also shifts
+    the major group to 11 criteria (criterio_11 moved from minor to major). Numbered 100 to cross-reference the
+    20 v3 criteria below.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'No external reference for the aggregation. The flagged discrepancy is INTERNAL (v3 vs v1). External
+      screening context: Singer M et al. Sepsis-3, JAMA 2016;315(8):801-810; Evans L et al. Surviving Sepsis Campaign:
+      International Guidelines 2021, Crit Care Med 2021;49(11):e1063-e1143.'
+    detail_file: sepse-batch1.yaml
+  escalations:
+  - item_id: ESC-P1-017
+    band: P1
+    title: SEPSE v3 alert maiores/menores (OR thresholds) + risk message
+    excerpt: '*`sepse` · `clinical-scoring` · DISCREPANCY/DISCREPANCY*  - **Legacy:** SEPSE v3 alert from 11 major
+      (criterio_1..11) and 9 minor (criterio_12..20) criteria; VERMELHO when either major>=3 OR minor>=4; AMARELO
+      when major>=2 OR minor>=3. Also emits a risk message. - **Deviation:** v1 (RULE-SEPSE-001) requires maiores
+      AND menores (>=3 AND >=4 -> VERMELHO; >=2 AND >=3 -> AMARELO); v3 uses OR (maiores>'
+- id: RULE-SEPSE-003
+  name: Sepse - Classificacao de alerta (maiores/menores)
+  category: alert-threshold
+  type: decision-tree
+  status: DISCREPANCY
+  verify: true
+  description: Aggregates the 11 boolean criteria into a color alert. Criteria 1-7 are "maiores" (major) and 8-11
+    are "menores" (minor). VERMELHO (high risk) if >2 majors or exactly 4 minors; AMARELO (risk) if exactly 2 majors
+    or exactly 3 minors; otherwise NEUTRO.
+  inputs:
+  - criterio_1..criterio_7 (maiores) (array[boolean])
+  - criterio_8..criterio_11 (menores) (array[boolean])
+  outputs:
+  - alerta (enum)
+  - mensagem (string)
+  logic: "maiores = [c1,c2,c3,c4,c5,c6,c7].count(True)\nmenores = [c8,c9,c10,c11].count(True)\nif maiores > 2 or\
+    \ menores == 4:\n    alerta = \"VERMELHO\"\nelif maiores == 2 or menores == 3:\n    alerta = \"AMARELO\"\nelse:\n\
+    \    alerta = \"NEUTRO\"\nmensagem = \"\"\nif alerta != \"NEUTRO\":\n    mensagem = \"Risco para SEPSE.\" if\
+    \ alerta == \"AMARELO\" else \"Alto risco para SEPSE.\"\n"
+  edge_cases: 'count(True) counts only Python True; None (e.g. criterio_10 unset) is not counted. Boundaries: maiores==2
+    -> AMARELO, maiores==3 -> VERMELHO. Default field value alerta="NEUTRO". This alerta is recomputed and persisted
+    on every save().
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-002
+  - RULE-SEPSE-004
+  - RULE-SEPSE-027
+  - RULE-SEPSE-028
+  - RULE-SEPSE-029
+  - RULE-SEPSE-030
+  - RULE-SEPSE-031
+  - RULE-SEPSE-032
+  - RULE-SEPSE-033
+  - RULE-SEPSE-034
+  - RULE-SEPSE-035
+  - RULE-SEPSE-036
+  - RULE-SEPSE-037
+  divergence: '''menores == 4'' branch is unreachable because criterio_11 (RULE-SEPSE-037) is hard-coded False,
+    so the minor group maxes at 3; VERMELHO is reachable only via maiores>2. Note this homecare classifier uses
+    strict maiores>2 / ==2 and menores==4 / ==3 bands, unlike v1 (RULE-SEPSE-001) and manual (RULE-SEPSE-004) which
+    use >= comparisons.'
+  merged_from:
+  - RULE-sepse-BE-06-013
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 350-383
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: `menores == 4` is unreachable because criterio_11 is always False (see RULE-sepse-BE-06-011),
+    so the minors group maxes at 3. Thus VERMELHO can only be reached via `maiores > 2`. A superseded soma-based
+    classifier (0-7/8-14/15-21 bands) is present commented-out at lines 394-419 and is NOT active. save() (lines
+    89-103) recomputes all criteria then alerta inside a transaction.atomic.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'No external reference for the aggregation; the flagged discrepancy is an INTERNAL dead-branch logic
+      bug, verifiable by code inspection. External screening context: ILAS screening protocol 2018; Singer M et
+      al. Sepsis-3, JAMA 2016;315(8):801-810.'
+    detail_file: sepse-batch1.yaml
+  escalations:
+  - item_id: ESC-P2-078
+    band: P2
+    title: Sepse - Classificacao de alerta (maiores/menores)
+    excerpt: '''menores == 4'' branch is unreachable because criterio_11 (RULE-SEPSE-037) is hard-coded False, so
+      the minor group maxes at 3; VERMELHO is reachable only via maiores>2. Note this homecare classifier uses strict
+      maiores>2 / ==2 and menores==4 / ==3 bands, unl…'
+- id: RULE-SEPSE-004
+  name: Sepsis pathway alert (major/minor two-axis threshold)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: Sepsis alert requires simultaneous counts of "major" (C1-9) and "minor" (C10-20) criteria.
+  inputs:
+  - maiores (int, count of C1..C9 True, 0-9)
+  - menores (int, count of C10..C20 True, 0-11)
+  outputs:
+  - alerta (str enum {VERMELHO,AMARELO,NEUTRO})
+  logic: 'maiores = count(True in [c1..c9]); menores = count(True in [c10..c20])
+
+    if maiores >= 3 and menores >= 4: ''VERMELHO''
+
+    elif maiores >= 2 and menores >= 3: ''AMARELO''
+
+    else: ''NEUTRO''
+
+    '
+  edge_cases: 'BOTH axes must clear the bar simultaneously; e.g. many majors but 0 minors -> NEUTRO. AMARELO band
+    requires maiores>=2 AND menores>=3.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-001
+  - RULE-SEPSE-002
+  - RULE-SEPSE-003
+  - RULE-SEPSE-066
+  - RULE-SEPSE-038
+  - RULE-SEPSE-039
+  - RULE-SEPSE-040
+  - RULE-SEPSE-041
+  - RULE-SEPSE-042
+  - RULE-SEPSE-043
+  - RULE-SEPSE-044
+  - RULE-SEPSE-045
+  - RULE-SEPSE-046
+  - RULE-SEPSE-047
+  - RULE-SEPSE-048
+  - RULE-SEPSE-049
+  - RULE-SEPSE-050
+  - RULE-SEPSE-051
+  - RULE-SEPSE-052
+  - RULE-SEPSE-053
+  - RULE-SEPSE-054
+  - RULE-SEPSE-055
+  - RULE-SEPSE-056
+  - RULE-SEPSE-057
+  merged_from:
+  - RULE-sepse-BE-10-046
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_manual/models/trilha_sepse.py
+    lines: 526-561
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'Distinct from the other three pathways (which use a single count). Major set = criterio_1..9, minor set
+    = criterio_10..20. Test test_trilha_sepse.py:337-360 (2 major+3 minor->AMARELO; 3 major+4 minor->VERMELHO).
+
+    '
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published reference defines the "N maiores AND M menores" aggregation. External context: Bone
+      RC et al. ACCP/SCCM (SIRS), Chest 1992; Singer M et al. Sepsis-3, JAMA 2016;315(8):801-810; ILAS screening
+      protocol 2018.'
+    detail_file: sepse-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-197
+    band: UNVERIFIABLE
+    title: Sepsis pathway alert (major/minor two-axis threshold)
+    excerpt: Internal business rule; aggregation identical to v1 (RULE-SEPSE-001). Hand-traced against trilha_manual/models/trilha_sepse.py:526-561;
+      matches the catalog pseudocode and the shipped unit test (2 major+3 minor->AMARELO; 3 major…
+- id: RULE-SEPSE-005
+  name: Sepse - Hierarquia de nivel de consciencia
+  category: clinical-scoring
+  type: formula
+  status: OK
+  verify: true
+  description: Ordinal severity mapping of consciousness levels used to detect changes between successive readings.
+  inputs:
+  - nv_consciencia (enum, acordado|sonolencia|agitacao|convulsao|reage_verbal|reage_tatil|coma)
+  outputs:
+  - rank (int)
+  logic: '{ "acordado":1, "sonolencia":2, "agitacao":3, "convulsao":3, "reage_verbal":4, "reage_tatil":5, "coma":6
+    }
+
+    '
+  edge_cases: '"agitacao" and "convulsao" share rank 3. The "coma" consciousness value from BalancoChoices.consciencia()
+    is present; the value "reage_verbal"/"reage_tatil" map to 4/5. Values not in the map return None via .get().
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-033
+  merged_from:
+  - RULE-sepse-BE-06-012
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 229-239
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Consumed by RULE-sepse-BE-06-007. Note BalancoChoices.consciencia has a "mantido ou acordado" key "acordado".
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No published ordinal scale matches this exact 6-level consciousness map. Closest external referents:
+      AVPU scale (Alert/Verbal/Pain/Unresponsive) and the Glasgow Coma Scale (Teasdale & Jennett, Lancet 1974;2(7872):81-84).
+      This is a custom institutional severity ordering, not a validated scale.'
+    detail_file: sepse-batch1.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-193
+    band: UNVERIFIABLE
+    title: Sepse - Hierarquia de nivel de consciencia
+    excerpt: Internal ordinal mapping used only to detect direction of change between successive consciousness readings
+      (consumed by RULE-SEPSE-033). Hand-traced against trilha_homecare/models/sepse.py:229-239; matches the catalog
+      exactly. …
+- id: RULE-SEPSE-006
+  name: SEPSE v3 assistencial info snapshot (diurese/BH aggregation)
+  category: physiological-calculation
+  type: formula
+  status: OK
+  verify: true
+  description: 'Builds a clinical snapshot including 24h urine output and 24h fluid balance from summed balance
+    fields.
+
+    '
+  inputs:
+  - balanco.qt_vol_espontanea/svd/cistostomia, qt_vol_ganhos, qt_vol_perdas (float, mL)
+  outputs:
+  - diurese_24h (float, mL)
+  - balanco_hidrico_24h (float, mL)
+  logic: 'diurese_24h = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-24h)
+
+    balanco_hidrico_24h = Sum(qt_vol_ganhos + qt_vol_perdas) over balancos(dt>=now-24h)
+
+    # delirium/noradrenalina rendered as "Presente"/"Ausente" via presenca map on bool(value)
+
+    '
+  edge_cases: 'balanco_hidrico_24h ADDS ganhos + perdas (does not subtract) - net balance would normally be ganhos
+    - perdas; here perdas is expected pre-signed or this yields a sum, not a net.
+
+    '
+  confidence: medium
+  related:
+  - RULE-SEPSE-002
+  merged_from:
+  - RULE-sepse-BE-03-122
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 121-177
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Method currently not wired into get_detalhe (call commented out at line 301).
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'Fluid balance is definitionally net = intake (ganhos) - output (perdas); 24h urine output is the
+      sum of all urine sources. No proprietary published equation governs this internal snapshot aggregation. General
+      reference: standard ICU fluid-balance charting (intake minus output).'
+    detail_file: sepse-batch2.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-196
+    band: UNVERIFIABLE
+    title: SEPSE v3 assistencial info snapshot (diurese/BH aggregation)
+    excerpt: diurese_24h (urine output sum) is correct and matches the standard definition. balanco_hidrico_24h
+      ADDS ganhos + perdas rather than subtracting; correctness depends entirely on the internal data convention
+      for the sign of qt_vo…
+- id: RULE-SEPSE-007
+  name: SEPSE v3 criterio_1 - fever without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - absence of noradrenaline (6h) AND temperature > 38.2C in last 24h.
+  inputs:
+  - balanco.qt_vol_nora (float, ml/h)
+  - balanco.temp (float, Celsius)
+  outputs:
+  - criterio_1 (boolean)
+  logic: "balanco_6h  = balancos(dt >= now-6h); balanco_24h = balancos(dt >= now-24h)\nreturn all([\n  balanco_6h.filter(qt_vol_nora__gt=0).exists(),\
+    \     # PRESENCE (docstring says absence)\n  balanco_24h.filter(temp__gt=38.2).exists(),\n]) if balanco_6h and\
+    \ balanco_24h else False\n"
+  edge_cases: Guarded False if either window empty.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: 'DISCREPANCY - docstring specifies "ausencia de noradrenalina" but code omits the negation (uses qt_vol_nora__gt=0
+    presence). Temperature threshold 38.2C strict >.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-03-101
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 362-382
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY - docstring specifies "ausencia de noradrenalina" but code omits the negation (uses qt_vol_nora__gt=0
+    presence). Temperature threshold 38.2C strict >.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'SIRS temperature criterion (Bone RC et al., ACCP/SCCM Consensus 1992; carried into Sepsis-2): fever
+      = temperature > 38.3 C. Institutional ''sem vasopressor'' gating maps to the intent of detecting de-novo organ
+      dysfunction not attributable to established shock (Sepsis-3, Singer et al. JAMA 2016).'
+    detail_file: sepse-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-036
+    band: P1
+    title: SEPSE v3 criterio_1 - fever without vasopressor
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - absence of noradrenaline
+      (6h) AND temperature > 38.2C in last 24h. - **Deviation:** DISCREPANCY - docstring specifies "ausencia de
+      noradrenalina" but code omits the negation (uses qt_vol_nora__gt=0 presence). Temperature threshold 38.2C
+      strict >. - **Clinical relevance:** Two documented differences. (1) Noradrenaline'
+- id: RULE-SEPSE-008
+  name: SEPSE v3 criterio_2 - tachypnea/hypoxemia without vasopressor or invasive vent
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND no invasive mechanical ventilation AND (FR>20 OR SatO2<94).
+  inputs:
+  - balanco.qt_vol_nora, balanco.fr, balanco.sat_o2 (float, ml/h / ipm / %)
+  - cpoe.vent_mecanica_invasiva, evolucao.diurna_ventilacao (float / string)
+  outputs:
+  - criterio_2 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  any([ not get_number(cpoe.vent_mecanica_invasiva),\n\
+    \        (not evolucao.diurna_ventilacao.strip().lower() in get_ventilacao(\"ventilacao_mecanica_invasiva\"\
+    )) if evolucao.diurna_ventilacao else False ]),\n  any([ get_number(balanco.fr) > 20, get_number(balanco.sat_o2)\
+    \ < 94 ]),\n]) if balanco_6h and ultimo_balanco and ultima_evolucao and ultima_cpoe else False\n"
+  edge_cases: get_number coerces null/blank to 0 (SatO2 0<94 would spuriously satisfy). fr here is the frequencia
+    respiratoria column.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-102
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 384-425
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: get_ventilacao categories defined in trilha_automatica/utils.py (outside BE-03).
+  verification:
+    verdict: VERIFIED
+    clinical_impact: low
+    reference: 'SIRS respiratory criterion (ACCP/SCCM Consensus 1992): respiratory rate > 20 breaths/min. SpO2 <
+      94% is a standard hypoxemia alert threshold (Surviving Sepsis Campaign 2021 supplemental O2 target SpO2 >=
+      94%).'
+    detail_file: sepse-batch2.yaml
+  escalations: []
+- id: RULE-SEPSE-009
+  name: SEPSE v3 criterio_3 - respiratory failure prescription
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended absence of noradrenaline (12h) AND prescription of invasive vent or intubation (24h).
+  inputs:
+  - balanco.qt_vol_nora (float, ml/h)
+  - cpoe.vent_mecanica_invasiva, cpoe.intubacao_orotraqueal (float)
+  outputs:
+  - criterio_3 (boolean)
+  logic: "return all([\n  balanco_12h.filter(qt_vol_nora__gt=0).exists(),      # PRESENCE (docstring says absence)\n\
+    \  cpoe_24h.filter(Q(vent_mecanica_invasiva__gt=0) | Q(intubacao_orotraqueal__gt=0)).exists(),\n]) if cpoe_24h\
+    \ and balanco_12h else False\n"
+  edge_cases: Guarded False if windows empty.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - missing negation on noradrenaline vs docstring.
+  merged_from:
+  - RULE-sepse-BE-03-103
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 427-450
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - missing negation on noradrenaline vs docstring.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Respiratory organ dysfunction proxy (prescription of invasive mechanical ventilation / intubation)
+      as sepsis-associated acute organ dysfunction (Sepsis-3, Singer et al. JAMA 2016; SOFA respiratory component).
+      Institutional 'sem vasopressor' gating per intent of detecting de-novo dysfunction.
+    detail_file: sepse-batch2.yaml
+  escalations:
+  - item_id: ESC-P1-037
+    band: P1
+    title: SEPSE v3 criterio_3 - respiratory failure prescription
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended absence of noradrenaline
+      (12h) AND prescription of invasive vent or intubation (24h). - **Deviation:** DISCREPANCY - missing negation
+      on noradrenaline vs docstring. - **Clinical relevance:** Confirms the extraction DISCREPANCY. The noradrenaline
+      gate is inverted vs the docstring: code uses balanco_12h.filter(qt_vol_nor'
+- id: RULE-SEPSE-010
+  name: SEPSE v3 criterio_4 - newly started vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: Noradrenaline OR vasopressin started in last 6h AND absent beyond ~24h (26h window).
+  inputs:
+  - balanco.qt_vol_nora, balanco.qt_vol_vaso (float, ml/h)
+  outputs:
+  - criterio_4 (boolean)
+  logic: "balanco_6h = balancos(dt >= now-6h); balanco_mais_24h = balancos(dt < now-26h)\nreturn all([\n  balanco_6h.filter(Q(qt_vol_nora__gt=0)\
+    \ | Q(qt_vol_vaso__gt=0)).exists(),\n  not balanco_mais_24h.filter(Q(qt_vol_nora__gt=0) | Q(qt_vol_vaso__gt=0)).exists(),\n\
+    ]) if balanco_6h and balanco_mais_24h else False\n"
+  edge_cases: Beyond-24h absence implemented as strictly older than now-26h (2h grace).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-104
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 452-477
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Sepsis-3 septic shock definition (Singer et al., JAMA 2016; Shankar-Hari et al., JAMA 2016): vasopressor
+      requirement to maintain MAP >= 65 mmHg identifies circulatory dysfunction. Detecting NEW vasopressor initiation
+      operationalizes new-onset shock; no published equation governs the temporal-window logic itself.'
+    detail_file: sepse-batch2.yaml
+  escalations: []
+- id: RULE-SEPSE-011
+  name: SEPSE v3 criterio_5 - hypotension without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (12h) AND (PAS<90 OR PAD<60 OR PAM<65) in last 6h.
+  inputs:
+  - balanco.pas, balanco.pad, balanco.pam, balanco.qt_vol_nora (float, mmHg / ml/h)
+  outputs:
+  - criterio_5 (boolean)
+  logic: "return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  balanco_6h.filter(Q(pas__lt=90)\
+    \ | Q(pad__lt=60) | Q(pam__lt=65)).exists(),\n]) if balanco_6h and balanco_12h else False\n"
+  edge_cases: DB-level filter; NULL BP values are excluded by the < comparison (not coerced to 0 here).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-105
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 479-502
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Docstring mislabels PAD as "Pressao arterial sistolica (PAD)"; code correctly filters pad.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Singer M et al. The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3).
+      JAMA 2016;315(8):801-810 (septic shock: vasopressor to maintain MAP >=65 mmHg); Surviving Sepsis Campaign
+      2021 (MAP >=65 mmHg resuscitation target); ACCP/SCCM sepsis-induced hypotension SBP <90 mmHg.'
+    detail_file: sepse-batch3.yaml
+  escalations: []
+- id: RULE-SEPSE-012
+  name: SEPSE v3 criterio_6 - thrombocytopenia without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND platelets < 100000 in last 24h.
+  inputs:
+  - evolucao.diurna_plaquetas (int (via DB filter), /mm3)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_6 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  evolucao_24h.filter(diurna_plaquetas__lt=100000).exists(),\n\
+    ]) if balanco_6h and evolucao_24h else False\n"
+  edge_cases: diurna_plaquetas is a CharField; DB __lt compares as text/number depending on backend - potential
+    lexical comparison risk.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-106
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 504-526
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'Vincent JL et al. The SOFA (Sepsis-related Organ Failure Assessment) score. Intensive Care Med 1996;22:707-710
+      - coagulation subscore: platelets <100 x10^3/uL = 2 points. Sepsis-3 (Singer 2016) uses SOFA increase >=2.'
+    detail_file: sepse-batch3.yaml
+  escalations: []
+- id: RULE-SEPSE-013
+  name: SEPSE v3 criterio_7 - hyperlactatemia without vasopressor
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (12h) AND arterial lactate >= 3.
+  inputs:
+  - evolucao.diurna_lactato (float, mmol/L)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_7 (boolean)
+  logic: "return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  get_number(ultima_evolucao.diurna_lactato)\
+    \ >= 3,\n]) if balanco_12h and ultima_evolucao else False\n"
+  edge_cases: get_number(null)->0, so lactate>=3 fails safely on missing values.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-107
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 528-548
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Surviving Sepsis Campaign 2021 (Evans L et al., Crit Care Med 2021;49:e1063) - elevated lactate
+      >2 mmol/L marks tissue hypoperfusion; Sepsis-3 septic shock uses lactate >2 mmol/L; SSC database analysis:
+      ''elevated'' cutoffs 1.6-2.5 mmol/L, >4 mmol/L strongly mortality-associated.'
+    detail_file: sepse-batch3.yaml
+  escalations:
+  - item_id: ESC-P2-079
+    band: P2
+    title: SEPSE v3 criterio_7 - hyperlactatemia without vasopressor
+    excerpt: Legacy uses lactate >=3 mmol/L; SSC 2021 / Sepsis-3 treat >2 mmol/L as the elevated/tissue-hypoperfusion
+      anchor (severe >4). The >=3 cutoff is stricter than any guideline 'elevated' threshold, so lactate 2-3 mmol/L
+      is missed by this single criterion (reduce…
+- id: RULE-SEPSE-014
+  name: SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis
+  category: physiological-calculation
+  type: formula
+  status: DISCREPANCY
+  verify: true
+  description: 'No noradrenaline (12h) AND no hemodialysis AND "DRC em TRS" present in diagnosis AND hourly urine
+    output < 0.5 mL/kg/h computed over last 12h.
+
+    '
+  inputs:
+  - balanco.qt_vol_espontanea, qt_vol_svd, qt_vol_cistostomia (float, mL)
+  - evolucao.peso (string parsed to float, kg)
+  - evolucao.diurna_terapia_hemo, diagnostico_1..4 (float / string)
+  outputs:
+  - criterio_8 (boolean)
+  logic: "diurese_total = Sum(qt_vol_espontanea + qt_vol_svd + qt_vol_cistostomia) over balancos(dt>=now-12h)\n\
+    peso = float(\"\".join(re.findall(r\"\\d+\", evolucao.peso.replace(\",\", \".\")))) if evolucao.peso else 0\n\
+    return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  not get_number(evolucao.diurna_terapia_hemo),\n\
+    \  list(filter(lambda x: x == \"DRC em TRS\", vars(evolucao).fromkeys((\"diagnostico_1\"..\"diagnostico_4\"\
+    )))),  # always [] -> False\n  ((diurese_total / 12) / peso) < 0.5 if (peso and diurese_total is not None) else\
+    \ False,\n]) if balanco_12h and ultima_evolucao and diurese_balanco_12hrs else False\n"
+  edge_cases: 'peso parse strips decimal point (findall of \d+ then join) so "70.5"/"70,5" -> 705 kg (BUG - inflates
+    weight, understates mL/kg/h). Division guarded by peso truthiness. diurese/12 assumes exactly 12h regardless
+    of actual samples.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: 'DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em
+    TRS" diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE
+    of DRC, code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears
+    (commented) in trilha_profilaxia.py c8.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-03-108
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 550-613
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em TRS"
+    diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE of DRC,
+    code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears (commented)
+    in trilha_profilaxia.py c8.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: high
+    reference: 'KDIGO Clinical Practice Guideline for Acute Kidney Injury 2012 (Kidney Int Suppl 2012;2:1-138) -
+      AKI urine criterion: urine output <0.5 mL/kg/h for 6-12 h (Stage 1).'
+    detail_file: sepse-batch3.yaml
+  escalations:
+  - item_id: ESC-P0-008
+    band: P0
+    title: SEPSE v3 criterio_8 - oliguria without vasopressor/dialysis
+    excerpt: DISCREPANCY - (a) weight-parse strips the decimal separator inflating peso ~10x; (b) the "DRC em TRS"
+      diagnosis gate is non-functional per RULE-systemic-BE-03-001 and also inverted (docstring wants ABSENCE of
+      DRC, code has no `not`), so this whole all([]) is effectively always False. Same diurese formula appears (commented)
+      in trilha_profilaxia.py c8.
+- id: RULE-SEPSE-015
+  name: SEPSE v3 criterio_9 - acute kidney injury without vasopressor/dialysis
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'No noradrenaline (12h) AND no hemodialysis AND no "DRC em TRS" AND (creatinine>2 OR creatinine rise
+    >0.5 over last 2 evolutions).
+
+    '
+  inputs:
+  - evolucao.diurna_creatinina (last & penultimate) (float, mg/dL)
+  - balanco.qt_vol_nora, evolucao.diurna_terapia_hemo, diag_inter_1..4 (float / string)
+  outputs:
+  - criterio_9 (boolean)
+  logic: "return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  not get_number(ultima_evolucao.diurna_terapia_hemo),\n\
+    \  any([ get_number(ultima.diurna_creatinina) > 2,\n        get_number(ultima.diurna_creatinina) - get_number(penultima.diurna_creatinina)\
+    \ > 0.5 ]),\n  not list(filter(lambda x: x == \"DRC em TRS\", vars(ultima).fromkeys((\"diag_inter_1\"..\"diag_inter_4\"\
+    )))),  # always True\n]) if balanco_12h and penultima_evolucao and ultima_evolucao else False\n"
+  edge_cases: Requires at least 2 evolutions (penultima). The DRC absence gate is vacuously True (fromkeys bug).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - DRC exclusion always-true due to fromkeys bug (RULE-systemic-BE-03-001); remaining creatinine
+    logic is sound.
+  merged_from:
+  - RULE-sepse-BE-03-109
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 615-671
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - DRC exclusion always-true due to fromkeys bug (RULE-systemic-BE-03-001); remaining creatinine
+    logic is sound.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'KDIGO AKI 2012 - AKI = SCr increase >=0.3 mg/dL within 48h OR >=1.5x baseline; SOFA renal subscore
+      (Vincent 1996): creatinine 2.0-3.4 mg/dL = 2 points.'
+    detail_file: sepse-batch3.yaml
+  escalations:
+  - item_id: ESC-P1-038
+    band: P1
+    title: SEPSE v3 criterio_9 - acute kidney injury without vasopressor/dialysis
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** No noradrenaline (12h) AND
+      no hemodialysis AND no "DRC em TRS" AND (creatinine>2 OR creatinine rise >0.5 over last 2 evolutions). - **Deviation:**
+      DISCREPANCY - DRC exclusion always-true due to fromkeys bug (RULE-systemic-BE-03-001); remaining creatinine
+      logic is sound. - **Clinical relevance:** Confirmed extraction DISCREPANCY'
+- id: RULE-SEPSE-016
+  name: SEPSE v3 criterio_10 - acute encephalopathy/delirium
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'No noradrenaline (12h) AND no invasive vent AND no dementia AND (GCS drop >=2 over 48h OR delirium
+    in 24h OR GCS<14), with no prior delirium beyond 24h.
+
+    '
+  inputs:
+  - evolucao.diurna_glasgow (last & penultimate), evolucao.diurna_delirium (float, GCS points)
+  - balanco.qt_vol_nora, cpoe.vent_mecanica_invasiva, diagnostico_1..4 (float / string)
+  outputs:
+  - criterio_10 (boolean)
+  logic: "return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  not get_number(ultima_cpoe.vent_mecanica_invasiva),\n\
+    \  not evolucao_mais_que_24h(dt>=now-26h).filter(diurna_delirium__lt=0).exists(),\n  any([ get_number(ultima.diurna_glasgow)\
+    \ - get_number(penultima.diurna_glasgow) >= 2,   # INCREASE, docstring says reduction\n        evolucao_24h.filter(diurna_delirium__gt=0).exists(),\n\
+    \        get_number(ultima.diurna_glasgow) < 14 ]),\n  not list(filter(lambda x: x == \"Demências\", vars(ultima).fromkeys((\"\
+    diagnostico_1\"..\"diagnostico_4\")))),  # always True\n]) if balanco_12h and ultima_evolucao and penultima_evolucao\
+    \ and ultima_cpoe else False\n"
+  edge_cases: 'GCS-change condition computes (last - penultimate) >= 2 which detects an INCREASE of >=2, opposite
+    of the intended "reduction of >=2 points". delirium-absence window uses dt>=now-26h with __lt=0.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - GCS delta sign inverted vs docstring; dementia exclusion vacuously true (fromkeys bug).
+  merged_from:
+  - RULE-sepse-BE-03-110
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 673-739
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - GCS delta sign inverted vs docstring; dementia exclusion vacuously true (fromkeys bug).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: SOFA CNS component (Vincent JL et al., Intensive Care Med 1996;22:707-710) - GCS <15 = neurologic
+      dysfunction (13-14 = 1pt); Sepsis-3 / qSOFA (Singer M et al., JAMA 2016;315:801-810) altered mentation = GCS
+      <15; sepsis-associated delirium (CAM-ICU) = acute brain dysfunction.
+    detail_file: sepse-batch4.yaml
+  escalations:
+  - item_id: ESC-P1-039
+    band: P1
+    title: SEPSE v3 criterio_10 - acute encephalopathy/delirium
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** No noradrenaline (12h) AND
+      no invasive vent AND no dementia AND (GCS drop >=2 over 48h OR delirium in 24h OR GCS<14), with no prior delirium
+      beyond 24h. - **Deviation:** DISCREPANCY - GCS delta sign inverted vs docstring; dementia exclusion vacuously
+      true (fromkeys bug). - **Clinical relevance:** Extraction-flagged DISCREPANCY '
+- id: RULE-SEPSE-017
+  name: SEPSE v3 criterio_11 - hyperbilirubinemia/jaundice (incomplete)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - no noradrenaline (12h) AND (bilirubin>2 OR jaundice present).
+  inputs:
+  - evolucao.diurna_ictericia (float/string (truthiness))
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_11 (boolean)
+  logic: "return all([\n  not balanco_12h.filter(qt_vol_nora__gt=0).exists(),\n  get_number(ultima_evolucao.diurna_ictericia),\
+    \   # truthy jaundice value only\n]) if balanco_12h and ultima_evolucao else False\n"
+  edge_cases: Missing values -> get_number 0 -> criterion False.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: 'DISCREPANCY - the "bilirubina > 2mg/dl" branch from the docstring is not implemented; only the jaundice
+    (diurna_ictericia) truthiness is checked. criterio_11 counts as a MAJOR in v3 alert.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-03-111
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 741-761
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY - the "bilirubina > 2mg/dl" branch from the docstring is not implemented; only the jaundice
+    (diurna_ictericia) truthiness is checked. criterio_11 counts as a MAJOR in v3 alert.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: SOFA liver component (Vincent JL et al., Intensive Care Med 1996;22:707-710) - total bilirubin 2.0-5.9
+      mg/dL (34-102 umol/L) = 2 points hepatic dysfunction. Jaundice is the clinical correlate, typically visible
+      only when bilirubin > ~2-3 mg/dL.
+    detail_file: sepse-batch4.yaml
+  escalations:
+  - item_id: ESC-P1-040
+    band: P1
+    title: SEPSE v3 criterio_11 - hyperbilirubinemia/jaundice (incomplete)
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - no noradrenaline
+      (12h) AND (bilirubin>2 OR jaundice present). - **Deviation:** DISCREPANCY - the "bilirubina > 2mg/dl" branch
+      from the docstring is not implemented; only the jaundice (diurna_ictericia) truthiness is checked. criterio_11
+      counts as a MAJOR in v3 alert. - **Clinical relevance:** Extraction-flagged DISCR'
+- id: RULE-SEPSE-018
+  name: SEPSE v3 criterio_12 - hypothermia (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND temperature < 36C in last 6h.
+  inputs:
+  - balanco.temp, balanco.qt_vol_nora (float, Celsius / ml/h)
+  outputs:
+  - criterio_12 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  balanco_6h.filter(temp__lt=36).exists(),\n\
+    ]) if balanco_6h else False\n"
+  edge_cases: DB filter temp<36; nulls excluded.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-112
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 763-781
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Minor criterion.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'SIRS temperature criterion (ACCP/SCCM Consensus Conference, Bone RC et al., Chest 1992;101:1644-55;
+      re-affirmed Levy MM et al. 2001 SCCM/ESICM/ACCP/ATS/SIS, Crit Care Med 2003;31:1250-6): body temperature <
+      36 C (or > 38 C).'
+    detail_file: sepse-batch4.yaml
+  escalations: []
+- id: RULE-SEPSE-019
+  name: SEPSE v3 criterio_13 - tachycardia (minor, wrong column)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Intended - no noradrenaline (6h) AND heart rate > 100 bpm in last 6h.
+  inputs:
+  - balanco.fr (used), balanco.fc (intended) (float, ipm / bpm)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_13 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  balanco_6h.filter(fr__gt=100).exists(),\
+    \     # fr = respiratory rate; docstring wants FC (heart rate)\n]) if balanco_6h else False\n"
+  edge_cases: Filters fr>100 (respiratory rate), physiologically almost never true.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - filters fr (frequencia respiratoria) instead of fc (frequencia cardiaca) despite docstring
+    "Frequencia cardiaca > 100 bpm".
+  merged_from:
+  - RULE-sepse-BE-03-113
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 783-801
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - filters fr (frequencia respiratoria) instead of fc (frequencia cardiaca) despite docstring
+    "Frequencia cardiaca > 100 bpm".
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'SIRS heart-rate criterion (ACCP/SCCM 1992, Bone RC et al., Chest 1992;101:1644-55): heart rate >
+      90/min. Docstring intends the common tachycardia threshold HR > 100 bpm.'
+    detail_file: sepse-batch4.yaml
+  escalations:
+  - item_id: ESC-P1-041
+    band: P1
+    title: SEPSE v3 criterio_13 - tachycardia (minor, wrong column)
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - no noradrenaline
+      (6h) AND heart rate > 100 bpm in last 6h. - **Deviation:** DISCREPANCY - filters fr (frequencia respiratoria)
+      instead of fc (frequencia cardiaca) despite docstring "Frequencia cardiaca > 100 bpm". - **Clinical relevance:**
+      Extraction-flagged DISCREPANCY confirmed. Code filters balanco.fr (frequencia '
+- id: RULE-SEPSE-020
+  name: SEPSE v3 criterio_14 - respiratory alkalosis/hypoxemia spontaneous vent (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND spontaneous ventilation AND (PaCO2<32 OR PaO2/FiO2<300).
+  inputs:
+  - evolucao.diurna_pco2, diurna_po2, diurna_fio2, diurna_ventilacao (float / string, mmHg / ratio)
+  outputs:
+  - criterio_14 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  (evolucao.diurna_ventilacao.strip().lower()\
+    \ in get_ventilacao(\"ventilacao_espontanea\")) if evolucao.diurna_ventilacao else False,\n  any([ get_number(diurna_pco2)\
+    \ < 32,\n        (get_number(diurna_po2) / get_number(diurna_fio2) < 300) if get_number(diurna_fio2) > 0 else\
+    \ False ]),\n]) if balanco_6h else False\n"
+  edge_cases: Division guarded by fio2>0. P/F uses raw diurna_po2/diurna_fio2 (fio2 as fraction vs percent not normalized).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-114
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 803-842
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Guard uses only balanco_6h truthiness; ultima_evolucao may be None (AttributeError risk if no evolucao
+    but balanco exists).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'SIRS PaCO2 criterion (ACCP/SCCM 1992): PaCO2 < 32 mmHg. Respiratory dysfunction PaO2/FiO2 < 300:
+      SOFA respiratory component (Vincent 1996, P/F<300 = 2pts) and ARDS Berlin Definition (JAMA 2012;307:2526).
+      P/F ratio = PaO2 (mmHg) / FiO2 as a DECIMAL FRACTION (0.21-1.0); if FiO2 is a percentage it must be divided
+      by 100 first.'
+    detail_file: sepse-batch4.yaml
+  escalations:
+  - item_id: ESC-P1-042
+    band: P1
+    title: SEPSE v3 criterio_14 - respiratory alkalosis/hypoxemia spontaneous vent (minor)
+    excerpt: '*`sepse` · `alert-threshold` · OK/DISCREPANCY*  - **Legacy:** No noradrenaline (6h) AND spontaneous
+      ventilation AND (PaCO2<32 OR PaO2/FiO2<300). - **Clinical relevance:** Independent verdict overrides extraction
+      status OK: the equation form and both cutoffs (PaCO2<32 mmHg, P/F<300) match the references, BUT two reference-relevant
+      computation defects exist. (1) PaCO2 branch: handlers.get_number(bla'
+- id: RULE-SEPSE-021
+  name: SEPSE v3 criterio_15 - leukocytosis/leukopenia/bandemia/CRP (minor)
+  category: alert-threshold
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: 'Intended - no noradrenaline (6h) AND (leukocytes>12000 OR <4000 OR bands>10% OR PCR>100) in 24h.
+    Parses leukocytes (strip . and ,) and bands (strip %) to float.
+
+    '
+  inputs:
+  - evolucao.diurna_leucocitos, diurna_bastoes, diurna_pcr (string parsed to float, /mm3 / % / mg/L)
+  outputs:
+  - criterio_15 (boolean)
+  logic: "evolucao_24h = evolucoes(dt>=now-24h, leucocitos not null, bastoes not null)\n                 .exclude(leucocitos\
+    \ in {\"\", \" \", \",\"}).exclude(bastoes in {\"\", \" \", \",\"})\n                 .annotate(leucocitos=Cast(replace(replace(diurna_leucocitos,\"\
+    .\",\"\"),\",\",\"\"), Float),\n                           bastoes   =Cast(replace(replace(diurna_bastoes,\"\
+    %\",\"\"),\",\",\".\"), Float))\nreturn all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  evolucao_24h.filter(Q(leucocitos__gt=12000)\
+    \ | Q(leucocitos__lt=4000) | Q(bastoes__gt=10)).exists(),\n  evolucao_24h.filter(diurna_pcr__gt=100).exists(),\
+    \          # PCR ANDed, docstring says OR\n]) if balanco_6h else False\n"
+  edge_cases: 'Requires BOTH a WBC/band abnormality AND PCR>100 (two separate all([]) entries), so PCR is a mandatory
+    co-condition, not an alternative. leucocitos parse removes both "." and "," (thousands), bastoes removes "%"
+    and converts decimal comma.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  divergence: DISCREPANCY - PCR>100 is AND-combined with the leukocyte/band clause; docstring lists all four as
+    OR alternatives.
+  merged_from:
+  - RULE-sepse-BE-03-115
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 844-913
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: DISCREPANCY - PCR>100 is AND-combined with the leukocyte/band clause; docstring lists all four as OR alternatives.
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: 'ACCP/SCCM Consensus Conference (Bone RC et al., 1992) SIRS/sepsis criteria: WBC >12,000/mm3 OR <4,000/mm3
+      OR >10% immature (band) forms — one of the four SIRS criteria (Sepsis-2). CRP >100 mg/L is NOT a SIRS component
+      (institutional add-on).'
+    detail_file: sepse-batch5.yaml
+  escalations:
+  - item_id: ESC-P1-043
+    band: P1
+    title: SEPSE v3 criterio_15 - leukocytosis/leukopenia/bandemia/CRP (minor)
+    excerpt: '*`sepse` · `alert-threshold` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Intended - no noradrenaline
+      (6h) AND (leukocytes>12000 OR <4000 OR bands>10% OR PCR>100) in 24h. Parses leukocytes (strip . and ,) and
+      bands (strip %) to float. - **Deviation:** DISCREPANCY - PCR>100 is AND-combined with the leukocyte/band clause;
+      docstring lists all four as OR alternatives. - **Clinical relevance:** Confirms t'
+- id: RULE-SEPSE-022
+  name: SEPSE v3 criterio_16 - prolonged capillary refill (minor, new onset)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND TEC>3s in last 24h AND not TEC>3s before 24h (new onset).
+  inputs:
+  - evolucao.tempo_enchimento_capilar (float, seconds)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_16 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  evolucao_24h(dt>=now-24h).filter(tempo_enchimento_capilar__gt=3).exists(),\n\
+    \  not evolucao_mais_24h(dt<now-24h).filter(tempo_enchimento_capilar__gt=3).exists(),\n]) if balanco_6h and\
+    \ evolucao_24h else False\n"
+  edge_cases: tempo_enchimento_capilar is CharField; DB __gt=3 comparison backend-dependent.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-116
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 915-942
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ANDROMEDA-SHOCK trial (Hernandez G et al., JAMA 2019) and ANDROMEDA-SHOCK-2 (JAMA 2025): capillary
+      refill time (CRT) >3 seconds defined as abnormal peripheral perfusion in septic shock.'
+    detail_file: sepse-batch5.yaml
+  escalations: []
+- id: RULE-SEPSE-023
+  name: SEPSE v3 criterio_17 - enteral tube with adequate GCS (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No invasive vent AND GCS>=13 AND nasoenteral tube prescription in last 12h.
+  inputs:
+  - evolucao.diurna_glasgow, diurna_ventilacao (float / string, GCS)
+  - cpoe.passagem_sonda_naso, cpoe.vent_mecanica_invasiva (float)
+  outputs:
+  - criterio_17 (boolean)
+  logic: "return all([\n  any([ not get_number(cpoe.vent_mecanica_invasiva),\n        (not evolucao.diurna_ventilacao.strip().lower()\
+    \ in get_ventilacao(\"ventilacao_mecanica_invasiva\")) if evolucao.diurna_ventilacao else False ]),\n  get_number(evolucao.diurna_glasgow)\
+    \ >= 13,\n  cpoe_12h.filter(passagem_sonda_naso__gt=0).exists(),\n]) if ultima_cpoe and ultima_evolucao else\
+    \ False\n"
+  edge_cases: Note this is the only sepse minor with no noradrenaline gate.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-117
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 944-978
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published guideline defines 'nasoenteral tube prescription + GCS>=13 + no invasive
+      ventilation' as a sepsis screening criterion. GCS 13-15 = mild impairment is standard (Teasdale & Jennett
+      1974), but the composite is an internal institutional risk indicator (enteral device as potential infection/aspiration
+      source in a patient with adequate consciousness).
+    detail_file: sepse-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-198
+    band: UNVERIFIABLE
+    title: SEPSE v3 criterio_17 - enteral tube with adequate GCS (minor)
+    excerpt: Internal business rule; no primary clinical reference sets this composite as a sepsis marker. Logic
+      is internally consistent with its own docstring (verified by trace). GCS>=13 boundary and the invasive-vent
+      exclusion behave as…
+- id: RULE-SEPSE-024
+  name: SEPSE v3 criterio_18 - central line > 7 days (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND CVC or CDL present in an evolution older than 7 days.
+  inputs:
+  - evolucao.enf_cvc, evolucao.enf_cdl (float)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_18 (boolean)
+  logic: "evolucao_7dias = evolucoes(dt < now-7d)\nreturn all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n\
+    \  evolucao_7dias.filter(Q(enf_cvc__gt=0) | Q(enf_cdl__gt=0)).exists(),\n]) if evolucao_7dias and balanco_6h\
+    \ else False\n"
+  edge_cases: More-than-7-days implemented as existence of any evolution record older than 7d with the device flagged.
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-118
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 980-1001
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'CDC/HICPAC Guidelines for the Prevention of Intravascular Catheter-Related Infections (O''Grady
+      NP et al., 2011): central venous catheters are a recognized source of bloodstream infection, but routine replacement
+      to prevent infection is explicitly NOT recommended — no authoritative dwell-time cutoff (e.g. 7 days) is defined
+      as a sepsis-risk threshold.'
+    detail_file: sepse-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-199
+    band: UNVERIFIABLE
+    title: SEPSE v3 criterio_18 - central line > 7 days (minor)
+    excerpt: The premise (CVC/CDL as an infection source) is guideline-supported, but the specific >7-day dwell
+      cutoff is an internal institutional threshold with no published anchor (CDC in fact discourages fixed replacement
+      intervals). Lo…
+- id: RULE-SEPSE-025
+  name: SEPSE v3 criterio_19 - femoral central line > 5 days (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND CVC/CDL in femoral site (VFD/VFE) in evolution older than 5 days.
+  inputs:
+  - evolucao.enf_cvc + enf_cvc_local, enf_cdl + enf_cdl_local (float + string)
+  - regiao_femural (tuple {VFD, VFE})
+  outputs:
+  - criterio_19 (boolean)
+  logic: "regiao_femural = (\"VFD\", \"VFE\")\nevolucao_5dias = evolucoes(dt < now-5d)\nreturn all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n\
+    \  evolucao_5dias.filter(Q(enf_cvc__gt=0, enf_cvc_local__in=regiao_femural)\n                        | Q(enf_cdl__gt=0,\
+    \ enf_cdl_local__in=regiao_femural)).exists(),\n]) if evolucao_5dias and balanco_6h else False\n"
+  edge_cases: Femoral site codes hardcoded VFD/VFE (veia femoral direita/esquerda).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-119
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 1003-1028
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'CDC/HICPAC 2011 catheter guidelines and Marik PE et al. (Crit Care Med 2012 meta-analysis): femoral
+      venous access carries higher infection/thrombosis risk and femoral placement should be avoided when possible.
+      No authoritative source defines a specific >5-day femoral dwell cutoff as a sepsis-risk threshold.'
+    detail_file: sepse-batch5.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-200
+    band: UNVERIFIABLE
+    title: SEPSE v3 criterio_19 - femoral central line > 5 days (minor)
+    excerpt: Femoral-site higher-infection-risk premise is guideline-supported (CDC/HICPAC, Marik meta-analysis),
+      but the specific >5-day dwell cutoff and the hardcoded VFD/VFE site codes are internal institutional parameters
+      with no publis…
+- id: RULE-SEPSE-026
+  name: SEPSE v3 criterio_20 - recent abdominal surgery (minor)
+  category: alert-threshold
+  type: threshold
+  status: OK
+  verify: true
+  description: No noradrenaline (6h) AND recent surgery flag present in latest evolution.
+  inputs:
+  - evolucao.enf_cirurgia_recente (float)
+  - balanco.qt_vol_nora (float, ml/h)
+  outputs:
+  - criterio_20 (boolean)
+  logic: "return all([\n  not balanco_6h.filter(qt_vol_nora__gt=0).exists(),\n  get_number(ultima_evolucao.enf_cirurgia_recente),\n\
+    ]) if ultima_evolucao and balanco_6h else False\n"
+  edge_cases: Uses generic enf_cirurgia_recente flag (not abdominal-specific despite docstring).
+  confidence: high
+  related:
+  - RULE-SEPSE-002
+  - RULE-SEPSE-058
+  merged_from:
+  - RULE-sepse-BE-03-120
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_automatica/models/trilhas_v3/trilha_sepse.py
+    lines: 1030-1051
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: No authoritative published scale assigns a discrete sepsis-screening weight to a generic 'recent
+      surgery' flag; recent/major surgery is a recognized sepsis RISK FACTOR / source (Surviving Sepsis Campaign
+      2021, Evans L et al., Crit Care Med 2021;49(11):e1063-e1143; CDC Adult Sepsis Event) but not a scored SIRS/qSOFA/Sepsis-3
+      criterion. The noradrenaline-absence gate is an institutional construct.
+    detail_file: sepse-batch6.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-201
+    band: UNVERIFIABLE
+    title: SEPSE v3 criterio_20 - recent abdominal surgery (minor)
+    excerpt: 'Institutional business rule (minor criterion in v3 automatic pathway). Flag for internal review: docstring
+      says ''recent ABDOMINAL surgery'' but code uses the generic enf_cirurgia_recente flag (surgical site not restricted)
+      - int…'
+- id: RULE-SEPSE-027
+  name: Sepse criterio_1 - Febre (fever)
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Sepsis screening major criterion 1 fires when the most recent vital-sign temperature exceeds 38 C
+    and was recorded within the last 24 hours.
+  inputs:
+  - sinais_vitais.temperatura (float, Celsius)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_1 (boolean)
+  logic: "temperatura = sinais_vitais.temperatura if sinais_vitais else None\nif temperatura:                  \
+    \    # falsy guard: None OR 0.0 -> return False\n    return temperatura > 38 if sinais_vitais.tempo_criacao()\
+    \ <= 24 else False\nreturn False\n"
+  edge_cases: 'temperatura == 0.0 is falsy and yields False. Strict > 38 (38.0 exactly does NOT fire). tempo_criacao()
+    uses timedelta.seconds (see RULE-balanco-BE-06-006) so it is always < 24, making the "<= 24" window guard effectively
+    always true.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-001
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 105-112
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: One of 7 "maiores" criteria. Paired with hypothermia criterio_8 (<36) which is a "menor".
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ACCP/SCCM Consensus SIRS criteria (Bone RC et al., Chest 1992;101(6):1644-55): body temperature
+      > 38 C (or < 36 C). Fever component threshold > 38 C strict.'
+    detail_file: sepse-batch6.yaml
+  escalations: []
+- id: RULE-SEPSE-028
+  name: Sepse criterio_2 - Taquipneia / dessaturacao sob O2
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 2 fires if the patient is NOT on mechanical ventilation and respiratory rate > 20,
+    OR is on O2 support and SpO2 < 96%.
+  inputs:
+  - sinais_vitais.ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.frequencia_respiratoria (int, breaths/min)
+  - sinais_vitais.saturacao_o2 (float, percent)
+  outputs:
+  - criterio_2 (boolean)
+  logic: 'branch_A = (ventilacao != "mecanica" if ventilacao else True) AND (frequencia_respiratoria > 20 if frequencia_respiratoria
+    else False)
+
+    branch_B = (ventilacao == "suporte_o2" if ventilacao else False) AND (saturacao_o2 < 96 if saturacao_o2 else
+    False)
+
+    return any([branch_A if sinais_vitais else False, branch_B if sinais_vitais else False])
+
+    '
+  edge_cases: 'If ventilacao is null, branch_A treats it as "not mechanical" (True). FR strict > 20. SpO2 strict
+    < 96. Falsy FR/SpO2 (None or 0) fail their sub-conditions.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-002
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 114-142
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Branch_B (suporte_o2 AND SpO2<96) is duplicated verbatim as one branch of criterio_6.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: 'ACCP/SCCM SIRS respiratory criterion (Bone RC et al., Chest 1992): respiratory rate > 20 breaths/min.
+      SpO2 < 96% under O2 support is an institutional refinement (not a SIRS element; consistent with hypoxemia
+      surveillance / NEWS2 supplemental-O2 flag).'
+    detail_file: sepse-batch6.yaml
+  escalations: []
+- id: RULE-SEPSE-029
+  name: Sepse criterio_3 - Escalonamento de suporte ventilatorio
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 3 fires if current ventilation is mechanical while the previous vital-sign reading
+    was room air, OR current ventilation is O2 support (within a 24h window guard).
+  inputs:
+  - sinais_vitais.ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.anterior(nr_atendimento).ventilacao (enum, ambiente|suporte_o2|mecanica)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_3 (boolean)
+  logic: 'anterior = sinais_vitais.anterior(nr_atendimento) if sinais_vitais else None
+
+    branch_A = (ventilacao == "mecanica") AND (anterior.ventilacao == "ambiente" if anterior else False)
+
+    branch_B = (ventilacao == "suporte_o2") if sinais_vitais.tempo_criacao() <= 24 else False
+
+    return any([branch_A, branch_B]) if sinais_vitais else False
+
+    '
+  edge_cases: 'anterior is the SECOND most recent reading (index [1]) per RULE-balanco-BE-06-007; if fewer than
+    2 readings exist, anterior is None. tempo_criacao <= 24 always true (see RULE-balanco-BE-06-006) so branch_B
+    reduces to ventilacao == "suporte_o2".
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-003
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 144-166
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Major criterion.
+  verification:
+    verdict: UNVERIFIABLE
+    clinical_impact: n/a
+    reference: 'No authoritative published sepsis scale defines a discrete ''ventilatory-support escalation'' criterion
+      with these exact transitions (mechanical-after-room-air OR current O2-support). Related concept only: new/increased
+      supplemental-oxygen requirement scores in NEWS2 (Royal College of Physicians, 2017). The specific escalation
+      logic is institutional.'
+    detail_file: sepse-batch6.yaml
+  escalations:
+  - item_id: ESC-UNVERIFIABLE-194
+    band: UNVERIFIABLE
+    title: Sepse criterio_3 - Escalonamento de suporte ventilatorio
+    excerpt: 'Institutional respiratory-escalation major criterion; no primary published reference to grade its
+      thresholds/transitions. Flag for internal review. Internal-implementation notes (not reference discrepancies):
+      ''anterior'' is the …'
+- id: RULE-SEPSE-030
+  name: Sepse criterio_4 - Tempo de enchimento capilar > 5s
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 4 fires when the linked nursing evolution's physical exam lists 'tec_5s' (capillary
+    refill time > 5 seconds).
+  inputs:
+  - evolucao.exame_fisico.tipos_exame (array[enum])
+  outputs:
+  - criterio_4 (boolean)
+  logic: "tipos_exames = evolucao.exame_fisico.tipos_exame if (evolucao and hasattr(evolucao, \"exame_fisico\"))\
+    \ else []\nif tipos_exames:\n    return \"tec_5s\" in tipos_exames\nreturn False\n"
+  edge_cases: Returns False if no evolucao, no exame_fisico relation, or empty list.
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-004
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 168-176
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: The 'tec_5s' choice is defined in FormularioChoices.tipo_exame() with label "TEC > 5s".
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: low
+    reference: 'Capillary refill time (CRT): normal <= 3 s; CRT > 3 s is the perfusion-abnormality / hypoperfusion
+      target used in ANDROMEDA-SHOCK (Hernandez G et al., JAMA 2019;321(7):654-664) and the ANDROMEDA-SHOCK-2 protocol.
+      Legacy fires only at CRT > 5 s.'
+    detail_file: sepse-batch6.yaml
+  escalations:
+  - item_id: ESC-P2-064
+    band: P2
+    title: Sepse criterio_4 - Tempo de enchimento capilar > 5s
+    excerpt: Legacy fires this major criterion only at CRT > 5 s, whereas the published perfusion-abnormality threshold
+      is > 3 s (ANDROMEDA-SHOCK). Patients with moderately prolonged CRT (3-5 s), an evidence-based marker of hypoperfusion,
+      do NOT trigger the criterion, p…
+- id: RULE-SEPSE-031
+  name: Sepse criterio_5 - Hipotensao
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 5 fires when systolic BP (PAS) < 90 mmHg, or diastolic BP (PAD) < 60 mmHg, on the
+    most recent reading within 24h.
+  inputs:
+  - sinais_vitais.pas (float, mmHg)
+  - sinais_vitais.pad (float, mmHg)
+  - sinais_vitais.tempo_criacao() (float, hours)
+  outputs:
+  - criterio_5 (boolean)
+  logic: 'branch_A = (pas < 90) if (pas and tempo_criacao() <= 24) else False
+
+    branch_B = (pad < 60) if (pad and tempo_criacao() <= 24) else False
+
+    return any([branch_A, branch_B]) if sinais_vitais else False
+
+    '
+  edge_cases: 'Strict < 90 / < 60. pas/pad == 0 falsy -> sub-branch False. tempo_criacao <= 24 always true (RULE-balanco-BE-06-006).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-005
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 178-194
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Major criterion.
+  verification:
+    verdict: VERIFIED
+    clinical_impact: none
+    reference: Surviving Sepsis Campaign / Sepsis-2 severe-sepsis criteria - sepsis-induced hypotension = SBP <
+      90 mmHg (or MAP < 70/65 mmHg, or SBP drop > 40 mmHg). Dellinger RP et al., SSC 2012, Crit Care Med.
+    detail_file: sepse-batch7.yaml
+  escalations: []
+- id: RULE-SEPSE-032
+  name: Sepse criterio_6 - Oliguria (sonda) ou dessaturacao
+  category: clinical-scoring
+  type: threshold
+  status: OK
+  verify: true
+  description: Major criterion 6 fires if the last fluid-output was catheter diuresis (diurese_sonda) with volume
+    <= 100 recorded within the last 2 hours, OR patient on O2 support with SpO2 < 96%.
+  inputs:
+  - balanco.ultima_saida().tipo (enum)
+  - balanco.ultima_saida().quantidade (float, mL)
+  - balanco.ultima_saida().criado_em (datetime)
+  - sinais_vitais.ventilacao (enum)
+  - sinais_vitais.saturacao_o2 (float, percent)
+  outputs:
+  - criterio_6 (boolean)
+  logic: "branch_A = all([\n    ultima_saida.tipo == \"diurese_sonda\",\n    ultima_saida.quantidade <= 100,\n \
+    \   (timezone.now() - ultima_saida.criado_em).seconds / 3600 < 2,\n]) if (sinais_vitais and balanco.saidas.exists())\
+    \ else False\nbranch_B = (ventilacao == \"suporte_o2\" if ventilacao else False) AND (saturacao_o2 < 96 if saturacao_o2\
+    \ else False)\nreturn any([branch_A, branch_B])\n"
+  edge_cases: 'quantidade <= 100 uses the raw units stored (mL assumed). The 2-hour recency check uses timedelta.seconds/3600
+    (only the intra-day seconds component, 0-86399) so an output older than 24h wraps and may spuriously satisfy
+    "< 2". quantidade could be null (default 0) -> 0 <= 100 True.
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  merged_from:
+  - RULE-sepse-BE-06-006
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 196-227
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: Branch_B duplicates criterio_2 branch_B. Recency uses .seconds (same bug family as RULE-balanco-BE-06-006).
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: KDIGO AKI 2012 & SSC severe-sepsis organ-dysfunction criteria - oliguria = urine output < 0.5 mL/kg/h
+      for >=2 consecutive hours (weight- and time-normalized). NEWS2 SpO2 target range 94-98%.
+    detail_file: sepse-batch7.yaml
+  escalations:
+  - item_id: ESC-P1-018
+    band: P1
+    title: Sepse criterio_6 - Oliguria (sonda) ou dessaturacao
+    excerpt: '*`sepse` · `clinical-scoring` · OK/DISCREPANCY*  - **Legacy:** Major criterion 6 fires if the last
+      fluid-output was catheter diuresis (diurese_sonda) with volume <= 100 recorded within the last 2 hours, OR
+      patient on O2 support with SpO2 < 96%. - **Clinical relevance:** Oliguria branch_A diverges from the KDIGO/SSC
+      definition on THREE audited dimensions: (a) uses a fixed absolute volume (<=100 mL)'
+- id: RULE-SEPSE-033
+  name: Sepse criterio_7 - Variacao do nivel de consciencia
+  category: clinical-scoring
+  type: threshold
+  status: DISCREPANCY
+  verify: true
+  description: Major criterion 7 compares previous vs current consciousness level via a numeric severity hierarchy
+    and returns True when the PREVIOUS severity rank is greater than the current rank.
+  inputs:
+  - sinais_vitais.nv_consciencia (current) (enum, acordado|sonolencia|agitacao|convulsao|reage_verbal|reage_tatil|coma)
+  - sinais_vitais.anterior(nr_atendimento).nv_consciencia (previous) (enum, same)
+  outputs:
+  - criterio_7 (boolean)
+  logic: "H = {acordado:1, sonolencia:2, agitacao:3, convulsao:3, reage_verbal:4, reage_tatil:5, coma:6}\nanterior\
+    \ = H.get(previous.nv_consciencia)      # None if no previous reading\natual    = H.get(current.nv_consciencia)\n\
+    if anterior and atual is not None:\n    return anterior > atual                    # fires when previous rank\
+    \ > current rank\nreturn False\n"
+  edge_cases: 'Guard uses `if anterior and atual is not None`. anterior truthiness excludes rank None; note rank
+    0 impossible so fine. Requires at least 2 readings (anterior via index [1]).
+
+    '
+  confidence: high
+  related:
+  - RULE-SEPSE-003
+  - RULE-SEPSE-005
+  divergence: 'DISCREPANCY: In hierarquia_consciencia higher number = worse (coma=6, acordado=1). Returning `anterior
+    > atual` (previous worse than current) fires on clinical IMPROVEMENT, not deterioration. A worsening-detection
+    criterion would expect `atual > anterior`. Recorded verbatim; direction appears inverted.
+
+    '
+  merged_from:
+  - RULE-sepse-BE-06-007
+  sources:
+  - repo: ahlabs-trilhas
+    path: trilha_homecare/models/sepse.py
+    lines: 229-254
+    commit: 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f
+    role: primary
+  notes: 'DISCREPANCY: In hierarquia_consciencia higher number = worse (coma=6, acordado=1). Returning `anterior
+    > atual` (previous worse than current) fires on clinical IMPROVEMENT, not deterioration. A worsening-detection
+    criterion would expect `atual > anterior`. Recorded verbatim; direction appears inverted.
+
+    '
+  verification:
+    verdict: DISCREPANCY
+    clinical_impact: moderate
+    reference: Sepsis-3 (Singer M et al., JAMA 2016) & qSOFA - altered mental status / DECLINE in level of consciousness
+      (e.g. GCS < 15) is a marker of sepsis-associated organ dysfunction; the deterioration is the signal to detect.
+    detail_file: sepse-batch7.yaml
+  escalations:
+  - item_id: ESC-P1-019
+    band: P1
+    title: Sepse criterio_7 - Variacao do nivel de consciencia
+    excerpt: '*`sepse` · `clinical-scoring` · DISCREPANCY/DISCREPANCY*  - **Legacy:** Major criterion 7 compares
+      previous vs current consciousness level via a numeric severity hierarchy and returns True when the PREVIOUS
+      severity rank is greater than the current rank. - **Deviation:** DISCREPANCY: In hierarquia_consciencia higher
+      number = worse (coma=6, acordado=1). Returning `anterior > atual` (previous worse '

@@ -512,7 +512,7 @@ class MLLPProtocol(asyncio.Protocol):
 
 
 async def run_mllp_listener(
-    host: str = "0.0.0.0",  # noqa: S104 -- binding all interfaces is required for containerized deployment
+    host: str = "0.0.0.0",  # nosec B104  # noqa: S104 -- binding all interfaces is required for containerized deployment
     port: int = 2575,
     api_url: str = "http://api:8000/api/v1",
 ) -> None:
@@ -567,7 +567,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",  # noqa: S104 -- default binds all interfaces for containerized deployment
+        default="0.0.0.0",  # nosec B104  # noqa: S104 -- default binds all interfaces for containerized deployment
         help="Bind address (default: 0.0.0.0)",
     )
     parser.add_argument(

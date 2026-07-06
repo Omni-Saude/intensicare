@@ -31,14 +31,29 @@ sources:
     feeds_domains: [early_warning_scores, sepsis_qsofa, respiratory, hemodynamic]
     freshness_slo: "p95 30min (AMH Gold batch, ADR001-F-02)"
     staleness_max_for_alerting: "30min"
+    role: analytical      # SOLE analytical source of truth for vitals (retrospective scoring + fact_* write-back).
     fallback: >-
-      Batch cannot meet VIS-C-09 (<30s) for bedside early-warning scores — this is the Alternativa-B
-      trigger (§6, ADR001-F-02/F-08). Interim: read vitals from the operational MLLP feed
-      (vitals_operational) for NRT scoring; hold vitals_gold as the analytical/replay source only.
+      Batch cannot meet VIS-C-09 (<30s) for bedside early-warning scores. Sanctioned resolution (pending
+      ratification, RAT-INGRESS-01): bedside vitals arrive sub-batch via the operational MLLP ingress
+      (vitals_operational) for LIVE NRT scoring, while vitals_gold remains the SOLE analytical/replay source —
+      see docs/plan/_work/adrs/operational-vitals-ingress.md and system-architecture.md §3.3. These are one
+      operational (live) path + one analytical (canonical/replay) path for the same signal, NOT two analytical
+      sources. If that scope clarification is rejected, this reverts to the Alternativa-B trigger
+      (§6 T1, ADR001-F-02/F-08).
   - source: vitals_operational
     description: >-
       Same vital-sign parameters arriving sub-batch via the HL7 v2 MLLP listener (VIS-2-05) into the
       vital_sign hypertable. Drives near-real-time MEWS/NEWS2/qSOFA (US-01/02/03, IMP-2.2-01..03).
+    ingress_class: operational      # operational telemetry ingress — NOT an analytical Gold/Athena read.
+    role: live_scoring_accelerator  # live NRT path only; never a system of record (ADR001-C-03).
+    adr_scope_note: >-
+      This operational MLLP ingress is OUTSIDE the scope of ADR001-C-01's "no own ingestion / Athena-only"
+      clause, which governs ANALYTICAL + clinical-context data (labs/meds/demographics/documents) ONLY. Bedside
+      vitals are operational telemetry, idempotent on MSH-10 (INV-2). Scope clarified in
+      docs/plan/_work/adrs/operational-vitals-ingress.md (RAT-INGRESS-01 — proposed, pending platform-team
+      ratification) and system-architecture.md §3.3. Gold remains the SOLE analytical source: the same vitals
+      are ALSO delivered to and replayed from Gold (vitals_gold) for retrospective/analytical scoring + the
+      fact_* write-back. No new ingestion stack (NiFi/Kafka/Debezium excluded, ADR001-F-10).
     feeds_domains: [early_warning_scores, sepsis_qsofa]
     freshness_slo: "p95 <5s vitals stored (IMP-2.2-01)"
     staleness_max_for_alerting: "5min"
@@ -48,15 +63,42 @@ sources:
       vital arrives (avoids alerting on a frozen value). Dead-man's-switch health check fires (IMP-C-05).
   - source: mpi_demographics
     description: >-
-      Patient identity + demographics from the AMH Master Patient Index (mpi.patients.master_patient_id),
-      synced into patient_cache. mpi_id is the SOLE patient key — no local ids minted (ADR001-C-02/CON-0002).
-    feeds_domains: [identity, all]
+      ADVISORY patient identity + demographics from the AMH Master Patient Index
+      (mpi.patients.master_patient_id), synced into patient_cache. mpi_id is the SOLE patient key — no local
+      ids minted (ADR001-C-02/CON-0002). Covers name / gender / birth_date / admission context ONLY. The
+      load-bearing bed/unit ASSIGNMENT is SPLIT OUT to its own ADT-event-driven source (bed_unit_assignment,
+      below) because a 24h staleness tolerance is unsafe for threshold resolution + routing (RT1-AMH-01).
+    feeds_domains: [identity]
     freshness_slo: "patient_cache.synced_at within 15min of MPI change (best-effort sync)"
     staleness_max_for_alerting: "24h"
     fallback: >-
-      Demographics are advisory context, never a scoring input. On stale/absent cache: re-resolve mpi_id
-      on demand from MPI; if MPI unreachable, serve last cached row with synced_at shown. Never invent an
-      identifier and never block an alert on demographics (DM-C-07). Cache flushed at discharge+30d (DM-RP-04).
+      Demographics are advisory context — never a scoring input, and never a routing or threshold key. On
+      stale/absent cache: re-resolve mpi_id on demand from MPI; if MPI unreachable, serve last cached row with
+      synced_at shown. Never invent an identifier and never block an alert on demographics (DM-C-07). Cache
+      flushed at discharge+30d (DM-RP-04).
+  - source: bed_unit_assignment
+    description: >-
+      Current bed + unit (+ Estabelecimento▸Setor▸Leito) assignment for an admitted patient, driven by ADT
+      movement events (admit / transfer / discharge). SPLIT OUT of mpi_demographics because it is LOAD-BEARING,
+      not advisory: threshold-band resolution keys on it (bed ≻ unit ≻ tenant, alert-engine.md §6) and
+      OWNER/COVERING routing keys on the setor (alert-routing.md §3.1). A stale assignment after an
+      intra-hospital transfer silently mis-thresholds AND mis-routes unit-level delivery (RT1-AMH-01).
+    feeds_domains: [threshold_resolution, routing, identity]
+    source_of_record: >-
+      AMH ADT movement stream (movimentacao-adt cluster), resolved via MPI into patient_cache.bed_id / unit.
+      Add a transfers/ADT source to the operational sync (not carried on the 24h demographics sync).
+    freshness_slo: "ADT-event-driven; patient_cache.bed_id/unit within ~2min of an admit/transfer/discharge event"
+    staleness_max_for_alerting: "15min"
+    fallback: >-
+      FAIL-SAFE, never fail-silent. On an assignment older than staleness_max (or a detected missed ADT event):
+      (1) resolve routing at the UNIT level and page the hospital-wide RESPONDER in parallel (degrade WIDER,
+      never narrower — alert-routing.md §3.2); NEVER sole-route a CRITICAL alert on a stale bed/unit binding.
+      (2) resolve thresholds to the MOST-CONSERVATIVE band across the candidate scopes — never silently apply
+      the old unit's config. (3) surface a visible "leito/unidade desatualizado" flag on the bed-board and in
+      the alert context so the bed-binding uncertainty is explicit to the clinician.
+    requirement: >-
+      REQ-AMH-ASSIGN-01 — a critical alert is NEVER sole-routed or sole-thresholded on a stale assignment; a
+      stale assignment always widens routing and conservatises thresholds, and is always flagged in the UI.
   - source: labs_sepsis
     description: >-
       Lactate, procalcitonin (PCT), WBC, blood cultures via AMH Gold / HAPI FHIR Observation +
@@ -74,12 +116,23 @@ sources:
       Lab-only source — no operational feed exists, so it is Gold-batch-bound.
     feeds_domains: [electrolytes]
     freshness_slo: "on-result / p95 30min via Gold batch (VIS-4.2-06, ADR001-F-02)"
-    staleness_max_for_alerting: "1h"
+    staleness_max_for_alerting: "30min"          # <= Gold batch worst case (ADR001-F-02); tightened from 1h (RT1-AMH-02)
+    staleness_max_for_alerting_crit: "15min"     # CRIT analytes (K+ > 6.5 VIS-3.6-02; severe Na+ derangement) — fatal in minutes-hours
+    possible_newer_result_pending: >-
+      Because staleness_max is clamped to the Gold batch worst case, a value INSIDE the window can still be
+      superseded by a newer bedside result not yet materialized in Gold. The staleness indicator spec
+      (command-center.md §6) MUST render a distinct "resultado mais recente pode estar pendente" caveat state
+      for electrolytes whenever last-seen age approaches the expected batch cadence (last-seen age vs
+      freshness_slo) — separate from the past-staleness_max `stale` badge.
     fallback: >-
-      CRIT band (e.g. K+ > 6.5, VIS-3.6-02) is fatal in minutes-hours; tighten the electrolyte lab-partition
-      Athena poll to ~1-2min to minimize the POLL stage, but source freshness stays AMH-batch-bound. This is
-      the STRONGEST Alternativa-B escape-hatch candidate (§6). On >1h staleness: badge alert `stale`, do not
-      auto-resolve an open CRIT electrolyte alert on a stale panel.
+      CRIT band (e.g. K+ > 6.5, VIS-3.6-02) is fatal in minutes-hours. staleness_max is set <= the Gold batch
+      worst case (30min; 15min for CRIT analytes) so a value is NEVER rendered UNQUALIFIED-fresh past the
+      pipeline's own worst-case delivery latency. Tighten the electrolyte lab-partition Athena poll to ~1-2min
+      to minimize the POLL stage, but source freshness stays AMH-batch-bound: the residual MVP risk — a new
+      bedside CRIT K+ can sit undelivered up to the Gold batch worst case (~30min) — is RECORDED against MOT-11,
+      not implied away as on-result latency. This remains the STRONGEST Alternativa-B escape-hatch candidate
+      (§6 T2). On >staleness_max: badge alert `stale`; never auto-resolve an open CRIT electrolyte alert on a
+      stale panel.
   - source: labs_renal
     description: >-
       Serum creatinine + hourly urine output for AKI/KDIGO staging via AMH Gold / FHIR Observation and the

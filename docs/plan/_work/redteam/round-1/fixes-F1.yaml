@@ -1,0 +1,69 @@
+agent: F1
+findings:
+  - finding_id: RT1-PATIENT-SAFETY-02
+    status: fixed
+    where:
+      - "docs/plan/_work/alerts/early-warning-scores.yaml#ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03.test_vectors (TV-5..TV-13)"
+      - "docs/plan/_work/safety/hazard-log.yaml#HAZ-002 (test-requirement spec_ref)"
+      - "docs/plan/_work/safety/hazard-log.yaml#HAZ-003 (test-requirement spec_ref)"
+      - "docs/plan/_work/safety/hazard-log.yaml#HAZ-019 (test-requirement spec_ref)"
+    note: >-
+      Added the missing SOFA sub-score boundary vectors that HAZ-002/003/019 name as verification of the
+      P0-02/03 fixes, each pinning the disputed band edge so a re-introduced off-by-one FAILS the suite:
+      TV-5 creatinina 5.0->renal 4 (closed >=5.0), TV-6 4.9->renal 3; TV-7 norepinephrine 0.10->cardio 3,
+      TV-8 0.11->cardio 4; TV-9 bilirubina 2.0->liver 2, TV-10 6.0->liver 3, TV-11 12.0->liver 4; TV-12 P/F
+      60 on vent->resp 4 and TV-13 same P/F NOT on vent->resp capped 2 (MV-gate, SOFA-C-02). Surgically
+      repointed the HAZ-002/003/019 test-requirement spec_refs to name those specific TV ids (spec_ref
+      strings only; no other hazard fields touched). YAML re-parses; full alert schema preserved;
+      check_alert_catalog 0 fail.
+  - finding_id: RT1-PATIENT-SAFETY-04
+    status: fixed
+    where:
+      - "docs/plan/_work/alerts/electrolyte.yaml#ALERT-ELY-SODIUM-01 (trigger logic + input rename delta_na_24h->delta_na_24h_trailing + TV-4/TV-7)"
+      - "docs/plan/_work/alerts/electrolyte.yaml#ALERT-ELY-SODIUM-CORRECTION-02 (trigger logic MUST-use nadir + input rename delta_na_24h->correcao_na_24h_from_nadir + TV-1..TV-5 + new TV-6 + reconciliation)"
+      - "docs/plan/clinical/domains/electrolyte.md#2 (inputs table split)"
+      - "docs/plan/clinical/domains/electrolyte.md#3.2 (delta_na_24h_trailing)"
+      - "docs/plan/clinical/domains/electrolyte.md#3.3 (correcao_na_24h_from_nadir + MUST-use prose bullet)"
+      - "docs/plan/clinical/domains/electrolyte.md#7 (OQ-3) + domain-inputs block"
+    note: >-
+      Split the one ambiguous delta_na_24h into two distinct named quantities: delta_na_24h_trailing
+      (sodio_atual - sodio_24h_atras, SODIUM-01 only) and correcao_na_24h_from_nadir (sodio_atual -
+      sodio_nadir_24h, CORRECTION-02 only). Renamed inputs + trigger logic + all affected test vectors in
+      both alerts; also corrected CORRECTION-02's own trigger prose that wrongly said "trailing 24h window"
+      (the third internal inconsistency the finding flagged) to state the from-nadir MUST-use. Added TV-6
+      Na 140->120->132 (nadir delta +12 fires critical; trailing -8 would miss), proving the nadir baseline
+      is mandatory (HAZ-031 deterministic baseline / HAZ-032 catastrophic-ODS miss). electrolyte.md states
+      the MUST-use distinction in prose (new §3.3 bullet) and in the §2 table, §7 OQ-3, and the
+      domain-inputs block. check_units + check_alert_catalog 0 fail.
+  - finding_id: RT1-PATIENT-SAFETY-03
+    status: fixed
+    where:
+      - "docs/plan/_work/alerts/neuro-sedation.yaml#ALERT-NEUROSED-PAIN-08 (severity-scaling watch->urgent; trigger logic; ppv rationale; response ack_sla; TV-1..TV-9 incl. new severe-band TV-6..TV-9; reconciliation)"
+      - "docs/plan/clinical/domains/neuro-sedation.md#3.8 (severity-scaling severe->urgent, R2 marker)"
+      - "docs/plan/clinical/domains/neuro-sedation.md#4 (evidence table pain moderate/severe rows)"
+      - "docs/plan/_work/safety/hazard-log.yaml#HAZ-004 (test-requirement mitigation + spec_ref)"
+      - "docs/plan/_work/safety/hazard-log.yaml#HAZ-005 (test-requirement mitigation + spec_ref)"
+    note: >-
+      Adopted the CONSERVATIVE option: restored a distinct URGENT escalation for severe uncontrolled pain
+      by making ALERT-NEUROSED-PAIN-08 a severity-scaling alert — SEVERE (NRS>=7 OR BPS>=10, sustained on
+      two consecutive balances) -> urgent (ack <30min); MODERATE (NRS 4-6 / BPS 7-9) -> watch. Added the two
+      scale-maximum boundary vectors (TV-6 NRS 10 -> urgent, TV-7 BPS 12 -> urgent) plus severe-floor
+      boundaries (TV-8 NRS 7, TV-9 BPS 10). Updated neuro-sedation.md §3.8 and the evidence-table pain rows
+      accordingly. Rewrote HAZ-004/HAZ-005 test-requirement mitigations (the "MUST fire grade 3" the watch
+      design foreclosed) to the restored severe->urgent behavior and repointed their spec_refs at TV-6/TV-7.
+      The whole change is marked "pending safety-officer re-check (R2)" in the alert logic/rationale/
+      reconciliation, the domain md, and both hazard mitigations. Full alert schema preserved; YAML
+      re-parses; check_alert_catalog 0 fail.
+  - finding_id: RT1-COMP-01
+    status: fixed
+    where:
+      - "docs/plan/clinical/domains/sepsis.md#3.1 (RULE-SEPSE-099 paragraph)"
+    note: >-
+      Reframed RULE-SEPSE-099 in sepsis.md §3.1 from a settled "ADOPT-CORRECTED" to RATIFY-pending, mirroring
+      the disposition record (merged.json / sepse-p3.yaml): disposition RATIFY, ADDENDUM band, ESC-ADDENDUM-349,
+      ratify_ref RAT-SEPSE-ADD-01, and explicitly a Phase-6 coverage finding so SYS-C-03 mandates a recorded
+      human RATIFY rather than silent adoption. The corrected criterio_8 wording (consistent criterio_N key
+      pattern fixing the criterio8-vs-criterio_8 typo that defaults descricao_criterio_8 to None) is stated as
+      the recommended default; the text states it is designed to that default and NOT settled until ratified.
+      No change to sepsis.yaml (out of scope); the pre-existing check_alert_catalog RATIFY-pending WARN on
+      ALERT-SEPSIS-SCREEN-01 remains and is now consistent with the design doc (0 fail).

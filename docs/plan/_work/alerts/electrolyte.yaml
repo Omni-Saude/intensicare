@@ -104,16 +104,18 @@ alerts:
         Optional glucose correction: sodio_corrigido = sodio + 0.024*(glicemia - 100 mg/dL) when glicemia > 100
         (guards pseudo-hyponatremia of hyperglycemia); bands evaluate sodio_corrigido when glicemia available.
         HYPER: critical if sodio > 160 mmol/L; urgent if sodio > 155 mmol/L (and <= 160);
-        watch if sodio > 150 mmol/L AND delta_na_24h > 5 mmol/L (rising).
+        watch if sodio > 150 mmol/L AND delta_na_24h_trailing > 5 mmol/L (rising).
         HYPO: critical if sodio < 120 mmol/L; urgent if sodio < 125 mmol/L (and >= 120);
-        watch if sodio < 130 mmol/L AND delta_na_24h <= -5 mmol/L (acute fall).
-        NOTE: the RATE-of-correction hazard is a SEPARATE alert (ALERT-ELY-SODIUM-CORRECTION-02).
-      window: PT24H             # delta_na_24h lookback; absolute value on latest result
+        watch if sodio < 130 mmol/L AND delta_na_24h_trailing <= -5 mmol/L (acute fall).
+        NOTE: delta_na_24h_trailing is the TRAILING 24h delta (sodio_atual - sodio_24h_atras) — a DISTINCT
+        quantity from correcao_na_24h_from_nadir used by ALERT-ELY-SODIUM-CORRECTION-02. The RATE-of-correction
+        (osmotic-demyelination) hazard is that SEPARATE alert and MUST NOT reuse this trailing value.
+      window: PT24H             # delta_na_24h_trailing lookback; absolute value on latest result
     inputs:
       - {name: sodio, type: quantity, unit: "mmol/L",
          source: "AMH Gold lab_result (LOINC 2951-2)", staleness_max: PT12H}
-      - {name: delta_na_24h, type: quantity, unit: "mmol/L",
-         source: "derived (sodio_atual - sodio_24h_atras)", staleness_max: PT24H}
+      - {name: delta_na_24h_trailing, type: quantity, unit: "mmol/L",
+         source: "derived (sodio_atual - sodio_24h_atras; TRAILING 24h delta — DISTINCT from the from-nadir correction quantity used by ALERT-ELY-SODIUM-CORRECTION-02)", staleness_max: PT24H}
       - {name: glicemia, type: quantity, unit: "mg/dL",
          source: "AMH Gold lab_result (glucose); optional glucose-correction context", staleness_max: PT12H}
       - {name: creatinina, type: quantity, unit: "mg/dL",
@@ -148,12 +150,12 @@ alerts:
       - {id: TV-2, kind: fire, inputs: {sodio: 118}, expected: fire, note: "Na+ 118 < 120 -> critical hyponatremia"}
       - {id: TV-3, kind: boundary, inputs: {sodio: 160}, expected: fire,
          note: "Na+ exactly 160 is NOT > 160 (critical) but IS > 155 -> urgent; guards 160/155 band edge"}
-      - {id: TV-4, kind: boundary, inputs: {sodio: 155, delta_na_24h: 2}, expected: no-fire,
-         note: "Na+ exactly 155 NOT > 155; watch needs >150 AND delta>5 (delta=2) -> no-fire; guards 155 edge"}
+      - {id: TV-4, kind: boundary, inputs: {sodio: 155, delta_na_24h_trailing: 2}, expected: no-fire,
+         note: "Na+ exactly 155 NOT > 155; watch needs >150 AND delta_na_24h_trailing>5 (trailing=2) -> no-fire; guards 155 edge"}
       - {id: TV-5, kind: fire, inputs: {sodio: 156}, expected: fire, note: "Na+ 156 > 155 -> urgent hypernatremia"}
       - {id: TV-6, kind: no-fire, inputs: {sodio: 140}, expected: no-fire, note: "normonatremia -> no-fire"}
-      - {id: TV-7, kind: fire, inputs: {sodio: 128, delta_na_24h: -7}, expected: fire,
-         note: "Na+ 128 < 130 AND acute fall -7 -> watch (acute hyponatremia trend)"}
+      - {id: TV-7, kind: fire, inputs: {sodio: 128, delta_na_24h_trailing: -7}, expected: fire,
+         note: "Na+ 128 < 130 AND acute trailing fall -7 -> watch (acute hyponatremia trend)"}
     reconciliation:
       - {existing_id: ELY-003, status: changed,
          note: "vs alert-catalog.md: hyponatremia ELY-003 absolute bands (a crit<120, b urgent<125) folded here; adds glucose-correction guard; the ELY-003c rapid-correction SAFETY band is split out to ALERT-ELY-SODIUM-CORRECTION-02."}
@@ -166,17 +168,22 @@ alerts:
     trigger:
       logic: >
         Rate-of-change safety net (bidirectional, primarily guarding over-rapid UPWARD correction of chronic
-        hyponatremia). Let delta_na_24h be the change over a trailing 24h window.
-        critical if delta_na_24h > 10 mmol/L in 24h (exceeds the osmotic-demyelination safety ceiling);
-        urgent if delta_na_24h > 8 mmol/L in 24h (approaching the ceiling).
+        hyponatremia). correcao_na_24h_from_nadir is the signed correction measured FROM the 24h nadir sodium
+        (sodio_atual - sodio_nadir_24h) — NOT the trailing sodio_atual - sodio_24h_atras (delta_na_24h_trailing)
+        used by ALERT-ELY-SODIUM-01. This alert MUST use the from-nadir quantity: an over-rapid rise off the 24h
+        nadir is the osmotic-demyelination hazard even when the net trailing 24h delta is flat or negative
+        (deterministic-baseline requirement, HAZ-031; reusing the trailing baseline can miss an ODS-range
+        correction, HAZ-032).
+        critical if correcao_na_24h_from_nadir > 10 mmol/L in 24h (exceeds the osmotic-demyelination safety ceiling);
+        urgent if correcao_na_24h_from_nadir > 8 mmol/L in 24h (approaching the ceiling).
         Highest concern when the 24h nadir sodium was < 130 mmol/L (chronic hyponatremia being corrected).
         A rapid FALL is also flagged (abs value) but the canonical ODS risk is the rapid rise.
       window: PT24H
     inputs:
       - {name: sodio, type: quantity, unit: "mmol/L",
          source: "AMH Gold lab_result (LOINC 2951-2)", staleness_max: PT6H}
-      - {name: delta_na_24h, type: quantity, unit: "mmol/L",
-         source: "derived (sodio_atual - sodio_nadir_24h; signed correction over 24h)", staleness_max: PT24H}
+      - {name: correcao_na_24h_from_nadir, type: quantity, unit: "mmol/L",
+         source: "derived (sodio_atual - sodio_nadir_24h; signed correction over 24h FROM the 24h nadir — DISTINCT from delta_na_24h_trailing; deterministic nadir baseline per HAZ-031)", staleness_max: PT24H}
     evidence:
       - {citation: "Sterns RH. Disorders of plasma sodium — overcorrection & osmotic demyelination. J Am Soc Nephrol 2015;26(9):2110-2115 (correction ceiling 8-10 mmol/L/24h) — vision §3.6 VIS-3.6-06; CON-0061 / CAT-C-01",
          rule_refs: [RULE-EQUILIBRIO-002]}
@@ -200,19 +207,21 @@ alerts:
         (água livre / DDAVP) se sobrecorreção confirmada; consultar nefrologia. Correção alvo <= 8-10 mmol/L/24h.
       ack_sla: PT5M
     test_vectors:
-      - {id: TV-1, kind: fire, inputs: {sodio: 130, delta_na_24h: 12}, expected: fire,
-         note: "Na+ rose 118->130 (+12) in 24h > 10 -> critical overcorrection (ODS risk)"}
-      - {id: TV-2, kind: fire, inputs: {sodio: 128, delta_na_24h: 9}, expected: fire,
-         note: "+9 mmol/L/24h > 8 -> urgent (approaching ceiling)"}
-      - {id: TV-3, kind: boundary, inputs: {sodio: 130, delta_na_24h: 10}, expected: fire,
-         note: "exactly +10 is NOT > 10 (critical) but IS > 8 -> urgent; guards the 10/8 band edge"}
-      - {id: TV-4, kind: boundary, inputs: {sodio: 126, delta_na_24h: 8}, expected: no-fire,
-         note: "exactly +8 is NOT > 8 -> no-fire; guards the 8 mmol/L/24h floor"}
-      - {id: TV-5, kind: no-fire, inputs: {sodio: 124, delta_na_24h: 4}, expected: no-fire,
-         note: "controlled +4 mmol/L/24h correction -> no-fire"}
+      - {id: TV-1, kind: fire, inputs: {sodio: 130, sodio_nadir_24h: 118, correcao_na_24h_from_nadir: 12}, expected: fire,
+         note: "Na+ rose from 24h nadir 118 -> 130 (+12) > 10 -> critical overcorrection (ODS risk)"}
+      - {id: TV-2, kind: fire, inputs: {sodio: 128, sodio_nadir_24h: 119, correcao_na_24h_from_nadir: 9}, expected: fire,
+         note: "+9 mmol/L/24h from nadir > 8 -> urgent (approaching ceiling)"}
+      - {id: TV-3, kind: boundary, inputs: {sodio: 130, sodio_nadir_24h: 120, correcao_na_24h_from_nadir: 10}, expected: fire,
+         note: "exactly +10 from nadir is NOT > 10 (critical) but IS > 8 -> urgent; guards the 10/8 band edge"}
+      - {id: TV-4, kind: boundary, inputs: {sodio: 126, sodio_nadir_24h: 118, correcao_na_24h_from_nadir: 8}, expected: no-fire,
+         note: "exactly +8 from nadir is NOT > 8 -> no-fire; guards the 8 mmol/L/24h floor"}
+      - {id: TV-5, kind: no-fire, inputs: {sodio: 124, sodio_nadir_24h: 120, correcao_na_24h_from_nadir: 4}, expected: no-fire,
+         note: "controlled +4 mmol/L/24h correction from nadir -> no-fire"}
+      - {id: TV-6, kind: fire, inputs: {sodio: 132, sodio_nadir_24h: 120, correcao_na_24h_from_nadir: 12, delta_na_24h_trailing: -8}, expected: fire,
+         note: "Na 140->120->132: correction FROM NADIR is +12 (120->132) > 10 -> critical ODS risk. The TRAILING delta (132-140 = -8) is a net FALL and would MISS it entirely. Proves CORRECTION-02 MUST use correcao_na_24h_from_nadir, never the trailing delta_na_24h_trailing (HAZ-031 deterministic baseline; HAZ-032 catastrophic-ODS miss)."}
     reconciliation:
       - {existing_id: ELY-003, status: extended,
-         note: "vs alert-catalog.md: extends ELY-003c ('correção rápida demais — ALERTA DE SEGURANÇA', delta_na_24h>10) into a dedicated bidirectional rate alert with an added urgent band at >8 mmol/L/24h per vision VIS-3.6-06; enforces CON-0061 / CAT-C-01."}
+         note: "vs alert-catalog.md: extends ELY-003c ('correção rápida demais — ALERTA DE SEGURANÇA', correcao_na_24h_from_nadir>10) into a dedicated bidirectional rate alert with an added urgent band at >8 mmol/L/24h per vision VIS-3.6-06; enforces CON-0061 / CAT-C-01."}
 
   - alert_id: ALERT-ELY-CALCIUM-01
     name: "Distúrbio grave do cálcio iônico — hipocalcemia/hipercalcemia"

@@ -1,9 +1,17 @@
-# IntensiCare v2 — PPV / Alarm-Fatigue Ledger (DRAFT)
+# IntensiCare v2 — PPV / Alarm-Fatigue Ledger — LEGACY-ID RECONCILIATION VIEW (DRAFT)
 # Owner: alerting-ux-specialist  ·  Co-owners at barrier C3: alert-engine-architect, analytics-etl-lead
-# Purpose: the machine-readable budget that binds every alert type to a Positive-Predictive-Value (PPV)
-#   target and an "ignored" (alarm-fatigue) ceiling, and states EXACTLY how those numbers are measured
-#   from the raise -> acknowledge -> act -> resolve lifecycle feedback (alert-engine.md sec 9;
-#   severity-model.yaml ppv_analytics). This is the instrumentation backbone of US-22/US-23/US-25.
+#
+# CANONICAL SOURCE (B3-003): the BINDING per-alert PPV budget for the v2 design is the 50-alert domain
+#   catalogs docs/plan/_work/alerts/*.yaml (each alert's `ppv_budget.target_ppv` + `est_volume_per_100_beds_day`).
+#   Those catalogs are canonical and are the ONLY set carrying est_volume, so the fleet-PPV computation AND the
+#   US-25 tuning gates bind to them. THIS FILE IS NOT THE BINDING BUDGET.
+# Purpose (re-scoped, B3-003): a LEGACY-ID RECONCILIATION / MAPPING layer only. It maps each of the 32 legacy
+#   alert-catalog ids (SEP/AKI/RESP/HEMO/DEL/ELY/DDX) to its successor ALERT-* in the canonical catalogs (see
+#   `legacy_id_map` below) and documents the measurement METHOD (how PPV / ignored / FP-per-patient-day are
+#   computed from the raise -> acknowledge -> act -> resolve lifecycle; alert-engine.md sec 9; severity-model.yaml
+#   ppv_analytics) — the instrumentation backbone of US-22/US-23/US-25. Where a legacy per-alert `ppv_target`
+#   below DIVERGES from its successor's canonical `target_ppv`, THE CANONICAL CATALOG VALUE WINS; the number kept
+#   here is the legacy reconciliation value, never a competing budget.
 #
 # STATUS: draft for C3. `measured:` blocks are null placeholders — they are populated by the analytics
 #   pipeline from live/pilot data, never hand-authored. Per-alert `ppv_target`/`ignored_max` seed from
@@ -12,7 +20,9 @@
 # Every number cites a source: CON-* ledger id, VIS-*/CAT-*/DM-*/PER-* brief fact, or US-* story.
 version: 1
 status: draft
-resolves_toward: [VIS-7.1-02, VIS-7.1-04, PER-CARLOS-02]     # PPV>=60%, fatigue<=10%, <3 FP/patient-day
+scope: legacy-id-reconciliation-view          # B3-003: NOT the binding budget
+canonical_source: "docs/plan/_work/alerts/*.yaml — the 50-alert domain catalogs (ppv_budget.target_ppv + est_volume_per_100_beds_day) are canonical + binding for v2 (B3-003)"
+resolves_toward: [VIS-7.1-02, VIS-7.1-04, PER-CARLOS-02]     # PPV>=60%, fatigue<=10%, PER-CARLOS-02 as per-patient-day FP distribution (p95<3 + >3-share<=5%)
 barrier: C3
 
 # ---------------------------------------------------------------------------------------------------
@@ -21,7 +31,13 @@ barrier: C3
 fleet_targets:
   ppv: 0.60                 # VIS-7.1-02: PPV of alerts (acionaveis/total) baseline 0.35 -> goal >= 0.60
   ignored_max: 0.10         # VIS-7.1-04: taxa de alarm fatigue (alertas ignorados/total) baseline 0.25 -> goal <= 0.10
-  fp_per_patient_day_max: 3 # CON-0088 / PER-CARLOS-02: < 3 false positives / patient-day
+  # CON-0088 / PER-CARLOS-02 "<3 falsos positivos por paciente-dia" — re-operationalized as a
+  # PER-PATIENT-DAY DISTRIBUTION metric (RT1-ALARM-FATIGUE-01): a fleet mean (total FP / census
+  # patient-days) is structurally blind to FP concentration on the sickest patients. BOTH gates
+  # below must hold; the fleet mean is retained as a diagnostic trend only, never the gate.
+  fp_patient_day_p95_max: 3           # gate (i): p95 over (patient, calendar-day) cells of dispositioned-FP count < 3
+  fp_patient_day_gt3_share_max: 0.05  # gate (ii): share of patient-days with > 3 dispositioned FP <= 5%
+  fp_per_patient_day_fleet_mean_note: "false_positive / patient_days is DIAGNOSTIC ONLY — not the PER-CARLOS-02 gate (RT1-ALARM-FATIGUE-01)"
   time_to_action_p50_max: PT15M  # VIS-7.1-03: tempo medio ate acao clinica pos-alerta 42min -> <= 15min
   baseline:                 # vision sec 7.1 baselines, rendered against actuals in US-23 dashboard
     ppv: 0.35
@@ -53,7 +69,13 @@ method:
   formulas:
     ppv:            "true_positive / (true_positive + false_positive)"                # severity-model ppv_analytics.ppv; excludes pending & ignored
     ignored_rate:   "ignored / total_raised"                                          # VIS-7.1-04
-    fp_per_patient_day: "false_positive / patient_days"                               # patient_days from occupancy census (US-23 AC1 / VIS-6.2-04)
+    # PER-CARLOS-02 / CON-0088 distribution metric (RT1-ALARM-FATIGUE-01). Unit of analysis: the
+    # (mpi_id, calendar_day) patient-day cell; patient-day cells come from the occupancy census
+    # (US-23 AC1 / VIS-6.2-04). FP = dispositioned false positive per method.classification above.
+    fp_patient_day_count: "count of dispositioned false positives per (mpi_id, calendar_day) cell"
+    fp_patient_day_p95:   "p95 over patient-day cells of fp_patient_day_count — PER-CARLOS-02 gate (i): < 3"
+    fp_patient_day_gt3_share: "share of patient-day cells with fp_patient_day_count > 3 — PER-CARLOS-02 gate (ii): <= 0.05"
+    fp_per_patient_day: "false_positive / patient_days — FLEET-MEAN DIAGNOSTIC ONLY, blind to per-patient concentration; NOT the PER-CARLOS-02 gate (RT1-ALARM-FATIGUE-01)"
     alert_burden:   "total_raised / patient_days"                                     # alertas/paciente/dia (VIS-6.2-04)
     time_to_recognition: "acknowledged_at - created_at"                              # DM-T-04
     time_to_action:      "resolved_at - created_at"                                   # VIS-7.1-03, target p50 <= PT15M
@@ -63,7 +85,49 @@ method:
   tuning_recommendation: "Per US-23 AC4, alert types are ranked by (lowest ppv x highest volume) into Fernanda's governance queue. A type whose 30d PPV < ppv_target for 2 consecutive windows raises a 'tune-me' recommendation carrying its measured ppv, volume, ack-time distribution, and the suggested threshold delta for US-26 retrospective preview."
 
 # ---------------------------------------------------------------------------------------------------
-# PER-ALERT BUDGET — the 32 existing catalog alerts (CON-SEED-10: all 32 must be reconciled).
+# LEGACY-ID -> CANONICAL ALERT-* MAP (B3-003). The BINDING target_ppv + est_volume live in the catalog
+# (docs/plan/_work/alerts/*.yaml); reproduced here as canonical_* so each legacy id resolves to its successor
+# and divergences are explicit. Where a legacy `ppv_target` (in `alerts:` below) differs from canonical_target_ppv,
+# THE CANONICAL VALUE BINDS (e.g. ELY-001 legacy 0.75 -> canonical 0.88; SEP-002 legacy 0.65 -> canonical 0.72).
+# ---------------------------------------------------------------------------------------------------
+legacy_id_map:
+  - {legacy_id: SEP-001, canonical_alert: ALERT-SEPSIS-SCREEN-01,          canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 7}
+  - {legacy_id: SEP-002, canonical_alert: ALERT-SEPSIS-ORGAN-02,           canonical_target_ppv: 0.72, canonical_est_volume_per_100_beds_day: 3}
+  - {legacy_id: SEP-003, canonical_alert: ALERT-SEPSIS-PCT-RISING-05,      canonical_target_ppv: 0.58, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: AKI-001, canonical_alert: ALERT-AKI-KDIGO-STAGE-01,        canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 5, note: "KDIGO stages 1/2/3 (AKI-001/002/003) consolidated into one banded alert"}
+  - {legacy_id: AKI-002, canonical_alert: ALERT-AKI-KDIGO-STAGE-01,        canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 5}
+  - {legacy_id: AKI-003, canonical_alert: ALERT-AKI-KDIGO-STAGE-01,        canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 5}
+  - {legacy_id: AKI-004, canonical_alert: ALERT-AKI-PROGRESSION-02,        canonical_target_ppv: 0.70, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: AKI-005, canonical_alert: ALERT-AKI-NEPHROTOXIN-03,        canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: RESP-001, canonical_alert: ALERT-RESP-ARDS-STAGING-01,     canonical_target_ppv: 0.65, canonical_est_volume_per_100_beds_day: 7, note: "ARDS leve/moderada/grave (RESP-001/002) consolidated into one banded alert"}
+  - {legacy_id: RESP-002, canonical_alert: ALERT-RESP-ARDS-STAGING-01,     canonical_target_ppv: 0.65, canonical_est_volume_per_100_beds_day: 7}
+  - {legacy_id: RESP-003, canonical_alert: ALERT-RESP-DETERIORATION-02,    canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 6}
+  - {legacy_id: RESP-004, canonical_alert: ALERT-RESP-WEANING-READY-04,    canonical_target_ppv: 0.70, canonical_est_volume_per_100_beds_day: 3}
+  - {legacy_id: HEMO-001, canonical_alert: ALERT-HEMO-SHOCK-INDEX-01,      canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 5}
+  - {legacy_id: HEMO-002, canonical_alert: ALERT-HEMO-LACTATE-CLEARANCE-02, canonical_target_ppv: 0.70, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: HEMO-003, canonical_alert: ALERT-HEMO-VASO-ESCALATION-03,  canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 3}
+  - {legacy_id: HEMO-004, canonical_alert: ALERT-HEMO-FLUID-NONRESPONSIVE-05, canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DEL-001, canonical_alert: [ALERT-NEUROSED-OVERSED-01, ALERT-NEUROSED-AGITATION-02], canonical_target_ppv: 0.65, canonical_est_volume_per_100_beds_day: 6, note: "RASS out-of-range splits into over-sedation + agitation successors"}
+  - {legacy_id: DEL-002, canonical_alert: ALERT-NEUROSED-DELIRIUM-04,      canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 5}
+  - {legacy_id: DEL-003, canonical_alert: ALERT-NEUROSED-IATRO-06,         canonical_target_ppv: 0.65, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DEL-004, canonical_alert: ALERT-NEUROSED-SCREEN-GAP-05,    canonical_target_ppv: 0.55, canonical_est_volume_per_100_beds_day: 3}
+  - {legacy_id: ELY-001, canonical_alert: ALERT-ELY-POTASSIUM-01,          canonical_target_ppv: 0.88, canonical_est_volume_per_100_beds_day: 3, note: "hyper/hypo-K (ELY-001/002) consolidated"}
+  - {legacy_id: ELY-002, canonical_alert: ALERT-ELY-POTASSIUM-01,          canonical_target_ppv: 0.88, canonical_est_volume_per_100_beds_day: 3}
+  - {legacy_id: ELY-003, canonical_alert: [ALERT-ELY-SODIUM-01, ALERT-ELY-SODIUM-CORRECTION-02], canonical_target_ppv: 0.88, canonical_est_volume_per_100_beds_day: 2, note: "delta-Na safety leg -> ALERT-ELY-SODIUM-CORRECTION-02 (0.80)"}
+  - {legacy_id: ELY-004, canonical_alert: ALERT-ELY-SODIUM-01,             canonical_target_ppv: 0.88, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: ELY-005, canonical_alert: ALERT-ELY-CALCIUM-01,            canonical_target_ppv: 0.82, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: ELY-006, canonical_alert: ALERT-ELY-MAGNESIUM-01,          canonical_target_ppv: 0.75, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DDX-001, canonical_alert: ALERT-PHARMACO-QTC-01,           canonical_target_ppv: 0.72, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DDX-002, canonical_alert: ALERT-PHARMACO-SEROTONIN-02,     canonical_target_ppv: 0.68, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DDX-003, canonical_alert: ALERT-PHARMACO-CNS-DEPRESSION-03, canonical_target_ppv: 0.63, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: DDX-004, canonical_alert: ALERT-PHARMACO-DUP-04,           canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 2}
+  - {legacy_id: DDX-005, canonical_alert: ALERT-PHARMACO-WITHDRAWAL-05,    canonical_target_ppv: 0.60, canonical_est_volume_per_100_beds_day: 1}
+  - {legacy_id: DDX-006, canonical_alert: ALERT-PHARMACO-RENALADJ-06,      canonical_target_ppv: 0.65, canonical_est_volume_per_100_beds_day: 2}
+
+# ---------------------------------------------------------------------------------------------------
+# PER-ALERT LEGACY RECONCILIATION VALUES (NON-BINDING, B3-003) — the 32 legacy catalog alerts (CON-SEED-10).
+# These `ppv_target`/`ignored_max` are the LEGACY reconciliation values; the BINDING budget is the canonical
+# catalog (see legacy_id_map + canonical_source). Where they diverge, the canonical catalog value wins.
 # severity = MAX band the alert can reach (severity-model aggregation: max-severity-wins, CON-0182).
 # safety_critical=true => the alert is on the non-relaxable list and CANNOT be silently disabled
 #   (admin-config.md sec 5, US-25 AC5, US-22 AC3). Its threshold cannot be relaxed below the published
@@ -407,9 +471,9 @@ alerts:
 
 # ---------------------------------------------------------------------------------------------------
 reconciliation:
-  con_seed_10: "All 32 existing alert-catalog ids (SEP/AKI/RESP/HEMO/DEL/ELY/DDX) are enumerated here with a PPV budget — satisfies the CON-SEED-10 duty to reconcile every existing id."
+  con_seed_10: "All 32 legacy alert-catalog ids (SEP/AKI/RESP/HEMO/DEL/ELY/DDX) are enumerated AND mapped to their canonical ALERT-* successors (legacy_id_map) — satisfying the CON-SEED-10 duty to reconcile every legacy id. B3-003: the BINDING per-alert PPV budget is the canonical catalog docs/plan/_work/alerts/*.yaml, NOT this file; this ledger is the legacy-id reconciliation view + the measurement method."
   severity_source: "Each severity is the MAX band from the catalog tier tables, mapped via severity-model.yaml existing_catalog (INFO->normal, WARN->watch, URG->urgent, CRIT->critical)."
   safety_critical_basis: "safety_critical=true covers all critical-band alerts + the ELY-003c delta-Na safety leg (CON-0061). These are the alert types admin-config.md sec 5 forbids from silent disable and non-relaxable-below-guideline."
 open_questions:
-  - "Per-alert ppv_target/ignored_max are seeded from clinical FP-tolerance reasoning, NOT measured data; C3 + clinical-guild ratification required before they bind US-25 tuning gates."
+  - "B3-003 RESOLVED: the 50-alert domain catalogs (alerts/*.yaml target_ppv + est_volume) are canonical and binding for the fleet-PPV computation and US-25 tuning gates; this ledger's per-alert ppv_target are the legacy reconciliation values only (canonical wins on divergence — e.g. ELY-001 legacy 0.75 vs canonical ALERT-ELY-POTASSIUM-01 0.88). The canonical per-alert numbers still require C3 + clinical-guild ratification before they bind, in the catalogs (not here)."
   - "Whether SEP-003 and RESP-002 (multi-severity alerts) should carry per-sub-alert budgets rather than one max-band budget — flagged for alert-engine-architect at C3."
