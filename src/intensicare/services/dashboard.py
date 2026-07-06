@@ -16,8 +16,10 @@ from intensicare.schemas.dashboard import (
     PatientBedSummary,
     PatientDetailResponse,
     ScoreHistoryPoint,
+    TripleEncodingMeta,
     VitalsHistoryPoint,
 )
+from intensicare.schemas.severity import TripleEncoder, max_severity
 
 # NEWS2 clinical risk-category thresholds (aggregate score)
 NEWS2_HIGH_RISK_THRESHOLD = 7
@@ -50,8 +52,9 @@ async def get_dashboard(
     # Get latest MEWS for each patient — use a single query with DISTINCT ON
     # or iterate. For simplicity, do a subquery approach.
     # Get all alert counts grouped by mpi_id
-    alert_counts = {}
-    alert_severities = {}
+    # P0-10: highest-severity-wins — collect ALL severities and take MAX
+    alert_counts: dict[str, int] = {}
+    alert_severities_list: dict[str, list[str]] = {}
     alert_query = (
         select(
             Alert.mpi_id,
@@ -63,15 +66,19 @@ async def get_dashboard(
     )
     alert_result = await db.execute(alert_query)
     alert_rows = alert_result.fetchall()
-    seen_mpi = set()
     for row in alert_rows:
         mpi = row[0]
         sev = row[1]
         cnt = row[2]
-        if mpi not in seen_mpi:
+        if mpi not in alert_counts:
             alert_counts[mpi] = cnt
-            alert_severities[mpi] = sev
-            seen_mpi.add(mpi)
+            alert_severities_list[mpi] = []
+        alert_severities_list[mpi].append(sev)
+
+    # P0-10: compute MAX severity per patient (never last-writer-wins)
+    alert_severities: dict[str, str | None] = {}
+    for mpi, severities in alert_severities_list.items():
+        alert_severities[mpi] = max_severity(*severities)
 
     total_alerts = sum(alert_counts.values())
 
@@ -154,6 +161,19 @@ async def get_dashboard(
             else:
                 news2_risk = "low"
 
+        # Build triple-encoding for the highest severity
+        highest_sev = alert_severities.get(p.mpi_id)
+        highest_encoding = None
+        if highest_sev:
+            enc = TripleEncoder.encode(highest_sev)
+            highest_encoding = TripleEncodingMeta(
+                color=enc["color"],
+                icon=enc["icon"],
+                shape=enc["shape"],
+                label=enc["label"],
+                description=enc["description"],
+            )
+
         bed_summaries.append(
             PatientBedSummary(
                 mpi_id=p.mpi_id,
@@ -167,6 +187,7 @@ async def get_dashboard(
                 news2_trend=news2_data[1] if news2_data else None,
                 active_alerts_count=alert_counts.get(p.mpi_id, 0),
                 highest_alert_severity=alert_severities.get(p.mpi_id),
+                highest_alert_encoding=highest_encoding,
                 last_updated=p.synced_at.isoformat() if p.synced_at else None,
             )
         )

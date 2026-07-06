@@ -2,12 +2,20 @@
 
 from intensicare.fhir.client import (
     FHIRClient,
+    FHIRLabResult,
+    FHIRMedicationAdministration,
+    FHIRMedicationOrder,
+    FHIRPatientContext,
     FHIRPatientData,
     get_fhir_client,
 )
 
 __all__ = [
     "FHIRClient",
+    "FHIRLabResult",
+    "FHIRMedicationAdministration",
+    "FHIRMedicationOrder",
+    "FHIRPatientContext",
     "FHIRPatientData",
     "get_fhir_client",
 ]

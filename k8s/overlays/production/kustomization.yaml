@@ -1,0 +1,56 @@
+---
+# =============================================================================
+# Production Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: intensicare
+
+resources:
+  - ../../base
+
+# Labels específicas de produção
+labels:
+  - pairs:
+      app.kubernetes.io/environment: production
+      intensicare.io/tier: prod
+    includeSelectors: false
+
+# Anotações de produção
+commonAnnotations:
+  intensicare.io/cost-center: "clinical-ops"
+  intensicare.io/data-classification: "production-phi"
+  intensicare.io/slo-availability: "99.5"
+
+# Patches — com target explícito
+patches:
+  - target:
+      kind: ConfigMap
+      name: intensicare-config
+    path: configmap-patch.yaml
+  - target:
+      kind: Deployment
+      name: intensicare-api
+    path: replicas-api-patch.yaml
+  - target:
+      kind: Deployment
+      name: intensicare-worker
+    path: replicas-worker-patch.yaml
+  - target:
+      kind: Deployment
+      name: intensicare-frontend
+    path: replicas-frontend-patch.yaml
+
+# Imagens com tag de produção
+images:
+  - name: intensicare-api
+    newTag: stable
+  - name: intensicare-frontend
+    newTag: stable
+
+# Gera ConfigMap a partir de arquivos
+configMapGenerator:
+  - name: intensicare-otel-config
+    files:
+      - config.yaml=otel-collector-config.yaml

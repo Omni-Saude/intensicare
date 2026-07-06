@@ -78,6 +78,31 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        # Seed algorithm_registry com as versões usadas pelos scorers.
+        # Sem isso, a FK clinical_score.algorithm_version → algorithm_registry
+        # causa IntegrityError em qualquer ingestão de vitals.
+        from datetime import datetime, timezone
+
+        from intensicare.models.algorithm_registry import AlgorithmRegistry
+
+        _now = datetime.now(timezone.utc)
+        _versions = [
+            ("MEWS-v1.0", "MEWS", "1.0.0", "mews"),
+            ("NEWS2-v1.0", "NEWS2", "1.0.0", "news2"),
+            ("SOFA-v1.0", "SOFA", "1.0.0", "sofa"),
+            ("qSOFA-v1.0", "qSOFA", "1.0.0", "qsofa"),
+        ]
+        for _ver, _type, _semver, _desc in _versions:
+            await conn.execute(
+                AlgorithmRegistry.__table__.insert().values(
+                    algorithm_version=_ver,
+                    score_type=_type,
+                    semver=_semver,
+                    spec_hash="seed",
+                    description=_desc,
+                    effective_from=_now,
+                )
+            )
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

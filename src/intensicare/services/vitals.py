@@ -14,6 +14,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.alert import Alert
@@ -24,7 +25,7 @@ from intensicare.services.alert_engine import process_clinical_score
 from intensicare.services.mews import MEWS_VERSION, calculate_mews
 from intensicare.services.news2 import calculate_news2
 from intensicare.services.qsofa import QSOFA_VERSION, calculate_qsofa
-from intensicare.services.sofa import SOFA_VERSION, calculate_sofa
+from intensicare.services.sofa import SOFA_VERSION, calculate_sofa, classify_sofa_mortality_risk
 
 # ---------------------------------------------------------------------------
 # Risk-stratification thresholds (aggregate-score cutoffs for the clinical
@@ -33,11 +34,6 @@ from intensicare.services.sofa import SOFA_VERSION, calculate_sofa
 # NEWS2 aggregate-score risk bands (mirrors NEWS2Result.risk_category)
 NEWS2_HIGH_RISK_MIN_SCORE = 7
 NEWS2_MEDIUM_RISK_MIN_SCORE = 5
-
-# SOFA aggregate-score sepsis-mortality risk bands
-SOFA_VERY_HIGH_RISK_MIN_SCORE = 11
-SOFA_HIGH_RISK_MIN_SCORE = 9
-SOFA_MODERATE_RISK_MIN_SCORE = 5
 
 # qSOFA high-risk threshold (>= 2 indicates high risk of poor outcome)
 QSOFA_HIGH_RISK_MIN_SCORE = 2
@@ -172,6 +168,47 @@ async def ingest_vitals(  # noqa: PLR0915 -- linear ingestion pipeline; splittin
 
     # 2. Persiste sinais vitais
     now = datetime.now(timezone.utc)
+
+    # ── Defesa em profundidade via chave natural Gold-poll (DB UNIQUE
+    #     constraint). Antes de inserir, verifica se o registro já existe
+    #     para o mesmo (mpi_id, recorded_at, source_system). Em caso de
+    #     race condition, o UNIQUE constraint garante integridade.
+    if data.source_system is not None:
+        stmt_lookup = select(VitalSign).where(
+            VitalSign.mpi_id == data.mpi_id,
+            VitalSign.recorded_at == data.recorded_at,
+            VitalSign.source_system == data.source_system,
+        )
+        result_lookup = await db.execute(stmt_lookup)
+        existing_vital = result_lookup.scalar_one_or_none()
+        if existing_vital is not None:
+            # Registro já existe → replay idempotente via chave natural
+            mews_score = await _get_mews_for_vital(db, existing_vital.id)
+            news2_score, news2_risk = await _get_news2_for_vital(db, existing_vital.id)
+            sofa_score, sofa_risk = await _get_sofa_for_vital(db, existing_vital.id)
+            qsofa_score, qsofa_high_risk = await _get_qsofa_for_vital(db, existing_vital.id)
+            # Armazena idempotency key se fornecida (para consistência com store)
+            if idempotency_key:
+                store.store_key(idempotency_key, existing_vital.id)
+            return (
+                VitalSignResponse(
+                    id=existing_vital.id,
+                    mpi_id=existing_vital.mpi_id,
+                    recorded_at=existing_vital.recorded_at,
+                    ingested_at=existing_vital.ingested_at,
+                    mews_score=mews_score,
+                    news2_score=news2_score,
+                    news2_risk_category=news2_risk,
+                    sofa_score=sofa_score,
+                    sofa_mortality_risk=sofa_risk,
+                    qsofa_score=qsofa_score,
+                    qsofa_is_high_risk=qsofa_high_risk,
+                    message="Idempotent replay (DB unique constraint) — vital signs already ingested",
+                ),
+                [],
+                True,
+            )
+
     vital = VitalSign(
         mpi_id=data.mpi_id,
         recorded_at=data.recorded_at,
@@ -400,7 +437,10 @@ async def _get_news2_for_vital(
 async def _get_sofa_for_vital(
     db: AsyncSession, vital_sign_id: int
 ) -> tuple[int | None, str | None]:
-    """Busca o SOFA score e mortality_risk associados a um registro de vital_sign."""
+    """Busca o SOFA score e mortality_risk associados a um registro de vital_sign.
+
+    Uses classify_sofa_mortality_risk (single source of truth — same as live path).
+    """
     stmt = select(ClinicalScore.score_value).where(
         ClinicalScore.vital_sign_id == vital_sign_id,
         ClinicalScore.score_type == "SOFA",
@@ -410,14 +450,7 @@ async def _get_sofa_for_vital(
     if row is None:
         return None, None
     score = row.score_value
-    if score >= SOFA_VERY_HIGH_RISK_MIN_SCORE:
-        risk = "Very High (>90%)"
-    elif score >= SOFA_HIGH_RISK_MIN_SCORE:
-        risk = "High (50-90%)"
-    elif score >= SOFA_MODERATE_RISK_MIN_SCORE:
-        risk = "Moderate (20-50%)"
-    else:
-        risk = "Low (<20%)"
+    risk = classify_sofa_mortality_risk(score)
     return score, risk
 
 

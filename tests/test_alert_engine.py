@@ -65,6 +65,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=5,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -86,6 +87,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=2,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -107,6 +109,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -132,6 +135,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=6,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -154,6 +158,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=8,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -177,6 +182,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -201,6 +207,7 @@ class TestCheckScoreAgainstThresholds:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=3,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -228,6 +235,7 @@ class TestProcessClinicalScore:
             mpi_id="MPI-9999",
             score_type="MEWS",
             score_value=5,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)
@@ -246,6 +254,7 @@ class TestProcessClinicalScore:
             mpi_id="MPI-1001",
             score_type="MEWS",
             score_value=6,
+            algorithm_version="MEWS-v1.0",
             calculated_at=datetime.now(timezone.utc),
         )
         db_session.add(score)

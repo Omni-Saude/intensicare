@@ -1,0 +1,20 @@
+// Re-exports from lib/api for convenience
+export type {
+  PatientBedSummary,
+  VitalsHistoryPoint,
+  ScoreHistoryPoint,
+  AlertInfo,
+  TriggeringParameter,
+  DashboardResponse,
+  PatientDetailResponse,
+  AlertListResponse,
+  HealthResponse,
+  UserResponse,
+  UserListResponse,
+  TokenResponse,
+  LoginRequest,
+  RegisterRequest,
+  AdminStatsResponse,
+  ThresholdConfigResponse,
+  ThresholdConfigUpdate,
+} from './lib/api';

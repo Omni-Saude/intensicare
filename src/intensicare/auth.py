@@ -1,18 +1,35 @@
-"""Authentication and authorization dependencies for FastAPI."""
+"""Authentication and authorization dependencies for FastAPI.
+
+Este é um stub de desenvolvimento. Em staging/production, ele é bloqueado
+e o módulo real ``intensicare.auth`` (pacote) deve ser usado.
+"""
 
 from fastapi import Depends, HTTPException, Request, status
 
-# In production, this would validate a real JWT token from a proper auth provider.
-# For now, we check for a simple Bearer token in the Authorization header.
+from intensicare.config import settings
+
+# Ambientes onde o stub é permitido (apenas desenvolvimento e testes).
+_STUB_ALLOWED_ENVIRONMENTS = frozenset({"development", "testing"})
+
+
+def _block_if_production() -> None:
+    """Levanta 403 se o ambiente não for de desenvolvimento/teste."""
+    if settings.environment not in _STUB_ALLOWED_ENVIRONMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auth stub is disabled in production — use real JWT auth module",
+        )
 
 
 async def get_current_user(request: Request) -> dict[str, str]:
     """Extract and validate the current user from the Authorization header.
 
-    Expects: Authorization: Bearer <token>
-    In production, this verifies JWTs against Keycloak or similar.
-    For development, any non-empty Bearer token is accepted.
+    Expects: Authorization: Bearer ***
+    Em desenvolvimento, qualquer token Bearer não vazio é aceito.
+    Em produção, este stub é bloqueado (403).
     """
+    _block_if_production()
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(
@@ -39,7 +56,13 @@ async def get_current_user(request: Request) -> dict[str, str]:
 
 
 async def require_admin(user: dict[str, str] = Depends(get_current_user)) -> dict[str, str]:
-    """Ensure the current user has admin role."""
+    """Ensure the current user has admin role.
+
+    Em produção, este stub é bloqueado antes mesmo de chegar aqui (via
+    get_current_user).
+    """
+    _block_if_production()
+
     if user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

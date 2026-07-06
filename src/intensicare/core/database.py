@@ -57,6 +57,14 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+async def dispose_engine() -> None:
+    """Fecha (dispose) a engine assíncrona e limpa o estado global."""
+    engine = _engine_state.engine
+    if engine is not None:
+        await engine.dispose()
+        _engine_state.engine = None
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency que fornece uma sessão de banco por request."""
     async with AsyncSessionLocal() as session:

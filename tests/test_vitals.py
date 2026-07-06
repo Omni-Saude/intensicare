@@ -163,16 +163,17 @@ async def test_idempotency_duplicate_request(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_idempotency_different_keys(client: AsyncClient):
     """Chaves de idempotência diferentes devem criar registros distintos."""
-    payload = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02"}
+    payload1 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:00:00Z"}
+    payload2 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:01:00Z"}
 
     resp1 = await client.post(
         "/api/v1/vitals",
-        json=payload,
+        json=payload1,
         headers={"X-Idempotency-Key": "key-alpha"},
     )
     resp2 = await client.post(
         "/api/v1/vitals",
-        json=payload,
+        json=payload2,
         headers={"X-Idempotency-Key": "key-beta"},
     )
 

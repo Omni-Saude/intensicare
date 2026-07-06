@@ -1,0 +1,57 @@
+---
+# =============================================================================
+# OTEL Collector Configuration — Staging
+# =============================================================================
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+exporters:
+  # AMP (Amazon Managed Prometheus) — métricas
+  prometheusremotewrite:
+    endpoint: "https://aps-workspaces.sa-east-1.amazonaws.com/workspaces/ws-CHANGEME/api/v1/remote_write"
+    auth:
+      authenticator: sigv4auth
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # X-Ray / Grafana — traces
+  awsxray:
+    region: sa-east-1
+
+  # Logging (debug)
+  logging:
+    loglevel: debug
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  health_check: {}
+  sigv4auth:
+    region: sa-east-1
+    service: aps
+
+service:
+  extensions: [health_check, sigv4auth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [awsxray, logging]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheusremotewrite]

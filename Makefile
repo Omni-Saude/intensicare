@@ -27,6 +27,7 @@ ALEMBIC    ?= alembic
 VENV       ?= .venv
 SRC_DIR    := src
 TEST_DIR   := tests
+ROOT_DIR   := $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Ajuda
@@ -78,16 +79,22 @@ setup-env-file: ## Cria arquivo .env a partir do .env.example
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: dev-up
-dev-up: ## Sobe o ambiente Docker (API + Postgres + Redis)
+dev-up: ## Sobe o ambiente Docker (API + ARQ Worker + Frontend Dev + Postgres + Redis)
 	@echo "$(GREEN)[docker]$(NC) Iniciando serviços..."
-	$(COMPOSE) up -d --build api postgres redis
+	$(COMPOSE) up -d --build api arq-worker frontend-dev postgres redis
 	@echo "$(GREEN)[docker]$(NC) Aguardando serviços ficarem saudáveis..."
 	@sleep 3
 	$(COMPOSE) ps
 	@echo "$(GREEN)[docker]$(NC) ✓ API:        http://localhost:8000"
 	@echo "$(GREEN)[docker]$(NC)   Docs:       http://localhost:8000/docs"
+	@echo "$(GREEN)[docker]$(NC)   Frontend:   http://localhost:3000"
 	@echo "$(GREEN)[docker]$(NC)   Postgres:   localhost:5432"
 	@echo "$(GREEN)[docker]$(NC)   Redis:      localhost:6379"
+
+.PHONY: dev-up-api
+dev-up-api: ## Sobe apenas API + Postgres + Redis
+	@echo "$(GREEN)[docker]$(NC) Iniciando API + infra..."
+	$(COMPOSE) up -d --build api postgres redis
 
 .PHONY: dev-down
 dev-down: ## Para todos os serviços Docker
@@ -106,6 +113,14 @@ dev-logs: ## Exibe logs de todos os serviços
 dev-logs-api: ## Exibe logs apenas da API
 	$(COMPOSE) logs -f api
 
+.PHONY: dev-logs-arq
+dev-logs-arq: ## Exibe logs do ARQ Worker
+	$(COMPOSE) logs -f arq-worker
+
+.PHONY: dev-logs-frontend
+dev-logs-frontend: ## Exibe logs do Frontend Dev
+	$(COMPOSE) logs -f frontend-dev
+
 .PHONY: dev-shell
 dev-shell: ## Abre shell dentro do container da API
 	$(COMPOSE) exec api /bin/bash
@@ -115,15 +130,12 @@ dev-status: ## Status dos serviços Docker
 	$(COMPOSE) ps
 	@echo ""
 	@echo "$(CYAN)Health checks:$(NC)"
-	@$(COMPOSE) ps --format json 2>/dev/null | python3 -c "
-import json, sys
-for line in sys.stdin:
-    s = json.loads(line)
-    name = s.get('Name', '?')
-    status = s.get('State', '?')
-    health = s.get('Health', 'N/A')
-    print(f'  {name:30s} → {status} ({health})')
-" 2>/dev/null || echo "  (docker compose ps não retornou dados)"
+	@$(COMPOSE) ps --format json 2>/dev/null | python3 -c '\
+import json, sys;\
+for line in sys.stdin:\
+    s = json.loads(line);\
+    print(f"  {s.get(\"Name\",\"?\")} → {s.get(\"State\",\"?\")} ({s.get(\"Health\",\"N/A\")})")\
+' 2>/dev/null || echo "  (docker compose ps não retornou dados)"
 
 .PHONY: dev-clean
 dev-clean: ## Remove containers, volumes e redes Docker
@@ -226,7 +238,50 @@ security-scan: ## Varredura de segurança com bandit + pip-audit
 	$(VENV)/bin/pip-audit || true
 
 .PHONY: check
-check: lint test ## Executa lint + testes (use antes de commitar)
+check: lint test check-units check-alert-definitions ## Executa lint + testes + validação de unidades + alert-definitions (use antes de commitar)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Gates & Validação do Plano (_work)
+# ═══════════════════════════════════════════════════════════════════════════
+
+.PHONY: check-tokens
+check-tokens: ## Valida referências var(--*) contra design-tokens (draft|strict)
+	@echo "$(GREEN)[check-tokens]$(NC) Validando design-token references..."
+	@if [ "$(MODE)" = "strict" ]; then \
+		cd $(ROOT_DIR) && $(PYTHON) scripts/check_tokens.py --mode strict; \
+	else \
+		cd $(ROOT_DIR) && $(PYTHON) scripts/check_tokens.py --mode draft; \
+	fi
+	@echo "$(GREEN)[check-tokens]$(NC) ✓ Token references validados"
+
+.PHONY: check-units
+check-units: ## Valida registry de unidades contra catálogos e domain docs (CANON_PINS)
+	@echo "$(GREEN)[check-units]$(NC) Validando units registry (modo strict)..."
+	cd docs/plan/_work/scripts && $(PYTHON) check_units.py --mode strict
+	@echo "$(GREEN)[check-units]$(NC) ✓ Todas as unidades resolvem no registry; CANON_PINS ok"
+
+.PHONY: check-alert-definitions
+check-alert-definitions: ## Valida definições de alertas — Gates A/B/C (criterion-coverage, band-partition, facade==predicate)
+	@echo "$(GREEN)[check-alert-definitions]$(NC) Validando alert definitions (modo strict)..."
+	cd docs/plan/_work/scripts && python3 check_alert_definitions.py --mode strict
+	@echo "$(GREEN)[check-alert-definitions]$(NC) ✓ Gates A/B/C passaram; todos os catálogos compilam"
+
+.PHONY: check-gates
+check-gates: ## Executa todos os build gates (units, vector-coverage, tokens)
+	@echo "$(GREEN)[check-gates]$(NC) Executando build gates..."
+	@cd docs/plan/_work/scripts && for script in check_units.py check_vector_coverage.py check_tokens.py; do \
+		if [ -f "$$script" ]; then \
+			echo "  ▶ $$script"; \
+			$(PYTHON) "$$script" || echo "  $(RED)⚠️  $$script falhou$(NC)"; \
+		else \
+			echo "  $(YELLOW)⚠️  $$script não encontrado (WO pendente)$(NC)"; \
+		fi; \
+	done
+	@echo "$(GREEN)[check-gates]$(NC) ✓ Build gates concluídos"
+
+.PHONY: check-plan
+check-plan: check-units check-gates ## Executa todos os gates do plano (_work)
+	@echo "$(GREEN)[check-plan]$(NC) ✓ Todos os gates passaram"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Build & Release

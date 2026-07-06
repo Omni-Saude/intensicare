@@ -38,7 +38,7 @@ class NEWS2Result:
 
     total_score: int
     components: NEWS2Components
-    algorithm_version: str = "NEWS2-v1.0"
+    algorithm_version: str = "NEWS2-v3.0.0"
 
     @property
     def risk_category(self) -> str:
@@ -102,11 +102,12 @@ def score_respiratory_rate(rr: int | None) -> int:
     )
 
 
+# CLINICALLY RATIFIED per RAT-NEWS2-SCALE-2 (AUDIT-002)
 def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
-    """Score SpO2 per NEWS2.
+    """Score SpO2 per NEWS2 (RCP 2017, corrected Scale-2 bands per AUDIT-002).
 
     Scale 1 (non-hypercapnic): ≥96=0, 94-95=1, 92-93=2, ≤91=3
-    Scale 2 (hypercapnic):     ≥93=0, 88-92=1, 86-87=2, 84-85=2, ≤83=3
+    Scale 2 (hypercapnic):     ≥93=0, 88-92=1, 86-87=2, 84-85=3, ≤83=3
     """
     if spo2 is None:
         return 0
@@ -118,7 +119,7 @@ def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
                 (93, None, 0),
                 (88, 92, 1),
                 (86, 87, 2),
-                (84, 85, 2),
+                (84, 85, 3),
                 (None, 83, 3),
             ],
         )
@@ -223,6 +224,8 @@ def calculate_news2(
         hypercapnic: Whether the patient has hypercapnic respiratory failure
                      (changes SpO2 scale from Scale 1 to Scale 2).
         supplemental_o2: Whether the patient is on supplemental oxygen.
+                         If True, Scale 2 is used automatically for SpO₂
+                         (AUDIT-002 integration, CLINICALLY RATIFIED per RAT-NEWS2-SCALE-2).
         systolic_bp: Systolic blood pressure (mmHg).
         heart_rate: Heart rate (bpm).
         avpu: Consciousness level (A=Alert, C/V/P/U=altered).
@@ -231,9 +234,12 @@ def calculate_news2(
     Returns:
         NEWS2Result with total score and component breakdown.
     """
+    # AUDIT-002 (CLINICALLY RATIFIED): if patient is on supplemental O₂, use Scale 2 automatically
+    use_scale2 = hypercapnic or bool(supplemental_o2)
+
     components = NEWS2Components(
         respiratory_rate=score_respiratory_rate(respiratory_rate),
-        spo2=score_spo2(spo2, hypercapnic=hypercapnic),
+        spo2=score_spo2(spo2, hypercapnic=use_scale2),
         supplemental_o2=score_supplemental_o2(supplemental_o2),
         systolic_bp=score_systolic_bp(systolic_bp),
         heart_rate=score_heart_rate(heart_rate),
@@ -253,4 +259,8 @@ def calculate_news2(
         ]
     )
 
-    return NEWS2Result(total_score=total, components=components)
+    return NEWS2Result(
+        total_score=total,
+        components=components,
+        algorithm_version="NEWS2-v3.0.0",
+    )

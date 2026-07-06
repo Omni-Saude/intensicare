@@ -14,6 +14,7 @@ from intensicare.services.sofa import (
     SOFAComponents,
     SOFAResult,
     calculate_sofa,
+    classify_sofa_mortality_risk,
     score_cardiovascular,
     score_coagulation,
     score_liver,
@@ -581,3 +582,131 @@ class TestCalculateSOFA:
             urine_output_ml_day=300,
         )
         assert result_low_uo.components.renal == 3
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Unified Risk Classification (WO-014 / AUDIT-003)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestClassifySOFAMortalityRisk:
+    """Tests for the unified classify_sofa_mortality_risk function."""
+
+    @pytest.mark.parametrize(
+        "score,expected",
+        [
+            (0, "low"),
+            (3, "low"),
+            (6, "low"),
+            (7, "moderate"),
+            (9, "moderate"),
+            (10, "high"),
+            (12, "high"),
+            (13, "very_high"),
+            (15, "very_high"),
+            (20, "very_high"),
+            (24, "very_high"),
+        ],
+    )
+    def test_classify_sofa_mortality_risk(self, score, expected):
+        assert classify_sofa_mortality_risk(score) == expected
+
+    def test_parity_live_equals_replay(self):
+        """Live path (SOFAResult.sepsis_mortality_risk) == replay path
+        (classify_sofa_mortality_risk) for identical total scores."""
+        for score in range(0, 25):
+            comps = SOFAComponents()
+            result = SOFAResult(total_score=score, components=comps)
+            live_risk = result.sepsis_mortality_risk
+            replay_risk = classify_sofa_mortality_risk(score)
+            assert live_risk == replay_risk, (
+                f"Parity failure at score={score}: "
+                f"live='{live_risk}' vs replay='{replay_risk}'"
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Renal = max(creatinine, urine_output) per SOFA-C-03
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRenalMaxCrUo:
+    """Explicit tests for renal_score = max(creatinine_score, urine_output_score)."""
+
+    def test_creatinine_higher_than_urine(self):
+        """When creatinine score > urine score, choose creatinine."""
+        # creatinine 4.0 (score 3 > 500 mL urine output → score 0) → max=3
+        s, status = score_renal(creatinine=4.0, urine_output_ml_day=600)
+        assert s == 3
+        assert status is None
+
+    def test_urine_higher_than_creatinine(self):
+        """When urine score > creatinine score, choose urine."""
+        # creatinine 1.0 (score 0) + urine 150 mL (score 4) → max=4
+        s, status = score_renal(creatinine=1.0, urine_output_ml_day=150)
+        assert s == 4
+        assert status is None
+
+    def test_equal_scores(self):
+        """When both scores are equal, max is that value."""
+        # creatinine 5.0 (score 4) + urine 150 mL (score 4) → max=4
+        s, status = score_renal(creatinine=5.0, urine_output_ml_day=150)
+        assert s == 4
+        assert status is None
+
+    def test_creatinine_none_urine_present(self):
+        """When only urine output is available, score from urine."""
+        s, status = score_renal(creatinine=None, urine_output_ml_day=300)
+        assert s == 3
+        assert status is None
+
+    def test_urine_none_creatinine_present(self):
+        """When only creatinine is available, score from creatinine."""
+        s, status = score_renal(creatinine=3.5, urine_output_ml_day=None)
+        assert s == 3
+        assert status is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Vasopressor rate canonical unit — RATIFIED per RAT-CLINICAL-SCORING-03
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestVasopressorRateComment:
+    """Verify the vasopressor canonical unit documentation exists in the source."""
+
+    def test_vasopressor_rate_comment_present(self):
+        """The SOFA cardiovascular scorer must document that dose is in
+        mcg/kg/min (canonical unit, CLINICALLY RATIFIED per RAT-CLINICAL-SCORING-03)."""
+        import inspect
+
+        source = inspect.getsource(score_cardiovascular)
+        assert "mcg/kg/min" in source, (
+            "score_cardiovascular source must mention mcg/kg/min"
+        )
+        assert "RAT-CLINICAL-SCORING-03" in source, (
+            "score_cardiovascular source must reference RAT-CLINICAL-SCORING-03"
+        )
+        assert "CLINICALLY RATIFIED" in source, (
+            "score_cardiovascular source must reference CLINICALLY RATIFIED"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SOFA-v1.1.0 version assertion
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSOFAVersion:
+    """Verify the algorithm version is SOFA-v2.0.0 (CLINICALLY RATIFIED)."""
+
+    def test_version_is_v2_0_0(self):
+        assert SOFA_VERSION == "SOFA-v2.0.0", (
+            f"Expected SOFA-v2.0.0, got {SOFA_VERSION}"
+        )
+
+    def test_result_uses_current_version(self):
+        result = calculate_sofa(pao2_fio2=450, platelets=200, bilirubin=0.5,
+                                map_value=80, gcs=15, creatinine=1.0,
+                                urine_output_ml_day=1000)
+        assert result.algorithm_version == "SOFA-v2.0.0"

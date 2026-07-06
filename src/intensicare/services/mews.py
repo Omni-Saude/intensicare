@@ -16,17 +16,17 @@ from __future__ import annotations
 
 from typing import Any
 
-MEWS_VERSION = "MEWS-v1.0"
+MEWS_VERSION = "MEWS-v2.0.0"  # CLINICALLY RATIFIED per RAT-MEWS-SUBBE-2001 (AUDIT-001)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Published MEWS thresholds (Subbe et al., QJM 2001;94:521-526). The current
-# implementation's values are authoritative and MUST NOT change; these named
-# constants only replace inline literals with no behavior change.
+# Published MEWS thresholds (Subbe et al., QJM 2001;94:521-526).
+# Corrected bands per AUDIT-001 (RATIFIED per RAT-MEWS-SUBBE-2001).
+# HR ≤40:2, 41-50:1, RR ≤8:2, Temp ≤35.0:2 — aligned to Subbe 2001 original.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Heart rate (bpm); inclusive upper bound of each band
-MEWS_HR_BRADY_SEVERE_MAX = 40  # <= 40 -> 3
-MEWS_HR_BRADY_MODERATE_MAX = 50  # <= 50 -> 2
+MEWS_HR_BRADY_SEVERE_MAX = 40  # <= 40 -> 2
+MEWS_HR_BRADY_MODERATE_MAX = 50  # <= 50 -> 1
 MEWS_HR_NORMAL_MAX = 100  # <= 100 -> 0
 MEWS_HR_TACHY_MILD_MAX = 110  # <= 110 -> 1
 MEWS_HR_TACHY_MODERATE_MAX = 129  # <= 129 -> 2, else -> 3
@@ -38,13 +38,13 @@ MEWS_SBP_HYPO_MILD_MAX = 100  # <= 100 -> 1
 MEWS_SBP_NORMAL_MAX = 199  # <= 199 -> 0, else -> 2
 
 # Respiratory rate (rpm); inclusive upper bound of each band
-MEWS_RR_BRADY_SEVERE_MAX = 8  # <= 8 -> 3
+MEWS_RR_BRADY_SEVERE_MAX = 8  # <= 8 -> 2
 MEWS_RR_NORMAL_MAX = 14  # <= 14 -> 0
 MEWS_RR_TACHY_MILD_MAX = 20  # <= 20 -> 1
 MEWS_RR_TACHY_MODERATE_MAX = 29  # <= 29 -> 2, else -> 3
 
 # Temperature (°C); inclusive upper bound of each band
-MEWS_TEMP_HYPOTHERMIA_MAX = 35.0  # <= 35.0 -> 3
+MEWS_TEMP_HYPOTHERMIA_MAX = 35.0  # <= 35.0 -> 2
 MEWS_TEMP_LOW_MAX = 36.0  # <= 36.0 -> 1
 MEWS_TEMP_NORMAL_MAX = 38.0  # <= 38.0 -> 0
 MEWS_TEMP_MILD_FEVER_MAX = 38.5  # <= 38.5 -> 1, else -> 2
@@ -56,8 +56,8 @@ MEWS_TREND_MIN_SAMPLES = 2
 def _score_heart_rate(value: int | None) -> dict[str, Any]:
     """MEWS sub-score para frequência cardíaca (bpm).
 
-    ≤40   = 3 (bradicardia severa)
-    41-50 = 2 (bradicardia moderada)
+    ≤40   = 2 (bradicardia severa)
+    41-50 = 1 (bradicardia moderada)
     51-100 = 0 (normal)
     101-110 = 1 (taquicardia leve)
     111-129 = 2 (taquicardia moderada)
@@ -66,9 +66,9 @@ def _score_heart_rate(value: int | None) -> dict[str, Any]:
     if value is None:
         return {"heart_rate": 0, "heart_rate_status": "missing"}
     if value <= MEWS_HR_BRADY_SEVERE_MAX:
-        pts = 3
-    elif value <= MEWS_HR_BRADY_MODERATE_MAX:
         pts = 2
+    elif value <= MEWS_HR_BRADY_MODERATE_MAX:
+        pts = 1
     elif value <= MEWS_HR_NORMAL_MAX:
         pts = 0
     elif value <= MEWS_HR_TACHY_MILD_MAX:
@@ -107,7 +107,7 @@ def _score_systolic_bp(value: int | None) -> dict[str, Any]:
 def _score_respiratory_rate(value: int | None) -> dict[str, Any]:
     """MEWS sub-score para frequência respiratória (rpm).
 
-    ≤8    = 3 (bradipneia severa)
+    ≤8    = 2 (bradipneia severa)
     9-14  = 0 (normal)
     15-20 = 1 (taquipneia leve)
     21-29 = 2 (taquipneia moderada)
@@ -116,7 +116,7 @@ def _score_respiratory_rate(value: int | None) -> dict[str, Any]:
     if value is None:
         return {"respiratory_rate": 0, "respiratory_rate_status": "missing"}
     if value <= MEWS_RR_BRADY_SEVERE_MAX:
-        pts = 3
+        pts = 2
     elif value <= MEWS_RR_NORMAL_MAX:
         pts = 0
     elif value <= MEWS_RR_TACHY_MILD_MAX:
@@ -131,7 +131,7 @@ def _score_respiratory_rate(value: int | None) -> dict[str, Any]:
 def _score_temperature(value: float | None) -> dict[str, Any]:
     """MEWS sub-score para temperatura (°C).
 
-    ≤35.0      = 3 (hipotermia)
+    ≤35.0      = 2 (hipotermia)
     35.1-36.0  = 1 (temperatura baixa)
     36.1-38.0  = 0 (normal)
     38.1-38.5  = 1 (febre leve)
@@ -140,7 +140,7 @@ def _score_temperature(value: float | None) -> dict[str, Any]:
     if value is None:
         return {"temperature": 0, "temperature_status": "missing"}
     if value <= MEWS_TEMP_HYPOTHERMIA_MAX:
-        pts = 3
+        pts = 2
     elif value <= MEWS_TEMP_LOW_MAX:
         pts = 1
     elif value <= MEWS_TEMP_NORMAL_MAX:
@@ -192,7 +192,7 @@ def calculate_mews(
         Tuple de (score_total, components_dict) onde:
         - score_total: int com a soma dos sub-scores (0-15).
         - components_dict: dict com sub-scores individuais e status.
-          Inclui 'algorithm_version' = 'MEWS-v1.0' e 'missing_components' se houver.
+          Inclui 'algorithm_version' = 'MEWS-v2.0.0' e 'missing_components' se houver.
     """
     components: dict[str, Any] = {"algorithm_version": MEWS_VERSION}
 

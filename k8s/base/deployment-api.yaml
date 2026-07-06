@@ -1,0 +1,206 @@
+---
+# =============================================================================
+# IntensiCare API — FastAPI Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intensicare-api
+  namespace: intensicare
+  labels:
+    app.kubernetes.io/name: intensicare-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: intensicare-platform
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intensicare-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: intensicare-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: intensicare-platform
+        app.kubernetes.io/version: "v2"
+      annotations:
+        # Força restart no ConfigMap/Secret change (via checksum)
+        checksum/config: "{{ .Values.configChecksum | default \"manual\" }}"
+        checksum/secrets: "{{ .Values.secretChecksum | default \"manual\" }}"
+    spec:
+      # =======================================================================
+      # Service Account (IRSA — IAM Roles for Service Accounts)
+      # =======================================================================
+      serviceAccountName: intensicare-api
+
+      # =======================================================================
+      # Security Context (nível pod)
+      # =======================================================================
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+
+      # =======================================================================
+      # Terminação graciosa
+      # =======================================================================
+      terminationGracePeriodSeconds: 60
+
+      # =======================================================================
+      # Init Container — aguarda dependências (RDS + Redis)
+      # =======================================================================
+      initContainers:
+        - name: wait-for-deps
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Aguardando PostgreSQL RDS..."
+              until nc -z -w5 ${DB_HOST:-postgres} ${DB_PORT:-5432}; do
+                echo "PostgreSQL RDS indisponível — aguardando..."
+                sleep 3
+              done
+              echo "Aguardando Redis ElastiCache..."
+              until nc -z -w5 ${REDIS_HOST:-redis} ${REDIS_PORT:-6379}; do
+                echo "Redis ElastiCache indisponível — aguardando..."
+                sleep 3
+              done
+              echo "Todas as dependências prontas!"
+          envFrom:
+            - secretRef:
+                name: intensicare-secrets
+
+      containers:
+        # =====================================================================
+        # API — FastAPI com uvicorn
+        # =====================================================================
+        - name: api
+          image: intensicare-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: intensicare-config
+            - secretRef:
+                name: intensicare-secrets
+          env:
+            - name: DB_HOST
+              value: "$(DATABASE_URL)"
+            - name: REDIS_HOST
+              value: "$(REDIS_URL)"
+
+          # ===================================================================
+          # Resource Limits (conforme system-architecture.md §8)
+          # API: 512Mi - 1Gi
+          # ===================================================================
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          # ===================================================================
+          # Liveness Probe — o processo está vivo?
+          # ===================================================================
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ===================================================================
+          # Readiness Probe — pronto para receber tráfego?
+          # ===================================================================
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ===================================================================
+          # Startup Probe — para cold starts lentos
+          # ===================================================================
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30  # até 150s para cold start
+
+          # ===================================================================
+          # Security Context (nível container)
+          # ===================================================================
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false  # alembic precisa escrever
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+        # =====================================================================
+        # OTEL Collector Sidecar (ADR001-C-06)
+        # =====================================================================
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.102.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config=/etc/otelcol/config.yaml"
+          env:
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: intensicare-config
+                  key: OTEL_SERVICE_NAME
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: otel-config
+              mountPath: /etc/otelcol
+              readOnly: true
+
+      # =======================================================================
+      # Volumes
+      # =======================================================================
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: "100Mi"
+        - name: otel-config
+          configMap:
+            name: intensicare-otel-config

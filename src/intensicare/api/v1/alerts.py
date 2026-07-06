@@ -1,10 +1,11 @@
-"""Alert endpoints — list, acknowledge, trace."""
+"""Alert endpoints — list, acknowledge, resolve, escalate, trace."""
 
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user
@@ -34,13 +35,51 @@ class AlertResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AlertListResponse(BaseModel):
+    """Wrapped list response (AUDIT-007)."""
+
+    alerts: list[AlertResponse]
+    total: int
+
+
 class AcknowledgeRequest(BaseModel):
     """Acknowledge an alert."""
 
     notes: str | None = None
 
 
-@router.get("", response_model=list[AlertResponse])
+class ResolveRequest(BaseModel):
+    """Resolve an alert with clinical outcome."""
+
+    resolution: str  # true_positive | false_positive | intervention_done
+    note: str | None = None
+
+
+class EscalateRequest(BaseModel):
+    """Escalate an alert."""
+
+    reason: str | None = None
+
+
+def _to_alert_response(alert: Alert) -> AlertResponse:
+    """Build an AlertResponse from an Alert ORM instance."""
+    return AlertResponse(
+        id=alert.id,
+        mpi_id=alert.mpi_id,
+        score_id=alert.score_id,
+        severity=alert.severity,
+        status=alert.status,
+        title=alert.title,
+        body=alert.body,
+        created_at=alert.created_at.isoformat(),
+        acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+        acknowledged_by=alert.acknowledged_by,
+        resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,
+        resolution=alert.resolution,
+    )
+
+
+@router.get("", response_model=AlertListResponse)
 async def list_alerts(
     status_filter: str = Query("active", alias="status"),
     unit: str | None = Query(None, alias="unit"),  # noqa: ARG001  # reserved unit filter; accepted for API compatibility
@@ -48,36 +87,29 @@ async def list_alerts(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-) -> list[AlertResponse]:
-    """List alerts with optional filters."""
-    query = select(Alert)
+) -> AlertListResponse:
+    """List alerts with optional filters. Returns {alerts, total} (AUDIT-007)."""
+    base_query = select(Alert)
 
     if status_filter:
-        query = query.where(Alert.status == status_filter)
+        base_query = base_query.where(Alert.status == status_filter)
     if mpi_id:
-        query = query.where(Alert.mpi_id == mpi_id)
+        base_query = base_query.where(Alert.mpi_id == mpi_id)
 
-    query = query.order_by(Alert.created_at.desc()).offset(offset).limit(limit)
-    result = await db.execute(query)
+    # Count query: same filters, no pagination
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    # Data query with pagination
+    data_query = base_query.order_by(Alert.created_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(data_query)
     alerts = result.scalars().all()
 
-    return [
-        AlertResponse(
-            id=a.id,
-            mpi_id=a.mpi_id,
-            score_id=a.score_id,
-            severity=a.severity,
-            status=a.status,
-            title=a.title,
-            body=a.body,
-            created_at=a.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
-            acknowledged_at=a.acknowledged_at.isoformat() if a.acknowledged_at else None,
-            acknowledged_by=a.acknowledged_by,
-            resolved_at=a.resolved_at.isoformat() if a.resolved_at else None,
-            resolution=a.resolution,
-        )
-        for a in alerts
-    ]
+    return AlertListResponse(
+        alerts=[_to_alert_response(a) for a in alerts],
+        total=total,
+    )
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)
@@ -97,7 +129,7 @@ async def acknowledge_alert(
             detail="Alert not found",
         )
 
-    if alert.status != "active":
+    if alert.status not in ("active", "escalated"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Alert is already {alert.status}",
@@ -110,20 +142,95 @@ async def acknowledge_alert(
     await db.flush()
     await db.refresh(alert)
 
-    return AlertResponse(
-        id=alert.id,
-        mpi_id=alert.mpi_id,
-        score_id=alert.score_id,
-        severity=alert.severity,
-        status=alert.status,
-        title=alert.title,
-        body=alert.body,
-        created_at=alert.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
-        acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
-        acknowledged_by=alert.acknowledged_by,
-        resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,
-        resolution=alert.resolution,
-    )
+    return _to_alert_response(alert)
+
+
+@router.post("/{alert_id}/resolve", response_model=AlertResponse)
+async def resolve_alert(
+    alert_id: int,
+    request_body: ResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AlertResponse:
+    """Resolve an alert — records the clinical outcome (authenticated)."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+
+    if alert is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found",
+        )
+
+    if alert.status in ("resolved",):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Alert is already {alert.status}",
+        )
+
+    # Valid transitions: acknowledged → resolved, acting → resolved
+    if alert.status not in ("acknowledged", "acting"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot resolve alert in status '{alert.status}'; "
+                   "valid from 'acknowledged' or 'acting'",
+        )
+
+    valid_resolutions = {"true_positive", "false_positive", "intervention_done"}
+    if request_body.resolution not in valid_resolutions:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid resolution '{request_body.resolution}'. "
+                   f"Must be one of: {', '.join(sorted(valid_resolutions))}",
+        )
+
+    alert.status = "resolved"
+    alert.resolved_at = datetime.now(timezone.utc)
+    alert.resolution = request_body.resolution
+
+    await db.flush()
+    await db.refresh(alert)
+
+    return _to_alert_response(alert)
+
+
+@router.post("/{alert_id}/escalate", response_model=AlertResponse)
+async def escalate_alert(
+    alert_id: int,
+    request_body: EscalateRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AlertResponse:
+    """Escalate an alert to the next response tier (authenticated)."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+
+    if alert is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found",
+        )
+
+    if alert.status in ("resolved",):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Alert is already {alert.status}",
+        )
+
+    # Valid from: raised (active), acknowledged
+    if alert.status not in ("active", "acknowledged"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot escalate alert in status '{alert.status}'; "
+                   "valid from 'active' or 'acknowledged'",
+        )
+
+    alert.status = "escalated"
+
+    await db.flush()
+    await db.refresh(alert)
+
+    return _to_alert_response(alert)
 
 
 @router.get("/{alert_id}/trace", response_model=AlertResponse)
@@ -141,17 +248,4 @@ async def trace_alert(
             detail="Alert not found",
         )
 
-    return AlertResponse(
-        id=alert.id,
-        mpi_id=alert.mpi_id,
-        score_id=alert.score_id,
-        severity=alert.severity,
-        status=alert.status,
-        title=alert.title,
-        body=alert.body,
-        created_at=alert.created_at.isoformat(),  # created_at is NOT NULL (hypertable key)
-        acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
-        acknowledged_by=alert.acknowledged_by,
-        resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,
-        resolution=alert.resolution,
-    )
+    return _to_alert_response(alert)

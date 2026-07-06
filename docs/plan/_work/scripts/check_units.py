@@ -50,6 +50,14 @@ def main() -> int:
     params = reg.get("parameters") or []
     g.add("UNITS-REGISTRY", len(params) >= 15, ">=15 parameters", str(len(params)))
 
+    # RATIFIED status check (strict mode)
+    reg_status = reg.get("status", "")
+    is_ratified = "RATIFIED" in str(reg_status).upper() if reg_status else False
+    if mode == "strict":
+        g.add("UNITS-STATUS-RATIFIED", is_ratified,
+              "registry status is RATIFIED",
+              f"status={reg_status}")
+
     allowed: set[str] = set()
     for p in params:
         allowed.add(norm_unit(p.get("canonical_unit")))

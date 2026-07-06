@@ -1,0 +1,553 @@
+---
+# =============================================================================
+# IntensiCare Helm Chart — Values (default = staging-like)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+global:
+  environment: staging
+  region: sa-east-1
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Namespace
+# ---------------------------------------------------------------------------
+namespace:
+  create: true
+  name: intensicare
+  labels:
+    app.kubernetes.io/part-of: intensicare-platform
+    intensicare.io/tier: non-prod
+
+# ---------------------------------------------------------------------------
+# Replica counts
+# ---------------------------------------------------------------------------
+replicaCount:
+  api: 2
+  worker: 1
+  frontend: 2
+
+# ---------------------------------------------------------------------------
+# Image registry
+# ---------------------------------------------------------------------------
+image:
+  api:
+    repository: intensicare-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: intensicare-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  otelCollector:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.102.1"
+    pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# Service Accounts (IRSA — IAM Roles for Service Accounts)
+# ---------------------------------------------------------------------------
+serviceAccount:
+  api:
+    create: true
+    name: intensicare-api
+    annotations: {}
+    # IAM Role ARN for IRSA
+    iamRoleArn: ""
+  worker:
+    create: true
+    name: intensicare-worker
+    annotations: {}
+    iamRoleArn: ""
+  frontend:
+    create: true
+    name: intensicare-frontend
+    annotations: {}
+    iamRoleArn: ""
+
+# ---------------------------------------------------------------------------
+# API (FastAPI) configuration
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  replicas: 2
+
+  image:
+    repository: intensicare-api
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+    websocketPort: 8001
+    annotations: {}
+
+  # Resource limits (conforme system-architecture.md §8)
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Health probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+  # Security context
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: false
+
+  # Init container — aguarda RDS + Redis
+  initContainer:
+    enabled: true
+    image: busybox:1.36
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  # Strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  terminationGracePeriodSeconds: 60
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Pod annotations
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Worker (ARQ Alert Engine) configuration
+# ---------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: intensicare-api
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource limits (conforme system-architecture.md §8)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Health probes
+  livenessProbe:
+    exec:
+      command:
+        - python
+        - -c
+        - "import redis; r=redis.from_url('${REDIS_URL}'); r.ping()"
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    exec:
+      command:
+        - python
+        - -c
+        - "import redis; r=redis.from_url('${REDIS_URL}'); r.ping()"
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: false
+
+  initContainer:
+    enabled: true
+    image: busybox:1.36
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  terminationGracePeriodSeconds: 120
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# Frontend (Next.js + nginx) configuration
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+  replicas: 2
+
+  image:
+    repository: intensicare-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+
+  # Resource limits (conforme system-architecture.md §8)
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podSecurityContext:
+    fsGroup: 101
+    runAsNonRoot: true
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 101
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  terminationGracePeriodSeconds: 30
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# OTEL Collector Sidecar
+# ---------------------------------------------------------------------------
+otelCollector:
+  enabled: true
+
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.102.1"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop: [ALL]
+
+  # OTEL Collector config (inlined or referenced)
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 256
+        spike_limit_mib: 64
+    exporters:
+      prometheusremotewrite:
+        endpoint: "https://aps-workspaces.sa-east-1.amazonaws.com/workspaces/ws-CHANGEME/api/v1/remote_write"
+        auth:
+          authenticator: sigv4auth
+      awsxray:
+        region: sa-east-1
+      logging:
+        loglevel: info
+    extensions:
+      health_check: {}
+      sigv4auth:
+        region: sa-east-1
+        service: aps
+    service:
+      extensions: [health_check, sigv4auth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [awsxray, logging]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheusremotewrite]
+
+# ---------------------------------------------------------------------------
+# Ingress (Internal ALB via AWS Load Balancer Controller)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: "internal"
+    alb.ingress.kubernetes.io/target-type: "ip"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:sa-east-1:CHANGEME:certificate/CHANGEME"
+    alb.ingress.kubernetes.io/healthcheck-path: "/health"
+    alb.ingress.kubernetes.io/healthcheck-port: "8000"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/connection-idle-timeout: "3600"
+    alb.ingress.kubernetes.io/tags: "Environment=staging,Team=intensicare"
+
+  hosts:
+    - host: intensicare-staging.sa-east-1.elb.amazonaws.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /ws
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8001
+        - path: /health
+          pathType: Exact
+          backend:
+            serviceName: intensicare-api
+            servicePort: 8000
+        - path: /
+          pathType: Prefix
+          backend:
+            serviceName: intensicare-frontend
+            servicePort: 80
+
+  tls:
+    - secretName: intensicare-tls
+      hosts:
+        - intensicare-staging.sa-east-1.elb.amazonaws.com
+
+# ---------------------------------------------------------------------------
+# HorizontalPodAutoscaler
+# ---------------------------------------------------------------------------
+hpa:
+  api:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      percent: 50
+      periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      percent: 100
+      periodSeconds: 30
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget
+# ---------------------------------------------------------------------------
+pdb:
+  api:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# ConfigMap — application settings
+# ---------------------------------------------------------------------------
+config:
+  environment: staging
+  logLevel: DEBUG
+
+  # Athena / Gold Read (ADR001-C-01)
+  athenaWorkgroup: intensicare
+  goldDatabase: amh_gold
+  pollConcurrencyMax: "15"
+  pollBackpressureEnabled: "true"
+
+  # Polling cadences (seconds — per §3.2)
+  polling:
+    electrolytes: "90"
+    sepsisLabs: "300"
+    respiratoryAbg: "300"
+    aki: "900"
+    medication: "900"
+    delirium: "7200"
+
+  # Staleness thresholds
+  staleness:
+    electrolytes: "3600"
+    vitals: "300"
+    medication: "1800"
+
+  # Write-back interval
+  writeBackIntervalSeconds: "3600"
+
+  # MPI
+  mpiCacheTtlSeconds: "900"
+  mpiSyncIntervalSeconds: "86400"
+  patientCacheFlushDays: "30"
+
+  # FHIR
+  fhirTimeoutSeconds: "10"
+  fhirRetryMax: "3"
+
+  # API
+  apiWorkers: "4"
+  apiTimeout: "120"
+
+  # ARQ
+  arqConcurrency: "4"
+  arqPollInterval: "0.5"
+
+# ---------------------------------------------------------------------------
+# Secrets — values injetados via External Secrets Operator / Sealed Secrets
+# NUNCA preencher com valores reais aqui.
+# ---------------------------------------------------------------------------
+secrets:
+  # PostgreSQL RDS (managed, not in-cluster)
+  databaseUrl: ""
+  databaseUrlSync: ""
+
+  # Redis ElastiCache (managed, not in-cluster)
+  redisUrl: ""
+  redisPassword: ""
+
+  # JWT
+  jwtSecretKey: ""
+  jwtAlgorithm: HS256
+  jwtAccessTokenExpireMinutes: "30"
+  jwtRefreshTokenExpireDays: "7"
+
+  # SSO / IAM Identity Center
+  ssoClientId: ""
+  ssoClientSecret: ""
+  ssoIssuerUrl: ""
+
+  # Encryption
+  encryptionKeyArn: ""
+
+  # Firebase
+  firebaseCredentialsJson: ""
+
+# ---------------------------------------------------------------------------
+# External Secrets Operator configuration (optional)
+# ---------------------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  secrets: []
+  # Example:
+  # - secretKey: DATABASE_URL
+  #   remoteRef:
+  #     key: intensicare/staging/database
+  #     property: url

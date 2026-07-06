@@ -13,11 +13,14 @@ from fastapi.responses import JSONResponse
 
 from intensicare.api.thresholds import router as thresholds_router
 from intensicare.api.v1 import (
+    admin_router,
     alerts_router,
     auth_router,
     dashboard_router,
+    health_router,
     patients_router,
     vitals_router,
+    ws_router,
 )
 from intensicare.config import settings
 
@@ -30,14 +33,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     - Startup: inicializa conexões com banco e Redis.
     - Shutdown: fecha conexões gracefulmente.
     """
+    from intensicare.core.database import dispose_engine, get_engine
+    from intensicare.core.redis import close_redis, get_redis
+
     # Startup
-    # TODO: Inicializar pool de conexões (engine SQLAlchemy, Redis client)
+    # Força inicialização do engine SQLAlchemy e do pool Redis.
+    get_engine()
+    get_redis()
+
+    # Inicializa telemetria OpenTelemetry (traces + métricas) — ADR-001 / CON-0006.
+    # Em dev local sem OTEL SDK, a inicialização é no-op com log de warning.
+    from intensicare.core.telemetry import init_telemetry
+
+    init_telemetry()
+
     app.state.started = True
 
     yield
 
     # Shutdown
-    # TODO: Fechar pool de conexões
+    await dispose_engine()
+    await close_redis()
     app.state.started = False
 
 
@@ -62,26 +78,30 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Health check
-    @app.get("/health", tags=["system"])
-    async def health_check() -> JSONResponse:
-        return JSONResponse(
-            content={
-                "status": "healthy",
-                "version": "0.1.0",
-                "environment": settings.environment,
-            }
-        )
+    # Health check — redirect /health to /api/v1/health for backward compat
+    from fastapi.responses import RedirectResponse
+
+    @app.get("/health", tags=["system"], include_in_schema=False)
+    async def health_legacy() -> RedirectResponse:
+        return RedirectResponse(url="/api/v1/health")
+
+    # Metrics — Prometheus exposition endpoint (CON-0006 / observability-slo.md)
+    from intensicare.core.metrics import setup_metrics_endpoint
+
+    setup_metrics_endpoint(app)
 
     # Routers. Some already carry a full prefix (auth → /auth, alerts →
     # /api/v1/alerts, dashboard → /api/v1, thresholds → /api/v1/thresholds);
     # patients/vitals are unprefixed and mounted under /api/v1.
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(alerts_router)
     app.include_router(dashboard_router)
     app.include_router(thresholds_router)
+    app.include_router(health_router, prefix="/api/v1")
     app.include_router(patients_router, prefix="/api/v1")
     app.include_router(vitals_router, prefix="/api/v1")
+    app.include_router(ws_router)
 
     return app
 

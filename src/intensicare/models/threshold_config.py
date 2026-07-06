@@ -1,21 +1,32 @@
-"""Configuração de thresholds de alerta por tenant e unidade."""
+"""Configuração de thresholds de alerta por tenant, unidade e leito."""
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
 
 
 class ThresholdConfig(Base):
-    """Configuração de thresholds de alerta."""
+    """Configuração de thresholds de alerta.
+
+    Escopo de resolução (bed ≻ unit ≻ tenant):
+    - Se bed_id + unit informados, aplica ao leito específico.
+    - Se apenas unit informado (bed_id NULL), aplica a toda unidade.
+    - Se ambos NULL, fallback global do tenant.
+    """
 
     __tablename__ = "threshold_config"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "unit", "bed_id", "score_type",
+                         name="uq_threshold_scope"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(32), nullable=False)
     unit: Mapped[str | None] = mapped_column(String(64))
+    bed_id: Mapped[str | None] = mapped_column(String(32))
     score_type: Mapped[str] = mapped_column(String(16), nullable=False)
     watch_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
     urgent_threshold: Mapped[int] = mapped_column(Integer, nullable=False)

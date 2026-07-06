@@ -29,10 +29,10 @@ from intensicare.services.mews import (
     "value,expected",
     [
         (None, 0),
-        (30, 3),  # bradicardia severa
-        (40, 3),  # limite bradicardia severa
-        (41, 2),  # bradicardia moderada
-        (50, 2),  # limite bradicardia moderada
+        (30, 2),  # bradicardia severa (Subbe 2001)
+        (40, 2),  # limite bradicardia severa (Subbe 2001)
+        (41, 1),  # bradicardia moderada (Subbe 2001)
+        (50, 1),  # limite bradicardia moderada (Subbe 2001)
         (51, 0),  # normal
         (75, 0),  # normal
         (100, 0),  # normal (limite)
@@ -89,8 +89,8 @@ def test_score_systolic_bp(value, expected):
     "value,expected",
     [
         (None, 0),
-        (5, 3),  # bradipneia severa
-        (8, 3),  # limite bradipneia severa
+        (5, 2),  # bradipneia severa (Subbe 2001)
+        (8, 2),  # limite bradipneia severa (Subbe 2001)
         (9, 0),  # normal
         (14, 0),  # normal (limite)
         (15, 1),  # taquipneia leve
@@ -116,8 +116,8 @@ def test_score_respiratory_rate(value, expected):
     "value,expected",
     [
         (None, 0),
-        (33.0, 3),  # hipotermia
-        (35.0, 3),  # limite hipotermia
+        (33.0, 2),  # hipotermia (Subbe 2001)
+        (35.0, 2),  # limite hipotermia (Subbe 2001)
         (35.1, 1),  # temperatura baixa
         (36.0, 1),  # temperatura baixa (limite)
         (36.1, 0),  # normal
@@ -203,15 +203,15 @@ def test_calculate_mews_septic_patient():
 
 
 def test_calculate_mews_critical_patient():
-    """Paciente crítico: todos os scores no máximo."""
+    """Paciente crítico: todos os scores nos máximos corrigidos (Subbe 2001)."""
     score, _ = calculate_mews(
-        heart_rate=35,  # 3 pts (≤40)
+        heart_rate=35,  # 2 pts (≤40, Subbe 2001)
         systolic_bp=65,  # 3 pts (≤70)
-        respiratory_rate=6,  # 3 pts (≤8)
-        temperature=34.0,  # 3 pts (≤35.0)
+        respiratory_rate=6,  # 2 pts (≤8, Subbe 2001)
+        temperature=34.0,  # 2 pts (≤35.0, Subbe 2001)
         avpu="U",  # 3 pts
     )
-    assert score == 15  # máximo teórico
+    assert score == 12  # 2 + 3 + 2 + 2 + 3 (Subbe 2001 corrigido)
 
 
 def test_calculate_mews_missing_components():

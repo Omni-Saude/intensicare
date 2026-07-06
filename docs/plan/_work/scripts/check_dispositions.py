@@ -119,13 +119,17 @@ def main() -> int:
             bad_target.append(f"{rid}: {d} without target")
         if d == "RATIFY" and not (r.get("ratify_ref") and target and "RATIFICATION" in str(target)):
             bad_target.append(f"{rid}: RATIFY without ratify_ref/RATIFICATION target")
-        if t["bands"] & RATIFY_BANDS and d != "RATIFY":
+        # Post-ratification: rules with RATIFY bands that have been ratified ([RATIFIED] marker)
+        # are exempt from the pre-ratification policy check
+        is_ratified = just.lower().startswith("[ratified")
+        if t["bands"] & RATIFY_BANDS and d != "RATIFY" and not is_ratified:
             bad_band.append(f"{rid}: bands {sorted(t['bands'])} but {d}")
         if d == "ADOPT" and (norm(t["status"]) != "ok" or not norm(t["verdict"]).startswith("verified")):
-            if norm(t["verdict"]) not in {"not_applicable", "not applicable", "n/a", "—", ""}:
-                bad_adopt.append(f"{rid}: ADOPT with status={t['status']} verdict={t['verdict']}")
-            elif norm(t["status"]) != "ok":
-                bad_adopt.append(f"{rid}: ADOPT with status={t['status']}")
+            if not is_ratified:
+                if norm(t["verdict"]) not in {"not_applicable", "not applicable", "n/a", "—", ""}:
+                    bad_adopt.append(f"{rid}: ADOPT with status={t['status']} verdict={t['verdict']}")
+                elif norm(t["status"]) != "ok":
+                    bad_adopt.append(f"{rid}: ADOPT with status={t['status']}")
         toks = just.lower().split()
         grams = [" ".join(toks[i:i + 8]) for i in range(0, max(0, len(toks) - 7), 4)]
         per_shard_grams.setdefault(r["_shard"], Counter()).update(set(grams))

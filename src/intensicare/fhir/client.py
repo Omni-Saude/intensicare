@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from functools import lru_cache
 import logging
 from typing import Any, cast
@@ -19,6 +19,209 @@ import httpx
 from intensicare.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FHIRLabResult:
+    """Parsed lab result from a FHIR Observation resource."""
+
+    fhir_id: str
+    mpi_id: str
+    loinc_code: str | None = None
+    analyte: str | None = None
+    value_num: float | None = None
+    value_unit: str | None = None
+    reference_low: float | None = None
+    reference_high: float | None = None
+    abnormal_flag: str | None = None
+    collected_at: datetime | None = None
+    resulted_at: datetime | None = None
+
+    @classmethod
+    def from_observation(cls, mpi_id: str, resource: dict[str, Any]) -> FHIRLabResult:
+        """Parse a FHIR Observation resource into a FHIRLabResult."""
+        code = resource.get("code", {})
+        coding_list = code.get("coding", [])
+        loinc_coding = next(
+            (c for c in coding_list if c.get("system") == "http://loinc.org"),
+            coding_list[0] if coding_list else {},
+        )
+        loinc_code_val = loinc_coding.get("code")
+        analyte_val = loinc_coding.get("display") or code.get("text")
+
+        value_num: float | None = None
+        value_unit: str | None = None
+        if "valueQuantity" in resource:
+            vq = resource["valueQuantity"]
+            value_num = vq.get("value")
+            value_unit = vq.get("unit")
+
+        reference_low: float | None = None
+        reference_high: float | None = None
+        ref_ranges = resource.get("referenceRange", [])
+        if ref_ranges:
+            rr = ref_ranges[0]
+            low = rr.get("low", {})
+            high = rr.get("high", {})
+            reference_low = low.get("value") if low else None
+            reference_high = high.get("value") if high else None
+
+        abnormal_flag: str | None = None
+        interpretation = resource.get("interpretation", [])
+        if interpretation:
+            interp_coding = interpretation[0].get("coding", [])
+            if interp_coding:
+                abnormal_flag = interp_coding[0].get("code")
+
+        collected_at: datetime | None = None
+        effective = resource.get("effectiveDateTime")
+        if effective:
+            with contextlib.suppress(ValueError, TypeError):
+                collected_at = datetime.fromisoformat(effective.replace("Z", "+00:00"))
+
+        resulted_at: datetime | None = None
+        issued = resource.get("issued")
+        if issued:
+            with contextlib.suppress(ValueError, TypeError):
+                resulted_at = datetime.fromisoformat(issued.replace("Z", "+00:00"))
+
+        return cls(
+            fhir_id=resource.get("id", ""),
+            mpi_id=mpi_id,
+            loinc_code=loinc_code_val,
+            analyte=analyte_val,
+            value_num=value_num,
+            value_unit=value_unit,
+            reference_low=reference_low,
+            reference_high=reference_high,
+            abnormal_flag=abnormal_flag,
+            collected_at=collected_at,
+            resulted_at=resulted_at,
+        )
+
+
+@dataclass
+class FHIRMedicationOrder:
+    """Parsed medication order from a FHIR MedicationRequest resource."""
+
+    fhir_id: str
+    mpi_id: str
+    medication_name: str | None = None
+    dose: str | None = None
+    route: str | None = None
+    frequency: str | None = None
+    ordered_at: datetime | None = None
+
+    @classmethod
+    def from_medication_request(
+        cls, mpi_id: str, resource: dict[str, Any]
+    ) -> FHIRMedicationOrder:
+        """Parse a FHIR MedicationRequest resource."""
+        # Medication name via medicationCodeableConcept
+        med_cc = resource.get("medicationCodeableConcept", {})
+        med_coding = med_cc.get("coding", [{}])
+        med_name = med_coding[0].get("display") or med_cc.get("text")
+
+        # Dose from dosageInstruction
+        dose: str | None = None
+        route: str | None = None
+        frequency: str | None = None
+        dosage_instructions = resource.get("dosageInstruction", [])
+        if dosage_instructions:
+            di = dosage_instructions[0]
+            # Dose
+            dose_and_rate = di.get("doseAndRate", [])
+            if dose_and_rate:
+                dq = dose_and_rate[0].get("doseQuantity", {})
+                if dq:
+                    dose = f"{dq.get('value')} {dq.get('unit')}".strip()
+            # Route
+            route_cc = di.get("route", {})
+            route_coding = route_cc.get("coding", [{}])
+            route = route_coding[0].get("display") or route_cc.get("text")
+            # Frequency (timing)
+            timing = di.get("timing", {})
+            timing_code = timing.get("code", {})
+            timing_coding = timing_code.get("coding", [{}])
+            frequency = timing_coding[0].get("display") or timing_code.get("text")
+
+        ordered_at: datetime | None = None
+        authored = resource.get("authoredOn")
+        if authored:
+            with contextlib.suppress(ValueError, TypeError):
+                ordered_at = datetime.fromisoformat(authored.replace("Z", "+00:00"))
+
+        return cls(
+            fhir_id=resource.get("id", ""),
+            mpi_id=mpi_id,
+            medication_name=med_name,
+            dose=dose,
+            route=route,
+            frequency=frequency,
+            ordered_at=ordered_at,
+        )
+
+
+@dataclass
+class FHIRMedicationAdministration:
+    """Parsed medication administration from a FHIR MedicationAdministration resource."""
+
+    fhir_id: str
+    mpi_id: str
+    order_fhir_id: str | None = None
+    administered_at: datetime | None = None
+    dose_given: str | None = None
+    route: str | None = None
+
+    @classmethod
+    def from_administration(
+        cls, mpi_id: str, resource: dict[str, Any]
+    ) -> FHIRMedicationAdministration:
+        """Parse a FHIR MedicationAdministration resource."""
+        # Link to MedicationRequest
+        order_fhir_id: str | None = None
+        request_ref = resource.get("request", {})
+        if request_ref:
+            ref = request_ref.get("reference", "")
+            # e.g. "MedicationRequest/medreq-001"
+            order_fhir_id = ref.split("/")[-1] if "/" in ref else ref
+
+        # Dose
+        dose_given: str | None = None
+        dq = resource.get("dosage", {}).get("dose", {})
+        if dq:
+            dose_given = f"{dq.get('value')} {dq.get('unit')}".strip()
+
+        # Route
+        route: str | None = None
+        route_cc = resource.get("dosage", {}).get("route", {})
+        route_coding = route_cc.get("coding", [{}])
+        route = route_coding[0].get("display") or route_cc.get("text")
+
+        administered_at: datetime | None = None
+        effective = resource.get("effectiveDateTime")
+        if effective:
+            with contextlib.suppress(ValueError, TypeError):
+                administered_at = datetime.fromisoformat(effective.replace("Z", "+00:00"))
+
+        return cls(
+            fhir_id=resource.get("id", ""),
+            mpi_id=mpi_id,
+            order_fhir_id=order_fhir_id,
+            administered_at=administered_at,
+            dose_given=dose_given,
+            route=route,
+        )
+
+
+@dataclass
+class FHIRPatientContext:
+    """Aggregated enrichment context for a patient (labs + medications)."""
+
+    mpi_id: str
+    lab_results: list[FHIRLabResult] = field(default_factory=list)
+    medication_orders: list[FHIRMedicationOrder] = field(default_factory=list)
+    medication_administrations: list[FHIRMedicationAdministration] = field(default_factory=list)
 
 
 @dataclass
@@ -292,6 +495,130 @@ class FHIRClient:
             return cast("dict[str, Any]", response.json())
         except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
             logger.warning("FHIR search %s failed: %s", resource_type, exc)
+            return None
+
+    # ── Phase-2 enrichment methods ─────────────────────────────────────
+
+    async def enrich_lab_result(self, fhir_id: str) -> FHIRLabResult | None:
+        """Fetch a single lab result (Observation) by its FHIR resource ID.
+
+        Returns None when FHIR is not configured or the resource is not found.
+        """
+        if not self.is_configured:
+            return None
+
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/Observation/{fhir_id}")
+            response.raise_for_status()
+            resource = response.json()
+
+            # Extract patient reference for mpi_id
+            subject = resource.get("subject", {}).get("reference", "")
+            mpi_id = subject.split("/")[-1] if "/" in subject else subject
+
+            return FHIRLabResult.from_observation(mpi_id, resource)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == httpx.codes.NOT_FOUND:
+                logger.info("FHIR lab result not found: %s", fhir_id)
+            else:
+                logger.warning("FHIR HTTP error for lab result %s: %s", fhir_id, exc)
+            return None
+        except (httpx.RequestError, httpx.TimeoutException) as exc:
+            logger.warning("FHIR request failed for lab result %s: %s", fhir_id, exc)
+            return None
+
+    async def enrich_medication(self, fhir_id: str) -> FHIRMedicationOrder | None:
+        """Fetch a medication order (MedicationRequest) by its FHIR resource ID.
+
+        Returns None when FHIR is not configured or the resource is not found.
+        """
+        if not self.is_configured:
+            return None
+
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/MedicationRequest/{fhir_id}")
+            response.raise_for_status()
+            resource = response.json()
+
+            # Extract patient reference for mpi_id
+            subject = resource.get("subject", {}).get("reference", "")
+            mpi_id = subject.split("/")[-1] if "/" in subject else subject
+
+            return FHIRMedicationOrder.from_medication_request(mpi_id, resource)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == httpx.codes.NOT_FOUND:
+                logger.info("FHIR medication order not found: %s", fhir_id)
+            else:
+                logger.warning("FHIR HTTP error for medication %s: %s", fhir_id, exc)
+            return None
+        except (httpx.RequestError, httpx.TimeoutException) as exc:
+            logger.warning("FHIR request failed for medication %s: %s", fhir_id, exc)
+            return None
+
+    async def enrich_patient_context(self, mpi_id: str) -> FHIRPatientContext | None:
+        """Aggregate enrichment for a patient: labs + medication orders + administrations.
+
+        Returns None when FHIR is not configured.
+        """
+        if not self.is_configured:
+            return None
+
+        context = FHIRPatientContext(mpi_id=mpi_id)
+
+        try:
+            client = await self._get_client()
+
+            # Fetch lab results (Observations with category 'laboratory')
+            obs_params: dict[str, str | int] = {
+                "patient": mpi_id,
+                "category": "laboratory",
+                "_sort": "-date",
+                "_count": 50,
+            }
+            obs_response = await client.get("/Observation", params=obs_params)
+            obs_response.raise_for_status()
+            obs_bundle = obs_response.json()
+            for entry in obs_bundle.get("entry", []):
+                resource = entry.get("resource", {})
+                if resource.get("resourceType") == "Observation":
+                    lab = FHIRLabResult.from_observation(mpi_id, resource)
+                    context.lab_results.append(lab)
+
+            # Fetch medication orders (MedicationRequest)
+            med_params: dict[str, str | int] = {
+                "patient": mpi_id,
+                "_sort": "-authoredon",
+                "_count": 50,
+            }
+            med_response = await client.get("/MedicationRequest", params=med_params)
+            med_response.raise_for_status()
+            med_bundle = med_response.json()
+            for entry in med_bundle.get("entry", []):
+                resource = entry.get("resource", {})
+                if resource.get("resourceType") == "MedicationRequest":
+                    order = FHIRMedicationOrder.from_medication_request(mpi_id, resource)
+                    context.medication_orders.append(order)
+
+            # Fetch medication administrations
+            admin_params: dict[str, str | int] = {
+                "patient": mpi_id,
+                "_sort": "-date",
+                "_count": 50,
+            }
+            admin_response = await client.get("/MedicationAdministration", params=admin_params)
+            admin_response.raise_for_status()
+            admin_bundle = admin_response.json()
+            for entry in admin_bundle.get("entry", []):
+                resource = entry.get("resource", {})
+                if resource.get("resourceType") == "MedicationAdministration":
+                    admin = FHIRMedicationAdministration.from_administration(mpi_id, resource)
+                    context.medication_administrations.append(admin)
+
+            return context
+        except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
+            logger.warning("FHIR patient context enrichment failed for %s: %s", mpi_id, exc)
             return None
 
 
