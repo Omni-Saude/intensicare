@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { OverlayStackProvider } from '@/hooks/useOverlayStack';
 
 export const metadata: Metadata = {
   title: 'Intensicare — Clinical Command Center',
@@ -14,7 +16,11 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" data-theme="dark">
       <body className="min-h-screen">
-        {children}
+        <OverlayStackProvider>
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+        </OverlayStackProvider>
       </body>
     </html>
   );

@@ -30,6 +30,31 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Admin role guard — redirect non-admin users away from /admin/* routes
+  if (pathname.startsWith('/admin')) {
+    try {
+      const parts = token.split('.');
+      const middle = parts[1];
+      if (!middle) {
+        throw new Error('Malformed token');
+      }
+      const payload = JSON.parse(atob(middle));
+      const isAdmin =
+        payload.is_admin === true ||
+        payload.role === 'admin' ||
+        payload.user_role === 'admin';
+
+      if (!isAdmin) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    } catch {
+      // If JWT decode fails (malformed token), redirect to login
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+  }
+
   return NextResponse.next();
 }
 

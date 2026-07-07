@@ -108,9 +108,18 @@ export default function AlertRoutingPage() {
   const [rules, setRules] = useState<RoutingRule[]>(() =>
     DEFAULT_RULES.map((r) => ({ ...r })),
   );
+  const [isLoading, setIsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Simulate initial data loading
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const toggleRule = (severity: SeverityBand) => {
     setRules((prev) =>
@@ -154,6 +163,19 @@ export default function AlertRoutingPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-20">
+          <div className="flex items-center gap-3" style={{ color: 'var(--semantic-text-secondary)' }}>
+            <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+            <span>Loading routing configuration...</span>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       {/* Header */}
@@ -184,9 +206,9 @@ export default function AlertRoutingPage() {
           }}
         >
           {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           ) : (
-            <Save className="w-4 h-4" />
+            <Save className="w-4 h-4" aria-hidden="true" />
           )}
           {saving ? 'Saving...' : 'Save Configuration'}
         </button>
@@ -205,7 +227,7 @@ export default function AlertRoutingPage() {
           role="status"
           aria-live="polite"
         >
-          <CheckCircle className="w-4 h-4" />
+          <CheckCircle className="w-4 h-4" aria-hidden="true" />
           Routing configuration saved successfully.
         </div>
       )}
@@ -222,7 +244,7 @@ export default function AlertRoutingPage() {
           role="alert"
           aria-live="assertive"
         >
-          <AlertTriangle className="w-4 h-4" />
+          <AlertTriangle className="w-4 h-4" aria-hidden="true" />
           {saveError}
         </div>
       )}
@@ -235,151 +257,156 @@ export default function AlertRoutingPage() {
           backgroundColor: 'var(--semantic-surface-raised)',
         }}
       >
-        {/* Table header */}
-        <div
-          className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold uppercase tracking-wider"
-          style={{
-            borderBottom: '1px solid var(--semantic-border-default)',
-            color: 'var(--semantic-text-secondary)',
-            backgroundColor: 'var(--semantic-surface-overlay)',
-          }}
-        >
-          <div className="col-span-2" aria-label="Severity column">Severity</div>
-          <div className="col-span-4" aria-label="Notification channel column">Channel</div>
-          <div className="col-span-3" aria-label="Escalation timeout column">Escalation (min)</div>
-          <div className="col-span-2" aria-label="Status column">Status</div>
-          <div className="col-span-1" aria-label="Toggle column">Toggle</div>
-        </div>
+         <table className="w-full border-collapse" role="table">
+           <thead>
+             <tr
+               className="text-xs font-semibold uppercase tracking-wider"
+               style={{
+                 borderBottom: '1px solid var(--semantic-border-default)',
+                 color: 'var(--semantic-text-secondary)',
+                 backgroundColor: 'var(--semantic-surface-overlay)',
+               }}
+             >
+               <th scope="col" className="px-6 py-3 text-left w-[16.6%]">Severity</th>
+               <th scope="col" className="px-6 py-3 text-left w-[33.3%]">Channel</th>
+               <th scope="col" className="px-6 py-3 text-left w-[25%]">Escalation (min)</th>
+               <th scope="col" className="px-6 py-3 text-left w-[16.6%]">Status</th>
+               <th scope="col" className="px-6 py-3 text-right w-[8.3%]">Toggle</th>
+             </tr>
+           </thead>
+           <tbody>
+             {rules.map((rule) => (
+               <tr
+                 key={rule.severity}
+                 className="transition-colors"
+                 style={{
+                   borderBottom: '1px solid var(--semantic-border-default)',
+                   opacity: rule.enabled ? 1 : 0.55,
+                 }}
+               >
+                 {/* Severity */}
+                 <td className="px-6 py-4">
+                   <div className="flex items-center gap-2">
+                     <span style={{ color: getSeverityColour(rule.severity) }} aria-hidden="true">
+                       {getSeverityIcon(rule.severity)}
+                     </span>
+                     <span
+                       className="font-semibold text-sm"
+                       style={{ color: getSeverityColour(rule.severity) }}
+                     >
+                       {rule.label}
+                     </span>
+                   </div>
+                 </td>
 
-        {/* Table body */}
-        {rules.map((rule) => (
-          <div
-            key={rule.severity}
-            className="grid grid-cols-12 gap-4 px-6 py-4 items-center transition-colors"
-            style={{
-              borderBottom: '1px solid var(--semantic-border-default)',
-              opacity: rule.enabled ? 1 : 0.55,
-            }}
-            aria-label={`Routing rule for ${rule.label} severity`}
-          >
-            {/* Severity */}
-            <div className="col-span-2 flex items-center gap-2">
-              <span style={{ color: getSeverityColour(rule.severity) }}>
-                {getSeverityIcon(rule.severity)}
-              </span>
-              <span
-                className="font-semibold text-sm"
-                style={{
-                  color: getSeverityColour(rule.severity),
-                }}
-              >
-                {rule.label}
-              </span>
-            </div>
+                 {/* Channel selector */}
+                 <td className="px-6 py-4">
+                   <select
+                     value={rule.channel}
+                     onChange={(e) =>
+                       updateChannel(rule.severity, e.target.value as NotificationChannel)
+                     }
+                     disabled={!rule.enabled}
+                     aria-label={`Notification channel for ${rule.label}`}
+                     className="w-full px-3 py-2 rounded-lg text-sm border outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                     style={{
+                       borderColor: 'var(--semantic-border-default)',
+                       color: 'var(--semantic-text-primary)',
+                       backgroundColor: 'var(--semantic-surface-canvas)',
+                     }}
+                   >
+                     {CHANNELS.map((ch) => (
+                       <option key={ch} value={ch}>
+                         {ch === 'RRT'
+                           ? '🚨 Rapid Response Team'
+                           : ch === 'SMS'
+                             ? '📱 SMS'
+                             : ch === 'Push'
+                               ? '🔔 Push Notification'
+                               : '🏷️ Badge'}
+                       </option>
+                     ))}
+                   </select>
+                 </td>
 
-            {/* Channel selector */}
-            <div className="col-span-4">
-              <select
-                value={rule.channel}
-                onChange={(e) =>
-                  updateChannel(rule.severity, e.target.value as NotificationChannel)
-                }
-                disabled={!rule.enabled}
-                aria-label={`Notification channel for ${rule.label}`}
-                className="w-full px-3 py-2 rounded-lg text-sm border outline-none transition-all focus:ring-2 focus:ring-blue-500"
-                style={{
-                  borderColor: 'var(--semantic-border-default)',
-                  color: 'var(--semantic-text-primary)',
-                  backgroundColor: 'var(--semantic-surface-canvas)',
-                }}
-              >
-                {CHANNELS.map((ch) => (
-                  <option key={ch} value={ch}>
-                    {ch === 'RRT'
-                      ? '🚨 Rapid Response Team'
-                      : ch === 'SMS'
-                        ? '📱 SMS'
-                        : ch === 'Push'
-                          ? '🔔 Push Notification'
-                          : '🏷️ Badge'}
-                  </option>
-                ))}
-              </select>
-            </div>
+                 {/* Escalation timeout */}
+                 <td className="px-6 py-4">
+                   <select
+                     value={rule.escalationTimeoutMinutes}
+                     onChange={(e) =>
+                       updateTimeout(rule.severity, Number(e.target.value))
+                     }
+                     disabled={!rule.enabled}
+                     aria-label={`Escalation timeout for ${rule.label}`}
+                     className="w-full px-3 py-2 rounded-lg text-sm border outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                     style={{
+                       borderColor: 'var(--semantic-border-default)',
+                       color: 'var(--semantic-text-primary)',
+                       backgroundColor: 'var(--semantic-surface-canvas)',
+                     }}
+                   >
+                     {TIMEOUTS.map((t) => (
+                       <option key={t} value={t}>
+                         {t} {t === 1 ? 'minute' : 'minutes'}
+                       </option>
+                     ))}
+                   </select>
+                 </td>
 
-            {/* Escalation timeout */}
-            <div className="col-span-3">
-              <select
-                value={rule.escalationTimeoutMinutes}
-                onChange={(e) =>
-                  updateTimeout(rule.severity, Number(e.target.value))
-                }
-                disabled={!rule.enabled}
-                aria-label={`Escalation timeout for ${rule.label}`}
-                className="w-full px-3 py-2 rounded-lg text-sm border outline-none transition-all focus:ring-2 focus:ring-blue-500"
-                style={{
-                  borderColor: 'var(--semantic-border-default)',
-                  color: 'var(--semantic-text-primary)',
-                  backgroundColor: 'var(--semantic-surface-canvas)',
-                }}
-              >
-                {TIMEOUTS.map((t) => (
-                  <option key={t} value={t}>
-                    {t} {t === 1 ? 'minute' : 'minutes'}
-                  </option>
-                ))}
-              </select>
-            </div>
+                 {/* Status indicator */}
+                 <td className="px-6 py-4">
+                   <div className="flex items-center gap-2">
+                     <div
+                       className="w-2 h-2 rounded-full"
+                       aria-hidden="true"
+                       style={{
+                         backgroundColor: rule.enabled
+                           ? getSeverityColour(rule.severity)
+                           : 'var(--semantic-text-secondary)',
+                       }}
+                     />
+                     <span
+                       className="text-xs font-medium"
+                       style={{
+                         color: rule.enabled
+                           ? getSeverityColour(rule.severity)
+                           : 'var(--semantic-text-secondary)',
+                       }}
+                     >
+                       {rule.enabled ? 'Active' : 'Disabled'}
+                     </span>
+                   </div>
+                 </td>
 
-            {/* Status indicator */}
-            <div className="col-span-2 flex items-center gap-2">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{
-                  backgroundColor: rule.enabled
-                    ? getSeverityColour(rule.severity)
-                    : 'var(--semantic-text-secondary)',
-                }}
-              />
-              <span
-                className="text-xs font-medium"
-                style={{
-                  color: rule.enabled
-                    ? getSeverityColour(rule.severity)
-                    : 'var(--semantic-text-secondary)',
-                }}
-              >
-                {rule.enabled ? 'Active' : 'Disabled'}
-              </span>
-            </div>
-
-            {/* Toggle */}
-            <div className="col-span-1 flex justify-end">
-              <button
-                onClick={() => toggleRule(rule.severity)}
-                aria-label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.label} routing`}
-                className="p-2 rounded-lg transition-all border"
-                style={{
-                  borderColor: rule.enabled
-                    ? getSeverityColour(rule.severity)
-                    : 'var(--semantic-border-default)',
-                  backgroundColor: rule.enabled
-                    ? getSeverityWash(rule.severity)
-                    : 'transparent',
-                  color: rule.enabled
-                    ? getSeverityColour(rule.severity)
-                    : 'var(--semantic-text-secondary)',
-                }}
-              >
-                {rule.enabled ? (
-                  <Bell className="w-4 h-4" />
-                ) : (
-                  <BellOff className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-          </div>
-        ))}
+                 {/* Toggle */}
+                 <td className="px-6 py-4 text-right">
+                   <button
+                     onClick={() => toggleRule(rule.severity)}
+                     aria-label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.label} routing`}
+                     className="p-2 rounded-lg transition-all border focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                     style={{
+                       borderColor: rule.enabled
+                         ? getSeverityColour(rule.severity)
+                         : 'var(--semantic-border-default)',
+                       backgroundColor: rule.enabled
+                         ? getSeverityWash(rule.severity)
+                         : 'transparent',
+                       color: rule.enabled
+                         ? getSeverityColour(rule.severity)
+                         : 'var(--semantic-text-secondary)',
+                     }}
+                   >
+                     {rule.enabled ? (
+                       <Bell className="w-4 h-4" aria-hidden="true" />
+                     ) : (
+                       <BellOff className="w-4 h-4" aria-hidden="true" />
+                     )}
+                   </button>
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
       </div>
 
       {/* Info card */}
@@ -391,7 +418,7 @@ export default function AlertRoutingPage() {
           color: 'var(--semantic-text-secondary)',
         }}
       >
-        <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
         <div className="text-sm">
           <p className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>
             Routing Logic

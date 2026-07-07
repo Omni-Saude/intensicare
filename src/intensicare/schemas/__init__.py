@@ -1,5 +1,9 @@
 """Pydantic schemas para API v1."""
 
+from intensicare.schemas.clinical_forms import (
+    ClinicalFormResponse,
+    ClinicalFormSubmission,
+)
 from intensicare.schemas.dashboard import (
     DashboardResponse,
     PatientBedSummary,
@@ -34,6 +38,8 @@ from intensicare.schemas.vitals import (
 
 __all__ = [
     "CANONICAL_SEVERITIES",
+    "ClinicalFormResponse",
+    "ClinicalFormSubmission",
     "DashboardResponse",
     "FHIREnrichment",
     "PatientBedSummary",

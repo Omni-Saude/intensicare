@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, AlertTriangle, Bell, ShieldAlert, Search, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { FullScreenLayout } from '@/components/Layout';
 import SeverityBadge from '@/components/SeverityBadge';
-import { fetchDashboard, type DashboardResponse, type PatientBedSummary } from '@/lib/api';
+import ClinicalTooltip from '@/components/ClinicalTooltip';
+import { fetchDashboard, type DashboardResponse } from '@/lib/api';
 import { useRealtimeChannel, useConnectionStatus, type RealtimeEvent } from '@/lib/websocket';
+import { getMEWSSeverity, getSeverityStyle, getSeverityFromAlert } from '@/lib/clinical-severity';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 export default function CommandCenterPage() {
   const router = useRouter();
@@ -15,9 +18,62 @@ export default function CommandCenterPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // WebSocket connection status for indicator
   const wsStatus = useConnectionStatus();
+
+  // Keyboard shortcuts: 1-4 → filter by severity, / → focus search, Escape → clear filters
+  useKeyboardShortcuts([
+    {
+      key: '1',
+      handler: () => setSeverityFilter(severityFilter === 'critical' ? null : 'critical'),
+    },
+    {
+      key: '2',
+      handler: () => setSeverityFilter(severityFilter === 'warning' ? null : 'warning'),
+    },
+    {
+      key: '3',
+      handler: () => setSeverityFilter(severityFilter === 'normal' ? null : 'normal'),
+    },
+    {
+      key: '4',
+      handler: () => setSeverityFilter(severityFilter === 'alert' ? null : 'alert'),
+    },
+    {
+      key: '/',
+      handler: () => {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        }
+      },
+    },
+    {
+      key: 'Escape',
+      handler: () => {
+        setSearch('');
+        setSeverityFilter(null);
+      },
+    },
+    {
+      key: 'j',
+      handler: () => moveFocus(1),
+    },
+    {
+      key: 'k',
+      handler: () => moveFocus(-1),
+    },
+    {
+      key: 'ArrowDown',
+      handler: () => moveFocus(1),
+    },
+    {
+      key: 'ArrowUp',
+      handler: () => moveFocus(-1),
+    },
+  ]);
 
   // Initial data load (REST)
   const loadData = useCallback(async () => {
@@ -70,28 +126,24 @@ export default function CommandCenterPage() {
     return matchesSearch && matchesSeverity;
   });
 
-  // Bed card border style — uses clinical severity tokens
-  const getBedStatusStyle = (patient: PatientBedSummary): React.CSSProperties => {
-    if (patient.highest_alert_severity === 'critical') {
-      return {
-        borderLeftColor: 'var(--clinical-severity-critical-signal)',
-        backgroundColor: 'var(--clinical-severity-critical-wash)',
-      };
-    }
-    if (
-      patient.highest_alert_severity === 'warning' ||
-      patient.active_alerts_count > 0
-    ) {
-      return {
-        borderLeftColor: 'var(--clinical-severity-watch-signal)',
-        backgroundColor: 'var(--clinical-severity-watch-wash)',
-      };
-    }
-    return {
-      borderLeftColor: 'var(--clinical-severity-normal-signal)',
-      backgroundColor: 'white',
-    };
-  };
+  // Reset focusedIndex when filters change
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [search, severityFilter]);
+
+  // Navigate patient list with j/k/↑/↓ — wraps at boundaries
+  const moveFocus = useCallback(
+    (direction: number) => {
+      if (!filteredPatients || filteredPatients.length === 0) return;
+      setFocusedIndex((prev) => {
+        const next = prev + direction;
+        if (next < 0) return filteredPatients.length - 1;
+        if (next >= filteredPatients.length) return 0;
+        return next;
+      });
+    },
+    [filteredPatients],
+  );
 
   if (loading && !data) {
     return (
@@ -101,8 +153,8 @@ export default function CommandCenterPage() {
             className="flex items-center gap-3"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            <RefreshCw className="w-5 h-5 animate-spin" />
-            <span>Loading bed board...</span>
+            <RefreshCw className="w-5 h-5 animate-spin" aria-hidden="true" />
+            <span>Carregando painel de leitos...</span>
           </div>
         </div>
       </FullScreenLayout>
@@ -122,14 +174,14 @@ export default function CommandCenterPage() {
           role="alert"
           aria-live="assertive"
         >
-          <h2 className="font-semibold">Error loading bed board</h2>
+          <h2 className="font-semibold">Erro ao carregar painel de leitos</h2>
           <p className="text-sm mt-1">{error}</p>
           <button
             onClick={loadData}
             className="mt-3 text-sm underline"
-            aria-label="Retry loading bed board"
+            aria-label="Tentar novamente"
           >
-            Retry
+            Tentar novamente
           </button>
         </div>
       </FullScreenLayout>
@@ -159,22 +211,22 @@ export default function CommandCenterPage() {
               className="text-2xl font-bold"
               style={{ color: 'var(--semantic-text-primary)' }}
             >
-              Command Center
+              Central de Comando
             </h1>
             <p
               className="text-sm mt-1"
               style={{ color: 'var(--semantic-text-secondary)' }}
             >
-              Bed board with severity overview
+              Painel de leitos com visão de gravidade
               {/* WS connection indicator */}
               <span className="inline-flex items-center gap-1 ml-3">
                 {wsStatus === 'connected' ? (
-                  <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-signal)' }} />
+                  <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-signal)' }} aria-hidden="true" />
                 ) : (
-                  <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} />
+                  <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} aria-hidden="true" />
                 )}
                 <span className="text-[10px]">
-                  {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Connecting...' : 'Offline'}
+                  {wsStatus === 'connected' ? 'Ao vivo' : wsStatus === 'connecting' ? 'Conectando...' : 'Offline'}
                 </span>
               </span>
             </p>
@@ -186,8 +238,8 @@ export default function CommandCenterPage() {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Atualizar
           </button>
         </div>
       </div>
@@ -213,16 +265,18 @@ export default function CommandCenterPage() {
               : {}
           }
         >
+          <h3 className="sr-only">Critical Patients</h3>
           <div className="flex items-center gap-2 mb-1">
             <ShieldAlert
               className="w-5 h-5"
               style={{ color: 'var(--clinical-severity-critical-signal)' }}
+              aria-hidden="true"
             />
             <span
               className="text-xs font-semibold uppercase"
               style={{ color: 'var(--semantic-text-secondary)' }}
             >
-              Critical
+              Crítico
             </span>
           </div>
           <div
@@ -252,16 +306,18 @@ export default function CommandCenterPage() {
               : {}
           }
         >
+          <h3 className="sr-only">Warning Patients</h3>
           <div className="flex items-center gap-2 mb-1">
             <Bell
               className="w-5 h-5"
               style={{ color: 'var(--clinical-severity-watch-signal)' }}
+              aria-hidden="true"
             />
             <span
               className="text-xs font-semibold uppercase"
               style={{ color: 'var(--semantic-text-secondary)' }}
             >
-              Warning
+              Atenção
             </span>
           </div>
           <div
@@ -289,16 +345,18 @@ export default function CommandCenterPage() {
               : {}
           }
         >
+          <h3 className="sr-only">Stable Patients</h3>
           <div className="flex items-center gap-2 mb-1">
             <Activity
               className="w-5 h-5"
               style={{ color: 'var(--clinical-severity-normal-signal)' }}
+              aria-hidden="true"
             />
             <span
               className="text-xs font-semibold uppercase"
               style={{ color: 'var(--semantic-text-secondary)' }}
             >
-              Stable
+              Estável
             </span>
           </div>
           <div
@@ -315,13 +373,15 @@ export default function CommandCenterPage() {
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
           style={{ color: 'var(--semantic-text-secondary)' }}
+          aria-hidden="true"
         />
         <input
           type="text"
+          ref={searchInputRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, MPI ID, or bed..."
-          aria-label="Search patients"
+          placeholder="Buscar por nome, MPI ID ou leito..."
+          aria-label="Buscar pacientes"
           className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
@@ -329,13 +389,13 @@ export default function CommandCenterPage() {
       {/* Bed grid */}
       {filteredPatients && filteredPatients.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filteredPatients.map((patient) => (
+          {filteredPatients.map((patient, index) => (
             <button
               key={patient.mpi_id}
               onClick={() => router.push(`/patient/${patient.mpi_id}`)}
               aria-label={`Patient ${patient.display_name}${patient.bed_id ? `, bed ${patient.bed_id}` : ''}`}
-              className="text-left rounded-r-xl border border-slate-200 p-4 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 border-l-4"
-              style={getBedStatusStyle(patient)}
+              className={`text-left rounded-r-xl border border-slate-200 p-4 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 border-l-4 ${focusedIndex === index ? 'ring-2 ring-blue-500' : ''}`}
+              style={getSeverityStyle(patient.highest_alert_severity, 'left-accent')}
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="min-w-0">
@@ -349,19 +409,13 @@ export default function CommandCenterPage() {
                     className="text-xs mt-0.5"
                     style={{ color: 'var(--semantic-text-secondary)' }}
                   >
-                    {patient.bed_id || 'No bed'}
+                    {patient.bed_id || 'Sem leito'}
                     {patient.unit && ` · ${patient.unit}`}
                   </div>
                 </div>
                 {patient.highest_alert_severity && (
                   <SeverityBadge
-                    severity={
-                      patient.highest_alert_severity === 'critical'
-                        ? 'critical'
-                        : patient.highest_alert_severity === 'warning'
-                        ? 'watch'
-                        : 'info'
-                    }
+                    severity={getSeverityFromAlert(patient.highest_alert_severity)}
                     showLabel={false}
                   />
                 )}
@@ -374,18 +428,11 @@ export default function CommandCenterPage() {
                       className="text-[10px] uppercase"
                       style={{ color: 'var(--semantic-text-secondary)' }}
                     >
-                      MEWS
+                      <ClinicalTooltip term="MEWS">MEWS</ClinicalTooltip>
                     </div>
                     <div
                       className="text-sm font-bold"
-                      style={{
-                        color:
-                          (patient.latest_mews || 0) >= 5
-                            ? 'var(--clinical-severity-critical-on-surface)'
-                            : (patient.latest_mews || 0) >= 3
-                            ? 'var(--clinical-severity-watch-on-surface)'
-                            : 'var(--semantic-text-primary)',
-                      }}
+                      style={{ color: getMEWSSeverity(patient.latest_mews).colorVar }}
                     >
                       {patient.latest_mews !== null
                         ? patient.latest_mews
@@ -397,7 +444,7 @@ export default function CommandCenterPage() {
                       className="text-[10px] uppercase"
                       style={{ color: 'var(--semantic-text-secondary)' }}
                     >
-                      NEWS2
+                      <ClinicalTooltip term="NEWS2">NEWS2</ClinicalTooltip>
                     </div>
                     <div
                       className="text-sm font-bold"
@@ -439,12 +486,13 @@ export default function CommandCenterPage() {
           <AlertTriangle
             className="w-12 h-12 mx-auto mb-4"
             style={{ color: 'var(--semantic-text-secondary)', opacity: 0.5 }}
+            aria-hidden="true"
           />
           <p
             className="font-medium"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            No patients match your filters
+            Nenhum paciente corresponde aos filtros
           </p>
           <button
             onClick={() => {
@@ -453,9 +501,9 @@ export default function CommandCenterPage() {
             }}
             className="mt-2 text-sm underline"
             style={{ color: 'var(--clinical-status-attended-color)' }}
-            aria-label="Clear all filters"
+            aria-label="Limpar todos os filtros"
           >
-            Clear filters
+            Limpar filtros
           </button>
         </div>
       )}

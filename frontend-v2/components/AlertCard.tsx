@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { CheckCircle, XCircle, ArrowUpCircle, Clock, AlertTriangle, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import DrawerBuilder from './DrawerBuilder';
 import SeverityBadge from './SeverityBadge';
 import type { AlertInfo, TriggeringParameter } from '@/lib/api';
 import { acknowledgeAlert, resolveAlert, escalateAlert } from '@/lib/api';
@@ -19,28 +20,29 @@ const statusBadge: Record<
   active: {
     bgVar: 'var(--clinical-severity-critical-wash)',
     textVar: 'var(--clinical-severity-critical-on-surface)',
-    label: 'Active',
+    label: 'Ativo',
   },
   acknowledged: {
     bgVar: 'var(--clinical-status-attended-color)',
     textVar: 'var(--clinical-status-attended-on-color)',
-    label: 'Acknowledged',
+    label: 'Reconhecido',
   },
   escalated: {
     bgVar: 'var(--clinical-severity-urgent-wash)',
     textVar: 'var(--clinical-severity-urgent-on-surface)',
-    label: 'Escalated',
+    label: 'Escalado',
   },
   resolved: {
     bgVar: 'var(--clinical-severity-normal-wash)',
     textVar: 'var(--clinical-severity-normal-on-surface)',
-    label: 'Resolved',
+    label: 'Resolvido',
   },
 };
 
 export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [whyPanelOpen, setWhyPanelOpen] = useState(false);
 
   const handleAcknowledge = async () => {
@@ -50,7 +52,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
       await acknowledgeAlert(alert.id);
       onUpdate();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to acknowledge');
+      setError(err instanceof Error ? err.message : 'Falha ao reconhecer');
     } finally {
       setLoading(null);
     }
@@ -65,7 +67,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
       await resolveAlert(alert.id, resolution);
       onUpdate();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to resolve');
+      setError(err instanceof Error ? err.message : 'Falha ao resolver');
     } finally {
       setLoading(null);
     }
@@ -78,7 +80,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
       await escalateAlert(alert.id);
       onUpdate();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to escalate');
+      setError(err instanceof Error ? err.message : 'Falha ao escalar');
     } finally {
       setLoading(null);
     }
@@ -156,12 +158,12 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           className="flex flex-wrap gap-3 text-xs mb-3"
           style={{ color: 'var(--semantic-text-secondary)' }}
         >
-          {alert.mpi_id && <span>Patient: {alert.mpi_id}</span>}
+          {alert.mpi_id && <span>Paciente: {alert.mpi_id}</span>}
           {alert.acknowledged_at && (
             <span className="flex items-center gap-1">
-              <CheckCircle className="w-3 h-3" />
-              Ack: {formatDate(alert.acknowledged_at)}
-              {alert.acknowledged_by && ` by ${alert.acknowledged_by}`}
+              <CheckCircle className="w-3 h-3" aria-hidden="true" />
+              Rec: {formatDate(alert.acknowledged_at)}
+              {alert.acknowledged_by && ` por ${alert.acknowledged_by}`}
             </span>
           )}
           {alert.resolved_at && (
@@ -169,8 +171,9 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
               <CheckCircle
                 className="w-3 h-3"
                 style={{ color: 'var(--clinical-severity-normal-signal)' }}
+                aria-hidden="true"
               />
-              Resolved: {formatDate(alert.resolved_at)}
+              Resolvido: {formatDate(alert.resolved_at)}
               {alert.resolution &&
                 ` (${alert.resolution.replace(/_/g, ' ')})`}
             </span>
@@ -188,7 +191,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
             role="alert"
             aria-live="assertive"
           >
-            <AlertTriangle className="w-3 h-3" />
+            <AlertTriangle className="w-3 h-3" aria-hidden="true" />
             {error}
           </div>
         )}
@@ -197,73 +200,69 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
         <div className="flex flex-wrap gap-2">
           {isAcknowledgeable && (
             <button
-              onClick={handleAcknowledge}
+              onClick={() => setConfirmAction('acknowledge')}
               disabled={loading !== null}
-              aria-label={`Acknowledge alert: ${alert.title}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+              aria-label={`Reconhecer alerta: ${alert.title}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors min-h-[44px] min-w-[44px] justify-center"
               style={{
                 backgroundColor: 'var(--clinical-status-attended-color)',
               }}
             >
-              <Clock className="w-3.5 h-3.5" />
-              {loading === 'ack' ? '...' : 'Acknowledge'}
+              <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+              {loading === 'ack' ? '...' : 'Reconhecer'}
             </button>
           )}
 
           {isEscalatable && (
             <button
-              onClick={handleEscalate}
+              onClick={() => setConfirmAction('escalate')}
               disabled={loading !== null}
-              aria-label={`Escalate alert: ${alert.title}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+              aria-label={`Escalar alerta: ${alert.title}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors min-h-[44px] min-w-[44px] justify-center"
               style={{
                 backgroundColor: 'var(--clinical-severity-urgent-fill)',
               }}
             >
-              <ArrowUpCircle className="w-3.5 h-3.5" />
-              {loading === 'escalate' ? '...' : 'Escalate'}
+              <ArrowUpCircle className="w-3.5 h-3.5" aria-hidden="true" />
+              {loading === 'escalate' ? '...' : 'Escalar'}
             </button>
           )}
 
           {isResolvable && (
             <>
               <button
-                onClick={() => handleResolve('true_positive')}
+                onClick={() => setConfirmAction('resolve:true_positive')}
                 disabled={loading !== null}
-                aria-label="Resolve as true positive"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+                aria-label="Resolver como verdadeiro positivo"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors min-h-[44px] min-w-[44px] justify-center"
                 style={{
                   backgroundColor: 'var(--clinical-severity-normal-fill)',
                 }}
               >
-                <CheckCircle className="w-3.5 h-3.5" />
-                {loading === 'resolve-true_positive' ? '...' : 'True Positive'}
+                <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                {loading === 'resolve-true_positive' ? '...' : 'Verdadeiro Positivo'}
               </button>
               <button
-                onClick={() => handleResolve('false_positive')}
+                onClick={() => setConfirmAction('resolve:false_positive')}
                 disabled={loading !== null}
-                aria-label="Resolve as false positive"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+                aria-label="Resolver como falso positivo"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors min-h-[44px] min-w-[44px] justify-center"
                 style={{ backgroundColor: 'var(--semantic-text-secondary)' }}
               >
-                <XCircle className="w-3.5 h-3.5" />
-                {loading === 'resolve-false_positive'
-                  ? '...'
-                  : 'False Positive'}
+                <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                {loading === 'resolve-false_positive' ? '...' : 'Falso Positivo'}
               </button>
               <button
-                onClick={() => handleResolve('intervention_done')}
+                onClick={() => setConfirmAction('resolve:intervention_done')}
                 disabled={loading !== null}
-                aria-label="Resolve as intervention done"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+                aria-label="Resolver como intervenção realizada"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors min-h-[44px] min-w-[44px] justify-center"
                 style={{
                   backgroundColor: 'var(--clinical-severity-watch-fill)',
                 }}
               >
-                <CheckCircle className="w-3.5 h-3.5" />
-                {loading === 'resolve-intervention_done'
-                  ? '...'
-                  : 'Intervention Done'}
+                <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                {loading === 'resolve-intervention_done' ? '...' : 'Intervenção Realizada'}
               </button>
             </>
           )}
@@ -276,12 +275,12 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
               aria-expanded={whyPanelOpen}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
             >
-              <Info className="w-3.5 h-3.5" />
-              Why?
+              <Info className="w-3.5 h-3.5" aria-hidden="true" />
+              Por quê?
               {whyPanelOpen ? (
-                <ChevronUp className="w-3 h-3" />
+                <ChevronUp className="w-3 h-3" aria-hidden="true" />
               ) : (
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className="w-3 h-3" aria-hidden="true" />
               )}
             </button>
           )}
@@ -297,14 +296,14 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           aria-label="Alert clinical rationale"
         >
           <h5 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--semantic-text-secondary)' }}>
-            Clinical Rationale
+            Fundamentação Clínica
           </h5>
 
           {/* Triggering Parameters */}
           {alert.triggering_parameters && alert.triggering_parameters.length > 0 && (
             <div className="mb-3">
               <h6 className="text-[11px] font-semibold mb-2" style={{ color: 'var(--semantic-text-primary)' }}>
-                Triggering Parameters
+                Parâmetros Disparadores
               </h6>
               <div className="space-y-1.5">
                 {alert.triggering_parameters.map((param: TriggeringParameter, idx: number) => (
@@ -347,7 +346,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
                             backgroundColor: 'var(--clinical-severity-critical-fill)',
                           }}
                         >
-                          BREACHED
+                          VIOLADO
                         </span>
                       )}
                     </div>
@@ -361,7 +360,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           {alert.rule_reference && (
             <div className="mb-2">
               <h6 className="text-[11px] font-semibold mb-1" style={{ color: 'var(--semantic-text-primary)' }}>
-                Clinical Evidence
+                Evidência Clínica
               </h6>
               <div
                 className="text-xs font-mono px-2 py-1 rounded"
@@ -379,7 +378,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           {alert.alert_definition_version && (
             <div className="mb-2">
               <h6 className="text-[11px] font-semibold mb-1" style={{ color: 'var(--semantic-text-primary)' }}>
-                Definition Version
+                Versão da Definição
               </h6>
               <span
                 className="text-xs font-mono px-2 py-0.5 rounded"
@@ -397,7 +396,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           {alert.data_coverage_note && (
             <div>
               <h6 className="text-[11px] font-semibold mb-1" style={{ color: 'var(--semantic-text-primary)' }}>
-                Data Coverage
+                Cobertura de Dados
               </h6>
               <p className="text-xs" style={{ color: 'var(--semantic-text-secondary)' }}>
                 {alert.data_coverage_note}
@@ -406,6 +405,65 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
           )}
         </div>
       )}
+
+      {/* Confirmation Dialog */}
+      <DrawerBuilder
+        open={confirmAction !== null}
+        onClose={() => setConfirmAction(null)}
+        title={
+          confirmAction === 'acknowledge'
+            ? 'Confirmar Reconhecimento'
+            : confirmAction === 'escalate'
+              ? 'Confirmar Escalação'
+              : 'Confirmar Resolução'
+        }
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm" style={{ color: 'var(--semantic-text-secondary)' }}>
+            {confirmAction === 'acknowledge'
+              ? 'Confirmar reconhecimento do alerta?'
+              : confirmAction === 'escalate'
+                ? 'Confirmar escalação do alerta?'
+                : 'Confirmar resolução do alerta?'}
+          </p>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              onClick={() => setConfirmAction(null)}
+              className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+              style={{
+                borderColor: 'var(--semantic-border-default)',
+                color: 'var(--semantic-text-primary)',
+                backgroundColor: 'var(--semantic-surface-raised)',
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                const action = confirmAction;
+                setConfirmAction(null);
+                if (action === 'acknowledge') {
+                  handleAcknowledge();
+                } else if (action === 'escalate') {
+                  handleEscalate();
+                } else if (action?.startsWith('resolve:')) {
+                  const resolution = action.replace('resolve:', '') as 'true_positive' | 'false_positive' | 'intervention_done';
+                  handleResolve(resolution);
+                }
+              }}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+              style={{
+                backgroundColor: confirmAction === 'escalate'
+                  ? 'var(--clinical-severity-urgent-fill)'
+                  : 'var(--clinical-severity-normal-fill)',
+              }}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </DrawerBuilder>
     </div>
   );
 }

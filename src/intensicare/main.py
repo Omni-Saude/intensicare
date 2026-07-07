@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from intensicare.api.clinical_forms import router as clinical_forms_router
+from intensicare.api.reference_ranges import router as reference_ranges_router
 from intensicare.api.thresholds import router as thresholds_router
 from intensicare.api.v1 import (
     admin_router,
@@ -101,6 +103,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(alerts_router)
     app.include_router(dashboard_router)
+    app.include_router(clinical_forms_router)
+    app.include_router(reference_ranges_router)
     app.include_router(thresholds_router)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(patients_router, prefix="/api/v1")

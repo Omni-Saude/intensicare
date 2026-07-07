@@ -11,6 +11,7 @@ import {
   TrendingDown,
   Minus,
 } from 'lucide-react';
+import ClinicalTooltip from '@/components/ClinicalTooltip';
 
 type Severity = 'normal' | 'watch' | 'urgent' | 'critical' | 'info';
 

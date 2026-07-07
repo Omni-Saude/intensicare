@@ -1,7 +1,8 @@
 # 0001. Frontend framework and UI-library foundation
 
-Status: proposed
+Status: accepted
 Date: 2026-07-03
+Ratified: 2026-07-07
 Audit source: trilhas-frontend @ f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
 
 ## Context and Problem Statement
@@ -114,6 +115,8 @@ libraries for that Next.js generation.
 
 ## Decision Outcome
 
+### Original Recommendation (2026-07-03)
+
 **Recommended: Option 1 — Next.js (app router) + React 18+ + Ant Design v5**, adopting
 AntD v5's `ConfigProvider` `theme.token`/`theme.algorithm` as the single source of truth
 for both light/dark and per-tenant brand theming, replacing Less `modifyVars` and
@@ -124,11 +127,54 @@ library (e.g. `next-intl`) with PT-BR as the sole shipped locale initially — t
 which AntD v5 itself uses internally). Firebase, Agora, and the raw WebSocket client are
 out of scope here and addressed in the real-time/data-flow ADR set (→ ADR 0017).
 
-This is a **recommendation pending team ratification** — it assumes the team accepts an
+This was a **recommendation pending team ratification** — it assumed the team accepts an
 AntD v4→v5 breaking-change migration rather than a full rewrite, on the premise that the
 component vocabulary and clinical-form patterns are worth preserving and that a
 from-scratch system (Option 2/3) isn't justified: the audit points to a
 *theming-mechanism* defect, not a *component-library* defect.
+
+### Actual Ratified Decision (2026-07-07)
+
+**Option 2 — Next.js (app router) + React 19 + Radix UI + Tailwind CSS v4** was selected
+by the administrator/tech lead and is already implemented in `frontend-v2/`. The ratified
+stack consists of:
+
+| Layer | Choice |
+|---|---|
+| Framework | Next.js 15 (app router) |
+| React | React 19 |
+| Headless primitives | @radix-ui/react-dialog, -tooltip, -dropdown-menu, -popover, -select, -tabs, -toast |
+| Styling | Tailwind CSS v4 (via @tailwindcss/postcss) |
+| Icons | Lucide React |
+| Charts | Recharts |
+| Design tokens | Style Dictionary → CSS custom properties |
+
+**Justification for deviating from the Option 1 recommendation:**
+
+1. **AntD v4→v5 is a full breaking-change migration anyway.** Component APIs, theme
+   token shapes, and Less→CSS-in-JS all change across AntD v4→v5. "Upgrade in place"
+   across 281 `.tsx` files and 153 `.less` files is nearly as expensive as a rewrite, so
+   the preservation argument is weaker than originally assessed.
+2. **Full token ownership.** With Radix (unstyled, accessible primitives) + Tailwind
+   (utility-first styling), every design token — colors, spacing, shadows, typography —
+   is authored by the IntensiCare design system, not inherited from a third-party
+   library's opinionated token schema. CSS custom properties in `globals.css` provide
+   dark-first theming natively via `[data-theme="dark"]` / `[data-theme="light"]`.
+3. **Smaller bundle.** No ~500 KB+ AntD shipped to every user. Radix primitives are
+   individually tree-shakeable; Tailwind CSS v4's JIT produces only used utilities.
+4. **No visual lock-in.** Radix provides accessibility (focus trapping, keyboard
+   navigation, ARIA) without dictating visual appearance. The neumorphic elevation
+   signature (ADR 0007), the drawer-in-drawer overlay pattern (ADR 0010), and the
+   clinical form engine (ADR 0015) are all implementable without mapping through AntD's
+   component API.
+5. **The clinical form engine (the most valuable legacy IP) is framework-agnostic.** The
+   config arrays (`dataFormEnfermagem`, etc.) and the field-type dispatch pattern
+   (`SelectCampoType`) transfer regardless of rendering library. The 10 `SubForm*`
+   renderers are reimplemented using Radix primitives + Tailwind styles rather than AntD
+   `Form.Item` + `Input`/`Select`/`DatePicker`.
+
+**The full stack decision and impact analysis on all dependent ADRs is documented in
+`STACK_DECISION.md` at the repository root.**
 
 ### Consequences
 

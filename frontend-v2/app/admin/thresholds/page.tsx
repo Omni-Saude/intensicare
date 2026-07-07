@@ -143,13 +143,13 @@ export default function AdminThresholdsPage() {
           onClick={() => router.push('/admin')}
           className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-3 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           Back to Admin
         </button>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-              <Sliders className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--clinical-severity-watch-on-surface)] to-[var(--clinical-severity-urgent-on-surface)] flex items-center justify-center">
+              <Sliders className="w-5 h-5 text-white" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Threshold Configuration</h1>
@@ -163,7 +163,7 @@ export default function AdminThresholdsPage() {
             disabled={loading}
             className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
             Refresh
           </button>
         </div>
@@ -171,7 +171,7 @@ export default function AdminThresholdsPage() {
 
       {/* Info banner */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+        <AlertTriangle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium text-blue-800">Clinical Threshold Management</p>
           <p className="text-sm text-blue-600 mt-0.5">
@@ -184,7 +184,7 @@ export default function AdminThresholdsPage() {
 
       {/* Global error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm mb-4">
+        <div className="bg-[var(--clinical-severity-critical-wash)] border border-[var(--clinical-severity-critical-signal)]/30 rounded-xl p-3 text-[var(--clinical-severity-critical-on-surface)] text-sm mb-4">
           {error}
         </div>
       )}
@@ -192,14 +192,14 @@ export default function AdminThresholdsPage() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
+          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" aria-hidden="true" />
         </div>
       )}
 
       {/* Empty state */}
       {!loading && thresholds.length === 0 && (
         <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
-          <Sliders className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <Sliders className="w-12 h-12 text-slate-300 mx-auto mb-4" aria-hidden="true" />
           <p className="text-slate-500 font-medium">No thresholds configured</p>
         </div>
       )}
@@ -219,7 +219,7 @@ export default function AdminThresholdsPage() {
               >
                 <div className="flex items-center gap-3 mb-5">
                   <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center">
-                    <Sliders className="w-5 h-5 text-white" />
+                    <Sliders className="w-5 h-5 text-white" aria-hidden="true" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-800">
@@ -295,43 +295,43 @@ export default function AdminThresholdsPage() {
 
                 {/* Validation error */}
                 {valError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-700 mb-3 flex items-start gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <div className="bg-[var(--clinical-severity-critical-wash)] border border-[var(--clinical-severity-critical-signal)]/30 rounded-lg p-2.5 text-xs text-[var(--clinical-severity-critical-on-surface)] mb-3 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" aria-hidden="true" />
                     {valError}
                   </div>
                 )}
 
                 {/* Monotonic band bar */}
                 <div className="mb-4">
-                  <div className="h-3 rounded-full bg-gradient-to-r from-green-400 via-yellow-400 via-orange-400 to-red-500 relative overflow-hidden">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-[var(--clinical-severity-normal-signal)] via-[var(--clinical-severity-watch-signal)] via-[var(--clinical-severity-urgent-signal)] to-[var(--clinical-severity-critical-signal)] relative overflow-hidden">
                     {/* Band markers */}
                     <div className="absolute inset-0 flex">
                       <div
-                        className="h-full bg-gradient-to-r from-green-400 to-yellow-400"
+                        className="h-full bg-gradient-to-r from-[var(--clinical-severity-normal-signal)] to-[var(--clinical-severity-watch-signal)]"
                         style={{
-                          width: `${(threshold.watch_threshold / threshold.critical_threshold) * 100}%`,
+                          width: `${(threshold.watch_threshold / Math.max(threshold.critical_threshold, 1)) * 100}%`,
                         }}
                       />
                       <div
-                        className="h-full bg-gradient-to-r from-yellow-400 to-orange-400"
+                        className="h-full bg-gradient-to-r from-[var(--clinical-severity-watch-signal)] to-[var(--clinical-severity-urgent-signal)]"
                         style={{
                           width: `${
                             ((threshold.urgent_threshold - threshold.watch_threshold) /
-                              threshold.critical_threshold) *
+                              Math.max(threshold.critical_threshold, 1)) *
                             100
                           }%`,
                         }}
                       />
-                      <div className="h-full bg-gradient-to-r from-orange-400 to-red-500" style={{ flex: 1 }} />
+                      <div className="h-full bg-gradient-to-r from-[var(--clinical-severity-urgent-signal)] to-[var(--clinical-severity-critical-signal)]" style={{ flex: 1 }} />
                     </div>
                     {/* Tick markers */}
                     <div
                       className="absolute top-0 bottom-0 w-0.5 bg-white/60"
-                      style={{ left: `${(threshold.watch_threshold / threshold.critical_threshold) * 100}%` }}
+                      style={{ left: `${(threshold.watch_threshold / Math.max(threshold.critical_threshold, 1)) * 100}%` }}
                     />
                     <div
                       className="absolute top-0 bottom-0 w-0.5 bg-white/60"
-                      style={{ left: `${(threshold.urgent_threshold / threshold.critical_threshold) * 100}%` }}
+                      style={{ left: `${(threshold.urgent_threshold / Math.max(threshold.critical_threshold, 1)) * 100}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-400 mt-1">
@@ -346,12 +346,12 @@ export default function AdminThresholdsPage() {
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                   <div className="flex items-center gap-3 text-xs text-slate-400">
                     <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
+                      <Clock className="w-3 h-3" aria-hidden="true" />
                       {formatDate(threshold.updated_at)}
                     </span>
                     {threshold.updated_by && (
                       <span className="flex items-center gap-1">
-                        <User className="w-3 h-3" />
+                        <User className="w-3 h-3" aria-hidden="true" />
                         {threshold.updated_by}
                       </span>
                     )}
@@ -361,16 +361,16 @@ export default function AdminThresholdsPage() {
                     disabled={isSaving || !!valError}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
                       isSaved
-                        ? 'bg-green-100 text-green-700 border border-green-200'
+                        ? 'bg-[var(--clinical-severity-normal-wash)] text-[var(--clinical-severity-normal-on-surface)] border border-[var(--clinical-severity-normal-signal)]/30'
                         : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:from-cyan-600 hover:to-blue-700 disabled:opacity-50'
                     }`}
                   >
                     {isSaving ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                     ) : isSaved ? (
-                      <CheckCircle className="w-3.5 h-3.5" />
+                      <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />
                     ) : (
-                      <Save className="w-3.5 h-3.5" />
+                      <Save className="w-3.5 h-3.5" aria-hidden="true" />
                     )}
                     {isSaved ? 'Saved!' : isSaving ? 'Saving...' : 'Save'}
                   </button>
@@ -415,12 +415,15 @@ function ThresholdBandInput({
     },
   };
 
+  const inputId = `threshold-band-${band}-${label.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`;
+
   return (
     <div style={bandStyles[band]} className="rounded-lg p-2.5 border">
-      <label className="text-[10px] font-semibold uppercase tracking-wider mb-1 block opacity-70">
+      <label htmlFor={inputId} className="text-[10px] font-semibold uppercase tracking-wider mb-1 block opacity-70">
         {label}
       </label>
       <input
+        id={inputId}
         type="number"
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value) || 0)}

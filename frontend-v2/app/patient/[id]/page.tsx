@@ -17,10 +17,14 @@ import {
   WifiOff,
 } from 'lucide-react';
 import Layout from '@/components/Layout';
+import ClinicalTooltip from '@/components/ClinicalTooltip';
 import SeverityBadge from '@/components/SeverityBadge';
 import AlertCard from '@/components/AlertCard';
 import { fetchPatientDetail, type PatientDetailResponse, type ScoreHistoryPoint, type VitalsHistoryPoint } from '@/lib/api';
 import { useRealtimeChannel, useConnectionStatus, type RealtimeEvent } from '@/lib/websocket';
+import { getScoreColor } from '@/lib/clinical-severity';
+import { useThreshold, severityToColorVar, severityToWashVar } from '@/lib/thresholds/useThreshold';
+import type { ThresholdSeverity } from '@/lib/thresholds/types';
 
 export default function PatientTimelinePage() {
   const params = useParams();
@@ -33,6 +37,9 @@ export default function PatientTimelinePage() {
 
   // WebSocket connection status
   const wsStatus = useConnectionStatus();
+
+  // Threshold service — fetches reference ranges with 5‑min cache + fallback
+  const { getVitalSeverity, getScoreBand } = useThreshold();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -79,25 +86,46 @@ export default function PatientTimelinePage() {
     });
   };
 
-  const getScoreColor = (type: string, value: number) => {
-    if (type === 'mews') {
-      if (value >= 5) return 'var(--clinical-severity-critical-on-surface)';
-      if (value >= 3) return 'var(--clinical-severity-watch-on-surface)';
-      return 'var(--clinical-severity-normal-on-surface)';
-    }
-    if (type === 'news2') {
-      if (value >= 7) return 'var(--clinical-severity-critical-on-surface)';
-      if (value >= 5) return 'var(--clinical-severity-watch-on-surface)';
-      return 'var(--clinical-severity-normal-on-surface)';
-    }
-    return 'var(--semantic-text-secondary)';
-  };
-
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20">
-          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
+        <div className="space-y-6 animate-pulse">
+          {/* Header skeleton */}
+          <div className="mb-6">
+            <div className="h-4 rounded w-16 mb-3" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+            <div className="space-y-2">
+              <div className="h-8 rounded w-48" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+              <div className="h-4 rounded w-72" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+            </div>
+          </div>
+          {/* Vitals card skeleton */}
+          <div className="rounded-xl border p-6" style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }}>
+            <div className="h-4 rounded w-28 mb-4" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="p-3 rounded-lg" style={{ backgroundColor: 'var(--semantic-surface-canvas)' }}>
+                  <div className="h-3 rounded w-16 mb-2" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                  <div className="h-6 rounded w-12" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Score history skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="rounded-xl border p-6" style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }}>
+                <div className="h-4 rounded w-28 mb-4" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <div key={j} className="flex items-center justify-between py-2">
+                      <div className="h-3 rounded w-24" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                      <div className="h-6 rounded w-8" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </Layout>
     );
@@ -113,15 +141,28 @@ export default function PatientTimelinePage() {
           }}
           className="border rounded-xl p-6"
         >
-          <h2 style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="font-semibold">Error</h2>
-          <p style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="text-sm mt-1">{error || 'Patient not found'}</p>
-          <button
-            onClick={() => router.back()}
-            style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
-            className="mt-3 text-sm underline"
-          >
-            Go back
-          </button>
+          <h2 style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="font-semibold">Erro</h2>
+          <p style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="text-sm mt-1">{error || 'Paciente não encontrado'}</p>
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={loadData}
+              style={{
+                color: 'var(--semantic-text-primary)',
+                backgroundColor: 'var(--semantic-surface-raised)',
+                borderColor: 'var(--semantic-border-default)',
+              }}
+              className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-white transition-colors"
+            >
+              Tentar novamente
+            </button>
+            <button
+              onClick={() => router.back()}
+              style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
+              className="text-sm underline"
+            >
+              Voltar
+            </button>
+          </div>
         </div>
       </Layout>
     );
@@ -137,8 +178,8 @@ export default function PatientTimelinePage() {
           onClick={() => router.back()}
           className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-3 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+          Voltar
         </button>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -150,12 +191,12 @@ export default function PatientTimelinePage() {
               {/* WS indicator */}
               <span className="inline-flex items-center gap-1 ml-3">
                 {wsStatus === 'connected' ? (
-                  <Wifi className="w-3 h-3 text-green-500" />
+                  <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-on-surface)' }} aria-hidden="true" />
                 ) : (
-                  <WifiOff className="w-3 h-3 text-slate-400" />
+                  <WifiOff className="w-3 h-3 text-slate-400" aria-hidden="true" />
                 )}
                 <span className="text-[10px] text-slate-400">
-                  {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? '...' : 'Offline'}
+                  {wsStatus === 'connected' ? 'Ao vivo' : wsStatus === 'connecting' ? '...' : 'Offline'}
                 </span>
               </span>
             </p>
@@ -169,8 +210,8 @@ export default function PatientTimelinePage() {
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium"
               >
-                <Bell className="w-4 h-4" />
-                {data.active_alerts.length} active alert{data.active_alerts.length !== 1 ? 's' : ''}
+                <Bell className="w-4 h-4" aria-hidden="true" />
+                {data.active_alerts.length} alerta{data.active_alerts.length !== 1 ? 's' : ''} ativo{data.active_alerts.length !== 1 ? 's' : ''}
               </span>
             )}
             <button
@@ -179,7 +220,7 @@ export default function PatientTimelinePage() {
               style={{ borderColor: 'var(--semantic-border-default)' }}
               className="p-2 rounded-lg border bg-white hover:bg-slate-50"
             >
-              <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -192,61 +233,65 @@ export default function PatientTimelinePage() {
           className="bg-white rounded-xl border p-6 shadow-sm mb-6"
         >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            Latest Vitals
+            Sinais Vitais
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             <VitalItem
-              icon={<Heart className="w-4 h-4" />}
-              label="Heart Rate"
+              icon={<Heart className="w-4 h-4" aria-hidden="true" />}
+              label="Frequência Cardíaca"
               value={latestVitals.heart_rate}
               unit="bpm"
-              warnHigh={100}
-              warnLow={60}
+              vitalName="heart_rate"
+              getVitalSeverity={getVitalSeverity}
             />
             <VitalItem
-              icon={<Activity className="w-4 h-4" />}
-              label="Blood Pressure"
+              icon={<Activity className="w-4 h-4" aria-hidden="true" />}
+              label="Pressão Arterial"
               value={latestVitals.systolic_bp}
               suffix={latestVitals.diastolic_bp ? ` / ${latestVitals.diastolic_bp}` : ''}
               unit="mmHg"
+              vitalName="systolic_bp"
+              getVitalSeverity={getVitalSeverity}
             />
             <VitalItem
-              icon={<Thermometer className="w-4 h-4" />}
-              label="Temperature"
+              icon={<Thermometer className="w-4 h-4" aria-hidden="true" />}
+              label="Temperatura"
               value={latestVitals.temperature}
               unit="°C"
-              warnHigh={38}
+              vitalName="temperature"
+              getVitalSeverity={getVitalSeverity}
             />
             <VitalItem
-              icon={<Activity className="w-4 h-4" />}
+              icon={<Activity className="w-4 h-4" aria-hidden="true" />}
               label="SpO₂"
               value={latestVitals.spo2}
               unit="%"
-              warnLow={92}
+              vitalName="spo2"
+              getVitalSeverity={getVitalSeverity}
             />
             <VitalItem
-              icon={<Brain className="w-4 h-4" />}
-              label="Respiratory Rate"
+              icon={<Brain className="w-4 h-4" aria-hidden="true" />}
+              label="Frequência Respiratória"
               value={latestVitals.respiratory_rate}
               unit="/min"
-              warnHigh={20}
-              warnLow={12}
+              vitalName="respiratory_rate"
+              getVitalSeverity={getVitalSeverity}
             />
             <VitalItem
-              icon={<Brain className="w-4 h-4" />}
+              icon={<Brain className="w-4 h-4" aria-hidden="true" />}
               label="AVPU"
               value={latestVitals.avpu}
               isText
             />
             <VitalItem
-              icon={<Activity className="w-4 h-4" />}
+              icon={<Activity className="w-4 h-4" aria-hidden="true" />}
               label="Supp. O₂"
-              value={latestVitals.supplemental_o2 ? 'Yes' : 'No'}
+              value={latestVitals.supplemental_o2 ? 'Sim' : 'Não'}
               isText
             />
           </div>
           <div className="text-xs text-slate-400 mt-4">
-            Recorded: {formatDate(latestVitals.recorded_at)}
+            Registrado: {formatDate(latestVitals.recorded_at)}
           </div>
         </div>
       )}
@@ -259,10 +304,10 @@ export default function PatientTimelinePage() {
           className="bg-white rounded-xl border p-6 shadow-sm"
         >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            MEWS History
+            <ClinicalTooltip term="MEWS">MEWS</ClinicalTooltip> Histórico
           </h3>
           {data.mews_history.length === 0 ? (
-            <p className="text-sm text-slate-400">No MEWS data available</p>
+            <p className="text-sm text-slate-400">Nenhum dado MEWS disponível</p>
           ) : (
             <div className="space-y-3 max-h-64 overflow-y-auto">
               {data.mews_history.map((point, idx) => (
@@ -283,10 +328,10 @@ export default function PatientTimelinePage() {
           className="bg-white rounded-xl border p-6 shadow-sm"
         >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            NEWS2 History
+            <ClinicalTooltip term="NEWS2">NEWS2</ClinicalTooltip> Histórico
           </h3>
           {data.news2_history.length === 0 ? (
-            <p className="text-sm text-slate-400">No NEWS2 data available</p>
+            <p className="text-sm text-slate-400">Nenhum dado NEWS2 disponível</p>
           ) : (
             <div className="space-y-3 max-h-64 overflow-y-auto">
               {data.news2_history.map((point, idx) => (
@@ -306,7 +351,7 @@ export default function PatientTimelinePage() {
       {data.active_alerts.length > 0 && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            Active Alerts
+            Alertas Ativos
           </h3>
           <div className="space-y-4">
             {data.active_alerts.map((alert) => (
@@ -323,8 +368,36 @@ export default function PatientTimelinePage() {
           className="bg-white rounded-xl border p-6 shadow-sm"
         >
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            Vitals Timeline (24h)
+            Linha do Tempo de Sinais Vitais (24h)
           </h3>
+          {/* Screen-reader accessible data table */}
+          <div className="sr-only" role="region" aria-label="Tabela de dados vitais">
+            <table>
+              <caption>Histórico de Sinais Vitais (24h)</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Horário</th>
+                  <th scope="col">Frequência Cardíaca (bpm)</th>
+                  <th scope="col">Pressão Arterial (mmHg)</th>
+                  <th scope="col">SpO₂ (%)</th>
+                  <th scope="col">Temperatura (°C)</th>
+                  <th scope="col">Frequência Respiratória (/min)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.vitals_history.map((point, idx) => (
+                  <tr key={idx}>
+                    <td>{formatDate(point.recorded_at)}</td>
+                    <td>{point.heart_rate ?? '--'}</td>
+                    <td>{point.systolic_bp ?? '--'}/{point.diastolic_bp ?? '--'}</td>
+                    <td>{point.spo2 ?? '--'}</td>
+                    <td>{point.temperature ?? '--'}</td>
+                    <td>{point.respiratory_rate ?? '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {data.vitals_history.map((point, idx) => (
               <div
@@ -336,18 +409,30 @@ export default function PatientTimelinePage() {
                 </span>
                 <div className="flex gap-3 text-xs">
                   {point.heart_rate !== null && (
-                    <span className="text-slate-600">HR: {point.heart_rate}</span>
+                    <span
+                      style={{
+                        color: severityToColorVar(getVitalSeverity(point.heart_rate, 'heart_rate')),
+                        fontWeight: getVitalSeverity(point.heart_rate, 'heart_rate') !== 'normal' ? 'bold' : undefined,
+                      }}
+                    >
+                      HR: {point.heart_rate}
+                    </span>
                   )}
                   {point.systolic_bp !== null && (
-                    <span className="text-slate-600">
+                    <span
+                      style={{
+                        color: severityToColorVar(getVitalSeverity(point.systolic_bp, 'systolic_bp')),
+                        fontWeight: getVitalSeverity(point.systolic_bp, 'systolic_bp') !== 'normal' ? 'bold' : undefined,
+                      }}
+                    >
                       BP: {point.systolic_bp}/{point.diastolic_bp || '--'}
                     </span>
                   )}
                   {point.spo2 !== null && (
                     <span
                       style={{
-                        color: (point.spo2 || 100) < 92 ? 'var(--clinical-severity-critical-on-surface)' : undefined,
-                        fontWeight: (point.spo2 || 100) < 92 ? 'bold' : undefined,
+                        color: severityToColorVar(getVitalSeverity(point.spo2, 'spo2')),
+                        fontWeight: getVitalSeverity(point.spo2, 'spo2') !== 'normal' ? 'bold' : undefined,
                       }}
                     >
                       SpO₂: {point.spo2}%
@@ -356,15 +441,22 @@ export default function PatientTimelinePage() {
                   {point.temperature !== null && (
                     <span
                       style={{
-                        color: (point.temperature || 0) > 38 ? 'var(--clinical-severity-critical-on-surface)' : undefined,
-                        fontWeight: (point.temperature || 0) > 38 ? 'bold' : undefined,
+                        color: severityToColorVar(getVitalSeverity(point.temperature, 'temperature')),
+                        fontWeight: getVitalSeverity(point.temperature, 'temperature') !== 'normal' ? 'bold' : undefined,
                       }}
                     >
                       Temp: {point.temperature}°C
                     </span>
                   )}
                   {point.respiratory_rate !== null && (
-                    <span className="text-slate-600">RR: {point.respiratory_rate}</span>
+                    <span
+                      style={{
+                        color: severityToColorVar(getVitalSeverity(point.respiratory_rate, 'respiratory_rate')),
+                        fontWeight: getVitalSeverity(point.respiratory_rate, 'respiratory_rate') !== 'normal' ? 'bold' : undefined,
+                      }}
+                    >
+                      RR: {point.respiratory_rate}
+                    </span>
                   )}
                 </div>
               </div>
@@ -384,8 +476,8 @@ function VitalItem({
   value,
   unit,
   suffix,
-  warnHigh,
-  warnLow,
+  vitalName,
+  getVitalSeverity,
   isText,
 }: {
   icon: React.ReactNode;
@@ -393,21 +485,22 @@ function VitalItem({
   value: number | string | null;
   unit?: string;
   suffix?: string;
-  warnHigh?: number;
-  warnLow?: number;
+  vitalName?: string;
+  getVitalSeverity?: (value: number, vitalName: string) => ThresholdSeverity;
   isText?: boolean;
 }) {
-  const isWarn =
-    !isText &&
-    typeof value === 'number' &&
-    ((warnHigh !== undefined && value >= warnHigh) ||
-      (warnLow !== undefined && value <= warnLow));
+  const severity: ThresholdSeverity =
+    !isText && typeof value === 'number' && vitalName && getVitalSeverity
+      ? getVitalSeverity(value, vitalName)
+      : 'normal';
+
+  const isAbnormal = severity !== 'normal';
 
   return (
     <div
       style={{
-        backgroundColor: isWarn
-          ? 'var(--clinical-severity-critical-wash)'
+        backgroundColor: isAbnormal
+          ? severityToWashVar(severity)
           : 'var(--semantic-surface-canvas)',
       }}
       className="p-3 rounded-lg"
@@ -418,8 +511,8 @@ function VitalItem({
       </div>
       <div
         style={{
-          color: isWarn
-            ? 'var(--clinical-severity-critical-on-surface)'
+          color: isAbnormal
+            ? severityToColorVar(severity)
             : 'var(--semantic-text-primary)',
         }}
         className="text-lg font-bold"
@@ -444,18 +537,18 @@ function ScoreTimelineRow({
   formatDate,
 }: {
   point: ScoreHistoryPoint;
-  getScoreColor: (type: string, value: number) => string;
+  getScoreColor: (type: 'mews' | 'news2' | 'sofa', value: number) => string;
   formatDate: (iso: string) => string;
 }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
       <span className="text-xs text-slate-400">{formatDate(point.calculated_at)}</span>
       <div className="flex items-center gap-2">
-        <span className="text-lg font-bold" style={{ color: getScoreColor(point.score_type, point.score_value) }}>
+        <span className="text-lg font-bold" style={{ color: getScoreColor(point.score_type as 'mews' | 'news2' | 'sofa', point.score_value) }}>
           {point.score_value}
         </span>
-        {point.trend === 'increasing' && <TrendingUp className="w-3.5 h-3.5 text-red-500" />}
-        {point.trend === 'decreasing' && <TrendingDown className="w-3.5 h-3.5 text-green-500" />}
+        {point.trend === 'increasing' && <TrendingUp className="w-3.5 h-3.5 text-[var(--clinical-severity-critical-on-surface)]" aria-hidden="true" />}
+        {point.trend === 'decreasing' && <TrendingDown className="w-3.5 h-3.5 text-[var(--clinical-severity-normal-on-surface)]" aria-hidden="true" />}
         {point.trend === 'stable' && <span className="text-xs text-slate-400">→</span>}
       </div>
     </div>

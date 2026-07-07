@@ -103,7 +103,7 @@ export default function AlertTriagePage() {
               className="text-2xl font-bold"
               style={{ color: 'var(--semantic-text-primary)' }}
             >
-              Alert Triage
+              Triagem de Alertas
             </h1>
             <p
               className="text-sm mt-1"
@@ -113,12 +113,12 @@ export default function AlertTriagePage() {
               {/* WS indicator */}
               <span className="inline-flex items-center gap-1 ml-3">
                 {wsStatus === 'connected' ? (
-                  <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-signal)' }} />
+                   <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-signal)' }} aria-hidden="true" />
                 ) : (
-                  <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} />
+                   <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} aria-hidden="true" />
                 )}
                 <span className="text-[10px]">
-                  {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? '...' : 'Offline'}
+                  {wsStatus === 'connected' ? 'Ao vivo' : wsStatus === 'connecting' ? '...' : 'Offline'}
                 </span>
               </span>
             </p>
@@ -130,8 +130,8 @@ export default function AlertTriagePage() {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Atualizar
           </button>
         </div>
       </div>
@@ -171,12 +171,12 @@ export default function AlertTriagePage() {
         </div>
 
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search alerts..."
+            placeholder="Buscar alertas..."
             aria-label="Search alerts"
             className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -195,25 +195,37 @@ export default function AlertTriagePage() {
           role="alert"
           aria-live="assertive"
         >
-          <p className="font-medium">Failed to load alerts</p>
+          <p className="font-medium">Falha ao carregar alertas</p>
           <p className="text-sm mt-1">{error}</p>
           <button
             onClick={loadAlerts}
             className="mt-2 text-sm underline"
             aria-label="Retry loading alerts"
           >
-            Retry
+            Tentar novamente
           </button>
         </div>
       )}
 
-      {/* Loading */}
+      {/* Loading — skeleton list */}
       {loading && (
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw
-            className="w-6 h-6 animate-spin"
-            style={{ color: 'var(--semantic-text-secondary)' }}
-          />
+        <div className="space-y-4 animate-pulse">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border p-5"
+              style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="space-y-2 flex-1">
+                  <div className="h-5 rounded w-48" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                  <div className="h-3 rounded w-32" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                </div>
+                <div className="h-6 rounded-full w-20" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+              </div>
+              <div className="h-4 rounded w-3/4" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -232,18 +244,19 @@ export default function AlertTriagePage() {
           <AlertTriangle
             className="w-12 h-12 mx-auto mb-4"
             style={{ color: 'var(--semantic-text-secondary)', opacity: 0.5 }}
+            aria-hidden="true"
           />
           <p
             className="font-medium"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            No {statusFilter} alerts
+            Nenhum alerta {statusFilter}
           </p>
           <p
             className="text-sm mt-1"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            All clear!
+            Tudo limpo!
           </p>
         </div>
       )}
@@ -252,7 +265,7 @@ export default function AlertTriagePage() {
       {!loading && alerts.length > 0 && filteredAlerts.length === 0 && (
         <div className="text-center py-12">
           <p style={{ color: 'var(--semantic-text-secondary)' }}>
-            No alerts match your search
+            Nenhum alerta corresponde à sua busca
           </p>
         </div>
       )}
@@ -266,13 +279,13 @@ export default function AlertTriagePage() {
             aria-label="Previous page"
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
           >
-            Previous
+            Anterior
           </button>
           <span
             className="text-sm"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
-            Page {page + 1} of {totalPages}
+            Página {page + 1} de {totalPages}
           </span>
           <button
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
@@ -280,7 +293,7 @@ export default function AlertTriagePage() {
             aria-label="Next page"
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
           >
-            Next
+            Próximo
           </button>
         </div>
       )}

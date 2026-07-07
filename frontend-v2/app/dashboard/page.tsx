@@ -13,8 +13,10 @@ import {
 } from 'lucide-react';
 import Layout from '@/components/Layout';
 import SeverityBadge, { ScoreDisplay, TrendBadge } from '@/components/SeverityBadge';
+import ClinicalTooltip from '@/components/ClinicalTooltip';
 import { fetchDashboard, type DashboardResponse, type PatientBedSummary } from '@/lib/api';
 import { useRealtimeChannel, useConnectionStatus, type RealtimeEvent } from '@/lib/websocket';
+import { getSeverityStyle, getSeverityFromAlert } from '@/lib/clinical-severity';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -63,71 +65,37 @@ export default function DashboardPage() {
     loadDashboard();
   }, [loadDashboard]));
 
-  const getSeverityClass = (severity: string | null) => {
-    if (!severity) return '';
-    switch (severity) {
-      case 'critical':
-        return '';
-      case 'warning':
-        return '';
-      default:
-        return '';
-    }
-  };
-
-  const getSeverityStyle = (severity: string | null): React.CSSProperties => {
-    if (!severity) return { borderColor: 'var(--semantic-border-default)', backgroundColor: 'white' };
-    switch (severity) {
-      case 'critical':
-        return { borderColor: 'var(--clinical-severity-critical-signal)', backgroundColor: 'var(--clinical-severity-critical-wash)' };
-      case 'warning':
-        return { borderColor: 'var(--clinical-severity-watch-signal)', backgroundColor: 'var(--clinical-severity-watch-wash)' };
-      default:
-        return { borderColor: 'var(--clinical-severity-urgent-signal)', backgroundColor: 'var(--clinical-severity-urgent-wash)' };
-    }
-  };
-
-  const getSeverityFromAlert = (severity: string | null): 'normal' | 'watch' | 'urgent' | 'critical' | 'info' => {
-    if (!severity) return 'normal';
-    switch (severity) {
-      case 'critical': return 'critical';
-      case 'warning': return 'watch';
-      case 'info': return 'info';
-      default: return 'normal';
-    }
-  };
-
   return (
     <Layout>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">Clinical Dashboard</h1>
+          <h1 style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">Painel Clínico</h1>
           <p style={{ color: 'var(--semantic-text-secondary)' }} className="text-sm mt-1">
-            {data ? `${data.total} patients · ${data.active_alerts_total} active alerts` : 'Loading...'}
+            {data ? `${data.total} pacientes · ${data.active_alerts_total} alertas ativos` : 'Carregando...'}
             {/* WS status indicator */}
             <span className="inline-flex items-center gap-1 ml-3">
               {wsStatus === 'connected' ? (
-                <Wifi className="w-3 h-3 text-green-500" />
+                <Wifi className="w-3 h-3" style={{ color: 'var(--clinical-severity-normal-on-surface)' }} aria-hidden="true" />
               ) : (
-                <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} />
+                <WifiOff className="w-3 h-3" style={{ color: 'var(--semantic-text-secondary)' }} aria-hidden="true" />
               )}
               <span className="text-[10px]" style={{ color: 'var(--semantic-text-secondary)' }}>
-                {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? '...' : 'Offline'}
+                {wsStatus === 'connected' ? 'Ao vivo' : wsStatus === 'connecting' ? '...' : 'Offline'}
               </span>
             </span>
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div style={{ borderColor: 'var(--semantic-border-default)' }} className="flex items-center gap-2 bg-white rounded-lg border px-3 py-2">
-            <Activity className="w-4 h-4" style={{ color: 'var(--semantic-text-secondary)' }} />
+            <Activity className="w-4 h-4" style={{ color: 'var(--semantic-text-secondary)' }} aria-hidden="true" />
             <select
               value={selectedUnit || ''}
               onChange={(e) => setSelectedUnit(e.target.value || null)}
               style={{ color: 'var(--semantic-text-primary)' }}
               className="text-sm bg-transparent border-none outline-none"
             >
-              <option value="">All Units</option>
+              <option value="">Todas as Unidades</option>
               <option value="ICU-1">ICU-1</option>
               <option value="ICU-2">ICU-2</option>
               <option value="ER">ER</option>
@@ -140,7 +108,7 @@ export default function DashboardPage() {
             className="p-2 rounded-lg border bg-white hover:bg-slate-50 disabled:opacity-50 transition-colors"
             title="Refresh"
           >
-            <RefreshCw style={{ color: 'var(--semantic-text-secondary)' }} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw style={{ color: 'var(--semantic-text-secondary)' }} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -150,19 +118,19 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
-              <Users className="w-4 h-4" /> Patients
+              <Users className="w-4 h-4" aria-hidden="true" /> Pacientes
             </div>
             <div style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">{data.total}</div>
           </div>
           <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
-              <Bell className="w-4 h-4" /> Active Alerts
+              <Bell className="w-4 h-4" aria-hidden="true" /> Alertas Ativos
             </div>
             <div style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="text-2xl font-bold">{data.active_alerts_total}</div>
           </div>
           <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
-              <Activity className="w-4 h-4" /> Critical
+              <Activity className="w-4 h-4" aria-hidden="true" /> Críticos
             </div>
             <div style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">
               {data.patients.filter((p) => p.highest_alert_severity === 'critical').length}
@@ -170,22 +138,46 @@ export default function DashboardPage() {
           </div>
           <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
-              <TrendingUp className="w-4 h-4" /> MEWS ≥ 5
+              <TrendingUp className="w-4 h-4" aria-hidden="true" /> MEWS ≥ 5
             </div>
             <div style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">
-              {data.patients.filter((p) => (p.latest_mews || 0) >= 5).length}
+              {data.patients.filter((p) => (p.latest_mews ?? null) !== null && (p.latest_mews ?? 0) >= 5).length}
             </div>
           </div>
         </div>
       )}
 
-      {/* Loading state */}
+      {/* Loading state — skeleton grid */}
       {loading && !data && (
-        <div className="flex items-center justify-center py-20">
-          <div className="flex items-center gap-3" style={{ color: 'var(--semantic-text-secondary)' }}>
-            <RefreshCw className="w-5 h-5 animate-spin" />
-            <span>Loading dashboard...</span>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border-2 p-4 animate-pulse"
+              style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                    <div className="h-4 rounded w-24" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                  </div>
+                  <div className="h-3 rounded w-16" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                </div>
+                <div className="h-5 rounded-full w-8" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <div className="h-3 rounded w-10" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                  <div className="h-6 rounded w-8" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                </div>
+                <div className="space-y-1">
+                  <div className="h-3 rounded w-10" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                  <div className="h-6 rounded w-8" style={{ backgroundColor: 'var(--semantic-border-default)' }} />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -218,6 +210,7 @@ export default function DashboardPage() {
             <button
               key={patient.mpi_id}
               onClick={() => router.push(`/patient/${patient.mpi_id}`)}
+              aria-label={`Patient ${patient.display_name}${patient.bed_id ? `, Bed ${patient.bed_id}` : ''}${patient.unit ? `, ${patient.unit}` : ''}`}
               style={getSeverityStyle(patient.highest_alert_severity)}
               className={`text-left rounded-xl border-2 p-4 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-500`}
             >
@@ -228,11 +221,17 @@ export default function DashboardPage() {
                     <div
                       className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                         patient.highest_alert_severity === 'critical'
-                          ? 'bg-red-500 animate-pulse'
-                          : patient.active_alerts_count > 0
-                          ? 'bg-yellow-500'
-                          : 'bg-green-500'
+                          ? 'animate-pulse'
+                          : ''
                       }`}
+                      style={{
+                        backgroundColor:
+                          patient.highest_alert_severity === 'critical'
+                            ? 'var(--clinical-severity-critical-signal)'
+                            : patient.active_alerts_count > 0
+                            ? 'var(--clinical-severity-watch-signal)'
+                            : 'var(--clinical-severity-normal-signal)',
+                      }}
                     />
                     <span style={{ color: 'var(--semantic-text-primary)' }} className="font-semibold text-sm truncate">
                       {patient.display_name}
@@ -244,7 +243,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 {patient.active_alerts_count > 0 && (
-                  <span className="flex-shrink-0 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                  <span className="flex-shrink-0 bg-[var(--clinical-severity-critical-fill)] text-white text-xs font-bold px-2 py-0.5 rounded-full">
                     {patient.active_alerts_count}
                   </span>
                 )}
@@ -279,7 +278,7 @@ export default function DashboardPage() {
       {/* Empty state */}
       {data && data.patients.length === 0 && (
         <div className="text-center py-20">
-          <Activity className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--semantic-text-secondary)', opacity: 0.4 }} />
+          <Activity className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--semantic-text-secondary)', opacity: 0.4 }} aria-hidden="true" />
           <p style={{ color: 'var(--semantic-text-secondary)' }} className="text-lg font-medium">No patients found</p>
           <p style={{ color: 'var(--semantic-text-secondary)' }} className="text-sm mt-1">
             {selectedUnit ? `No patients in unit "${selectedUnit}"` : 'No patients are currently admitted'}
