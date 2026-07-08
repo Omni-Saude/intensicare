@@ -421,3 +421,172 @@ def establishment_indicadores_scopes(
         "movimentacoes": scoped_movs,
         "setores": scoped_sectors,
     }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Registry CRUD — Empresa / Estabelecimento / Setor
+# ═════════════════════════════════════════════════════════════════════════════
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from intensicare.models.registry import Empresa, Estabelecimento, Setor
+
+
+# ── Empresa ─────────────────────────────────────────────────────────────────
+
+
+async def list_empresas(
+    db: AsyncSession,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Empresa], int]:
+    """List empresas with optional search filter and pagination."""
+    base_query = select(Empresa)
+
+    if search:
+        pattern = f"%{search}%"
+        base_query = base_query.where(
+            or_(
+                Empresa.nome_fantasia.ilike(pattern),
+                Empresa.razao_social.ilike(pattern),
+                Empresa.cnpj.ilike(pattern),
+            )
+        )
+
+    # Count
+    count_query = select(func.count()).select_from(base_query.subquery())
+    count_result = await db.execute(count_query)
+    total: int = count_result.scalar() or 0
+
+    # Data
+    data_query = base_query.order_by(Empresa.nome_fantasia.asc()).offset(offset).limit(limit)
+    result = await db.execute(data_query)
+    items = list(result.scalars().all())
+
+    return items, total
+
+
+async def get_empresa(db: AsyncSession, empresa_id: str) -> Empresa | None:
+    """Get a single empresa by ID."""
+    result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
+    return result.scalar_one_or_none()
+
+
+async def create_empresa(db: AsyncSession, data: dict) -> Empresa:
+    """Create a new empresa."""
+    empresa = Empresa(**data)
+    db.add(empresa)
+    await db.flush()
+    await db.refresh(empresa)
+    return empresa
+
+
+async def update_empresa(db: AsyncSession, empresa_id: str, data: dict) -> Empresa | None:
+    """Update an existing empresa. Returns updated Empresa or None if not found."""
+    empresa = await get_empresa(db, empresa_id)
+    if empresa is None:
+        return None
+    for key, value in data.items():
+        if value is not None:
+            setattr(empresa, key, value)
+    await db.flush()
+    await db.refresh(empresa)
+    return empresa
+
+
+async def delete_empresa(db: AsyncSession, empresa_id: str) -> bool:
+    """Delete an empresa by ID. Returns True if deleted, False if not found."""
+    empresa = await get_empresa(db, empresa_id)
+    if empresa is None:
+        return False
+    await db.delete(empresa)
+    await db.flush()
+    return True
+
+
+# ── Estabelecimento ──────────────────────────────────────────────────────────
+
+
+async def list_estabelecimentos(
+    db: AsyncSession,
+    empresa_id: str | None = None,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Estabelecimento], int]:
+    """List estabelecimentos with optional filters and pagination."""
+    base_query = select(Estabelecimento)
+
+    if empresa_id:
+        base_query = base_query.where(Estabelecimento.empresa_id == empresa_id)
+    if search:
+        pattern = f"%{search}%"
+        base_query = base_query.where(
+            or_(
+                Estabelecimento.nome.ilike(pattern),
+                Estabelecimento.cnes.ilike(pattern),
+            )
+        )
+
+    # Count
+    count_query = select(func.count()).select_from(base_query.subquery())
+    count_result = await db.execute(count_query)
+    total: int = count_result.scalar() or 0
+
+    # Data
+    data_query = base_query.order_by(Estabelecimento.nome.asc()).offset(offset).limit(limit)
+    result = await db.execute(data_query)
+    items = list(result.scalars().all())
+
+    return items, total
+
+
+async def get_estabelecimento(db: AsyncSession, estab_id: str) -> Estabelecimento | None:
+    """Get a single estabelecimento by ID."""
+    result = await db.execute(
+        select(Estabelecimento).where(Estabelecimento.id == estab_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_estabelecimento(db: AsyncSession, data: dict) -> Estabelecimento:
+    """Create a new estabelecimento."""
+    estab = Estabelecimento(**data)
+    db.add(estab)
+    await db.flush()
+    await db.refresh(estab)
+    return estab
+
+
+# ── Setor ────────────────────────────────────────────────────────────────────
+
+
+async def list_setores(
+    db: AsyncSession,
+    estabelecimento_id: str | None = None,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Setor], int]:
+    """List setores with optional filters and pagination."""
+    base_query = select(Setor)
+
+    if estabelecimento_id:
+        base_query = base_query.where(Setor.estabelecimento_id == estabelecimento_id)
+    if search:
+        pattern = f"%{search}%"
+        base_query = base_query.where(Setor.nome.ilike(pattern))
+
+    # Count
+    count_query = select(func.count()).select_from(base_query.subquery())
+    count_result = await db.execute(count_query)
+    total: int = count_result.scalar() or 0
+
+    # Data
+    data_query = base_query.order_by(Setor.nome.asc()).offset(offset).limit(limit)
+    result = await db.execute(data_query)
+    items = list(result.scalars().all())
+
+    return items, total

@@ -23,15 +23,18 @@ from intensicare.api.v1 import (
     dashboard_router,
     deterioration_router,
     documentacao_router,
+    efficiency_router,
     events_router,
     evolucoes_router,
     formularios_router,
     health_router,
+    indicators_router,
     movimentacao_router,
     pathways_router,
     patients_router,
     prescricao_router,
     prophylaxis_router,
+    registry_router,
     sedacao_router,
     stability_router,
     ventilation_router,
@@ -122,8 +125,10 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(deterioration_router)
     app.include_router(documentacao_router)
+    app.include_router(efficiency_router)
     app.include_router(evolucoes_router)
     app.include_router(formularios_router)
+    app.include_router(indicators_router)
     app.include_router(movimentacao_router)
     app.include_router(pathways_router)
     app.include_router(prescricao_router)
@@ -134,6 +139,7 @@ def create_app() -> FastAPI:
     app.include_router(reference_ranges_router)
     app.include_router(thresholds_router)
     app.include_router(prophylaxis_router)
+    app.include_router(registry_router)
     app.include_router(alert_routing_router)
     app.include_router(events_router)
     app.include_router(health_router, prefix="/api/v1")

@@ -15,6 +15,7 @@ from intensicare.models.lab_result import LabResult
 from intensicare.models.medication import MedicationAdministration, MedicationOrder
 from intensicare.models.movimentacao import AdmissionEpisode, Bed, PatientMovement
 from intensicare.models.patient_cache import PatientCache
+from intensicare.models.registry import Empresa, Estabelecimento, Setor
 from intensicare.models.pathway import (
     Pathway,
     PathwayCriteria,
@@ -39,6 +40,8 @@ __all__ = [
     "AdmissionEpisode",
     "AgendaPrescricao",
     "Alert",
+    "Empresa",
+    "Estabelecimento",
     "AlertDefinitionVersion",
     "AlertRoutingRule",
     "AlgorithmRegistry",
@@ -69,6 +72,7 @@ __all__ = [
     "ProphylaxisAssessment",
     "RatificationEvent",
     "SedationAssessment",
+    "Setor",
     "StabilityAssessment",
     "ThresholdConfig",
     "User",

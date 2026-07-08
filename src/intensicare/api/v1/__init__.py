@@ -12,14 +12,17 @@ from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .deterioration import router as deterioration_router
 from .documentacao import router as documentacao_router
+from .efficiency import router as efficiency_router
 from .events import router as events_router
 from .evolucoes import router as evolucoes_router
 from .formularios import router as formularios_router
 from .health import router as health_router
+from .indicators import router as indicators_router
 from .movimentacao import router as movimentacao_router
 from .pathways import router as pathways_router
 from .prescricao import router as prescricao_router
 from .prophylaxis import router as prophylaxis_router
+from .registry import router as registry_router
 from .sedacao import router as sedacao_router
 from .stability import router as stability_router
 from .ventilation import router as ventilation_router
@@ -34,15 +37,18 @@ __all__ = [
     "dashboard_router",
     "deterioration_router",
     "documentacao_router",
+    "efficiency_router",
     "events_router",
     "evolucoes_router",
     "formularios_router",
     "health_router",
+    "indicators_router",
     "movimentacao_router",
     "patients_router",
     "pathways_router",
     "prescricao_router",
     "prophylaxis_router",
+    "registry_router",
     "sedacao_router",
     "stability_router",
     "ventilation_router",
