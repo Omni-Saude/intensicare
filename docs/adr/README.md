@@ -49,7 +49,15 @@ Supporting evidence: [../design/design-system-inventory.md](../design/design-sys
 | ADR | Title | Recommendation in one line |
 |---|---|---|
 | [0017](0017-fragmented-real-time-architecture.md) | Fragmented real-time architecture (WebSocket + Firestore + polling) | Standardize on one push transport with shared reconnect/backoff for notifications, chat, and feeds. |
-| [0018](0018-client-integration-and-authorization-model.md) | Client integration and authorization model | Deny-by-default server-enforced route guards (legacy `validateRoute` defaulted to `ignorePermission=true`); add a client query cache. |
+|| [0018](0018-client-integration-and-authorization-model.md) | Client integration and authorization model | Deny-by-default server-enforced route guards (legacy `validateRoute` defaulted to `ignorePermission=true`); add a client query cache. |
+|| [0019](0019-stack-ratification-radix-tailwind.md) | Stack ratification: Radix UI + Tailwind CSS v4 | Ratify Radix UI + Tailwind CSS v4 over Ant Design v5; record the decision and complementary libraries. |
+
+### trilhas-engine: architecture and data model (back-end)
+
+|| ADR | Title | Recommendation in one line |
+||---|---|---|
+|| [0020](0020-trilhas-engine-architecture.md) | trilhas-engine architecture: state machine vs declarative rule engine | Declarative, versioned alert-definition engine with build-time CI gates; 18 legacy rule dispositions mapped to v2 constructs. |
+|| [0021](0021-trilhas-engine-data-model.md) | trilhas-engine data model: versioning, snapshots, and cardinality | Immutable content-addressed definitions (Git as audit trail); 1:N patient-to-alert per encounter; no state snapshots — reproducibility via operational hypertables + Gold write-back. |
 
 ## How these were produced
 

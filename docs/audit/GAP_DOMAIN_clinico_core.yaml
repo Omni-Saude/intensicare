@@ -1,0 +1,641 @@
+# =============================================================================
+# GAP ANALYSIS — Clusters Clínicos Core (Grupo 1)
+# =============================================================================
+# Generated: 2026-07-07
+# Repository: /Users/familia/intensicare/
+# Audit scope: Backend services (src/intensicare/services/),
+#              API endpoints (src/intensicare/api/),
+#              Frontend pages (frontend-v2/app/) and API client (frontend-v2/lib/api.ts)
+#
+# Severity classification:
+#   BLOCKER — Zero frontend AND zero API for a critical domain
+#   MAJOR   — Backend exists but frontend partial/absent
+#   MINOR   — Near-complete coverage (small adjustments needed)
+#   NONE    — Fully integrated
+#
+# Coverage classification:
+#   AUSENTE  — No backend service, no API, no frontend
+#   PARCIAL  — Some coverage but significant gaps
+#   COMPLETO — End-to-end integration
+#
+# Effort estimates:
+#   S  — <1 day
+#   M  — 1-3 days
+#   L  — 1-2 weeks
+#   XL — >2 weeks
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Cross-cutting evidence notes (applies to multiple domains)
+# ---------------------------------------------------------------------------
+# Both the frontend and API layers use GENERIC endpoints for most domains:
+#   - alerts:  /api/v1/alerts          (list/acknowledge/resolve/escalate)
+#   - vitals:  /api/v1/vitals          (POST ingestion with MEWS/NEWS2/qSOFA)
+#   - dashboard: /api/v1/dashboard     (bed grid with scores + alert counts)
+#   - patient:  /api/v1/patients/{id}/detail (vitals history + scores + alerts)
+#   - clinical-forms: /api/clinical-forms (RASS/CAM-ICU/BPS-NRS)
+#   - reference-ranges: /api/reference-ranges (vital thresholds for useThreshold)
+#   - thresholds: /api/v1/thresholds   (admin CRUD for alert thresholds)
+#
+# IMPORTANT: Domain services (domain_*.py) are NOT directly imported by API
+# routers. They are consumed by the alert engine (alert_compiler.py) or the
+# micro-batch runner (ews_nrt_runner.py), which feeds results into the generic
+# Alert model surfaced via /api/v1/alerts.
+# ---------------------------------------------------------------------------
+
+domains:
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. SEPSE (101 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "sepse"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/sepse.yaml"
+    rule_count: 101
+    description: >
+      SSC-2021 sepsis screening pathway: qSOFA >=2 + suspected infection →
+      lactate confirmation → hour-1 bundle. 6 domain alerts (31 vectors) via
+      AlertCompiler in hybrid NRT+micro-batch mode. CLINICALLY RATIFIED v3.0.0.
+    backend:
+      service: "src/intensicare/services/domain_sepsis.py"
+      service_summary: >
+        6 sepsis alerts (ALERT-SEPSIS-SCREEN-01 through ALERT-SEPSIS-PCT-DEESC-06)
+        via AlertCompiler. Hybrid runner: NRT qSOFA/screening + micro-batch lab
+        confirmation (lactate, PCT, cultures). All evaluations through
+        compile_alert_registry. SSC-2021 pathway ratified v3.0.0.
+      service_line_count: 948
+      api_endpoints:
+        - "GET  /api/v1/alerts                 (sepsis alerts surfaced generically via Alert model)"
+        - "POST /api/v1/alerts/{id}/acknowledge (acknowledge a sepsis alert)"
+        - "POST /api/v1/alerts/{id}/resolve     (resolve with clinical outcome)"
+        - "POST /api/v1/alerts/{id}/escalate    (escalate sepsis alert)"
+        - "GET  /api/v1/alerts/{id}/trace       (trace a specific sepsis alert)"
+        - "GET  /api/v1/dashboard               (sepsis alert counts in bed grid)"
+        - "GET  /api/v1/patients/{id}/detail    (sepsis alerts in patient context)"
+      models_used: ["Alert", "ClinicalScore", "AlertDefinition"]
+      evidence: "domain_sepsis.py:1-60, alerts.py:82-251, dashboard.py:13-54, api.ts:221-264"
+    frontend:
+      pages:
+        - "app/alert-triage/page.tsx"
+        - "app/dashboard/page.tsx"
+        - "app/command-center/page.tsx"
+        - "app/patient/[id]/page.tsx"
+      api_functions:
+        - "fetchAlerts"
+        - "acknowledgeAlert"
+        - "resolveAlert"
+        - "escalateAlert"
+        - "fetchDashboard"
+        - "fetchPatientDetail"
+      components:
+        - "AlertCard"
+        - "SeverityBadge"
+        - "ClinicalTooltip"
+      coverage: "PARCIAL"
+      coverage_detail: >
+        Alert list and CRUD actions exist (alert-triage), alerts appear in
+        dashboard bed grid and patient detail. HOWEVER: no dedicated sepsis
+        dashboard page showing sepsis criteria status (major/minor thresholds),
+        hour-1 bundle compliance timer, lactate/PCT trend visualization, or
+        qSOFA screening pathway visualization. Sepsis alerts are mixed into
+        generic alert triage with no domain-specific triaging.
+      evidence: "alert-triage/page.tsx:1-302, dashboard/page.tsx:1-330, patient/[id]/page.tsx:1-556, api.ts:221-264"
+    gap_severity: "MAJOR"
+    action: >
+      Criar página dedicada de painel de sepse com:
+      (1) indicadores visuais de critérios maiores (9) e menores (11),
+      (2) timeline de confirmação (qSOFA → lactato → bundle hora-1),
+      (3) gráfico de tendência de lactato e PCT,
+      (4) timer de conformidade do bundle hora-1,
+      (5) endpoint dedicado GET /api/v1/sepsis/status/{mpi_id}.
+    effort_estimate: "L"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. ESTABILIDADE (27 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "estabilidade"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/estabilidade.yaml"
+    rule_count: 27
+    description: >
+      Clinical stability assessment criteria used in the alert pipeline.
+      Includes vasopressor dosing thresholds, cumulative fluid balance,
+      lactate evolution, and ventilation status. Several criteria are marked
+      as DISCREPANCY or UNWIRED — the documented intent differs from actual
+      code implementation. Criteria feed into the alert scoring system but
+      have no dedicated service or API.
+    backend:
+      service: null
+      service_summary: >
+        Nenhum domain_*.py dedicado. Os critérios de estabilidade são avaliados
+        no código legado (trilha_manual/models/) e contabilizados pelo alert
+        engine (domain_alertas.py: contar_qtd_criterios_alerta). Os critérios
+        hemodinâmicos relacionados a vasopressores são parcialmente cobertos por
+        domain_hemo.py (6 hemodynamic alerts), mas não há mapeamento 1:1.
+        domain_alertas.py (111 linhas) apenas conta critérios disparados — não
+        implementa a lógica dos critérios em si.
+      service_line_count: null
+      api_endpoints:
+        - "GET  /api/v1/alerts        (alertas genéricos incluindo critérios disparados)"
+        - "GET  /api/v1/dashboard      (contagem de alertas por paciente)"
+      models_used: ["Alert"]
+      evidence: "domain_alertas.py:1-111, estabilidade.yaml:1-30 (criterio_5 UNWIRED), domain_hemo.py:1-60"
+    frontend:
+      pages:
+        - "app/alert-triage/page.tsx"
+        - "app/dashboard/page.tsx"
+        - "app/patient/[id]/page.tsx"
+      api_functions:
+        - "fetchAlerts"
+        - "fetchDashboard"
+        - "fetchPatientDetail"
+      components:
+        - "AlertCard"
+      coverage: "AUSENTE"
+      coverage_detail: >
+        Nenhuma página ou componente dedicado à estabilidade clínica. Os
+        alertas de estabilidade são misturados no alert-triage genérico.
+        Não há visualização de: tendência de critérios de estabilidade,
+        status de vasopressores, evolução do balanço hídrico cumulativo,
+        ou linha do tempo de lactato. O frontend não tem consciência do
+        domínio "estabilidade" como conceito clínico.
+      evidence: "alert-triage/page.tsx:1-302 (sem filtros por cluster de estabilidade), patient/[id]/page.tsx:1-556 (sem painel de estabilidade)"
+    gap_severity: "BLOCKER"
+    action: >
+      (1) Criar domain_estabilidade.py com os 27 critérios implementados
+          (corrigindo DISCREPANCY/UNWIRED),
+      (2) Criar endpoint GET /api/v1/stability/{mpi_id} retornando status
+          de cada critério com tendência,
+      (3) Criar página frontend de Estabilidade Clínica com:
+          - Grid de critérios (nome, status, tendência, última atualização),
+          - Gráfico de evolução do balanço hídrico cumulativo,
+          - Status de vasopressores (dose atual vs 6h atrás),
+          - Classificação de risco (estável/vigilância/crítico).
+    effort_estimate: "XL"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. PIORA-CLINICA (13 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "piora-clinica"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/piora-clinica.yaml"
+    rule_count: 13
+    description: >
+      Clinical deterioration ("piora clínica") track-and-trigger graded
+      sub-scores. Each rule computes a signed grade string ("+" = high
+      deviation, "-" = low deviation) for a vital sign or clinical parameter
+      (FR, FC, PAS, temperatura, AVPU, SpO2, etc.). Grades are summed into
+      an aggregate clinical deterioration score. Used by the alert engine
+      to fire per-criterion and aggregate alerts. Part of the sepsis
+      screening pipeline (piora-clinica triggers run immediately before
+      sepsis-record triggers).
+    backend:
+      service: null
+      service_summary: >
+        Sem domain_*.py dedicado. A lógica dos 13 critérios de piora clínica
+        (graded scoring com "+"/"-") reside no código legado
+        (trilha_homecare/api/v1/serializers/sinais_vitais.py). O domain_alertas.py
+        conta critérios disparados (esta_alerta==1) mas não implementa a lógica
+        de pontuação graduada. O serviço de vitals.py calcula MEWS/NEWS2/qSOFA
+        mas não a escala de piora clínica graduada.
+      service_line_count: null
+      api_endpoints:
+        - "GET  /api/v1/alerts       (alertas disparados por critérios de piora)"
+        - "POST /api/v1/vitals       (ingestão de sinais vitais, mas sem scoring de piora)"
+      models_used: ["Alert", "VitalSign"]
+      evidence: "domain_alertas.py:1-111, piora-clinica.yaml:1-30 (criterio_1 FR graded), vitals.py:1-60 (ingestão sem piora scoring)"
+    frontend:
+      pages:
+        - "app/alert-triage/page.tsx"
+        - "app/patient/[id]/page.tsx"
+      api_functions:
+        - "fetchAlerts"
+        - "fetchPatientDetail"
+      components:
+        - "AlertCard"
+        - "SeverityBadge"
+      coverage: "AUSENTE"
+      coverage_detail: >
+        Nenhuma página ou componente dedicado à piora clínica. Os alertas
+        de deterioração são misturados no alert-triage genérico. Não há
+        visualização do score agregado de piora clínica, da contribuição
+        de cada critério (FR, FC, PAS, etc.), ou da tendência temporal
+        do score de deterioração. O frontend não tem o conceito de
+        "clinical deterioration score".
+      evidence: "alert-triage/page.tsx:1-302 (sem filtro piora-clinica), patient/[id]/page.tsx:1-556 (sem score de deterioração)"
+    gap_severity: "BLOCKER"
+    action: >
+      (1) Criar domain_piora_clinica.py implementando os 13 critérios de
+          pontuação graduada (0, 1+, 1-, 3+, 3-),
+      (2) Integrar o scoring de piora clínica no pipeline de ingestão de
+          vitais (vitals.py) ao lado de MEWS/NEWS2,
+      (3) Criar endpoint GET /api/v1/deterioration/{mpi_id},
+      (4) Criar página de Painel de Deterioração Clínica com:
+          - Score agregado atual + tendência,
+          - Grid de critérios com pontuação individual,
+          - Gráfico de evolução temporal do score,
+          - Destaque visual para critérios com pontuação 3+/3-.
+    effort_estimate: "XL"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. CLINICAL-SCORING (18 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "clinical-scoring"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/clinical-scoring.yaml"
+    rule_count: 18
+    description: >
+      Clinical scoring systems: SOFA (6 organ sub-scores, arithmetic sum,
+      mortality risk classification), FOIS (7-point functional oral intake
+      scale for dysphagia), and ancillary scoring rules. SOFA is recomputed
+      on every save and surfaced in prontuario payload. MEWS and NEWS2
+      scoring handled separately by their own services.
+    backend:
+      service: "src/intensicare/services/sofa.py"
+      service_summary: >
+        SOFA scoring engine v2.0.0 (CLINICALLY RATIFIED per RAT-CLINICAL-SCORING-01/02/03).
+        6 organ systems: respiration (PaO2/FiO2), coagulation (platelets), liver
+        (bilirubin), cardiovascular (MAP+vasopressor), neurological (GCS), renal
+        (creatinine+urine output). Each 0-4, total 0-24. Mortality risk bands:
+        low (<=6), moderate (7-9), high (10-12), very high (>12).
+        Additional services: mews.py (MEWS-v2.0.0), news2.py (NEWS2 2017),
+        qsofa.py (Sepsis-3, JAMA 2016).
+      service_line_count: 496
+      api_endpoints:
+        - "POST /api/v1/vitals                (MEWS + NEWS2 + qSOFA computed on ingestion)"
+        - "GET  /api/v1/dashboard             (latest MEWS/NEWS2 in bed grid)"
+        - "GET  /api/v1/patients/{id}/detail  (MEWS/NEWS2/SOFA history)"
+        - "GET  /api/v1/patients/{id}/status  (latest score + trend)"
+        - "GET  /api/reference-ranges         (vital thresholds for score bands)"
+      models_used: ["ClinicalScore", "VitalSign", "ThresholdConfig"]
+      evidence: "sofa.py:1-40, mews.py:1-40, news2.py:1-40, qsofa.py:1-40, vitals.py:1-30, dashboard.py:1-50, reference_ranges.py:1-60"
+    frontend:
+      pages:
+        - "app/dashboard/page.tsx"
+        - "app/command-center/page.tsx"
+        - "app/patient/[id]/page.tsx"
+      api_functions:
+        - "fetchDashboard"
+        - "fetchPatientDetail"
+      components:
+        - "SeverityBadge"
+        - "ClinicalTooltip"
+        - "ScoreDisplay"
+      coverage: "PARCIAL"
+      coverage_detail: >
+        MEWS/NEWS2 scoring and display are FULLY integrated: scores computed on
+        vitals ingestion, displayed in dashboard bed grid, and shown with
+        history in patient detail. SOFA scoring exists in backend but frontend
+        exposure is LIMITED — SOFA scores appear in patient detail score
+        history but have no dedicated visualization (organ sub-score breakdown,
+        mortality risk classification). FOIS (functional oral intake scale) is
+        FRONTEND-ONLY with no backend persistence. qSOFA is computed but not
+        independently surfaced — only used within sepsis screening context.
+      evidence: "dashboard/page.tsx:1-330 (MEWS/NEWS2 display), patient/[id]/page.tsx:1-556 (score history), sofa.py:1-40 (backend exists), clinical-scoring.yaml:920-939 (FOIS frontend-only)"
+    gap_severity: "MINOR"
+    action: >
+      (1) Adicionar visualização dedicada de SOFA no patient detail:
+          grid de 6 sub-scores de órgãos + classificação de risco de
+          mortalidade,
+      (2) Criar backend para FOIS (modelo ClinicalScore ou similar),
+      (3) Expor qSOFA como score independente no dashboard e patient detail,
+      (4) Adicionar endpoint GET /api/v1/scores/{mpi_id}?type=sofa com
+          sub-score breakdown.
+    effort_estimate: "M"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. SINAIS-VITAIS (44 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "sinais-vitais"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/sinais-vitais.yaml"
+    rule_count: 44
+    description: >
+      Vital signs ingestion, validation, and display. Covers blood pressure
+      (SBP 50-250, DBP 0-150), heart rate (0-200), respiratory rate,
+      temperature, SpO2, AVPU, and supplemental O2. Includes field validators,
+      plausible-range checks, movimentacao (nurse handoff) form constraints,
+      and idempotent ingestion with MEWS/NEWS2/qSOFA scoring.
+    backend:
+      service: "src/intensicare/services/vitals.py"
+      service_summary: >
+        Vitals ingestion service with idempotency (X-Idempotency-Key header),
+        MEWS scoring (v2.0.0), NEWS2 scoring (2017 protocol), and qSOFA
+        calculation. Supports idempotent replay (200 for duplicate keys, 201
+        for new). Alert engine integration via process_clinical_score. WebSocket
+        broadcast on alert creation.
+        Also leverages reference_ranges API for threshold-driven severity display.
+      service_line_count: 472
+      api_endpoints:
+        - "POST /api/v1/vitals                (ingest vitals, compute MEWS/NEWS2/qSOFA, create alerts)"
+        - "GET  /api/v1/dashboard             (latest vitals per patient in bed grid)"
+        - "GET  /api/v1/patients/{id}/detail  (24h vitals history with AVPU, SpO2, supplemental O2)"
+        - "GET  /api/v1/patients/{id}/status  (latest vitals + score + trend)"
+        - "GET  /api/reference-ranges         (vital sign normal/critical ranges for useThreshold)"
+        - "GET  /api/v1/thresholds            (admin configurable alert thresholds)"
+      models_used: ["VitalSign", "ClinicalScore", "Alert", "ThresholdConfig"]
+      evidence: "vitals.py:1-60, reference_ranges.py:1-117, thresholds.py:1-60, dashboard.py:1-50"
+    frontend:
+      pages:
+        - "app/dashboard/page.tsx"
+        - "app/command-center/page.tsx"
+        - "app/patient/[id]/page.tsx"
+      api_functions:
+        - "fetchDashboard"
+        - "fetchPatientDetail"
+        - "fetchThresholds"
+      components:
+        - "SeverityBadge"
+        - "ClinicalTooltip"
+        - "ScoreDisplay"
+      coverage: "COMPLETO"
+      coverage_detail: >
+        Vitals ingestion pipeline is fully operational: POST ingestion with
+        idempotency → MEWS/NEWS2/qSOFA scoring → alert engine → WebSocket
+        broadcast → frontend real-time update. Frontend displays latest vitals
+        in dashboard bed grid (heart_rate, systolic_bp, diastolic_bp, spo2,
+        respiratory_rate, temperature), 24h history in patient detail, and
+        threshold-driven severity coloring via useThreshold hook. Admin page
+        for threshold configuration exists. Reference ranges API provides
+        clinical defaults with DB override capability.
+      evidence: "vitals.py:1-472, reference_ranges.py:1-117, dashboard/page.tsx:1-330, patient/[id]/page.tsx:1-556, admin/thresholds/page.tsx"
+    gap_severity: "NONE"
+    action: null
+    effort_estimate: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. VENTILACAO (27 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "ventilacao"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/ventilacao.yaml"
+    rule_count: 27
+    description: >
+      Mechanical ventilation management: predicted body weight (ARDSNet/Devine),
+      lung-protective tidal volumes (VC 4/5/6 mL/kg), PaO2/FiO2 ratio, weaning
+      parameters, ventilation mode configuration, and alarm thresholds.
+      FiO2 is enforced as a fraction 0-1 at every computation boundary per
+      CON-SEED-12 / SYS-01. SpO2/FiO2 bands per Berlin Definition (ARDS Task
+      Force, JAMA 2012).
+    backend:
+      service: "src/intensicare/services/domain_respiratory.py"
+      service_summary: >
+        Respiratory domain with 5 alerts and 24 test vectors. Evaluates
+        PaO2/FiO2 ratio, SpO2/FiO2 bands (Berlin Definition), protective
+        ventilation compliance, and weaning readiness. FiO2 fraction
+        enforcement at all computation boundaries. CRIT alerts persist
+        until clinician acknowledgment.
+      service_line_count: 1035
+      api_endpoints:
+        - "GET  /api/v1/alerts       (respiratory alerts via generic alert pipeline)"
+        - "GET  /api/v1/dashboard     (alert counts only, no ventilation-specific data)"
+      models_used: ["Alert"]
+      evidence: "domain_respiratory.py:1-60, alerts.py:82-251"
+    frontend:
+      pages: []
+      api_functions:
+        - "fetchAlerts"
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        ZERO frontend pages or components dedicated to ventilation.
+        No ventilation status dashboard, no tidal volume calculator UI,
+        no PaO2/FiO2 visualization, no weaning protocol interface, no
+        ventilation mode display. The frontend has NO awareness of
+        mechanical ventilation as a clinical domain. Respiratory alerts
+        are only accessible through generic alert triage with no
+        domain-specific filtering or visualization.
+      evidence: "search_files no frontend pages or components reference ventilacao, ventilation, respiratory, tidal, weaning, fio2, pao2, mechanical"
+    gap_severity: "BLOCKER"
+    action: >
+      (1) Criar endpoint GET /api/v1/ventilation/{mpi_id} com:
+          - Parâmetros atuais do ventilador (modo, FiO2, PEEP, VC, FR),
+          - Cálculo de peso predito e volumes corrente protetores (4/5/6 mL/kg),
+          - Relação PaO2/FiO2 atual + classificação Berlin,
+          - Status de desmame (weaning readiness),
+      (2) Criar página "Painel de Ventilação Mecânica" com:
+          - Calculadora de peso predito e VC ideal,
+          - Gráfico PaO2/FiO2 com bandas Berlin (leve/moderada/grave),
+          - Monitor de parâmetros atuais do ventilador,
+          - Timeline de parâmetros respiratórios,
+          - Check-list de desmame (spontaneous breathing trial).
+    effort_estimate: "XL"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. SEDACAO (28 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "sedacao"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/sedacao.yaml"
+    rule_count: 28
+    description: >
+      Sedation, analgesia, and delirium management: RASS sedation scale,
+      CAM-ICU delirium assessment, BPS/NRS pain scoring (VISUAL vs
+      COMPORTAMENTAL scales), daily awakening / spontaneous awakening trial
+      (SAT), sedation reduction criteria (>=50% morning reduction), and
+      sedative drug administration tracking (fentanyl, midazolam, propofol,
+      ketamine). Pain criteria (criterio_7) require two consecutive assessments
+      above threshold.
+    backend:
+      service: "src/intensicare/services/domain_pharmaco_delirium.py"
+      service_summary: >
+        Pharmaco-interaction + neuro-sedation domain runners (WO-030/031).
+        run_pharmaco_batch(): drug interaction alerts (warfarin, NSAIDs, INR, QTc).
+        run_delirium_batch(): neuro-sedation alerts (CAM-ICU positive, RASS score,
+        CPOT, hours since last SAT). evaluate_sedation_morning_reduction():
+        daily sedation reduction (>=50% morning reduction, rat-sedacao-02).
+        Catalogs from docs/plan/_work/alerts/pharmaco-interaction.yaml and
+        neuro-sedation.yaml.
+      service_line_count: 390
+      api_endpoints:
+        - "POST /api/clinical-forms             (RASS, CAM-ICU, BPS/NRS form submission)"
+        - "GET  /api/v1/alerts                  (sedation/delirium alerts via generic pipeline)"
+        - "GET  /api/v1/dashboard               (alert counts only)"
+      models_used: ["Alert", "ClinicalFormSubmission"]
+      evidence: "domain_pharmaco_delirium.py:1-160, clinical_forms.py:1-63, alerts.py:82-251"
+    frontend:
+      pages:
+        - "app/clinical-forms/page.tsx"
+      api_functions:
+        - "fetchAlerts"
+      components:
+        - "FormEngine"
+        - "AlertCard"
+      coverage: "PARCIAL"
+      coverage_detail: >
+        Clinical forms for RASS, CAM-ICU, and BPS/NRS EXIST (clinical-forms/page.tsx)
+        with FormEngine-driven configs (rass.json, cam-icu.json, bps-nrs.json).
+        Backend endpoint POST /api/clinical-forms accepts submissions but stores
+        to memory-only (TODO: persist to DB). Sedation alerts are evaluated by
+        domain_pharmaco_delirium.py and surfaced via generic alert pipeline.
+        HOWEVER: no dedicated sedation dashboard showing RASS trend, CAM-ICU
+        results over time, pain score evolution, daily SAT compliance, or
+        sedation drug infusion rates.
+      evidence: "clinical-forms/page.tsx:1-329 (RASS/CAM-ICU/BPS-NRS tabs), clinical_forms.py:1-63 (POST endpoint, memory-only), domain_pharmaco_delirium.py:100-160"
+    gap_severity: "MAJOR"
+    action: >
+      (1) Persistir submissões de clinical-forms em banco de dados
+          (modelo ClinicalAssessment ou similar),
+      (2) Criar endpoint GET /api/v1/sedation/{mpi_id} com:
+          - Último RASS + tendência (últimas 24h),
+          - Último CAM-ICU (positivo/negativo) + histórico,
+          - BPS/NRS pain scores (VISUAL e COMPORTAMENTAL),
+          - Status SAT (spontaneous awakening trial) diário,
+          - Infusões de sedativos ativas (droga, dose, taxa),
+      (3) Criar página "Painel de Sedação e Delirium" com:
+          - Gráfico RASS 24h (bandas: agitado a coma),
+          - Timeline CAM-ICU,
+          - Pain score tracking (duas escalas),
+          - Indicador de conformidade SAT diário,
+          - Monitor de infusões de sedativos.
+    effort_estimate: "L"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. BALANCO-HIDRICO (64 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "balanco-hidrico"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/balanco-hidrico.yaml"
+    rule_count: 64
+    description: >
+      Cumulative fluid balance computation and monitoring: nursing day boundary
+      (07:00-07:00 America/Sao_Paulo), intake/output aggregation (entradas/saidas),
+      urine output tracking (diurese_espontanea, diurese_sonda), temperature
+      maxima, 2-hour time-bucketing (08:00 anchor with corrected 22:00-00:00
+      wrap), and 24h fluid balance = intake - output. RATIFIED thresholds per
+      WAVE 2B (P1 rules). Fluid balance is never coerced to None (0 is valid).
+    backend:
+      service: "src/intensicare/services/domain_fluid_balance.py"
+      service_summary: >
+        Fluid Balance domain — RATIFIED per WAVE 2B (P1 rules). Implements
+        nursing day boundary (07:00-07:00), intake/output aggregation, urine
+        output filtering by tipo (diurese_espontanea, diurese_sonda), temperature
+        maxima (MAX not last), 2-hour time-bucketing with corrected 22:00-00:00
+        wrap, and tempo_criacao with total_seconds(). BalancoHidrico model
+        aggregation across all days for same bed and admission.
+      service_line_count: 425
+      api_endpoints:
+        - "GET  /api/v1/alerts        (fluid balance alerts via generic pipeline)"
+        - "GET  /api/v1/dashboard      (alert counts only, no fluid balance data)"
+      models_used: ["Alert"]
+      evidence: "domain_fluid_balance.py:1-60, alerts.py:82-251, dashboard.py:1-50"
+    frontend:
+      pages: []
+      api_functions:
+        - "fetchAlerts"
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        ZERO frontend pages or components for fluid balance. No fluid balance
+        dashboard, no intake/output chart, no urine output monitoring, no 2h
+        bucket visualization. The fluid balance domain computation exists in
+        backend (domain_fluid_balance.py) but has NO API endpoint that exposes
+        the computed data — results flow only into the alert engine. The
+        frontend has NO awareness of fluid balance as a clinical domain.
+      evidence: "search_files no frontend pages or components reference balanco, fluid balance, hidrico, diurese, intake, output"
+    gap_severity: "BLOCKER"
+    action: >
+      (1) Criar endpoint GET /api/v1/fluid-balance/{mpi_id} com:
+          - Balanço acumulado total (entradas - saídas),
+          - Ganhos e perdas do dia de enfermagem atual (07:00-07:00),
+          - Diurese (espontânea + sonda) nas últimas 24h,
+          - Gráfico de buckets de 2h (12 buckets/dia),
+          - Temperatura máxima do dia de enfermagem,
+      (2) Criar endpoint GET /api/v1/fluid-balance/{mpi_id}/history
+          com série temporal multi-dia,
+      (3) Criar página "Balanço Hídrico" com:
+          - Card de balanço acumulado (positivo/negativo/neutro),
+          - Gráfico de barras entrada vs saída por dia,
+          - Visualização de buckets de 2h (intake/output/temp max),
+          - Monitor de diurese horária (ml/kg/h),
+          - Alerta de balanço negativo/positivo excessivo.
+    effort_estimate: "XL"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. NUTRICAO (11 rules)
+# ═══════════════════════════════════════════════════════════════════════════════
+  - name: "nutricao"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/nutricao.yaml"
+    rule_count: 11
+    description: >
+      Nutritional assessment and monitoring: BMI (IMC) auto-calculation
+      (peso/altura², rounded to 2 decimals), anthropometric field constraints
+      (altura 0-3m, peso no range limit), abdominal assessment questionnaire,
+      and nutritional risk screening. All rules are FRONTEND-ONLY (source:
+      dataFormNutricionista.ts) with no backend persistence or API. IMC
+      computed live on the nutritionist form via JavaScript (||0 fallback
+      for NaN, but Infinity not guarded when peso>0 and altura==0).
+    backend:
+      service: null
+      service_summary: >
+        Nenhum domain_*.py dedicado para nutrição. Nenhuma API endpoint.
+        Nenhum modelo de banco de dados para avaliação nutricional. A BMI
+        calculation é puramente frontend (dataFormNutricionista.ts) e não
+        é persistida ou exposta via API. O cluster existe apenas como
+        regras extraídas do frontend legado — sem contraparte no backend
+        do IntensiCare.
+      service_line_count: null
+      api_endpoints: []
+      models_used: []
+      evidence: "nutricao.yaml:1-31 (BMI calculation, frontend-only), search_files no nutrition/IMC/BMI references in backend"
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        ZERO frontend pages, components, or API functions for nutrition in
+        the IntensiCare v2 frontend. The clinical-forms page only covers
+        RASS/CAM-ICU/BPS-NRS — no nutritional assessment forms. The
+        nutrition rules extracted from the legacy frontend
+        (dataFormNutricionista.ts) have not been migrated to frontend-v2.
+        No BMI calculator, no nutritional risk screening, no dietary
+        intake tracking, no anthropometric assessment form.
+      evidence: "search_files no nutrition/nutricao/IMC/BMI/diet references in frontend-v2, clinical-forms/page.tsx:1-329 (no nutrition tab)"
+    gap_severity: "BLOCKER"
+    action: >
+      (1) Criar modelo NutritionalAssessment no backend com campos:
+          - altura (m), peso (kg), IMC (calculado),
+          - circunferência braquial, prega cutânea,
+          - via de alimentação (oral/enteral/parenteral/NPO),
+          - screening NRS-2002 ou NUTRIC score,
+      (2) Criar endpoint POST /api/v1/nutrition (submeter avaliação),
+      (3) Criar endpoint GET /api/v1/nutrition/{mpi_id} (última avaliação + histórico),
+      (4) Criar página "Avaliação Nutricional" no frontend com:
+          - Calculadora de IMC (com guard contra Infinity),
+          - Formulário de avaliação antropométrica,
+          - Screening nutricional (NRS-2002),
+          - Gráfico de evolução do peso e IMC,
+          - Registro de via alimentar e metas calóricas.
+    effort_estimate: "L"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+summary:
+  total_clusters: 9
+  total_rules: 333
+  coverage_distribution:
+    completo: 1    # sinais-vitais
+    parcial: 3     # sepse, clinical-scoring, sedacao
+    ausente: 5     # estabilidade, piora-clinica, ventilacao, balanco-hidrico, nutricao
+  severity_distribution:
+    blocker: 5     # estabilidade, piora-clinica, ventilacao, balanco-hidrico, nutricao
+    major: 2       # sepse, sedacao
+    minor: 1       # clinical-scoring
+    none: 1        # sinais-vitais
+  effort_distribution:
+    xl: 4          # estabilidade, piora-clinica, ventilacao, balanco-hidrico
+    l: 3           # sepse, sedacao, nutricao
+    m: 1           # clinical-scoring
+    s: 0
+    none: 1        # sinais-vitais (no action needed)
+  total_estimated_effort: "9-14 semanas (considerando equipe de 2-3 devs fullstack)"
+  critical_path:
+    - "estabilidade + piora-clinica: dependem da criação de domain services novos"
+    - "ventilacao + balanco-hidrico: backend existe mas precisa de API + frontend completos"
+    - "nutricao: precisa de tudo (backend model, API, frontend)"
+  quick_wins:
+    - "clinical-scoring: SOFA visualization (M, ~2-3 dias)"
+    - "sedacao: persistir clinical-forms + dashboard simples (L, ~1-2 semanas)"
+  notes: >
+    A arquitetura atual do IntensiCare usa endpoints genéricos (/api/v1/alerts,
+    /api/v1/dashboard) como camada de API para TODOS os domínios clínicos. Isso
+    funciona para o triage de alertas mas NÃO oferece visualização
+    domínio-específica. A maior lacuna está nos domínios que têm backend
+    (domain_*.py) mas zero API dedicada e zero frontend: ventilacao,
+    balanco-hidrico. Os domínios sem backend (estabilidade, piora-clinica,
+    nutricao) requerem esforço significativamente maior pois precisam de
+    modelos de dados, serviços, APIs e frontend do zero.

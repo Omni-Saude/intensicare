@@ -1,0 +1,499 @@
+# ==============================================================================
+# GAP ANALYSIS — Infra + Governança (Grupo 3)
+# IntensiCare v2 — cross-reference: legacy rules vs new backend/frontend
+# Generated: 2026-07-07
+# ==============================================================================
+
+meta:
+  group: "Grupo 3 — Infraestrutura & Governança"
+  total_clusters: 9
+  total_rules_legacy: 316
+  backend_root: "src/intensicare/"
+  frontend_root: "frontend-v2/"
+  profile: "niemeyer"
+
+# ---------------------------------------------------------------------------
+# CLASSIFICATION KEY
+#   BLOCKER : domínio crítico com ZERO frontend e ZERO API
+#   MAJOR   : backend existe mas frontend parcial/ausente
+#   MINOR   : cobertura quase completa
+#   NONE    : totalmente integrado
+# ---------------------------------------------------------------------------
+
+domains:
+
+  # ── 1. equilibrio (4 regras) ──────────────────────────────────────────
+  - name: "equilibrio"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/equilibrio.yaml"
+    rule_count: 4
+    legacy_scope: >
+      Fluid-balance care pathway (TrilhaEquilibrio) with 10 clinical criteria
+      (hypervolemia, renal function, morphine substitution, hypernatremia Na>160,
+      hyperkalemia K>6 emergency protocol) plus alert-color aggregation.
+    backend:
+      service: "domain_fluid_balance.py"
+      service_summary: >
+        domain_fluid_balance.py covers KG-based fluid balance scoring (intake/output
+        calculations) but does NOT implement the Equilibrio pathway criteria engine
+        (TrilhaEquilibrioModel with calcular_alerta, get_detalhe, 10 criteria flags).
+        No domain_equilibrio.py exists.
+      api_endpoints: []
+      models_used: []
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        Zero frontend or API coverage. The legacy TrilhaEquilibrio pathway
+        (fluid balance alert criteria, drug substitution recommendations,
+        hyperkalemia rescue protocol) has no equivalent in the new codebase.
+        domain_fluid_balance.py handles basic I/O math but the full clinical
+        decision-support pathway has not been ported.
+    gap_severity: "BLOCKER"
+    action: >
+      Projetar módulo de equilíbrio hidroeletrolítico com engine de 10 critérios
+      clínicos, alert-color aggregation (VERMELHO/AMARELO/NEUTRO), recomendações
+      de substituição de drogas nefrotóxicas, e protocolo de hipercalemia K>6.
+    effort_estimate: "L"
+
+  # ── 2. eficiencia (12 regras) ─────────────────────────────────────────
+  - name: "eficiencia"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/eficiencia.yaml"
+    rule_count: 12
+    legacy_scope: >
+      Resource-efficiency care pathway (TrilhaEficienciaV3) covering RBC transfusion
+      appropriateness (Hb>=7 trigger), platelet transfusion at Plt>25000, mechanical
+      restraint without agitation, ICU discharge readiness, frailty/palliative
+      assessment, repeated-exam detection, coma-without-sedation screening,
+      and delirium/agitation risk bundle — plus v3 alert-color aggregation.
+    backend:
+      service: null
+      service_summary: >
+        No domain_eficiencia.py or efficiency-related service exists.
+        No efficiency API endpoints. The legacy efficiency rules (transfusion
+        stewardship, resource utilization, discharge readiness) have no new-backend
+        counterpart.
+      api_endpoints: []
+      models_used: []
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        Completely absent from both backend and frontend. The 12 legacy rules
+        covering blood-product stewardship, ICU resource optimization, and
+        frailty screening have not been ported.
+    gap_severity: "BLOCKER"
+    action: >
+      Projetar módulo de eficiência/ stewardship com critérios de transfusão
+      (Hb>=7, Plq>25000), detecção de contenção mecânica, readiness para alta,
+      screening de fragilidade, e bundle de delirium. Priorizar regras wired
+      (c3, c5, c10) e corrigir bugs conhecidos (wrong-field, operator precedence).
+    effort_estimate: "XL"
+
+  # ── 3. indicadores-etl (31 regras) ────────────────────────────────────
+  - name: "indicadores-etl"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/indicadores-etl.yaml"
+    rule_count: 31
+    legacy_scope: >
+      Dashboard indicator formulas and ETL logic: sector alert-share percentages,
+      assisted-share percentages, TLP (standardized lethality) conversion,
+      sedation-use indicators, bed-occupancy color thresholds, sector-level
+      alert-color decision trees, dashboard shortcut visibility, unread-message
+      badges, dual y-axis chart toggles, invasive-procedure lookups, and
+      micro-indicator payload builders.
+    backend:
+      service: null
+      service_summary: >
+        The new dashboard API (api/v1/dashboard.py) provides basic bed-grid data
+        with MEWS/NEWS2/alert counts but does NOT expose the legacy ETL formulas
+        (occupancy percentages, TLP, sedation indicators, per-sector aggregates).
+        No domain_indicadores.py exists.
+      api_endpoints:
+        - "GET /api/v1/dashboard  (api/v1/dashboard.py:21) — basic bed grid, no ETL indicators"
+        - "GET /api/v1/health     (api/v1/health.py:246) — staleness matrix, not indicators"
+      models_used: []
+    frontend:
+      pages:
+        - "dashboard/page.tsx  — clinical bed grid with MEWS/NEWS2, not legacy sector dashboard"
+        - "command-center/page.tsx"
+      api_functions:
+        - "fetchDashboard()       (lib/api.ts:148)"
+        - "fetchAdminStats()      (lib/api.ts:377)"
+        - "fetchHealth()          (lib/api.ts:407)"
+      components: []
+      coverage: "PARCIAL"
+      coverage_detail: >
+        Frontend has a dashboard page (bed grid) using the new dashboard API.
+        However, the 31 legacy ETL formulas (sector occupancy, alert-share
+        percentages, TLP*100 conversion, sedation indicators, invasive-procedure
+        lookups) have no equivalent in the new codebase. The new dashboard is a
+        simpler clinical bed grid, not the comprehensive sector-level indicator
+        dashboard from the legacy system.
+    gap_severity: "MAJOR"
+    action: >
+      Expadir dashboard API com endpoints de indicadores setoriais (ocupação,
+      TLP, taxas de infecção, uso de sedação). Portar fórmulas ETL do legado
+      (alert-share, assisted-share, occupancy thresholds) como computed fields
+      ou materialized views. Adicionar gráficos de indicadores no frontend.
+    effort_estimate: "L"
+
+  # ── 4. auditoria-logs (37 regras) ─────────────────────────────────────
+  - name: "auditoria-logs"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/auditoria-logs.yaml"
+    rule_count: 37
+    legacy_scope: >
+      Audit logging system: request/response body capture, device classification
+      from user-agent, log retention/purge (2-week hard delete), page-size defaults,
+      top-4 most-accessed routes, problematic-routes selection, status-code badge
+      colors, HTTP method badge colors, device icon mapping, and view-layer
+      filtering/pagination.
+    backend:
+      service: null
+      service_summary: >
+        AuditTrail model (models/audit_trail.py) exists as an immutable hypertable
+        with pgcrypto-encrypted before/after snapshots and anti-mutation trigger.
+        Used internally by admin.py and thresholds.py to record mutations.
+        However, there is NO dedicated audit-log API endpoint, no log query/
+        filtering/dashboard view, and no log retention purge mechanism ported.
+      api_endpoints: []
+      models_used:
+        - "models/audit_trail.py:AuditTrail  — immutable audit hypertable (INV-1)"
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "PARCIAL"
+      coverage_detail: >
+        Backend audit trail exists (AuditTrail model with TimescaleDB hypertable,
+        pgcrypto encryption, anti-mutation trigger) and is wired into admin user
+        mutations and threshold config mutations. But there is NO audit log viewer
+        API, no frontend audit page, no log filtering/pagination, no retention
+        policy. The 37 legacy rules cover a full audit-log UI that is completely absent.
+    gap_severity: "MAJOR"
+    action: >
+      Criar API de consulta de audit trail (/api/v1/audit) com filtros por
+      tenant, actor, action, entity, date-range, e paginação. Construir página
+      de auditoria no frontend com dashboard de rotas mais acessadas, status
+      codes problemáticos, e exportação. Implementar política de retenção
+      configurável (substituir hard-coded 2-week purge).
+    effort_estimate: "L"
+
+  # ── 5. auth-usuarios (68 regras) ──────────────────────────────────────
+  - name: "auth-usuarios"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/auth-usuarios.yaml"
+    rule_count: 68
+    legacy_scope: >
+      Authentication, authorization, and RBAC: GrupoAcesso permission catalogs,
+      user cargos (empresa-scoped roles), super-admin predicates, partner-required
+      permissions, owner-organization object permissions, hierarchical permission
+      cascade (empresa>estabelecimento>setor), scope-based RBAC dispatch,
+      GrupoAcesso hierarchical scope resolution, and permission lookup.
+    backend:
+      service: null
+      service_summary: >
+        New backend implements simplified auth: JWT-based login/register/logout
+        (api/v1/auth.py), admin user CRUD (api/v1/admin.py), WebSocket JWT auth
+        (api/v1/ws.py), and basic permission dependencies (require_admin,
+        get_current_user). No domain_auth.py service exists. The legacy
+        hierarchical RBAC (empresa/estabelecimento/setor scoping, GrupoAcesso,
+        permission cascading) has been replaced with a flat is_admin + role model.
+      api_endpoints:
+        - "POST /auth/login     (api/v1/auth.py) — JWT token issuance"
+        - "POST /auth/register  (api/v1/auth.py) — user registration"
+        - "POST /auth/logout    (api/v1/auth.py) — token invalidation"
+        - "GET  /admin/users    (api/v1/admin.py) — list users"
+        - "POST /admin/users    (api/v1/admin.py) — create user"
+        - "PUT  /admin/users/{id} (api/v1/admin.py) — update user"
+        - "WS   /api/v1/ws       (api/v1/ws.py) — JWT-authenticated WebSocket"
+      models_used:
+        - "models/user.py:User  — flat user model with is_admin, role"
+    frontend:
+      pages:
+        - "login/page.tsx         — JWT login form"
+        - "register/page.tsx      — user registration"
+        - "admin/users/page.tsx   — admin user CRUD with ABAC roles"
+        - "admin/page.tsx         — admin dashboard"
+      api_functions:
+        - "loginApi()             (lib/api.ts:92)"
+        - "registerApi()          (lib/api.ts:99)"
+        - "logoutApi()            (lib/api.ts:106)"
+        - "fetchUsers()           (lib/api.ts:291)"
+        - "createUser()           (lib/api.ts:295)"
+        - "updateUser()           (lib/api.ts:302)"
+        - "updateUserRole()       (lib/api.ts:309)"
+        - "toggleUserActive()     (lib/api.ts:312)"
+      components:
+        - "components/Layout.tsx  — auth-aware layout"
+      coverage: "PARCIAL"
+      coverage_detail: >
+        Basic auth flow (login/register/logout) fully implemented with JWT tokens
+        on both backend and frontend. Admin user CRUD exists. WebSocket auth works.
+        However, the legacy hierarchical RBAC system (68 rules covering
+        empresa/estabelecimento/setor permission cascading, GrupoAcesso, scope-based
+        dispatch) has been replaced with a flat role model. The new system has
+        simpler RBAC (is_admin + ABAC roles: physician/nurse/pharmacist/lab_tech/
+        admin/viewer/auditor). Missing: hierarchical org-scoped permissions,
+        permission catalog (GrupoAcesso.get_permissoes), per-HTTP-method permissions,
+        scope-based dispatch (PermissaoMixin).
+    gap_severity: "MAJOR"
+    action: >
+      Manter modelo RBAC simplificado atual para MVP. Se necessário no futuro,
+      adicionar escopo hierárquico (tenant/unit) às permissões e permissões
+      por método HTTP. Implementar audit trail para todas as mutações de
+      permissão (já parcialmente coberto pelo AuditTrail).
+    effort_estimate: "M"
+
+  # ── 6. tenancy-organizacao (53 regras) ────────────────────────────────
+  - name: "tenancy-organizacao"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/tenancy-organizacao.yaml"
+    rule_count: 53
+    legacy_scope: >
+      Multi-tenant organization hierarchy: establishment/sector occupancy
+      percentages, establishment macro-indicator aggregation, sector-to-
+      establishment data scoping, messaging counts per sector, chat ordering
+      by organizational scope, organization management views, and scoping
+      TODO markers.
+    backend:
+      service: "domain_tenancy.py"
+      service_summary: >
+        domain_tenancy.py implements 14 RATIFIED rules (UNVERIFIABLE) covering
+        establishment indicator aggregation (RULE-TENANCY-ORGANIZACAO-005 through
+        015, 038, 041, 042). However, the new system uses a flat tenant_id model
+        (e.g., in ThresholdConfig) rather than the legacy hierarchical
+        empresa>estabelecimento>setor structure. No tenancy management API exists.
+      api_endpoints: []
+      models_used:
+        - "models/threshold_config.py:ThresholdConfig  — has tenant_id field"
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "PARCIAL"
+      coverage_detail: >
+        domain_tenancy.py exists with ratified rules for occupancy/macro-indicator
+        aggregation. tenant_id is used in ThresholdConfig. But there are ZERO
+        tenancy API endpoints (no org CRUD, no establishment/sector management),
+        ZERO frontend pages for org administration. The legacy 53-rule tenancy
+        system (empresa/estabelecimento/setor hierarchy with occupancy formulas,
+        messaging counts, chat ordering) has been reduced to a flat tenant_id
+        with no management interface.
+    gap_severity: "MAJOR"
+    action: >
+      Projetar API de gestão de organização (tenant CRUD, unit CRUD) se o
+      modelo multi-tenant for necessário para o MVP. Caso contrário, manter
+      flat tenant_id e documentar que a hierarquia empresa/estabelecimento/setor
+      foi simplificada. Expor occupancy indicators via dashboard API.
+    effort_estimate: "L"
+
+  # ── 7. operacional-infra (64 regras) ──────────────────────────────────
+  - name: "operacional-infra"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/operacional-infra.yaml"
+    rule_count: 64
+    legacy_scope: >
+      Operational infrastructure utilities: timestamp rounding, patient name
+      abbreviation, offline prescription grouping, shift-boundary (07:00)
+      day-rollover, prescription windowing, length-of-stay computation,
+      pagination page-count, minutes-between-dates, hour formatting, date
+      parsing, numeric coercion, and various scheduling/data-validation helpers.
+    backend:
+      service: "domain_operacional.py"
+      service_summary: >
+        domain_operacional.py implements 10 RATIFIED rules (UNVERIFIABLE) covering
+        patient name abbreviation (RULE-OPERACIONAL-INFRA-002 through 011),
+        date parsing, numeric coercion, and shift-boundary calculations.
+        Health endpoint provides infrastructure monitoring.
+      api_endpoints:
+        - "GET /health  (api/v1/health.py:246) — PostgreSQL, Redis, ARQ, Athena checks + staleness matrix"
+      models_used: []
+    frontend:
+      pages:
+        - "handoff/page.tsx       — clinical handoff, may use operational helpers"
+      api_functions:
+        - "fetchHealth()          (lib/api.ts:407)"
+      components: []
+      coverage: "PARCIAL"
+      coverage_detail: >
+        domain_operacional.py ports 10 ratified operational rules. Health API
+        provides infrastructure monitoring (DB, Redis, ARQ, Athena + staleness
+        matrix). Frontend has health-check API function. However, the majority
+        of the 64 legacy rules (offline prescriptions, scheduling, pagination
+        defaults, time formatting utilities, prescription item-type priority
+        ordering) are either utility functions not yet ported or features
+        (offline mode) not yet implemented.
+    gap_severity: "MINOR"
+    action: >
+      Portar utilitários operacionais restantes conforme necessidade
+      (offline prescriptions, time-formatting helpers). A infraestrutura
+      de health check já cobre monitoramento básico. Baixa prioridade.
+    effort_estimate: "S"
+
+  # ── 8. trilhas-engine (18 regras) ─────────────────────────────────────
+  - name: "trilhas-engine"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/trilhas-engine.yaml"
+    rule_count: 18
+    legacy_scope: >
+      Care pathway engine core: automatic/homecare pathway composition (v2+v3
+      model sets), leito-type dispatch, pathway alert-status color precedence,
+      interactive pathway eligibility (Sepse/Profilaxia), interactive pathway
+      restricted to automatic beds, mark-pathway-assisted authorization,
+      overdue-item alerts, pathway catalog with criteria counts, facade payload
+      variant selection, and ETL schema definitions.
+    backend:
+      service: null
+      service_summary: >
+        COMPLETELY ABSENT. No domain_trilhas.py, no trilha models, no care
+        pathway engine, no automatic/homecare pathway evaluation, no ETL
+        schema (novo_etl_schema), no facade payload selection. grep for
+        'trilha|pathway|care_pathway' in src/ returns ZERO results.
+      api_endpoints: []
+      models_used: []
+    frontend:
+      pages: []
+      api_functions: []
+      components: []
+      coverage: "AUSENTE"
+      coverage_detail: >
+        Zero backend, zero API, zero frontend. The care pathway engine —
+        the core clinical decision-support mechanism of the legacy system
+        (automatic + homecare pathways with criteria evaluation, alert colors,
+        interactive protocols, assisted/attendance tracking, overdue-item
+        detection) — has not been ported at all. No evidence of any pathway
+        logic anywhere in the new codebase.
+    gap_severity: "BLOCKER"
+    action: >
+      Projetar engine de care pathways como módulo central do IntensiCare v2:
+      - Motor de elegibilidade por tipo de leito (automatica/homecare)
+      - Composição de trilhas (9 trilhas automáticas com critérios)
+      - Agregação de alertas por trilha (VERMELHO/AMARELO/NEUTRO)
+      - Protocolos interativos (Sepse, Profilaxia)
+      - Assistido/attendance tracking
+      - Detecção de itens em atraso
+      Este é o componente mais crítico — sem ele o sistema perde a capacidade
+      de clinical decision support que define o produto.
+    effort_estimate: "XL"
+
+  # ── 9. alertas (29 regras) ────────────────────────────────────────────
+  - name: "alertas"
+    cluster_yaml: "docs/rules/extraction/phase2/catalog/alertas.yaml"
+    rule_count: 29
+    legacy_scope: >
+      Alert threshold and aggregation system: criteria-count alert function
+      (contar_qtd_criterios_alerta), aggregate alert counts across movimentacoes,
+      criteria-count-to-color mapping (define_tipo_alerta with per-model
+      _CRITERIOS_ALERTA), single-criterion alert flag (esta_alerta), bed-level
+      alert rollup, bed alert color aggregation (get_alerta_leito with LARANJA
+      override), automatic/homecare bed alert ignoring attendance, bed attended
+      determination, payload alert + attendance flags, and frontend status
+      color precedence.
+    backend:
+      service: "domain_alertas.py"
+      service_summary: >
+        domain_alertas.py implements RATIFIED rules for contar_qtd_criterios_alerta
+        (RULE-ALERTAS-001) and aggregate alert counts (RULE-ALERTAS-002).
+        Full alerts API exists for list/acknowledge/resolve/escalate.
+        The new alert model uses severity levels (watch/urgent/critical) and
+        statuses (active/acknowledged/escalated/resolved) instead of the legacy
+        VERMELHO/AMARELO/NEUTRO/LARANJA color system.
+      api_endpoints:
+        - "GET    /api/v1/alerts              (api/v1/alerts.py) — list alerts with filters"
+        - "POST   /api/v1/alerts/{id}/acknowledge  (api/v1/alerts.py) — acknowledge"
+        - "POST   /api/v1/alerts/{id}/resolve      (api/v1/alerts.py) — resolve"
+        - "POST   /api/v1/alerts/{id}/escalate      (api/v1/alerts.py) — escalate"
+        - "GET    /api/v1/alerts/{id}/trace         (api/v1/alerts.py) — audit trace"
+      models_used:
+        - "models/alert.py:Alert  — alert with severity (watch/urgent/critical), status workflow"
+    frontend:
+      pages:
+        - "alert-triage/page.tsx   — alert list with status filters, WebSocket realtime"
+        - "alert-routing/page.tsx  — alert routing configuration"
+      api_functions:
+        - "fetchAlerts()           (lib/api.ts:226)"
+        - "acknowledgeAlert()      (lib/api.ts:241)"
+        - "resolveAlert()          (lib/api.ts:248)"
+        - "escalateAlert()         (lib/api.ts:259)"
+        - "fetchThresholds()       (lib/api.ts:345)"
+        - "updateThreshold()       (lib/api.ts:350)"
+        - "createThreshold()       (lib/api.ts:360)"
+      components:
+        - "components/AlertCard.tsx     — alert display card"
+        - "components/SeverityBadge.tsx — severity badge component"
+      coverage: "PARCIAL"
+      coverage_detail: >
+        The new system has a fully functional alert infrastructure: domain_alertas.py
+        (src/intensicare/services/domain_alertas.py:1-111), REST API with full CRUD
+        + trace (src/intensicare/api/v1/alerts.py:1-251), WebSocket realtime events
+        (alert.raised, alert.updated), threshold configuration API
+        (src/intensicare/api/thresholds.py:1-260), and frontend pages for alert
+        triage and routing. However, the legacy alert system's specific features
+        (define_tipo_alerta with per-model thresholds, LARANJA interactive-sepse
+        override, bed-level alert rollup, attendance-based alert filtering) use a
+        different paradigm (color-based severity vs the new watch/urgent/critical
+        band model). The counting logic (contar_qtd_criterios_alerta) is ported.
+    gap_severity: "MINOR"
+    action: >
+      Sistema de alertas funcional e integrado. Pendente apenas: portar lógica
+      de rollup de alertas por leito (get_alerta_leito) e agregação por setor
+      se necessário. Considerar adicionar suporte a LARANJA para protocolos
+      interativos. Threshold configuration já é totalmente funcional.
+    effort_estimate: "S"
+
+# ==============================================================================
+# SUMMARY
+# ==============================================================================
+summary:
+  total_domains: 9
+  total_rules: 316
+  by_severity:
+    BLOCKER:
+      count: 3
+      domains:
+        - equilibrio
+        - eficiencia
+        - trilhas-engine
+      total_rules: 34
+    MAJOR:
+      count: 4
+      domains:
+        - indicadores-etl
+        - auditoria-logs
+        - auth-usuarios
+        - tenancy-organizacao
+      total_rules: 189
+    MINOR:
+      count: 2
+      domains:
+        - operacional-infra
+        - alertas
+      total_rules: 93
+    NONE:
+      count: 0
+      domains: []
+      total_rules: 0
+  by_effort:
+    XL:
+      count: 2
+      domains: [eficiencia, trilhas-engine]
+    L:
+      count: 4
+      domains: [equilibrio, indicadores-etl, auditoria-logs, tenancy-organizacao]
+    M:
+      count: 1
+      domains: [auth-usuarios]
+    S:
+      count: 2
+      domains: [operacional-infra, alertas]
+  critical_path:
+    - "trilhas-engine: motor de care pathways — diferencial do produto, ZERO cobertura"
+    - "eficiencia: stewardship de transfusão/recursos — 12 regras não portadas"
+    - "equilibrio: protocolo hidroeletrolítico — 4 regras críticas (K>6 emergência)"
+  notes: >
+    O IntensiCare v2 tem excelente cobertura de infraestrutura moderna (FastAPI,
+    WebSocket, JWT, TimescaleDB, audit trail imutável, health checks) mas o core
+    clínico do produto — o care pathway engine (trilhas-engine) e seus módulos
+    associados (equilibrio, eficiencia) — está completamente ausente. Sem estes,
+    o sistema é um dashboard de sinais vitais com alertas threshold-based, mas
+    não entrega o clinical decision support baseado em critérios que define o
+    legado ahlabs-trilhas.

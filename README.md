@@ -160,6 +160,71 @@ Cada ClinicalScore registrado inclui `algorithm_version` para rastreabilidade co
 
 ---
 
+## 🧬 Inteligência Clínica — Motor de Regras
+
+> **188 regras clínicas** extraídas do sistema legado (463 arquivos TypeScript + 153
+> LESS), organizadas em **25 domínios clínicos** e **5 trilhas de cuidado contínuo**.
+
+### 📊 Domínios Clínicos (25 clusters de regras)
+
+| # | Domínio | Escopo | Batches |
+|---|---------|--------|---------|
+| 1 | **Sepse** | 13 batches, 20 critérios (≥3 maiores + ≥4 menores = 🔴 Crítico). Lactato, PAM, PAS, PAD, noradrenalina | 13 |
+| 2 | **Estabilidade Hemodinâmica** | Vasopressores (noradrenalina mcg/kg/min), choque oculto/séptico, balanço negativo, bicarbonato, enchimento capilar >5s | 4 |
+| 3 | **Balanço Hídrico** | Ganhos/perdas, diurese (KDIGO oligúria), balanço acumulado, reposição volêmica | 7 |
+| 4 | **Ventilação Mecânica** | Desmame, FiO₂, PEEP, drive pressórico, relação P/F | 3 |
+| 5 | **Sedação** | RASS, CAM-ICU (delirium), BPS/NRS (dor), infusão contínua | 5 |
+| 6 | **Piora Clínica** | Escore de alerta precoce composto (deterioração multissistêmica) | 3 |
+| 7 | **Clinical Scoring** | MEWS (≥5 crítico), NEWS2 (≥7 crítico), SOFA (0-24 bandas), qSOFA | 4 |
+| 8 | **Nutrição** | Tolerância, VRG >500mL/6h, diarreia, NPT, hiperglicemia | 1 |
+| 9 | **Profilaxia** | Úlcera de estresse (IBP/cimetidina), TEV, sangramento GI | 1 |
+| 10 | **Antimicrobiano** | Escalonamento, tempo de antibiótico, culturas | 1 |
+| 11 | **Prescrição** | Conciliação medicamentosa, reconciliação de admissão | 1 |
+| 12 | **Movimentação ADT** | Admissão/transferência/alta, tempo de permanência em UTI | 3 |
+| 13 | **Evoluções** | Documentação clínica diária obrigatória | 1 |
+| 14 | **Sinais Vitais** | Frequência de coleta, thresholds por vital, completude | 1 |
+| 15 | **Comunicação** | Passagem de plantão estruturada, handoff sheet | 1 |
+| 16 | **Equilíbrio Hidroeletrolítico** | Eletrólitos (Na, K, Mg, Ca, P), bandas KDIGO para fosfato | 1 |
+| 17 | **Eficiência Operacional** | Tempo de resposta a alertas, tempo de resolução | 2 |
+| 18 | **Indicadores ETL** | Métricas de qualidade UTI, dashboards de gestão | 2 |
+| 19 | **Formulários Clínicos** | RASS, CAM-ICU, BPS-NRS, documentação estruturada | 2 |
+| 20 | **Auditoria & Logs** | Trilha de auditoria imutável para compliance regulatório | 1 |
+| 21 | **Auth & Usuários** | Perfis clínicos, permissões ABAC, MFA | 1 |
+| 22 | **Tenancy & Organização** | Multi-tenant, white-label por hospital, hierarquia empresa/estabelecimento/setor | 4 |
+| 23 | **Documentação & Faturamento** | AIH, procedimentos, codificação | 1 |
+| 24 | **Operacional & Infra** | Watchdog, health checks, Redis, telemetria | 3 |
+| 25 | **Trilhas Engine** | Motor de execução das trilhas clínicas | 1 |
+
+### 🚨 Alertas Críticos
+
+| Alerta | Severidade | Gatilho |
+|--------|-----------|---------|
+| MEWS CRITICAL | 🔴 Critical | MEWS ≥ 5 |
+| NEWS2 CRITICAL | 🔴 Critical | NEWS2 ≥ 7 |
+| SEPSE VERMELHO | 🔴 Critical | ≥3 critérios maiores + ≥4 menores simultâneos |
+| SEPSE AMARELO | 🟡 Watch | ≥2 maiores + ≥3 menores |
+| Choque Séptico | 🔴 Critical | Noradrenalina + lactato > 2 mmol/L |
+| Choque Oculta | 🟠 Urgent | Lactato > 2 sem hipotensão |
+| IRA KDIGO | 🟠 Urgent | Diurese < 0.5 mL/kg/h por 6h |
+| Delirium CAM-ICU+ | 🟡 Watch | CAM-ICU positivo |
+| Balanço Negativo | 🟡 Watch | Balanço < −2000mL com vasopressor |
+| VRG Elevado | 🟡 Watch | Volume residual gástrico > 500mL/6h |
+
+### 🔄 Trilhas Clínicas (Care Pathways)
+
+Cada trilha é um **pipeline de avaliação contínua** executado a cada novo dado
+(vital, exame, balanço) que gera recomendações e alertas para a equipe:
+
+| Trilha | Domínios | O que avalia |
+|--------|----------|-------------|
+| **Trilha Sepse** | Sepse + Estabilidade | Screening contínuo (20 critérios), classificação dual-threshold, alerta automático com gravidade |
+| **Trilha Estabilidade** | Estabilidade + Balanço Hídrico | Monitoramento hemodinâmico (vasopressores, perfusão, choque, balanço) |
+| **Trilha Ventilação** | Ventilação + Sinais Vitais | Desmame ventilatório, parâmetros de drive pressórico, P/F |
+| **Trilha Sedação** | Sedação + Delirium | RASS diário, CAM-ICU, BPS/NRS, interrupção diária da sedação |
+| **Trilha Nutrição** | Nutrição + Profilaxia | Tolerância, VRG, progressão de dieta, profilaxia de úlcera/TEV |
+
+---
+
 ## 🏗️ Arquitetura
 
 ```

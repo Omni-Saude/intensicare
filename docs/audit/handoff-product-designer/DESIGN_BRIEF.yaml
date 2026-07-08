@@ -1,0 +1,264 @@
+# =============================================================================
+# DESIGN_BRIEF.yaml — Especificações de Design para Product-Design-Orchestrator
+# IntensiCare v2 — Sprint 1-2 Quick Wins
+# =============================================================================
+# Fonte: docs/audit/BACKEND_FRONTEND_GAP_MAP.md
+# Gerado por: Niemeyer (System Architect) em 2026-07-07
+# =============================================================================
+
+meta:
+  sprint: "1-2"
+  risk_level: "L2"
+  scope: "frontend-v2/ only"
+  stack: "Next.js 15, React 19, TypeScript strict, Tailwind 4, Storybook 8"
+
+domains:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 1. SEPSE DASHBOARD
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: "sepse-dashboard"
+    route: "/sepse-dashboard"
+    clinical_context: >
+      SSC-2021 Sepsis screening pathway. qSOFA >= 2 + suspected infection →
+      lactate confirmation → hour-1 bundle. 101 legacy rules cover 9 major
+      criteria + 11 minor criteria with dual-threshold aggregation (v1 AND v3).
+    backend_status:
+      service: "domain_sepsis.py (948 linhas)"
+      api_endpoints:
+        - "GET /api/v1/alerts?type=sepse"
+        - "GET /api/v1/alerts/{id}/trace"
+        - "GET /api/v1/patients/{mpi_id}/detail"
+        - "POST /api/v1/alerts/{id}/acknowledge|resolve|escalate"
+    design_requirements:
+      pages:
+        - route: "/sepse-dashboard"
+          layout: "split-panel (patient list left, detail right)"
+          components:
+            - name: "SepsisPatientList"
+              description: "Lista de pacientes com alerta de sepse ativo, ordenada por severidade"
+              data_source: "GET /api/v1/alerts?type=sepse"
+              states: ["loading", "empty (nenhum paciente com sepse ativa)", "populated", "error"]
+            - name: "SepsisCriteriaPanel"
+              description: "Visualização dos critérios maiores (9) e menores (11) com indicadores de status"
+              data_source: "GET /api/v1/alerts/{id}/trace (triggering_parameters)"
+              states: ["collapsed", "expanded", "criteria-met", "criteria-not-met", "pending-data"]
+            - name: "SepsisConfirmationTimeline"
+              description: "Timeline vertical: qSOFA screen → lactate → cultures → hour-1 bundle"
+              data_source: "Alert.created_at + ClinicalScore history via patient detail"
+              states: ["screening", "lactate-pending", "confirmed", "bundle-started", "bundle-complete"]
+            - name: "Hour1BundleTimer"
+              description: "Contador regressivo desde o disparo do alerta até 60 minutos (bundle compliance)"
+              data_source: "Alert.created_at"
+              states: ["running (<30min)", "warning (30-60min)", "overdue (>60min)"]
+      design_tokens:
+        - name: "--clinical-sepsis-confirmed"
+          description: "Cor para sepse confirmada (lactate > 2 + qSOFA >= 2)"
+        - name: "--clinical-sepsis-suspected"
+          description: "Cor para screening positivo, aguardando confirmação"
+        - name: "--clinical-sepsis-criteria-met"
+          description: "Critério maior/menor atendido"
+        - name: "--clinical-sepsis-criteria-not-met"
+          description: "Critério não atendido ou sem dados"
+        - name: "--clinical-sepsis-bundle-overdue"
+          description: "Hour-1 bundle atrasado (>60 min)"
+      wcag_requirements:
+        - "Contraste mínimo 4.5:1 para texto de critérios (tamanho normal)"
+        - "Indicadores de status NÃO dependem apenas de cor (ícone + cor + texto)"
+        - "Timeline navegável por teclado (setas para cima/baixo)"
+        - "Timer com anúncio aria-live para screen readers"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 2. ANTIMICROBIANO STEWARDSHIP
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: "antimicrobial-stewardship"
+    route: "/antimicrobial-stewardship"
+    clinical_context: >
+      Antimicrobial stewardship program (Trilha 5 do legado). 3 regras extraídas
+      cobrindo 12 critérios clínicos: duração de tratamento, espectro, dose,
+      CVC, candidemia, culturas, CAP/COVID. Scoring VERMELHO/AMARELO/NEUTRO.
+    backend_status:
+      service: "NONE (a ser criado)"
+      api_endpoints: ["MOCK — contrato OpenAPI será provido por Niemeyer"]
+    design_requirements:
+      pages:
+        - route: "/antimicrobial-stewardship"
+          layout: "single-page assessment form"
+          components:
+            - name: "AntimicrobialCriteriaForm"
+              description: "Formulário com 12 critérios booleanos agrupados por categoria"
+              data_source: "MOCK — AntimicrobialAssessment type"
+              states: ["empty", "partial", "complete", "submitted"]
+            - name: "StewardshipScoreDisplay"
+              description: "Score agregado (0-12) com severidade VERMELHO/AMARELHO/NEUTRO"
+              data_source: "Calculado a partir dos critérios"
+              states: ["not-calculated", "normal (NEUTRO)", "warning (AMARELO)", "critical (VERMELHO)"]
+            - name: "StewardshipRecommendation"
+              description: "Recomendação clínica baseada no score e perfil de critérios"
+              data_source: "Derivado do score"
+              states: ["no-action", "review-recommended", "intervention-required"]
+      mock_data_schema:
+        typescript: |
+          interface AntimicrobialCriterion {
+            id: string;           // "crit-001"
+            name: string;         // "Duração > 7 dias"
+            category: "duracao" | "espectro" | "dose" | "cvc" | "candidemia" | "culturas" | "cap_covid";
+            description: string;  // Tooltip clínico
+            value: boolean;       // Critério atendido?
+          }
+          interface AntimicrobialAssessment {
+            patientMpiId: string;
+            criteria: AntimicrobialCriterion[];
+            score: number;              // 0-12
+            severity: "VERMELHO" | "AMARELO" | "NEUTRO";
+            recommendation: string;
+            assessedAt: string;
+            assessedBy: string;
+          }
+      design_tokens:
+        - name: "--clinical-antimicrobial-stewardship-optimal"
+          description: "NEUTRO — sem intervenção necessária"
+        - name: "--clinical-antimicrobial-stewardship-review"
+          description: "AMARELO — revisão recomendada em 48h"
+        - name: "--clinical-antimicrobial-stewardship-intervention"
+          description: "VERMELHO — intervenção imediata necessária"
+      wcag_requirements:
+        - "Formulário com labels explícitos e mensagens de erro por campo"
+        - "Score display com texto + cor + ícone (não depender só de cor)"
+        - "Navegação por teclado entre critérios (Tab/Shift+Tab)"
+        - "Recomendação em texto claro, não apenas cor"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 3. PROFILAXIA BUNDLES
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: "prophylaxis-bundles"
+    route: "/prophylaxis-bundles"
+    clinical_context: >
+      Bundles de profilaxia v1/v3 do legado. 8 regras extraídas cobrindo 5 bundles:
+      LAMGD (úlcera de estresse, 4 critérios), TEV (tromboembolismo venoso com
+      ajuste renal/IMC, 5 critérios), Hiperglicemia (insulina NPH/escala móvel,
+      3 critérios), Mobilização Precoce (3 critérios), Dispositivos Invasivos
+      (bundles de inserção, 5 critérios). Scoring VERMELHO/AMARELO/NEUTRO.
+    backend_status:
+      service: "NONE (a ser criado)"
+      api_endpoints: ["MOCK — contrato OpenAPI será provido por Niemeyer"]
+    design_requirements:
+      pages:
+        - route: "/prophylaxis-bundles"
+          layout: "tabbed bundles (um tab por bundle) com resumo agregado no topo"
+          components:
+            - name: "ProphylaxisSummaryBar"
+              description: "Barra de resumo: 5 bundles com indicadores COMPLETO/PARCIAL/PENDENTE"
+              data_source: "Agregado dos 5 bundles"
+              states: ["all-complete", "partial", "all-pending"]
+            - name: "BundleChecklist"
+              description: "Checklist interativo para um bundle específico com critérios e recomendações"
+              data_source: "MOCK — BundleData type"
+              states: ["empty", "partial", "complete", "not-applicable"]
+            - name: "BundleScoreBadge"
+              description: "Score do bundle individual com severidade"
+              data_source: "Calculado a partir dos critérios do bundle"
+              states: ["normal", "warning", "critical"]
+      bundles_detail:
+        - id: "lamgd"
+          name: "LAMGD — Úlcera de Estresse"
+          criteria_count: 4
+          criteria:
+            - "Ventilação mecânica > 48h"
+            - "Coagulopatia (INR > 1.5 ou Plq < 50k)"
+            - "Choque (vasopressor)"
+            - "Corticoterapia (hidrocortisona > 300mg/dia)"
+        - id: "tev"
+          name: "TEV — Tromboembolismo Venoso"
+          criteria_count: 5
+          criteria:
+            - "Heparina não fracionada ou HBPM prescrita"
+            - "Deambulação contraindicada (ajuste de dose)"
+            - "Ajuste para IMC > 40 (dose aumentada)"
+            - "Ajuste renal (ClCr < 30 — HNF em vez de HBPM)"
+            - "Compressão pneumática intermitente (se contraindicação)"
+        - id: "hiperglicemia"
+          name: "Hiperglicemia — Controle Glicêmico"
+          criteria_count: 3
+          criteria:
+            - "Protocolo de insulina NPH ou escala móvel ativo"
+            - "Meta glicêmica 140-180 mg/dL"
+            - "Monitorização glicêmica a cada 4-6h"
+        - id: "mobilizacao"
+          name: "Mobilização Precoce"
+          criteria_count: 3
+          criteria:
+            - "Avaliação de mobilidade documentada nas últimas 24h"
+            - "Sem contraindicação absoluta"
+            - "Meta de saída do leito atingida"
+        - id: "dispositivos"
+          name: "Dispositivos Invasivos"
+          criteria_count: 5
+          criteria:
+            - "CVC: inserção com barreira máxima"
+            - "CVC: curativo transparente (troca a cada 7 dias)"
+            - "CVC: revisão diária de necessidade"
+            - "SVD: sistema fechado, fixação, abaixo do nível da bexiga"
+            - "TOT: pressão do cuff 20-30 cmH2O, cabeceira 30-45°"
+      design_tokens:
+        - name: "--clinical-prophylaxis-complete"
+          description: "Bundle completamente atendido (todos os critérios)"
+        - name: "--clinical-prophylaxis-partial"
+          description: "Bundle parcialmente atendido (alguns critérios pendentes)"
+        - name: "--clinical-prophylaxis-pending"
+          description: "Bundle não iniciado ou sem dados"
+        - name: "--clinical-prophylaxis-na"
+          description: "Bundle não aplicável ao paciente"
+      wcag_requirements:
+        - "Checklists com checkboxes grandes (mín 44x44px touch target)"
+        - "Indicadores de status com cor + ícone + label textual"
+        - "Tabs navegáveis por teclado (setas esquerda/direita entre bundles)"
+        - "Estados de foco visíveis em todos os elementos interativos"
+
+# =============================================================================
+# COMPONENTES EXISTENTES (REUTILIZAR — NÃO RECRIAR)
+# =============================================================================
+existing_components:
+  - name: "AlertCard"
+    path: "components/AlertCard.tsx"
+    props: ["alert: AlertInfo", "onUpdate: () => void"]
+    stories: "components/AlertCard.stories.tsx"
+  - name: "SeverityBadge"
+    path: "components/SeverityBadge.tsx"
+    props: ["severity: string", "size?: 'sm' | 'md' | 'lg'"]
+    stories: "components/SeverityBadge.stories.tsx"
+  - name: "ClinicalTooltip"
+    path: "components/ClinicalTooltip.tsx"
+    props: ["content: string", "children: ReactNode"]
+  - name: "Layout"
+    path: "components/Layout.tsx"
+    props: ["children: ReactNode"]
+    stories: "components/Layout.stories.tsx"
+  - name: "DrawerBuilder"
+    path: "components/DrawerBuilder.tsx"
+    props: ["open: boolean", "onClose: () => void", "title: string", "children: ReactNode"]
+    stories: "components/DrawerBuilder.stories.tsx"
+  - name: "ErrorBoundary"
+    path: "components/ErrorBoundary.tsx"
+    props: ["children: ReactNode", "fallback?: ReactNode"]
+    stories: "components/ErrorBoundary.stories.tsx"
+
+# =============================================================================
+# API CLIENT (REUTILIZAR — NÃO USAR fetch() DIRETO)
+# =============================================================================
+api_client:
+  file: "lib/api.ts"
+  wrapper: "request<T>(url, options) → Promise<T>"
+  auth: "JWT via Bearer token, 401 → redirect /login"
+  error: "ApiError { status, detail }"
+  existing_functions:
+    - "fetchAlerts"
+    - "fetchDashboard"
+    - "fetchPatientDetail"
+    - "acknowledgeAlert"
+    - "resolveAlert"
+    - "escalateAlert"
+    - "fetchUsers/createUser/updateUser"
+    - "fetchThresholds/createThreshold/updateThreshold"
+    - "fetchHealth"
+  websocket: "lib/websocket.ts — useRealtimeChannel(eventType)"
