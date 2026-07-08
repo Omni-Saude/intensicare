@@ -29,6 +29,27 @@ from intensicare.schemas.deterioration import (
     DeteriorationHistoryResponse,
     DeteriorationScoreSchema,
 )
+from intensicare.schemas.documentacao import (
+    DocumentacaoCreate,
+    DocumentacaoListResponse,
+    DocumentacaoSchema,
+    GlosaStatusUpdate,
+)
+from intensicare.schemas.evolucoes import (
+    EvolucaoCreate,
+    EvolucaoListResponse,
+    EvolucaoSchema,
+    EvolucaoSectionSchema,
+    EvolucaoTemplateSchema,
+)
+from intensicare.schemas.movimentacao import (
+    AdmissionEpisodeSchema,
+    BedGridResponse,
+    BedSchema,
+    PatientMovementListResponse,
+    PatientMovementSchema,
+    RegisterMovementRequest,
+)
 from intensicare.schemas.patients import (
     FHIREnrichment,
     PatientStatusResponse,
@@ -44,6 +65,19 @@ from intensicare.schemas.pathways import (
     PatientPathwayListResponse,
     PatientPathwaySchema,
     UpdateCriteriaRequest,
+)
+from intensicare.schemas.sedacao import (
+    CAMICUFeaturesSchema,
+    SedationAssessmentListResponse,
+    SedationAssessmentSchema,
+)
+from intensicare.schemas.prescricao import (
+    InteracaoAlertaSchema,
+    PrescriptionCreate,
+    PrescriptionListResponse,
+    PrescriptionSchema,
+    PrescriptionStateTransition,
+    PrescriptionUpdate,
 )
 from intensicare.schemas.prophylaxis import (
     BundleCatalogResponse,
@@ -77,6 +111,7 @@ from intensicare.schemas.vitals import (
 )
 
 __all__ = [
+    "AdmissionEpisodeSchema",
     "AlertRoutingRuleCreate",
     "AlertRoutingRuleResponse",
     "AlertRoutingRulesListResponse",
@@ -85,8 +120,11 @@ __all__ = [
     "AntimicrobialAssessmentResponse",
     "AntimicrobialCriteriaCatalogResponse",
     "AntimicrobialCriterionSchema",
+    "BedGridResponse",
+    "BedSchema",
     "BundleCatalogResponse",
     "BundleCriterionSchema",
+    "CAMICUFeaturesSchema",
     "CANONICAL_SEVERITIES",
     "ClinicalFormResponse",
     "ClinicalFormSubmission",
@@ -95,19 +133,39 @@ __all__ = [
     "DeteriorationCriteriaSchema",
     "DeteriorationHistoryResponse",
     "DeteriorationScoreSchema",
+    "DocumentacaoCreate",
+    "DocumentacaoListResponse",
+    "DocumentacaoSchema",
     "EnrollPatientRequest",
+    "EvolucaoCreate",
+    "EvolucaoListResponse",
+    "EvolucaoSchema",
+    "EvolucaoSectionSchema",
+    "EvolucaoTemplateSchema",
     "FHIREnrichment",
+    "GlosaStatusUpdate",
+    "InteracaoAlertaSchema",
     "PatientBedSummary",
     "PatientDetailResponse",
+    "PatientMovementListResponse",
+    "PatientMovementSchema",
     "PatientPathwayListResponse",
     "PatientPathwaySchema",
     "PatientStatusResponse",
     "PathwayListResponse",
     "PathwayProgressSchema",
     "PathwaySchema",
+    "PrescriptionCreate",
+    "PrescriptionListResponse",
+    "PrescriptionSchema",
+    "PrescriptionStateTransition",
+    "PrescriptionUpdate",
     "ProphylaxisBundleResponse",
     "ProphylaxisBundlesListResponse",
     "ProphylaxisBundleUpdateRequest",
+    "RegisterMovementRequest",
+    "SedationAssessmentListResponse",
+    "SedationAssessmentSchema",
     "ScoreHistoryPoint",
     "ScoreSummary",
     "SeverityLevel",

@@ -11,10 +11,16 @@ from .antimicrobial import router as antimicrobial_router
 from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .deterioration import router as deterioration_router
+from .documentacao import router as documentacao_router
 from .events import router as events_router
+from .evolucoes import router as evolucoes_router
+from .formularios import router as formularios_router
 from .health import router as health_router
+from .movimentacao import router as movimentacao_router
 from .pathways import router as pathways_router
+from .prescricao import router as prescricao_router
 from .prophylaxis import router as prophylaxis_router
+from .sedacao import router as sedacao_router
 from .stability import router as stability_router
 from .ventilation import router as ventilation_router
 from .ws import router as ws_router
@@ -27,11 +33,17 @@ __all__ = [
     "auth_router",
     "dashboard_router",
     "deterioration_router",
+    "documentacao_router",
     "events_router",
+    "evolucoes_router",
+    "formularios_router",
     "health_router",
+    "movimentacao_router",
     "patients_router",
     "pathways_router",
+    "prescricao_router",
     "prophylaxis_router",
+    "sedacao_router",
     "stability_router",
     "ventilation_router",
     "vitals_router",
