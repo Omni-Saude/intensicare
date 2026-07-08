@@ -87,7 +87,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div style={{ borderColor: 'var(--semantic-border-default)' }} className="flex items-center gap-2 bg-white rounded-lg border px-3 py-2">
+          <div style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }} className="flex items-center gap-2 rounded-lg border px-3 py-2">
             <Activity className="w-4 h-4" style={{ color: 'var(--semantic-text-secondary)' }} aria-hidden="true" />
             <select
               value={selectedUnit || ''}
@@ -104,8 +104,8 @@ export default function DashboardPage() {
           <button
             onClick={loadDashboard}
             disabled={loading}
-            style={{ borderColor: 'var(--semantic-border-default)' }}
-            className="p-2 rounded-lg border bg-white hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            className="p-2 rounded-lg border hover:opacity-80 disabled:opacity-50 transition-colors"
+            style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }}
             title="Refresh"
           >
             <RefreshCw style={{ color: 'var(--semantic-text-secondary)' }} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -116,19 +116,19 @@ export default function DashboardPage() {
       {/* Stats cards */}
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
+          <div style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }} className="rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
               <Users className="w-4 h-4" aria-hidden="true" /> Pacientes
             </div>
             <div style={{ color: 'var(--semantic-text-primary)' }} className="text-2xl font-bold">{data.total}</div>
           </div>
-          <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
+          <div style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }} className="rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
               <Bell className="w-4 h-4" aria-hidden="true" /> Alertas Ativos
             </div>
             <div style={{ color: 'var(--clinical-severity-critical-on-surface)' }} className="text-2xl font-bold">{data.active_alerts_total}</div>
           </div>
-          <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
+          <div style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }} className="rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
               <Activity className="w-4 h-4" aria-hidden="true" /> Críticos
             </div>
@@ -136,7 +136,7 @@ export default function DashboardPage() {
               {data.patients.filter((p) => p.highest_alert_severity === 'critical').length}
             </div>
           </div>
-          <div style={{ borderColor: 'var(--semantic-border-default)' }} className="bg-white rounded-xl border p-4 shadow-sm">
+          <div style={{ borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }} className="rounded-xl border p-4 shadow-sm">
             <div style={{ color: 'var(--semantic-text-secondary)' }} className="flex items-center gap-2 text-xs uppercase font-semibold mb-2">
               <TrendingUp className="w-4 h-4" aria-hidden="true" /> MEWS ≥ 5
             </div>
@@ -211,8 +211,8 @@ export default function DashboardPage() {
               key={patient.mpi_id}
               onClick={() => router.push(`/patient/${patient.mpi_id}`)}
               aria-label={`Patient ${patient.display_name}${patient.bed_id ? `, Bed ${patient.bed_id}` : ''}${patient.unit ? `, ${patient.unit}` : ''}`}
-              style={getSeverityStyle(patient.highest_alert_severity)}
-              className={`text-left rounded-xl border-2 p-4 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              style={getSeverityStyle(patient.highest_alert_severity, 'left-accent')}
+              className={`text-left rounded-xl border border-l-4 p-4 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-500`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-3">
@@ -263,6 +263,46 @@ export default function DashboardPage() {
                   trend={patient.news2_trend}
                 />
               </div>
+
+              {/* Latest Vitals */}
+              {patient.latest_vitals && (
+                <div className="mt-3 pt-2 border-t" style={{ borderColor: 'var(--semantic-border-default)' }}>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {patient.latest_vitals.heart_rate != null && (
+                      <span style={{ color: 'var(--semantic-text-secondary)' }}>
+                        <span className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>{patient.latest_vitals.heart_rate}</span> bpm
+                      </span>
+                    )}
+                    {patient.latest_vitals.spo2 != null && (
+                      <span style={{ color: 'var(--semantic-text-secondary)' }}>
+                        <span className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>{patient.latest_vitals.spo2}%</span> SpO₂
+                      </span>
+                    )}
+                    {(patient.latest_vitals.systolic_bp != null || patient.latest_vitals.diastolic_bp != null) && (
+                      <span style={{ color: 'var(--semantic-text-secondary)' }}>
+                        <span className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>
+                          {patient.latest_vitals.systolic_bp ?? '—'}/{patient.latest_vitals.diastolic_bp ?? '—'}
+                        </span> mmHg
+                      </span>
+                    )}
+                    {patient.latest_vitals.respiratory_rate != null && (
+                      <span style={{ color: 'var(--semantic-text-secondary)' }}>
+                        <span className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>{patient.latest_vitals.respiratory_rate}</span> RR
+                      </span>
+                    )}
+                    {patient.latest_vitals.temperature != null && (
+                      <span style={{ color: 'var(--semantic-text-secondary)' }}>
+                        <span className="font-medium" style={{ color: 'var(--semantic-text-primary)' }}>{patient.latest_vitals.temperature.toFixed(1)}°</span> Temp
+                      </span>
+                    )}
+                  </div>
+                  {patient.latest_vitals.recorded_at && (
+                    <div style={{ color: 'var(--semantic-text-secondary)' }} className="text-[10px] mt-1">
+                      {new Date(patient.latest_vitals.recorded_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Last updated */}
               {patient.last_updated && (

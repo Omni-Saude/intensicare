@@ -113,6 +113,16 @@ export async function logoutApi(): Promise<void> {
 
 // --- Dashboard API ---
 
+export interface LatestVitals {
+  heart_rate: number | null;
+  systolic_bp: number | null;
+  diastolic_bp: number | null;
+  spo2: number | null;
+  respiratory_rate: number | null;
+  temperature: number | null;
+  recorded_at: string | null;
+}
+
 export interface PatientBedSummary {
   mpi_id: string;
   bed_id: string | null;
@@ -125,6 +135,7 @@ export interface PatientBedSummary {
   news2_trend: string | null;
   active_alerts_count: number;
   highest_alert_severity: string | null;
+  latest_vitals: LatestVitals | null;
   last_updated: string | null;
 }
 

@@ -14,22 +14,22 @@ export function getSeverityStyle(
 
   if (severity === null || severity === undefined) {
     return isLeftAccent
-      ? { borderLeftColor: 'var(--clinical-severity-normal-signal)', backgroundColor: 'white' }
-      : { borderColor: 'var(--semantic-border-default)', backgroundColor: 'white' };
+      ? { borderLeftColor: 'var(--clinical-severity-normal-signal)', borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }
+      : { borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' };
   }
 
   switch (severity) {
     case 'critical':
       return isLeftAccent
-        ? { borderLeftColor: 'var(--clinical-severity-critical-signal)', backgroundColor: 'var(--clinical-severity-critical-wash)' }
+        ? { borderLeftColor: 'var(--clinical-severity-critical-signal)', borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--clinical-severity-critical-wash)' }
         : { borderColor: 'var(--clinical-severity-critical-signal)', backgroundColor: 'var(--clinical-severity-critical-wash)' };
     case 'warning':
       return isLeftAccent
-        ? { borderLeftColor: 'var(--clinical-severity-watch-signal)', backgroundColor: 'var(--clinical-severity-watch-wash)' }
+        ? { borderLeftColor: 'var(--clinical-severity-watch-signal)', borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--clinical-severity-watch-wash)' }
         : { borderColor: 'var(--clinical-severity-watch-signal)', backgroundColor: 'var(--clinical-severity-watch-wash)' };
     default:
       return isLeftAccent
-        ? { borderLeftColor: 'var(--clinical-severity-normal-signal)', backgroundColor: 'white' }
+        ? { borderLeftColor: 'var(--clinical-severity-normal-signal)', borderColor: 'var(--semantic-border-default)', backgroundColor: 'var(--semantic-surface-raised)' }
         : { borderColor: 'var(--clinical-severity-urgent-signal)', backgroundColor: 'var(--clinical-severity-urgent-wash)' };
   }
 }

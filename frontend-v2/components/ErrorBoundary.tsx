@@ -64,9 +64,9 @@ export default class ErrorBoundary extends React.Component<
               aria-hidden="true"
             />
             <div className="min-w-0">
-              <h2 className="font-semibold text-lg">Something went wrong</h2>
+              <h2 className="font-semibold text-lg">Algo deu errado</h2>
               <p className="text-sm mt-1 opacity-90">
-                {this.state.error?.message || 'An unexpected error occurred while rendering this section.'}
+                {this.state.error?.message || 'Ocorreu um erro inesperado ao renderizar esta seção.'}
               </p>
               <button
                 onClick={this.handleRetry}
@@ -79,7 +79,7 @@ export default class ErrorBoundary extends React.Component<
                 }}
               >
                 <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                Retry
+                Tentar novamente
               </button>
             </div>
           </div>

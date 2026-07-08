@@ -13,6 +13,13 @@ import {
   Menu,
   X,
   HelpCircle,
+  Heart,
+  Pill,
+  ClipboardCheck,
+  Scale,
+  Droplets,
+  MessageSquare,
+  Building2,
 } from 'lucide-react';
 import { logout, getUser, isAdmin } from '@/lib/auth';
 import { useState } from 'react';
@@ -53,12 +60,20 @@ export default function Layout({ children }: LayoutProps) {
     { href: '/dashboard', label: 'Painel', icon: LayoutDashboard },
     { href: '/command-center', label: 'Central de Comando', icon: Activity },
     { href: '/alert-triage', label: 'Triagem de Alertas', icon: Bell },
+    { href: '/sepse-dashboard', label: 'Sepse', icon: Heart },
+    { href: '/antimicrobial-stewardship', label: 'Antimicrobiano', icon: Pill },
+    { href: '/prophylaxis-bundles', label: 'Profilaxia', icon: ClipboardCheck },
+    { href: '/nutrition', label: 'Nutrição', icon: Scale },
+    { href: '/fluid-balance', label: 'Balanço Hídrico', icon: Droplets },
+    { href: '/communication', label: 'Comunicação', icon: MessageSquare },
   ];
 
   const adminItems = [
     { href: '/admin', label: 'Administração', icon: Shield },
     { href: '/admin/users', label: 'Usuários', icon: UserCog },
     { href: '/admin/thresholds', label: 'Limiares', icon: Sliders },
+    { href: '/admin/tenancy', label: 'Organizações', icon: Building2 },
+    { href: '/admin/audit-log', label: 'Auditoria', icon: Shield },
   ];
 
   const isActive = (href: string) => {
