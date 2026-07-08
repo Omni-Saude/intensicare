@@ -505,20 +505,6 @@ async def assess_sedation(
 # ---------------------------------------------------------------------------
 
 
-def get_current_sedation_sync(mpi_id: str) -> SedationRecord | None:
-    """Synchronous stub — returns None.
-
-    Use the async version with a database session for real data.
-
-    >>> get_current_sedation_sync("test")
-    """
-    logger.warning(
-        "get_current_sedation_sync called without DB session — returning None. "
-        "Use the async get_current_sedation(db, mpi_id) instead."
-    )
-    return None
-
-
 def assess_sedation_sync(
     mpi_id: str,
     rass_score: int | None = None,
