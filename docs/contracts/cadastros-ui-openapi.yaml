@@ -1,0 +1,732 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Registry/Admin UI API
+  description: |
+    API de cadastros administrativos — organizações (empresas),
+    estabelecimentos e setores. Backend do módulo de administração
+    e registro institucional da plataforma IntensiCare.
+  version: "1.0.0"
+  contact:
+    name: IntensiCare Engineering
+    email: eng@intensicare.example.com
+
+servers:
+  - url: https://api.intensicare.example.com
+    description: Produção
+  - url: https://api.staging.intensicare.example.com
+    description: Homologação
+
+paths:
+  # ── Empresas ──────────────────────────────────────────────────────────────
+  /api/v1/registry/empresas:
+    get:
+      summary: Listar empresas
+      description: |
+        Retorna a lista de organizações (empresas) cadastradas.
+        Suporta paginação e filtro por termo de busca.
+      operationId: listEmpresas
+      tags:
+        - Empresas
+      parameters:
+        - name: search
+          in: query
+          required: false
+          description: Termo de busca (nome fantasia, razão social ou CNPJ)
+          schema:
+            type: string
+            example: "IntensiCare"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de empresas retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Empresa"
+                  total:
+                    type: integer
+                    example: 15
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Criar empresa
+      description: Cria uma nova organização (empresa) no registro institucional.
+      operationId: createEmpresa
+      tags:
+        - Empresas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmpresaCreate"
+      responses:
+        "201":
+          description: Empresa criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Empresa"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: CNPJ já cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Estabelecimentos ─────────────────────────────────────────────────────
+  /api/v1/registry/estabelecimentos:
+    get:
+      summary: Listar estabelecimentos
+      description: |
+        Retorna a lista de estabelecimentos (hospitais, clínicas)
+        cadastrados. Suporta paginação, busca textual e filtro por empresa.
+      operationId: listEstabelecimentos
+      tags:
+        - Estabelecimentos
+      parameters:
+        - name: search
+          in: query
+          required: false
+          description: Termo de busca (nome ou CNES)
+          schema:
+            type: string
+            example: "Hospital Santa"
+        - name: empresa_id
+          in: query
+          required: false
+          description: Filtra por empresa proprietária
+          schema:
+            type: string
+            format: uuid
+            example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de estabelecimentos retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Estabelecimento"
+                  total:
+                    type: integer
+                    example: 8
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Criar estabelecimento
+      description: |
+        Cria um novo estabelecimento de saúde vinculado a uma empresa.
+      operationId: createEstabelecimento
+      tags:
+        - Estabelecimentos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EstabelecimentoCreate"
+      responses:
+        "201":
+          description: Estabelecimento criado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Estabelecimento"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Empresa referenciada não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: CNES já cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Setores ──────────────────────────────────────────────────────────────
+  /api/v1/registry/setores:
+    get:
+      summary: Listar setores
+      description: |
+        Retorna a lista de setores (unidades assistenciais) cadastrados.
+        Suporta paginação, busca textual e filtro por estabelecimento.
+      operationId: listSetores
+      tags:
+        - Setores
+      parameters:
+        - name: search
+          in: query
+          required: false
+          description: Termo de busca (nome do setor)
+          schema:
+            type: string
+            example: "UTI"
+        - name: estabelecimento_id
+          in: query
+          required: false
+          description: Filtra por estabelecimento
+          schema:
+            type: string
+            format: uuid
+            example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de setores retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Setor"
+                  total:
+                    type: integer
+                    example: 32
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Criar setor
+      description: |
+        Cria um novo setor/unidade assistencial vinculado a um
+        estabelecimento.
+      operationId: createSetor
+      tags:
+        - Setores
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetorCreate"
+      responses:
+        "201":
+          description: Setor criado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Setor"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Estabelecimento referenciado não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    # ── Empresa ───────────────────────────────────────────────────────────
+    Empresa:
+      type: object
+      required:
+        - id
+        - razao_social
+        - nome_fantasia
+        - cnpj
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único da empresa
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        razao_social:
+          type: string
+          description: Razão social oficial
+          maxLength: 200
+          example: "IntensiCare Tecnologia em Saúde Ltda."
+        nome_fantasia:
+          type: string
+          description: Nome fantasia da organização
+          maxLength: 150
+          example: "IntensiCare"
+        cnpj:
+          type: string
+          description: CNPJ (apenas dígitos)
+          pattern: "^\\d{14}$"
+          minLength: 14
+          maxLength: 14
+          example: "12345678000199"
+        ativo:
+          type: boolean
+          description: Indica se a empresa está ativa no sistema
+          default: true
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Data de criação do registro
+          example: "2026-01-15T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          nullable: true
+          example: "2026-06-20T08:30:00Z"
+
+    EmpresaCreate:
+      type: object
+      required:
+        - razao_social
+        - nome_fantasia
+        - cnpj
+      properties:
+        razao_social:
+          type: string
+          description: Razão social oficial
+          maxLength: 200
+          example: "IntensiCare Tecnologia em Saúde Ltda."
+        nome_fantasia:
+          type: string
+          description: Nome fantasia da organização
+          maxLength: 150
+          example: "IntensiCare"
+        cnpj:
+          type: string
+          description: CNPJ (apenas dígitos)
+          pattern: "^\\d{14}$"
+          minLength: 14
+          maxLength: 14
+          example: "12345678000199"
+
+    # ── Estabelecimento ───────────────────────────────────────────────────
+    Estabelecimento:
+      type: object
+      required:
+        - id
+        - empresa_id
+        - nome
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único do estabelecimento
+          example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        empresa_id:
+          type: string
+          format: uuid
+          description: Identificador da empresa proprietária
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        nome:
+          type: string
+          description: Nome do estabelecimento
+          maxLength: 200
+          example: "Hospital São Lucas"
+        cnes:
+          type: string
+          description: Número do CNES (Cadastro Nacional de Estabelecimentos de Saúde)
+          pattern: "^\\d{7}$"
+          minLength: 7
+          maxLength: 7
+          nullable: true
+          example: "1234567"
+        logradouro:
+          type: string
+          description: Endereço — logradouro
+          maxLength: 200
+          nullable: true
+          example: "Rua da Saúde"
+        numero:
+          type: string
+          description: Endereço — número
+          maxLength: 20
+          nullable: true
+          example: "1000"
+        complemento:
+          type: string
+          description: Endereço — complemento
+          maxLength: 100
+          nullable: true
+          example: "Bloco A, 5º andar"
+        bairro:
+          type: string
+          description: Endereço — bairro
+          maxLength: 100
+          nullable: true
+          example: "Centro"
+        cidade:
+          type: string
+          description: Endereço — cidade
+          maxLength: 100
+          nullable: true
+          example: "São Paulo"
+        uf:
+          type: string
+          description: Endereço — UF
+          minLength: 2
+          maxLength: 2
+          pattern: "^[A-Z]{2}$"
+          nullable: true
+          example: "SP"
+        cep:
+          type: string
+          description: CEP (apenas dígitos)
+          pattern: "^\\d{8}$"
+          minLength: 8
+          maxLength: 8
+          nullable: true
+          example: "01001000"
+        ativo:
+          type: boolean
+          description: Indica se o estabelecimento está ativo
+          default: true
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Data de criação do registro
+          example: "2026-02-01T09:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          nullable: true
+          example: "2026-06-22T11:00:00Z"
+
+    EstabelecimentoCreate:
+      type: object
+      required:
+        - empresa_id
+        - nome
+      properties:
+        empresa_id:
+          type: string
+          format: uuid
+          description: Identificador da empresa proprietária
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        nome:
+          type: string
+          description: Nome do estabelecimento
+          maxLength: 200
+          example: "Hospital São Lucas"
+        cnes:
+          type: string
+          description: Número do CNES (apenas dígitos, 7 caracteres)
+          pattern: "^\\d{7}$"
+          minLength: 7
+          maxLength: 7
+          example: "1234567"
+        logradouro:
+          type: string
+          description: Endereço — logradouro
+          maxLength: 200
+          example: "Rua da Saúde"
+        numero:
+          type: string
+          description: Endereço — número
+          maxLength: 20
+          example: "1000"
+        complemento:
+          type: string
+          description: Endereço — complemento
+          maxLength: 100
+          example: "Bloco A, 5º andar"
+        bairro:
+          type: string
+          description: Endereço — bairro
+          maxLength: 100
+          example: "Centro"
+        cidade:
+          type: string
+          description: Endereço — cidade
+          maxLength: 100
+          example: "São Paulo"
+        uf:
+          type: string
+          description: Endereço — UF (sigla de 2 letras)
+          minLength: 2
+          maxLength: 2
+          pattern: "^[A-Z]{2}$"
+          example: "SP"
+        cep:
+          type: string
+          description: CEP (apenas dígitos, 8 caracteres)
+          pattern: "^\\d{8}$"
+          minLength: 8
+          maxLength: 8
+          example: "01001000"
+
+    # ── Setor ─────────────────────────────────────────────────────────────
+    Setor:
+      type: object
+      required:
+        - id
+        - estabelecimento_id
+        - nome
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único do setor
+          example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+        estabelecimento_id:
+          type: string
+          format: uuid
+          description: Identificador do estabelecimento ao qual pertence
+          example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        nome:
+          type: string
+          description: Nome do setor/unidade
+          maxLength: 150
+          example: "UTI Adulto"
+        sigla:
+          type: string
+          description: Sigla ou abreviação do setor
+          maxLength: 20
+          nullable: true
+          example: "UTI-A"
+        tipo:
+          type: string
+          description: Tipo de unidade assistencial
+          enum:
+            - uti
+            - semi_intensiva
+            - enfermaria
+            - pronto_socorro
+            - centro_cirurgico
+            - ambulatorio
+            - diagnostico
+            - outro
+          example: "uti"
+        leitos_operacionais:
+          type: integer
+          description: Número de leitos operacionais
+          minimum: 0
+          nullable: true
+          example: 10
+        ativo:
+          type: boolean
+          description: Indica se o setor está ativo
+          default: true
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Data de criação do registro
+          example: "2026-03-10T14:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          nullable: true
+          example: "2026-06-25T16:45:00Z"
+
+    SetorCreate:
+      type: object
+      required:
+        - estabelecimento_id
+        - nome
+      properties:
+        estabelecimento_id:
+          type: string
+          format: uuid
+          description: Identificador do estabelecimento ao qual pertence
+          example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        nome:
+          type: string
+          description: Nome do setor/unidade
+          maxLength: 150
+          example: "UTI Adulto"
+        sigla:
+          type: string
+          description: Sigla ou abreviação do setor
+          maxLength: 20
+          example: "UTI-A"
+        tipo:
+          type: string
+          description: Tipo de unidade assistencial
+          enum:
+            - uti
+            - semi_intensiva
+            - enfermaria
+            - pronto_socorro
+            - centro_cirurgico
+            - ambulatorio
+            - diagnostico
+            - outro
+          example: "uti"
+        leitos_operacionais:
+          type: integer
+          description: Número de leitos operacionais
+          minimum: 0
+          example: 10
+
+    # ── Shared ────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Código de erro da aplicação
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              description: Mensagem descritiva do erro
+              example: "Os dados fornecidos são inválidos."
+            details:
+              type: array
+              description: "Detalhes adicionais (ex: erros de validação)"
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  reason:
+                    type: string
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticação via JWT Bearer token. O token deve ser obtido
+        através do endpoint de autenticação e incluído no cabeçalho
+        Authorization de todas as requisições.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Empresas
+    description: Cadastro e consulta de organizações (empresas)
+  - name: Estabelecimentos
+    description: Cadastro e consulta de estabelecimentos de saúde
+  - name: Setores
+    description: Cadastro e consulta de setores e unidades assistenciais

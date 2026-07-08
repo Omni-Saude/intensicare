@@ -1,0 +1,394 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Clinical Forms API
+  description: |
+    API de formulários clínicos estruturados — RASS, CAM-ICU, BPS/NRS,
+    Glasgow e SOFA. Permite listar tipos de formulários disponíveis,
+    consultar formulários submetidos por paciente e registrar novas
+    avaliações clínicas.
+  version: "1.0.0"
+  contact:
+    name: IntensiCare Engineering
+    email: eng@intensicare.example.com
+
+servers:
+  - url: https://api.intensicare.example.com
+    description: Produção
+  - url: https://api.staging.intensicare.example.com
+    description: Homologação
+
+paths:
+  # ── Listar tipos de formulários disponíveis ──────────────────────────────
+  /api/v1/clinical-forms:
+    get:
+      summary: Listar tipos de formulários clínicos
+      description: |
+        Retorna a lista de tipos de formulários clínicos disponíveis
+        no sistema, com metadados descritivos de cada um.
+      operationId: listClinicalFormTypes
+      tags:
+        - Formulários Clínicos
+      responses:
+        "200":
+          description: Lista de tipos de formulários retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClinicalFormType"
+                  total:
+                    type: integer
+                    description: Total de tipos disponíveis
+                    example: 5
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Formulários do paciente ──────────────────────────────────────────────
+  /api/v1/patients/{mpi_id}/clinical-forms:
+    get:
+      summary: Listar formulários submetidos do paciente
+      description: |
+        Retorna os formulários clínicos submetidos para um paciente,
+        ordenados por data de criação decrescente. Suporta paginação
+        e filtro por tipo de formulário.
+      operationId: listPatientClinicalForms
+      tags:
+        - Formulários Clínicos
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI (Master Patient Index) do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: form_type
+          in: query
+          required: false
+          description: Filtra por tipo de formulário clínico
+          schema:
+            type: string
+            enum:
+              - rass
+              - cam_icu
+              - bps_nrs
+              - glasgow
+              - sofa
+            example: "rass"
+        - name: limit
+          in: query
+          required: false
+          description: Número máximo de registros a retornar
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Deslocamento para paginação
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de formulários retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClinicalForm"
+                  total:
+                    type: integer
+                    description: Total de registros disponíveis
+                    example: 49
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Submeter formulário clínico
+      description: |
+        Registra um novo formulário clínico preenchido para o paciente.
+        O campo `data` contém os dados específicos do formulário,
+        e o campo `score` o escore calculado quando aplicável.
+      operationId: submitClinicalForm
+      tags:
+        - Formulários Clínicos
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClinicalFormCreate"
+      responses:
+        "201":
+          description: Formulário clínico submetido com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClinicalForm"
+        "400":
+          description: Dados inválidos ou formulário mal preenchido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    # ── ClinicalFormType ────────────────────────────────────────────────────
+    ClinicalFormType:
+      type: object
+      required:
+        - id
+        - name
+        - description
+      properties:
+        id:
+          type: string
+          description: Identificador do tipo de formulário
+          enum:
+            - rass
+            - cam_icu
+            - bps_nrs
+            - glasgow
+            - sofa
+          example: "rass"
+        name:
+          type: string
+          description: Nome descritivo do formulário
+          example: "Richmond Agitation-Sedation Scale (RASS)"
+        description:
+          type: string
+          description: Descrição do formulário e sua finalidade clínica
+          example: |
+            Escala de agitação e sedação de Richmond. Avalia o nível
+            de sedação e agitação do paciente em UTI. Varia de -5
+            (incapaz de despertar) a +4 (combativo).
+        score_range:
+          type: object
+          description: Faixa de valores possíveis para o escore
+          properties:
+            min:
+              type: number
+              description: Valor mínimo possível
+              example: -5
+            max:
+              type: number
+              description: Valor máximo possível
+              example: 4
+        fields:
+          type: array
+          description: Campos que compõem o formulário
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Nome do campo
+                example: "nivel_consciencia"
+              label:
+                type: string
+                description: Rótulo do campo para exibição
+                example: "Nível de Consciência"
+              type:
+                type: string
+                description: Tipo do campo (text, number, select, boolean)
+                enum:
+                  - text
+                  - number
+                  - select
+                  - boolean
+                example: "select"
+              required:
+                type: boolean
+                description: Se o campo é obrigatório
+                example: true
+
+    # ── ClinicalForm ────────────────────────────────────────────────────────
+    ClinicalForm:
+      type: object
+      required:
+        - id
+        - mpi_id
+        - form_type
+        - data
+        - score
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único do formulário submetido
+          example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+        mpi_id:
+          type: string
+          format: uuid
+          description: Identificador MPI do paciente
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        form_type:
+          type: string
+          description: |
+            Tipo de formulário clínico:
+            - rass: Richmond Agitation-Sedation Scale
+            - cam_icu: Confusion Assessment Method for ICU
+            - bps_nrs: Behavioral Pain Scale / Numeric Rating Scale
+            - glasgow: Glasgow Coma Scale
+            - sofa: Sequential Organ Failure Assessment
+          enum:
+            - rass
+            - cam_icu
+            - bps_nrs
+            - glasgow
+            - sofa
+          example: "rass"
+        data:
+          type: object
+          description: |
+            Dados específicos do formulário preenchido. A estrutura
+            varia conforme o form_type. Deve conter os campos definidos
+            no ClinicalFormType correspondente.
+          example:
+            nivel_consciencia: "sedacao_leve"
+            resposta_verbal: "sons_incompreensiveis"
+            resposta_motora: "localiza_dor"
+            abertura_ocular: "ao_comando_verbal"
+        score:
+          type: number
+          description: |
+            Escore calculado do formulário. O significado e a faixa
+            de valores dependem do form_type. Pode ser null quando
+            o formulário não produz um escore numérico.
+          nullable: true
+          example: -2
+        created_at:
+          type: string
+          format: date-time
+          description: Data e hora de submissão do formulário (ISO 8601)
+          example: "2026-07-07T09:15:00Z"
+        created_by:
+          type: string
+          description: Profissional que preencheu o formulário
+          nullable: true
+          example: "Enf. Maria Fernanda Souza"
+        notes:
+          type: string
+          description: Observações adicionais do avaliador
+          nullable: true
+          maxLength: 2000
+          example: "Paciente colaborativo. Avaliação realizada durante visita matinal."
+
+    ClinicalFormCreate:
+      type: object
+      required:
+        - form_type
+        - data
+        - score
+      properties:
+        form_type:
+          type: string
+          description: |
+            Tipo de formulário clínico a ser submetido.
+          enum:
+            - rass
+            - cam_icu
+            - bps_nrs
+            - glasgow
+            - sofa
+          example: "rass"
+        data:
+          type: object
+          description: |
+            Dados específicos do formulário preenchido. A estrutura
+            deve corresponder ao form_type selecionado.
+          example:
+            nivel_consciencia: "sedacao_leve"
+            resposta_verbal: "sons_incompreensiveis"
+            resposta_motora: "localiza_dor"
+            abertura_ocular: "ao_comando_verbal"
+        score:
+          type: number
+          description: |
+            Escore calculado do formulário. Null se o formulário
+            não produzir um escore numérico.
+          nullable: true
+          example: -2
+        notes:
+          type: string
+          description: Observações adicionais do avaliador
+          maxLength: 2000
+          example: "Paciente colaborativo. Avaliação realizada durante visita matinal."
+
+    # ── Shared ──────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Mensagem descritiva do erro
+          example: "Paciente com MPI ID informado não foi encontrado."
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticação via JWT Bearer token. O token deve ser obtido
+        através do endpoint de autenticação e incluído no cabeçalho
+        Authorization de todas as requisições.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Formulários Clínicos
+    description: Formulários clínicos estruturados — RASS, CAM-ICU, BPS/NRS, Glasgow e SOFA

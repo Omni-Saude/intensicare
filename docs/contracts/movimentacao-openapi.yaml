@@ -1,0 +1,265 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Patient Movement API"
+  version: "1.0.0"
+  description: >
+    Gestão de movimentação de pacientes (admissão, transferência, alta)
+    e grade de leitos da UTI.
+    Backend: domain_movimentacao.py (a ser criado por parreira).
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /patients/{mpi_id}/movements:
+    get:
+      operationId: listPatientMovements
+      summary: "Histórico de movimentação do paciente"
+      description: >
+        Retorna o histórico completo de admissões, transferências e altas
+        do paciente, ordenado por timestamp decrescente.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [admission, transfer, discharge]
+          description: "Filtrar por tipo de movimentação"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: "Histórico de movimentações"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movements:
+                    type: array
+                    items: { $ref: "#/components/schemas/PatientMovement" }
+                  total: { type: integer }
+    post:
+      operationId: registerPatientMovement
+      summary: "Registrar movimentação do paciente"
+      description: >
+        Registra uma nova movimentação (admissão, transferência ou alta).
+        Para alta (discharge), o leito de origem é liberado automaticamente.
+        Para admissão (admission), o leito de destino é ocupado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mpi_id, type, timestamp]
+              properties:
+                mpi_id: { type: string }
+                type:
+                  type: string
+                  enum: [admission, transfer, discharge]
+                from_unit: { type: string, description: "Unidade de origem (transfer/discharge)" }
+                to_unit: { type: string, description: "Unidade de destino (admission/transfer)" }
+                from_bed: { type: string, description: "Leito de origem (transfer/discharge)" }
+                to_bed: { type: string, description: "Leito de destino (admission/transfer)" }
+                timestamp: { type: string, format: date-time }
+                notes: { type: string }
+      responses:
+        "201":
+          description: "Movimentação registrada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientMovement"
+        "409":
+          description: "Conflito (leito ocupado, paciente já admitido sem alta, etc.)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail: { type: string }
+
+  /beds:
+    get:
+      operationId: getBedGrid
+      summary: "Grade de leitos com status"
+      description: >
+        Retorna a grade completa de leitos da UTI com status atual
+        (livre, ocupado, bloqueado, em limpeza).
+      parameters:
+        - name: unit
+          in: query
+          schema: { type: string }
+          description: "Filtrar por unidade"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [free, occupied, blocked, cleaning]
+          description: "Filtrar por status do leito"
+      responses:
+        "200":
+          description: "Grade de leitos"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  beds:
+                    type: array
+                    items: { $ref: "#/components/schemas/BedStatus" }
+                  summary:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      free: { type: integer }
+                      occupied: { type: integer }
+                      blocked: { type: integer }
+                      cleaning: { type: integer }
+
+  /beds/{bed_id}:
+    put:
+      operationId: updateBedStatus
+      summary: "Atualizar status do leito"
+      description: >
+        Permite alterar manualmente o status de um leito
+        (ex: bloqueio para manutenção, liberação após limpeza).
+      parameters:
+        - name: bed_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [free, occupied, blocked, cleaning]
+                notes: { type: string }
+      responses:
+        "200":
+          description: "Status atualizado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BedStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  schemas:
+    PatientMovement:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: "Identificador único da movimentação"
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        type:
+          type: string
+          enum: [admission, transfer, discharge]
+          description: "Tipo da movimentação"
+        from_unit:
+          type: string
+          nullable: true
+          description: "Unidade de origem (null na admissão)"
+          example: "UTI-1"
+        to_unit:
+          type: string
+          nullable: true
+          description: "Unidade de destino (null na alta)"
+          example: "UTI-2"
+        from_bed:
+          type: string
+          nullable: true
+          description: "Leito de origem (null na admissão)"
+          example: "L-101"
+        to_bed:
+          type: string
+          nullable: true
+          description: "Leito de destino (null na alta)"
+          example: "L-205"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Data/hora da movimentação"
+        notes:
+          type: string
+          nullable: true
+          description: "Observações clínicas"
+        registered_by:
+          type: string
+          description: "Profissional que registrou a movimentação"
+        created_at:
+          type: string
+          format: date-time
+          description: "Data/hora do registro no sistema"
+
+    BedStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "L-101"
+        unit:
+          type: string
+          description: "Unidade à qual o leito pertence"
+          example: "UTI-1"
+        room:
+          type: string
+          nullable: true
+          description: "Quarto/enfermaria"
+          example: "Box 1"
+        status:
+          type: string
+          enum: [free, occupied, blocked, cleaning]
+          description: "Status atual do leito"
+        current_patient_mpi_id:
+          type: string
+          nullable: true
+          description: "MPI ID do paciente ocupante (null se livre)"
+        current_patient_name:
+          type: string
+          nullable: true
+          description: "Nome do paciente ocupante"
+        occupied_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Desde quando está ocupado"
+        last_cleaned_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Data/hora da última limpeza"
+        notes:
+          type: string
+          nullable: true
+          description: "Observações (ex: motivo do bloqueio)"
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

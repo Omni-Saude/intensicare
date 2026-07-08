@@ -1,0 +1,259 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Sedation Monitoring API
+  description: |
+    API para monitoramento de sedação — avaliações RASS, BPS/NRS e CAM-ICU
+    para pacientes internados em terapia intensiva.
+  version: "1.0.0"
+  contact:
+    name: IntensiCare Engineering
+    email: eng@intensicare.example.com
+
+servers:
+  - url: https://api.intensicare.example.com
+    description: Produção
+  - url: https://api.staging.intensicare.example.com
+    description: Homologação
+
+paths:
+  /api/v1/patients/{mpi_id}/sedation:
+    get:
+      summary: Avaliação de sedação atual
+      description: |
+        Retorna a avaliação de sedação mais recente do paciente,
+        com escores RASS, BPS/NRS e triagem CAM-ICU.
+      operationId: getCurrentSedationAssessment
+      tags:
+        - Sedação
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI (Master Patient Index) do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        "200":
+          description: Avaliação de sedação atual retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SedationAssessment"
+        "404":
+          description: Paciente não encontrado ou sem avaliação registrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/patients/{mpi_id}/sedation/history:
+    get:
+      summary: Histórico de avaliações de sedação
+      description: |
+        Retorna o histórico completo de avaliações de sedação do paciente,
+        ordenado por data decrescente.
+      operationId: getSedationHistory
+      tags:
+        - Sedação
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI (Master Patient Index) do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: start_date
+          in: query
+          required: false
+          description: Data início do período de consulta (ISO 8601)
+          schema:
+            type: string
+            format: date
+            example: "2026-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Data fim do período de consulta (ISO 8601)
+          schema:
+            type: string
+            format: date
+            example: "2026-07-07"
+        - name: limit
+          in: query
+          required: false
+          description: Número máximo de registros a retornar
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Deslocamento para paginação
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Histórico de avaliações retornado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SedationAssessment"
+                  total:
+                    type: integer
+                    description: Total de registros disponíveis
+                    example: 42
+                  limit:
+                    type: integer
+                    description: Limite aplicado
+                    example: 50
+                  offset:
+                    type: integer
+                    description: Deslocamento aplicado
+                    example: 0
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    SedationAssessment:
+      type: object
+      required:
+        - id
+        - mpi_id
+        - rass_score
+        - assessed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único da avaliação
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        mpi_id:
+          type: string
+          format: uuid
+          description: Identificador MPI do paciente
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        rass_score:
+          type: integer
+          description: |
+            Escore RASS (Richmond Agitation-Sedation Scale).
+            Varia de -5 (incapaz de despertar) a +4 (combativo).
+          minimum: -5
+          maximum: 4
+          example: -2
+        bps_nrs_score:
+          type: integer
+          description: |
+            Escore de dor: BPS (Behavioral Pain Scale, 3–12) para pacientes
+            não comunicativos ou NRS (Numeric Rating Scale, 0–10) para
+            pacientes comunicativos. Null se não avaliado.
+          oneOf:
+            - type: integer
+              minimum: 3
+              maximum: 12
+              description: BPS (Behavioral Pain Scale)
+            - type: integer
+              minimum: 0
+              maximum: 10
+              description: NRS (Numeric Rating Scale)
+          nullable: true
+          example: 4
+        cam_icu_positive:
+          type: boolean
+          description: |
+            Indica se o paciente apresentou resultado positivo na triagem
+            CAM-ICU (Confusion Assessment Method for ICU), sugestivo de
+            delirium. Null se não avaliado.
+          nullable: true
+          example: false
+        assessed_at:
+          type: string
+          format: date-time
+          description: Data e hora da avaliação (ISO 8601)
+          example: "2026-07-07T14:30:00Z"
+        assessed_by:
+          type: string
+          description: Profissional que realizou a avaliação
+          nullable: true
+          example: "Dr. Ana Beatriz Cardoso"
+        notes:
+          type: string
+          description: Observações clínicas adicionais
+          nullable: true
+          example: "Paciente responsivo a estímulo verbal. Sem sinais de delirium."
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Código de erro da aplicação
+              example: "PATIENT_NOT_FOUND"
+            message:
+              type: string
+              description: Mensagem descritiva do erro
+              example: "Paciente com MPI ID informado não foi encontrado."
+            details:
+              type: array
+              description: "Detalhes adicionais (ex: erros de validação)"
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  reason:
+                    type: string
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticação via JWT Bearer token. O token deve ser obtido
+        através do endpoint de autenticação e incluído no cabeçalho
+        Authorization de todas as requisições.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Sedação
+    description: Monitoramento de sedação, dor e delirium em UTI

@@ -1,0 +1,165 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Prophylaxis Bundles API"
+  version: "1.0.0"
+  description: >
+    Bundles de profilaxia v1/v3 do legado. 5 bundles (LAMGD, TEV, Hiperglicemia,
+    Mobilização Precoce, Dispositivos Invasivos) com critérios e scoring.
+    Backend: domain_profilaxia.py (a ser criado por parreira).
+    Frontend: app/prophylaxis-bundles/page.tsx (já implementado com mock).
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /prophylaxis/bundles:
+    get:
+      operationId: listProphylaxisBundles
+      summary: "Listar todos os bundles com status atual"
+      parameters:
+        - name: mpi_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Lista de bundles do paciente"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bundles: { type: array, items: { $ref: "#/components/schemas/ProphylaxisBundle" } }
+                  overall_status:
+                    type: string
+                    enum: [all_complete, partial, all_pending]
+                  overall_score:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+
+  /prophylaxis/bundles/{bundle_id}:
+    get:
+      operationId: getProphylaxisBundle
+      summary: "Obter bundle específico"
+      parameters:
+        - name: bundle_id
+          in: path
+          required: true
+          schema: { type: string, enum: [lamgd, tev, hiperglicemia, mobilizacao, dispositivos] }
+        - name: mpi_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Detalhe do bundle"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProphylaxisBundle"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateProphylaxisBundle
+      summary: "Atualizar critérios de um bundle"
+      parameters:
+        - name: bundle_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mpi_id, criteria]
+              properties:
+                mpi_id: { type: string }
+                criteria:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, met]
+                    properties:
+                      id: { type: string }
+                      met: { type: boolean }
+      responses:
+        "200":
+          description: "Bundle atualizado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProphylaxisBundle"
+
+  /prophylaxis/bundles/{bundle_id}/criteria:
+    get:
+      operationId: listBundleCriteria
+      summary: "Listar catálogo de critérios de um bundle"
+      description: "Retorna os critérios estáticos (referência clínica). Cacheável."
+      parameters:
+        - name: bundle_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Catálogo de critérios do bundle"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bundle_id: { type: string }
+                  bundle_name: { type: string }
+                  criteria: { type: array, items: { $ref: "#/components/schemas/BundleCriterion" } }
+
+components:
+  schemas:
+    BundleCriterion:
+      type: object
+      required: [id, label, met]
+      properties:
+        id:
+          type: string
+          example: "lamgd-vm"
+        label:
+          type: string
+          example: "Ventilação mecânica > 48h"
+        met:
+          type: boolean
+          description: "Critério atendido"
+
+    ProphylaxisBundle:
+      type: object
+      properties:
+        id:
+          type: string
+          enum: [lamgd, tev, hiperglicemia, mobilizacao, dispositivos]
+        name:
+          type: string
+          example: "LAMGD — Úlcera de Estresse"
+        status:
+          type: string
+          enum: [complete, partial, pending, na]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        criteria:
+          type: array
+          items: { $ref: "#/components/schemas/BundleCriterion" }
+        assessed_at: { type: string, format: date-time }
+        assessed_by: { type: string }
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

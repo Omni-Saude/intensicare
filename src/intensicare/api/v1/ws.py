@@ -137,6 +137,33 @@ class WSConnectionManager:
         for ws in disconnected:
             self.disconnect(ws)
 
+        # ---- Broadcast to SSE listeners (shared event bus) ----
+        self._broadcast_to_sse(channel, data)
+
+    @staticmethod
+    def _broadcast_to_sse(channel: str, data: dict[str, Any]) -> None:
+        """Push event to all registered SSE listener queues.
+
+        Uses a lazy import to avoid circular dependency at module-load time.
+        The ``asyncio.Queue`` default maxsize is 0 (unbounded), so
+        ``put_nowait`` never raises ``QueueFull``.
+        """
+        try:
+            from intensicare.api.v1.events import get_sse_registry  # lazy
+        except ImportError:
+            return
+
+        listeners = get_sse_registry()
+        if not listeners:
+            return
+
+        event = {"channel": channel, "data": data}
+        for q in listeners[:]:  # iterate over a shallow copy
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass  # defensive — shouldn't happen with unbounded queues
+
     async def send_to_connection(self, ws: WebSocket, payload: dict[str, Any]) -> None:
         """Send a message to a single connection."""
         try:

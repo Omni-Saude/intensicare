@@ -1,0 +1,164 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Antimicrobial Stewardship API"
+  version: "1.0.0"
+  description: >
+    Stewardship de antimicrobianos (Trilha 5 do legado). Avaliação de 12 critérios
+    clínicos agrupados em 7 categorias com scoring VERMELHO/AMARELO/NEUTRO.
+    Backend: domain_antimicrobiano.py (a ser criado por parreira).
+    Frontend: app/antimicrobial-stewardship/page.tsx (já implementado com mock).
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /antimicrobial/assessments:
+    get:
+      operationId: listAntimicrobialAssessments
+      summary: "Listar avaliações de stewardship"
+      parameters:
+        - name: mpi_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [VERMELHO, AMARELO, NEUTRO] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: "Lista de avaliações"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessments: { type: array, items: { $ref: "#/components/schemas/AntimicrobialAssessment" } }
+                  total: { type: integer }
+    post:
+      operationId: createAntimicrobialAssessment
+      summary: "Criar nova avaliação de stewardship"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAntimicrobialAssessment"
+      responses:
+        "201":
+          description: "Avaliação criada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AntimicrobialAssessment"
+
+  /antimicrobial/assessments/{assessment_id}:
+    get:
+      operationId: getAntimicrobialAssessment
+      summary: "Obter avaliação específica"
+      parameters:
+        - name: assessment_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: "Avaliação encontrada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AntimicrobialAssessment"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /antimicrobial/criteria:
+    get:
+      operationId: listAntimicrobialCriteria
+      summary: "Listar catálogo de critérios de stewardship"
+      description: >
+        Retorna os 12 critérios clínicos com suas categorias.
+        Este endpoint pode ser cacheado (os critérios são estáticos).
+      responses:
+        "200":
+          description: "Catálogo de critérios"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  criteria: { type: array, items: { $ref: "#/components/schemas/AntimicrobialCriterion" } }
+
+components:
+  schemas:
+    AntimicrobialCriterion:
+      type: object
+      required: [id, name, category, met]
+      properties:
+        id:
+          type: string
+          example: "crit-duracao-7d"
+        name:
+          type: string
+          example: "Duração > 7 dias"
+        category:
+          type: string
+          enum: [duracao, espectro, dose, cvc, candidemia, culturas, cap_covid]
+        description:
+          type: string
+          example: "Tratamento antimicrobiano com duração superior a 7 dias sem reavaliação documentada"
+        met:
+          type: boolean
+          description: "Critério atendido (true) ou não conformidade detectada (false)"
+
+    CreateAntimicrobialAssessment:
+      type: object
+      required: [mpi_id, criteria]
+      properties:
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        criteria:
+          type: array
+          items:
+            type: object
+            required: [id, met]
+            properties:
+              id: { type: string }
+              met: { type: boolean }
+
+    AntimicrobialAssessment:
+      type: object
+      properties:
+        id: { type: integer }
+        mpi_id: { type: string }
+        criteria:
+          type: array
+          items: { $ref: "#/components/schemas/AntimicrobialCriterion" }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 12
+          description: "0-3: NEUTRO, 4-7: AMARELO, 8-12: VERMELHO"
+        severity:
+          type: string
+          enum: [VERMELHO, AMARELO, NEUTRO]
+        recommendation:
+          type: string
+          example: "Intervenção imediata necessária: revisar todos os antimicrobianos em 24h"
+        assessed_at: { type: string, format: date-time }
+        assessed_by: { type: string }
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

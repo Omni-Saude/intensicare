@@ -1,0 +1,314 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Clinical Notes / Evolution API
+  description: |
+    API de evoluções clínicas — notas de admissão, diárias, alta,
+    óbito e intercorrências para pacientes internados em terapia intensiva.
+  version: "1.0.0"
+  contact:
+    name: IntensiCare Engineering
+    email: eng@intensicare.example.com
+
+servers:
+  - url: https://api.intensicare.example.com
+    description: Produção
+  - url: https://api.staging.intensicare.example.com
+    description: Homologação
+
+paths:
+  # ── Listar evoluções do paciente ─────────────────────────────────────────
+  /api/v1/patients/{mpi_id}/evolucoes:
+    get:
+      summary: Listar evoluções clínicas
+      description: |
+        Retorna as notas de evolução clínica de um paciente,
+        ordenadas por data de criação decrescente. Suporta paginação
+        e filtro por tipo de evolução.
+      operationId: listEvolucoes
+      tags:
+        - Evoluções
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI (Master Patient Index) do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: type
+          in: query
+          required: false
+          description: Filtra por tipo de evolução clínica
+          schema:
+            type: string
+            enum:
+              - admissao
+              - diaria
+              - alta
+              - obito
+              - intercorrencia
+            example: "diaria"
+        - name: limit
+          in: query
+          required: false
+          description: Número máximo de registros a retornar
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Deslocamento para paginação
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de evoluções retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Evolucao"
+                  total:
+                    type: integer
+                    description: Total de registros disponíveis
+                    example: 81
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Criar evolução clínica
+      description: |
+        Registra uma nova nota de evolução clínica para o paciente.
+        O tipo da evolução determina o contexto clínico do registro.
+      operationId: createEvolucao
+      tags:
+        - Evoluções
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvolucaoCreate"
+      responses:
+        "201":
+          description: Evolução clínica criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evolucao"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Detalhe de evolução (por ID) ─────────────────────────────────────────
+  /api/v1/evolucoes/{id}:
+    get:
+      summary: Detalhar evolução clínica
+      description: |
+        Retorna os dados completos de uma evolução clínica específica,
+        incluindo o conteúdo integral da nota.
+      operationId: getEvolucao
+      tags:
+        - Evoluções
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único da evolução clínica
+          schema:
+            type: string
+            format: uuid
+            example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      responses:
+        "200":
+          description: Detalhes da evolução retornados com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evolucao"
+        "404":
+          description: Evolução não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    # ── Evolucao ────────────────────────────────────────────────────────────
+    Evolucao:
+      type: object
+      required:
+        - id
+        - mpi_id
+        - type
+        - content
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único da evolução clínica
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        mpi_id:
+          type: string
+          format: uuid
+          description: Identificador MPI do paciente
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        type:
+          type: string
+          description: |
+            Tipo de evolução clínica:
+            - admissao: nota de admissão do paciente na unidade
+            - diaria: evolução diária de rotina
+            - alta: nota de alta hospitalar
+            - obito: nota de óbito
+            - intercorrencia: registro de intercorrência clínica
+          enum:
+            - admissao
+            - diaria
+            - alta
+            - obito
+            - intercorrencia
+          example: "diaria"
+        content:
+          type: string
+          description: |
+            Conteúdo textual da evolução clínica. Pode conter
+            formatação Markdown para estruturação do texto.
+          maxLength: 50000
+          example: |
+            ## Evolução Diária — 07/07/2026
+
+            **Sinais vitais:** PA 120/80 mmHg, FC 88 bpm, FR 16 irpm,
+            SatO2 97% (ar ambiente), Tax 36,5 °C.
+
+            **Exame físico:** Paciente consciente, orientado, Glasgow 15.
+            Ausculta pulmonar limpa bilateralmente. Abdome flácido,
+            indolor à palpação. Extremidades aquecidas e perfundidas.
+
+            **Conduta:** Manter antibioticoterapia conforme prescrição.
+            Iniciar desmame de sedação. Reavaliar amanhã.
+        created_at:
+          type: string
+          format: date-time
+          description: Data e hora de criação do registro (ISO 8601)
+          example: "2026-07-07T14:30:00Z"
+        created_by:
+          type: string
+          description: Profissional que registrou a evolução
+          example: "Dr. Carlos Eduardo Mendes"
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          nullable: true
+          example: "2026-07-07T16:45:00Z"
+
+    EvolucaoCreate:
+      type: object
+      required:
+        - type
+        - content
+      properties:
+        type:
+          type: string
+          description: |
+            Tipo de evolução clínica a ser registrada.
+          enum:
+            - admissao
+            - diaria
+            - alta
+            - obito
+            - intercorrencia
+          example: "diaria"
+        content:
+          type: string
+          description: Conteúdo textual da evolução clínica
+          maxLength: 50000
+          example: |
+            ## Evolução Diária — 07/07/2026
+
+            **Sinais vitais:** PA 120/80 mmHg, FC 88 bpm, FR 16 irpm,
+            SatO2 97% (ar ambiente), Tax 36,5 °C.
+
+            **Conduta:** Manter suporte ventilatório. Reavaliar amanhã.
+
+    # ── Shared ──────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Mensagem descritiva do erro
+          example: "Paciente com MPI ID informado não foi encontrado."
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticação via JWT Bearer token. O token deve ser obtido
+        através do endpoint de autenticação e incluído no cabeçalho
+        Authorization de todas as requisições.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Evoluções
+    description: Notas de evolução clínica — admissão, diárias, alta, óbito e intercorrências

@@ -1,0 +1,390 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Indicadores (Indicators / ETL)
+  version: "1.0.0"
+  description: >
+    Indicators and ETL API for IntensiCare ICU monitoring.
+    Exposes 31 legacy indicator rules covering TLP, occupancy,
+    sedation, ventilation, and other critical-care quality metrics.
+  contact:
+    name: IntensiCare Team
+servers:
+  - url: "/api/v1"
+    description: API v1 base path
+
+paths:
+
+  /indicators:
+    get:
+      operationId: listIndicators
+      summary: List all available indicators
+      description: >
+        Returns the full catalogue of indicators defined by
+        the 31 legacy clinical rules, grouped by category.
+      tags:
+        - Indicators
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter indicators by category (e.g. TLP, occupancy, sedation)
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for paginated results
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+          description: Number of items per page
+      responses:
+        "200":
+          description: A paginated list of indicators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndicatorListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /indicators/{id}:
+    get:
+      operationId: getIndicator
+      summary: Get indicator detail with current value
+      description: >
+        Returns a single indicator including its current computed
+        value, target range, and trend direction.
+      tags:
+        - Indicators
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique indicator identifier
+      responses:
+        "200":
+          description: Indicator detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndicatorDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /units/{unit_id}/indicators:
+    get:
+      operationId: getUnitIndicators
+      summary: Get unit-level indicators
+      description: >
+        Returns all indicator values scoped to a specific ICU unit,
+        including unit-level aggregations of the 31 legacy rules.
+      tags:
+        - Indicators
+        - Units
+      parameters:
+        - name: unit_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ICU unit identifier
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by indicator category
+      responses:
+        "200":
+          description: List of indicators for the specified unit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnitIndicatorListResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+
+  schemas:
+
+    # --- Enums ---
+
+    IndicatorCategory:
+      type: string
+      description: High-level grouping for indicators
+      enum:
+        - TLP
+        - occupancy
+        - sedation
+        - ventilation
+        - hemodynamics
+        - nutrition
+        - infection
+        - safety
+        - mobility
+        - other
+
+    Trend:
+      type: string
+      description: Direction of change since last measurement window
+      enum:
+        - improving
+        - stable
+        - declining
+        - unknown
+
+    # --- Core schema ---
+
+    Indicator:
+      type: object
+      description: >
+        Represents a single clinical quality indicator
+        derived from the 31 legacy ETL rules.
+      required:
+        - id
+        - name
+        - category
+        - current_value
+        - unit
+      properties:
+        id:
+          type: string
+          description: Unique indicator identifier (e.g. "TLP-001")
+          example: "TLP-001"
+        name:
+          type: string
+          description: Human-readable indicator name
+          example: "TLP — Tempo de Liberação de Paciente"
+        category:
+          $ref: "#/components/schemas/IndicatorCategory"
+        description:
+          type: string
+          description: Detailed description of the indicator and its clinical rationale
+          example: "Time from ICU discharge order to actual patient release"
+        current_value:
+          type: number
+          description: Most recent computed value
+          example: 4.2
+        target:
+          type: number
+          description: Desired target value or threshold
+          nullable: true
+          example: 2.0
+        trend:
+          $ref: "#/components/schemas/Trend"
+        unit:
+          type: string
+          description: Unit of measurement (e.g. hours, %, mg/kg, score)
+          example: "hours"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of the last value computation
+          example: "2026-07-07T12:00:00Z"
+
+    # --- Response wrappers ---
+
+    IndicatorListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Indicator"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    IndicatorDetail:
+      type: object
+      description: Full indicator detail including recent history
+      required:
+        - id
+        - name
+        - category
+        - current_value
+        - unit
+        - history
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          $ref: "#/components/schemas/IndicatorCategory"
+        description:
+          type: string
+        current_value:
+          type: number
+        target:
+          type: number
+          nullable: true
+        trend:
+          $ref: "#/components/schemas/Trend"
+        unit:
+          type: string
+        reference_range:
+          type: object
+          description: Clinical reference / normal range
+          required:
+            - low
+            - high
+          properties:
+            low:
+              type: number
+            high:
+              type: number
+        history:
+          type: array
+          description: Recent value history (last 30 data points)
+          items:
+            $ref: "#/components/schemas/IndicatorValuePoint"
+        updated_at:
+          type: string
+          format: date-time
+
+    IndicatorValuePoint:
+      type: object
+      required:
+        - timestamp
+        - value
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        value:
+          type: number
+
+    UnitIndicatorListResponse:
+      type: object
+      required:
+        - unit_id
+        - unit_name
+        - data
+      properties:
+        unit_id:
+          type: string
+          description: ICU unit identifier
+          example: "UTI-A"
+        unit_name:
+          type: string
+          description: Human-readable unit name
+          example: "UTI Adulto — Ala A"
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Indicator"
+
+    Pagination:
+      type: object
+      required:
+        - page
+        - page_size
+        - total_items
+        - total_pages
+      properties:
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 50
+        total_items:
+          type: integer
+          example: 31
+        total_pages:
+          type: integer
+          example: 1
+
+    # --- Error schema ---
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "The requested indicator was not found"
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+
+  # --- Reusable responses ---
+
+  responses:
+
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "BAD_REQUEST"
+              message: "Invalid query parameter 'category'"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "The requested resource was not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "An unexpected error occurred"
+
+tags:
+  - name: Indicators
+    description: Clinical quality indicators (31 legacy rules)
+  - name: Units
+    description: ICU unit scoping and metadata

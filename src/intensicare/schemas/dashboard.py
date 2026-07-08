@@ -17,6 +17,18 @@ class TripleEncodingMeta(BaseModel):
     description: str
 
 
+class LatestVitals(BaseModel):
+    """Most recent vital signs snapshot for a patient."""
+
+    heart_rate: int | None = None
+    systolic_bp: int | None = None
+    diastolic_bp: int | None = None
+    spo2: int | None = None
+    respiratory_rate: int | None = None
+    temperature: float | None = None
+    recorded_at: str | None = None
+
+
 class PatientBedSummary(BaseModel):
     """Summary of a patient for the bed grid dashboard."""
 
@@ -33,6 +45,7 @@ class PatientBedSummary(BaseModel):
     # AUDIT-008 resolved: canonical severity model (normal/watch/urgent/critical)
     highest_alert_severity: str | None = None  # normal, watch, urgent, critical
     highest_alert_encoding: TripleEncodingMeta | None = None
+    latest_vitals: LatestVitals | None = None
     last_updated: str | None = None
 
 

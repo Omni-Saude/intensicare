@@ -13,6 +13,7 @@ from intensicare.models.patient_cache import PatientCache
 from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.dashboard import (
     DashboardResponse,
+    LatestVitals,
     PatientBedSummary,
     PatientDetailResponse,
     ScoreHistoryPoint,
@@ -143,6 +144,51 @@ async def get_dashboard(
     for row in news2_result.fetchall():
         news2_map[row[0]] = (row[1], row[2])
 
+    # Latest vital signs per patient (most recent VitalSign row)
+    vitals_subq = (
+        select(
+            VitalSign.mpi_id,
+            VitalSign.heart_rate,
+            VitalSign.systolic_bp,
+            VitalSign.diastolic_bp,
+            VitalSign.spo2,
+            VitalSign.respiratory_rate,
+            VitalSign.temperature,
+            VitalSign.recorded_at,
+            func.row_number()
+            .over(
+                partition_by=VitalSign.mpi_id,
+                order_by=desc(VitalSign.recorded_at),
+            )
+            .label("rn"),
+        )
+        .where(VitalSign.mpi_id.in_(mpi_ids))
+        .subquery()
+    )
+    vitals_query = select(
+        vitals_subq.c.mpi_id,
+        vitals_subq.c.heart_rate,
+        vitals_subq.c.systolic_bp,
+        vitals_subq.c.diastolic_bp,
+        vitals_subq.c.spo2,
+        vitals_subq.c.respiratory_rate,
+        vitals_subq.c.temperature,
+        vitals_subq.c.recorded_at,
+    ).where(vitals_subq.c.rn == 1)
+    vitals_result = await db.execute(vitals_query)
+    vitals_map = {
+        row[0]: LatestVitals(
+            heart_rate=row[1],
+            systolic_bp=row[2],
+            diastolic_bp=row[3],
+            spo2=row[4],
+            respiratory_rate=row[5],
+            temperature=float(row[6]) if row[6] is not None else None,
+            recorded_at=row[7].isoformat() if row[7] else None,
+        )
+        for row in vitals_result.fetchall()
+    }
+
     # Build response
     bed_summaries = []
     for p in patients:
@@ -188,6 +234,7 @@ async def get_dashboard(
                 active_alerts_count=alert_counts.get(p.mpi_id, 0),
                 highest_alert_severity=alert_severities.get(p.mpi_id),
                 highest_alert_encoding=highest_encoding,
+                latest_vitals=vitals_map.get(p.mpi_id),
                 last_updated=p.synced_at.isoformat() if p.synced_at else None,
             )
         )

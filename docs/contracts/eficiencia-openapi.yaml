@@ -1,0 +1,267 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Eficiência (Efficiency / Stewardship)
+  version: "1.0.0"
+  description: >
+    Efficiency and resource-stewardship assessment API for IntensiCare ICU.
+    Covers 12 legacy clinical rules: transfusion appropriateness criteria,
+    mechanical restraint monitoring, frailty scoring, and ICU length-of-stay
+    benchmarking.
+  contact:
+    name: IntensiCare Team
+servers:
+  - url: "/api/v1"
+    description: API v1 base path
+
+paths:
+
+  /patients/{mpi_id}/efficiency:
+    get:
+      operationId: getEfficiencyAssessment
+      summary: Efficiency assessment for a patient
+      description: >
+        Returns the full resource-efficiency and stewardship
+        assessment for a patient identified by their Master Patient
+        Index (MPI) identifier.  Includes transfusion-criteria
+        evaluation, mechanical-restraint status, validated frailty
+        score, and current ICU length-of-stay in days.
+      tags:
+        - Efficiency
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Master Patient Index identifier
+          example: "MPI-20260707-0042"
+      responses:
+        "200":
+          description: Efficiency assessment data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EfficiencyAssessment"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+
+  schemas:
+
+    # --- Enums ---
+
+    TransfusionCriterion:
+      type: object
+      description: >
+        One of the 12 legacy transfusion-appropriateness criteria.
+        Evaluates whether a blood-product administration met
+        evidence-based thresholds.
+      required:
+        - code
+        - description
+        - met
+      properties:
+        code:
+          type: string
+          description: Short code for the criterion
+          example: "HB_THRESHOLD"
+        description:
+          type: string
+          description: Human-readable description of the criterion
+          example: "Hemoglobin < 7 g/dL in stable, non-cardiac patient"
+        met:
+          type: boolean
+          description: Whether this criterion was satisfied for the current transfusion event
+        detail:
+          type: string
+          description: Additional clinical context (e.g. actual lab value)
+          nullable: true
+          example: "Hb = 6.4 g/dL on 2026-07-06"
+
+    RestraintStatus:
+      type: string
+      description: Current mechanical-restraint monitoring status
+      enum:
+        - none
+        - planned
+        - active
+        - weaning
+        - removed
+        - contraindicated
+
+    FrailtyScale:
+      type: string
+      description: Validated frailty instruments supported
+      enum:
+        - CFS
+        - mFI
+        - FRAIL
+
+    # --- Core schema ---
+
+    EfficiencyAssessment:
+      type: object
+      description: >
+        Full resource-efficiency and stewardship assessment for a
+        single ICU patient, covering the 12 legacy rules.
+      required:
+        - id
+        - mpi_id
+        - transfusion_criteria
+        - restraint_status
+        - icu_los_days
+        - assessed_at
+      properties:
+        id:
+          type: string
+          description: Unique assessment identifier
+          example: "EFF-20260707-0001"
+        mpi_id:
+          type: string
+          description: Master Patient Index identifier
+          example: "MPI-20260707-0042"
+        patient_name:
+          type: string
+          description: Patient display name (optional, for convenience)
+          example: "Maria S."
+        transfusion_criteria:
+          type: array
+          description: >
+            Transfusion appropriateness evaluation (blood-product stewardship).
+            Each entry represents one of the 12 legacy criteria applied to
+            the patient's most recent transfusion events.
+          items:
+            $ref: "#/components/schemas/TransfusionCriterion"
+        restraint_status:
+          $ref: "#/components/schemas/RestraintStatus"
+        restraint_details:
+          type: object
+          description: Additional mechanical-restraint context
+          properties:
+            initiated_at:
+              type: string
+              format: date-time
+              description: When restraint was initiated
+              nullable: true
+            last_reviewed_at:
+              type: string
+              format: date-time
+              description: Last restraint-review timestamp
+              nullable: true
+            indication:
+              type: string
+              description: Clinical indication for restraint
+              nullable: true
+        frailty_score:
+          type: number
+          description: >
+            Validated frailty score (CFS 1–9, mFI 0–1, or FRAIL 0–5
+            depending on instrument). Higher values indicate greater
+            frailty.
+          nullable: true
+          example: 4
+        frailty_scale:
+          $ref: "#/components/schemas/FrailtyScale"
+        icu_los_days:
+          type: number
+          description: >
+            Current ICU length-of-stay in decimal days.
+            Calculated from admission date-time to now (or discharge).
+          example: 3.5
+        icu_los_benchmark:
+          type: number
+          description: >
+            Expected / benchmark ICU LOS for this patient's DRG and
+            severity, in days.  Null when no benchmark is available.
+          nullable: true
+          example: 4.0
+        icu_admission_at:
+          type: string
+          format: date-time
+          description: ICU admission date-time
+          nullable: true
+        notes:
+          type: string
+          description: Free-text stewardship notes
+          nullable: true
+        assessed_at:
+          type: string
+          format: date-time
+          description: Timestamp of this assessment computation
+          example: "2026-07-07T14:30:00Z"
+        assessed_by:
+          type: string
+          description: System or user that triggered the assessment
+          nullable: true
+          example: "system-nightly-batch"
+
+    # --- Error schema ---
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "Patient with the given MPI ID was not found"
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+
+  # --- Reusable responses ---
+
+  responses:
+
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "BAD_REQUEST"
+              message: "Invalid MPI ID format"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "No efficiency assessment found for the given MPI ID"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "An unexpected error occurred"
+
+tags:
+  - name: Efficiency
+    description: Resource efficiency and stewardship (12 legacy rules)

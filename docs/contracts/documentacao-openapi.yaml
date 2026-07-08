@@ -1,0 +1,285 @@
+openapi: "3.1.0"
+info:
+  title: IntensiCare — Documentation / Billing API
+  description: |
+    API de documentação clínica e registros de faturamento hospitalar.
+    Gerencia documentos assistenciais com rastreamento de status de glosa.
+  version: "1.0.0"
+  contact:
+    name: IntensiCare Engineering
+    email: eng@intensicare.example.com
+
+servers:
+  - url: https://api.intensicare.example.com
+    description: Produção
+  - url: https://api.staging.intensicare.example.com
+    description: Homologação
+
+paths:
+  # ── Listar documentação do paciente ──────────────────────────────────────
+  /api/v1/patients/{mpi_id}/documentacao:
+    get:
+      summary: Listar registros de documentação
+      description: |
+        Retorna os registros de documentação clínica e faturamento
+        de um paciente, ordenados por data de criação decrescente.
+        Suporta paginação e filtro por status de glosa.
+      operationId: listDocumentacao
+      tags:
+        - Documentação
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI (Master Patient Index) do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: glosa_status
+          in: query
+          required: false
+          description: Filtra por status de glosa do registro
+          schema:
+            type: string
+            enum:
+              - pendente
+              - em_analise
+              - glosado
+              - liberado
+              - recorrido
+            example: "pendente"
+        - name: limit
+          in: query
+          required: false
+          description: Número máximo de registros a retornar
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Deslocamento para paginação
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Lista de documentação retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Documentacao"
+                  total:
+                    type: integer
+                    description: Total de registros disponíveis
+                    example: 40
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Criar registro de documentação
+      description: |
+        Registra um novo documento clínico ou de faturamento para o
+        paciente. O status de glosa é inicializado como "pendente"
+        e pode ser atualizado conforme o ciclo de auditoria.
+      operationId: createDocumentacao
+      tags:
+        - Documentação
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          description: Identificador MPI do paciente
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentacaoCreate"
+      responses:
+        "201":
+          description: Registro de documentação criado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Documentacao"
+        "400":
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Paciente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    # ── Documentacao ────────────────────────────────────────────────────────
+    Documentacao:
+      type: object
+      required:
+        - id
+        - mpi_id
+        - type
+        - content
+        - glosa_status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único do registro de documentação
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        mpi_id:
+          type: string
+          format: uuid
+          description: Identificador MPI do paciente
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        type:
+          type: string
+          description: |
+            Tipo de documentação clínica ou de faturamento.
+            Exemplos: prescricao, relatorio_medico, sumario_alta,
+            ficha_atendimento, laudo_exame, conta_hospitalar,
+            autorizacao_procedimento.
+          maxLength: 100
+          example: "sumario_alta"
+        content:
+          type: string
+          description: |
+            Conteúdo do documento. Pode ser texto estruturado
+            (JSON, Markdown) ou referência para armazenamento externo.
+          maxLength: 100000
+          example: |
+            {
+              "diagnosticos": ["J18.9 - Pneumonia não especificada"],
+              "procedimentos": ["03.03.04.015-0 - Ventilação mecânica invasiva"],
+              "periodo_internacao": {"inicio": "2026-06-20", "fim": "2026-07-05"},
+              "desfecho": "alta_melhorada"
+            }
+        glosa_status:
+          type: string
+          description: |
+            Status de glosa (auditoria de faturamento):
+            - pendente: aguardando análise
+            - em_analise: em revisão pelo auditor
+            - glosado: item glosado (não autorizado para faturamento)
+            - liberado: item aprovado para faturamento
+            - recorrido: glosa contestada, em fase de recurso
+          enum:
+            - pendente
+            - em_analise
+            - glosado
+            - liberado
+            - recorrido
+          example: "pendente"
+        created_at:
+          type: string
+          format: date-time
+          description: Data e hora de criação do registro (ISO 8601)
+          example: "2026-07-07T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          nullable: true
+          example: "2026-07-07T11:30:00Z"
+        glosa_motivo:
+          type: string
+          description: |
+            Motivo da glosa, quando aplicável. Preenchido pelo auditor
+            quando glosa_status é "glosado".
+          nullable: true
+          maxLength: 500
+          example: "Ausência de assinatura do médico responsável no documento."
+        glosa_valor:
+          type: number
+          description: |
+            Valor glosado em reais (R$), quando aplicável.
+          nullable: true
+          example: 1250.50
+
+    DocumentacaoCreate:
+      type: object
+      required:
+        - type
+        - content
+      properties:
+        type:
+          type: string
+          description: |
+            Tipo de documentação clínica ou de faturamento.
+          maxLength: 100
+          example: "sumario_alta"
+        content:
+          type: string
+          description: |
+            Conteúdo do documento. Pode ser texto estruturado
+            (JSON, Markdown) ou referência para armazenamento externo.
+          maxLength: 100000
+          example: |
+            {
+              "diagnosticos": ["J18.9 - Pneumonia não especificada"],
+              "procedimentos": ["03.03.04.015-0 - Ventilação mecânica invasiva"]
+            }
+
+    # ── Shared ──────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Mensagem descritiva do erro
+          example: "Paciente com MPI ID informado não foi encontrado."
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticação via JWT Bearer token. O token deve ser obtido
+        através do endpoint de autenticação e incluído no cabeçalho
+        Authorization de todas as requisições.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Documentação
+    description: Documentação clínica e registros de faturamento com rastreamento de glosa

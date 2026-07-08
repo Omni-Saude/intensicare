@@ -1,0 +1,256 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Prescription API"
+  version: "1.0.0"
+  description: >
+    Gestão de prescrições médicas da UTI. Suporta criação, atualização,
+    conclusão e descontinuação de prescrições.
+    Backend: domain_prescricao.py (a ser criado por parreira).
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /patients/{mpi_id}/prescriptions:
+    get:
+      operationId: listPatientPrescriptions
+      summary: "Listar prescrições do paciente"
+      description: >
+        Retorna as prescrições do paciente. Por padrão retorna apenas as ativas.
+        Use o parâmetro status para filtrar por status específico ou 'all'
+        para incluir todas.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, discontinued, all]
+            default: active
+          description: "Filtrar por status da prescrição"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: "Lista de prescrições"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prescriptions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Prescription" }
+                  total: { type: integer }
+    post:
+      operationId: createPrescription
+      summary: "Criar nova prescrição"
+      description: >
+        Cria uma nova prescrição para o paciente. A prescrição é criada
+        com status 'active' e start_time definido como o momento atual
+        caso não seja informado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrescriptionCreate"
+      responses:
+        "201":
+          description: "Prescrição criada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prescription"
+        "409":
+          description: "Conflito (ex: prescrição duplicada para mesmo fármaco/via no mesmo período)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail: { type: string }
+
+  /prescriptions/{id}:
+    get:
+      operationId: getPrescription
+      summary: "Obter prescrição específica"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: "Detalhe da prescrição"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prescription"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updatePrescription
+      summary: "Atualizar prescrição"
+      description: >
+        Atualiza uma prescrição existente. Permite alterar dose, via,
+        frequência, ou mudar o status para 'completed' ou 'discontinued'.
+        Ao descontinuar, end_time é registrado automaticamente.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrescriptionUpdate"
+      responses:
+        "200":
+          description: "Prescrição atualizada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prescription"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "Conflito (ex: tentar alterar prescrição já finalizada)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail: { type: string }
+
+components:
+  schemas:
+    Prescription:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: "Identificador único da prescrição"
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        drug:
+          type: string
+          description: "Nome do fármaco"
+          example: "Meropenem"
+        dose:
+          type: number
+          description: "Dose prescrita"
+          example: 1.0
+        unit:
+          type: string
+          description: "Unidade da dose"
+          example: "g"
+        route:
+          type: string
+          description: "Via de administração"
+          enum: [IV, IM, SC, PO, SN, IT, TOP, INAL]
+          example: "IV"
+        frequency:
+          type: string
+          description: "Frequência de administração"
+          example: "8/8h"
+        start_time:
+          type: string
+          format: date-time
+          description: "Início da prescrição"
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Término da prescrição (null se ativa)"
+        status:
+          type: string
+          enum: [active, completed, discontinued]
+          description: "Status atual da prescrição"
+        notes:
+          type: string
+          nullable: true
+          description: "Observações clínicas"
+        prescribed_by:
+          type: string
+          description: "Médico prescritor"
+        created_at:
+          type: string
+          format: date-time
+          description: "Data/hora de criação do registro"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Data/hora da última atualização"
+
+    PrescriptionCreate:
+      type: object
+      required: [mpi_id, drug, dose, unit, route, frequency]
+      properties:
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        drug:
+          type: string
+          example: "Meropenem"
+        dose:
+          type: number
+          example: 1.0
+        unit:
+          type: string
+          example: "g"
+        route:
+          type: string
+          enum: [IV, IM, SC, PO, SN, IT, TOP, INAL]
+          example: "IV"
+        frequency:
+          type: string
+          example: "8/8h"
+        start_time:
+          type: string
+          format: date-time
+          description: "Opcional — default: momento atual"
+        notes:
+          type: string
+
+    PrescriptionUpdate:
+      type: object
+      properties:
+        dose:
+          type: number
+        unit:
+          type: string
+        route:
+          type: string
+          enum: [IV, IM, SC, PO, SN, IT, TOP, INAL]
+        frequency:
+          type: string
+        status:
+          type: string
+          enum: [active, completed, discontinued]
+          description: >
+            Alterar para 'completed' finaliza a prescrição com end_time = agora.
+            'discontinued' interrompe sem considerar concluída.
+        notes:
+          type: string
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

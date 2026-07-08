@@ -1,61 +1,70 @@
 """
-Rotas da API v1 — consulta de status do paciente.
+Rotas da API v1 — consulta de status do paciente (DEPRECATED).
 
-GET /api/v1/patients/{mpi_id}/status — Status agregado do paciente.
+GET /api/v1/patients/{mpi_id}/status — Status do paciente (DEPRECATED).
+Use GET /api/v1/patients/{mpi_id}/detail instead.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.core.database import get_db
-from intensicare.schemas.patients import PatientStatusResponse
-from intensicare.services.patients import get_patient_status
+from intensicare.schemas.dashboard import PatientDetailResponse
+from intensicare.services.dashboard import get_patient_detail
 
 router = APIRouter()
 
 
 @router.get(
     "/patients/{mpi_id}/status",
-    response_model=PatientStatusResponse,
+    response_model=PatientDetailResponse,
     status_code=status.HTTP_200_OK,
-    summary="Status do paciente",
+    summary="[DEPRECATED] Status do paciente",
     description=(
-        "Retorna o status agregado do paciente: sinais vitais mais recentes, "
-        "último score e tendência dos últimos 5 scores. "
-        "Quando enrich=true e FHIR_BASE_URL está configurado, inclui dados "
-        "demográficos e clínicos do FHIR (HAPI FHIR / AMH Data Platform)."
+        "⚠️ DEPRECATED — use GET /api/v1/patients/{mpi_id}/detail instead. "
+        "Retorna dados detalhados do paciente com histórico de sinais vitais "
+        "(24h), scores (MEWS/NEWS2) e alertas ativos."
     ),
     responses={
-        200: {"description": "Status do paciente"},
+        200: {"description": "Dados detalhados do paciente"},
         404: {"description": "Paciente não encontrado"},
     },
+    deprecated=True,
 )
 async def patient_status(
     mpi_id: str,
+    response: Response,  # FastAPI injects the response object
     db: AsyncSession = Depends(get_db),
     score_type: str = Query(
         "MEWS",
-        description="Tipo de score a consultar (MEWS, NEWS2, SOFA, qSOFA)",
+        description="[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail",
+        deprecated=True,
         max_length=16,
     ),
     enrich: bool = Query(
         False,
-        description="Enriquecer com dados do FHIR (requer FHIR_BASE_URL configurado)",
+        description="[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail",
+        deprecated=True,
     ),
-) -> PatientStatusResponse:
-    """Retorna status agregado do paciente com enriquecimento FHIR opcional."""
-    try:
-        # Retorna 200 mesmo sem dados — o frontend decide como tratar
-        return await get_patient_status(
-            db=db,
-            mpi_id=mpi_id,
-            score_type=score_type,
-            enrich=enrich,
-        )
-    except Exception as exc:
+) -> PatientDetailResponse:
+    """Retorna dados detalhados do paciente (endpoint deprecado).
+
+    ⚠️ Este endpoint está deprecado e redireciona para o serviço de dashboard.
+    Use GET /api/v1/patients/{mpi_id}/detail como substituto definitivo.
+    """
+    # Add deprecation headers (RFC 8594)
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sat, 01 Nov 2026 00:00:00 GMT"
+    response.headers["Link"] = (
+        f'</api/v1/patients/{mpi_id}/detail>; rel="successor-version"'
+    )
+
+    result = await get_patient_detail(db=db, mpi_id=mpi_id)
+    if result is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Falha ao consultar status do paciente: {exc}",
-        ) from exc
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Paciente não encontrado: {mpi_id}",
+        )
+    return result
