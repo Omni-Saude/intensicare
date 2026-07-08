@@ -1,0 +1,292 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Ventilation Monitoring API"
+  version: "1.0.0"
+  description: >
+    Monitoramento de parâmetros ventilatórios em tempo real. Fornece os
+    parâmetros atuais do ventilador mecânico e a tendência de 24 horas,
+    permitindo acompanhamento da evolução respiratória do paciente.
+    Backend: domain_respiratory.py (a ser criado por parreira).
+    Frontend: a ser implementado.
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+security:
+  - BearerAuth: []
+
+paths:
+  /patients/{mpi_id}/ventilation:
+    get:
+      operationId: getPatientVentilation
+      summary: "Parâmetros ventilatórios atuais e tendência de 24 horas"
+      description: >
+        Retorna os parâmetros atuais do ventilador mecânico do paciente
+        (última leitura disponível) e a tendência das últimas 24 horas
+        para cada parâmetro. A tendência inclui a série temporal com
+        pontos de coleta e a direção da variação.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: trend_hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 72
+          description: "Janela de horas para a tendência (1-72, padrão 24)"
+      responses:
+        "200":
+          description: "Parâmetros ventilatórios atuais e tendência"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parameters:
+                    $ref: "#/components/schemas/VentilationParameters"
+                  trend:
+                    $ref: "#/components/schemas/VentilationTrend"
+                  collected_at:
+                    type: string
+                    format: date-time
+                    description: "Timestamp da última coleta de parâmetros"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patients/{mpi_id}/ventilation/history:
+    get:
+      operationId: getPatientVentilationHistory
+      summary: "Histórico de parâmetros ventilatórios"
+      description: >
+        Retorna o histórico completo de parâmetros ventilatórios do paciente,
+        ordenados por data de coleta (mais recente primeiro). Permite
+        paginação e filtro por intervalo de datas.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: "Data inicial do intervalo"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: "Data final do intervalo"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: "Histórico de parâmetros ventilatórios"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VentilationParameters"
+                  total:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT obtido via endpoint de autenticação"
+
+  schemas:
+    VentilationParameters:
+      type: object
+      required:
+        - collected_at
+      properties:
+        id:
+          type: integer
+          description: "ID do registro de parâmetros"
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        mode:
+          type: string
+          enum: [PCV, VCV, PSV, SIMV, CPAP, BIPAP, PRVC, APRV, NAVA, ASV, spontaneous]
+          description: "Modalidade ventilatória atual"
+          example: "PCV"
+        FiO2:
+          type: number
+          format: float
+          minimum: 0.21
+          maximum: 1.0
+          description: "Fração inspirada de oxigênio (0.21 a 1.0)"
+          example: 0.40
+        PEEP:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 40
+          description: "Pressão expiratória final positiva (cmH₂O)"
+          example: 8.0
+        VC:
+          type: number
+          format: float
+          minimum: 0
+          description: "Volume corrente (mL)"
+          example: 420
+        FR:
+          type: integer
+          minimum: 0
+          description: "Frequência respiratória (rpm)"
+          example: 18
+        Pplat:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 60
+          description: "Pressão de platô (cmH₂O)"
+          example: 22.0
+        driving_pressure:
+          type: number
+          format: float
+          minimum: 0
+          description: "Pressão de distensão = Pplat - PEEP (cmH₂O)"
+          example: 14.0
+        PaO2_FiO2_ratio:
+          type: number
+          format: float
+          minimum: 0
+          description: "Relação PaO₂/FiO₂ (mmHg) — índice de oxigenação"
+          example: 185
+        SpO2:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: "Saturação periférica de oxigênio (%)"
+          example: 94
+        tidal_volume_per_kg_pbw:
+          type: number
+          format: float
+          description: "Volume corrente por kg de peso corporal previsto (mL/kg)"
+          example: 6.2
+        spontaneous_rate:
+          type: integer
+          minimum: 0
+          description: "Frequência respiratória espontânea (rpm), se aplicável"
+        collected_at:
+          type: string
+          format: date-time
+          description: "Timestamp da coleta dos parâmetros"
+        source:
+          type: string
+          enum: [ventilator, prontuario, manual]
+          description: "Origem dos dados"
+          example: "prontuario"
+
+    VentilationTrend:
+      type: object
+      required:
+        - period_hours
+        - start_time
+        - end_time
+        - parameters
+      properties:
+        period_hours:
+          type: integer
+          description: "Janela de horas analisada"
+          example: 24
+        start_time:
+          type: string
+          format: date-time
+          description: "Início da janela de tendência"
+        end_time:
+          type: string
+          format: date-time
+          description: "Fim da janela de tendência"
+        parameters:
+          type: object
+          description: "Tendência por parâmetro ventilatório"
+          properties:
+            FiO2:
+              $ref: "#/components/schemas/ParameterTrend"
+            PEEP:
+              $ref: "#/components/schemas/ParameterTrend"
+            VC:
+              $ref: "#/components/schemas/ParameterTrend"
+            FR:
+              $ref: "#/components/schemas/ParameterTrend"
+            Pplat:
+              $ref: "#/components/schemas/ParameterTrend"
+            driving_pressure:
+              $ref: "#/components/schemas/ParameterTrend"
+            PaO2_FiO2_ratio:
+              $ref: "#/components/schemas/ParameterTrend"
+
+    ParameterTrend:
+      type: object
+      properties:
+        current:
+          type: number
+          description: "Valor atual (última leitura)"
+        min:
+          type: number
+          description: "Valor mínimo no período"
+        max:
+          type: number
+          description: "Valor máximo no período"
+        avg:
+          type: number
+          description: "Média dos valores no período"
+        direction:
+          type: string
+          enum: [rising, falling, stable]
+          description: "Direção da tendência"
+        change_pct:
+          type: number
+          format: float
+          description: "Percentual de variação no período"
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: number
+              collected_at:
+                type: string
+                format: date-time
+          description: "Série temporal de leituras no período"
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string

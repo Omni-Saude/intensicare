@@ -16,11 +16,19 @@ from intensicare.api.reference_ranges import router as reference_ranges_router
 from intensicare.api.thresholds import router as thresholds_router
 from intensicare.api.v1 import (
     admin_router,
+    alert_routing_router,
     alerts_router,
+    antimicrobial_router,
     auth_router,
     dashboard_router,
+    deterioration_router,
+    events_router,
     health_router,
+    pathways_router,
     patients_router,
+    prophylaxis_router,
+    stability_router,
+    ventilation_router,
     vitals_router,
     ws_router,
 )
@@ -99,13 +107,23 @@ def create_app() -> FastAPI:
     # Routers. Some already carry a full prefix (auth → /auth, alerts →
     # /api/v1/alerts, dashboard → /api/v1, thresholds → /api/v1/thresholds);
     # patients/vitals are unprefixed and mounted under /api/v1.
+    # New domain routers (antimicrobial, prophylaxis, alert-routing, events)
+    # carry their own prefix internally.
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(alerts_router)
+    app.include_router(antimicrobial_router)
     app.include_router(dashboard_router)
+    app.include_router(deterioration_router)
+    app.include_router(pathways_router)
+    app.include_router(stability_router)
+    app.include_router(ventilation_router)
     app.include_router(clinical_forms_router)
     app.include_router(reference_ranges_router)
     app.include_router(thresholds_router)
+    app.include_router(prophylaxis_router)
+    app.include_router(alert_routing_router)
+    app.include_router(events_router)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(patients_router, prefix="/api/v1")
     app.include_router(vitals_router, prefix="/api/v1")

@@ -1,0 +1,157 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Clinical Deterioration API"
+  version: "1.0.0"
+  description: >
+    Scoring de deterioração clínica (ALERT-RESP-DETERIORATION-02 e correlatos).
+    Avaliação multi-domínio com score categórico e tendência.
+    Backend: domain_respiratory.py + domain_sepsis.py + domain_hemo.py (evaluators já existentes).
+    Frontend: a ser implementado.
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /patients/{mpi_id}/deterioration:
+    get:
+      operationId: getPatientDeterioration
+      summary: "Score de deterioração clínica atual"
+      description: >
+        Retorna o score de deterioração atual do paciente, calculado a partir
+        de múltiplos domínios (respiratório, hemodinâmico, sepse, neurológico).
+        O score segue a classificação categórica: 0 (sem deterioração),
+        1+ (deterioração leve em melhora), 1- (deterioração leve em piora),
+        3+ (deterioração moderada em melhora), 3- (deterioração moderada em piora).
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Score de deterioração atual"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeteriorationScore"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patients/{mpi_id}/deterioration/history:
+    get:
+      operationId: getPatientDeteriorationHistory
+      summary: "Histórico de scores de deterioração"
+      description: >
+        Retorna todos os scores de deterioração registrados para o paciente,
+        ordenados por data (mais recente primeiro). Permite paginação.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: "Histórico de scores de deterioração"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeteriorationScore"
+                  total: { type: integer }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  schemas:
+    DeteriorationCriteria:
+      type: object
+      required: [domain, name, status]
+      properties:
+        domain:
+          type: string
+          enum: [respiratory, hemodynamic, sepsis, neurologic, renal]
+          description: "Domínio clínico avaliado"
+          example: "respiratory"
+        name:
+          type: string
+          description: "Nome do critério avaliado"
+          example: "Queda de SpO2 com aumento de FiO2"
+        status:
+          type: string
+          enum: [normal, alert, critical]
+          description: "Status: normal, alert (atenção), critical (intervenção imediata)"
+        value:
+          type: string
+          description: "Valor atual observado"
+          example: "SpO2 89%, FiO2 0.65"
+        threshold:
+          type: string
+          description: "Limiar de disparo"
+          example: "SpO2 < 90% com FiO2 > 0.60"
+        alert_id:
+          type: string
+          description: "ID do alerta associado"
+          example: "ALERT-RESP-DETERIORATION-02"
+
+    DeteriorationScore:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: "ID do registro de avaliação"
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        score:
+          type: string
+          enum: ["0", "1+", "1-", "3+", "3-"]
+          description: >
+            Score categórico de deterioração:
+            0 — sem deterioração detectada;
+            1+ — deterioração leve, tendência de melhora;
+            1- — deterioração leve, tendência de piora;
+            3+ — deterioração moderada/grave, tendência de melhora;
+            3- — deterioração moderada/grave, tendência de piora.
+        trend:
+          type: string
+          enum: [improving, stable, worsening, none]
+          description: "Tendência em relação à avaliação anterior"
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeteriorationCriteria"
+          description: "Critérios avaliados em cada domínio"
+        domains_affected:
+          type: integer
+          minimum: 0
+          description: "Número de domínios com pelo menos 1 critério em alert ou critical"
+        recommendation:
+          type: string
+          example: "Reavaliação respiratória em 2h. Considerar ajuste de ventilação."
+        assessed_at:
+          type: string
+          format: date-time
+        assessed_by:
+          type: string
+          description: "Usuário ou sistema que gerou a avaliação"
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

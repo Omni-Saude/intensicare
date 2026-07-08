@@ -1,0 +1,168 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Hemodynamic Stability API"
+  version: "1.0.0"
+  description: >
+    Avaliação de estabilidade hemodinâmica (WAVE 3A — ESTABILIDADE).
+    27 critérios clínicos com scoring e severidade.
+    Backend: domain_hemo.py (stability evaluators já existentes).
+    Frontend: a ser implementado.
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /patients/{mpi_id}/stability:
+    get:
+      operationId: getPatientStability
+      summary: "Estabilidade hemodinâmica atual do paciente"
+      description: >
+        Retorna o score de estabilidade atual com os 27 critérios avaliados,
+        severidade e recomendações clínicas. Dados calculados com base nos
+        sinais vitais e parâmetros hemodinâmicos mais recentes.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Status de estabilidade hemodinâmica"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StabilityStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patients/{mpi_id}/stability/trend:
+    get:
+      operationId: getPatientStabilityTrend
+      summary: "Tendência de estabilidade (7 dias)"
+      description: >
+        Retorna a evolução do score de estabilidade nos últimos 7 dias,
+        permitindo identificar deterioração ou melhora ao longo do tempo.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Tendência de estabilidade hemodinâmica"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StabilityTrend"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  schemas:
+    StabilityCriterion:
+      type: object
+      required: [name, value, threshold, status]
+      properties:
+        name:
+          type: string
+          description: "Nome do critério avaliado"
+          example: "Vasopressor com balanço hídrico negativo"
+        value:
+          type: string
+          description: "Valor atual medido"
+          example: "-850 mL/24h"
+        threshold:
+          type: string
+          description: "Limiar clínico para alerta"
+          example: "< -500 mL/24h com noradrenalina > 0.1 mcg/kg/min"
+        status:
+          type: string
+          enum: [normal, warning, critical]
+          description: "Status do critério: normal (dentro do esperado), warning (atenção), critical (intervenção necessária)"
+        category:
+          type: string
+          enum: [vasopressor, perfusion, cardiac_output, fluid_balance, lactate, combined]
+          description: "Categoria clínica do critério"
+        alert_id:
+          type: string
+          description: "ID do alerta associado (ex: ALERT-HEMO-STABILITY-VASO-BALANCE-07)"
+          example: "ALERT-HEMO-STABILITY-VASO-BALANCE-07"
+
+    StabilityStatus:
+      type: object
+      properties:
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        score:
+          type: integer
+          minimum: 0
+          maximum: 27
+          description: "Número de critérios em estado warning ou critical"
+        severity:
+          type: string
+          enum: [estavel, atencao, critico]
+          description: "Classificação global: estavel (0-3 alertas), atencao (4-9 alertas), critico (10+ alertas)"
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/StabilityCriterion"
+          description: "27 critérios de estabilidade hemodinâmica avaliados"
+        recommendation:
+          type: string
+          example: "Reavaliar em 6h. Vasopressor com balanço negativo requer atenção."
+        assessed_at:
+          type: string
+          format: date-time
+
+    StabilityTrendPoint:
+      type: object
+      required: [date, score, severity]
+      properties:
+        date:
+          type: string
+          format: date
+          description: "Data da avaliação"
+          example: "2026-07-07"
+        score:
+          type: integer
+          minimum: 0
+          maximum: 27
+        severity:
+          type: string
+          enum: [estavel, atencao, critico]
+        criteria_triggered:
+          type: integer
+          description: "Quantos critérios dispararam (warning ou critical)"
+
+    StabilityTrend:
+      type: object
+      properties:
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        current:
+          $ref: "#/components/schemas/StabilityStatus"
+        trend:
+          type: array
+          items:
+            $ref: "#/components/schemas/StabilityTrendPoint"
+          description: "Pontos diários dos últimos 7 dias"
+        direction:
+          type: string
+          enum: [improving, stable, worsening]
+          description: "Direção da tendência"
+        delta_7d:
+          type: integer
+          description: "Variação do score em 7 dias (positivo = piora)"
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }

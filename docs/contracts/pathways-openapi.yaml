@@ -1,0 +1,510 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Care Pathways API (Trilhas Engine)"
+  version: "1.0.0"
+  description: >
+    Motor de trilhas clínicas (trilhas-engine). Gerencia vias de cuidado (pathways),
+    inscrição de pacientes, avaliação de critérios e acompanhamento de progresso.
+    Backend: trilhas-engine domain (a ser criado por parreira).
+    Frontend: a ser implementado.
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+security:
+  - BearerAuth: []
+
+paths:
+  /pathways:
+    get:
+      operationId: listPathways
+      summary: "Listar todas as vias de cuidado (pathways) disponíveis"
+      description: >
+        Retorna o catálogo de pathways clínicos configurados no sistema.
+        Cada pathway define um conjunto de critérios e estados que guiam
+        o acompanhamento do paciente.
+      parameters:
+        - name: active_only
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: "Filtrar apenas pathways ativos"
+      responses:
+        "200":
+          description: "Catálogo de pathways"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Pathway"
+                  total:
+                    type: integer
+
+  /pathways/{id}:
+    get:
+      operationId: getPathway
+      summary: "Obter detalhes de um pathway com seus critérios"
+      description: >
+        Retorna o pathway completo incluindo a definição de estados
+        possíveis e os critérios de avaliação associados.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: "Detalhes do pathway"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pathway"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patients/{mpi_id}/pathways:
+    get:
+      operationId: listPatientPathways
+      summary: "Listar pathways ativos de um paciente"
+      description: >
+        Retorna todos os pathways nos quais o paciente está atualmente
+        inscrito, incluindo o estado atual e último progresso registrado.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, archived]
+            default: active
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: "Pathways ativos do paciente"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PatientPathway"
+                  total:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      operationId: enrollPatientInPathway
+      summary: "Inscrever paciente em um pathway"
+      description: >
+        Inscreve um paciente em um pathway clínico. Dispara a avaliação
+        inicial dos critérios e posiciona o paciente no estado inicial
+        do pathway.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollPatientRequest"
+      responses:
+        "201":
+          description: "Paciente inscrito no pathway"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPathway"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "Paciente já está inscrito neste pathway"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /patients/{mpi_id}/pathways/{id}/criteria:
+    put:
+      operationId: updatePathwayCriteria
+      summary: "Atualizar avaliação dos critérios de um pathway"
+      description: >
+        Atualiza a avaliação dos critérios para uma inscrição de pathway
+        específica. Pode disparar transição de estado se os critérios
+        atenderem às condições de mudança.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: "ID da inscrição do paciente no pathway (PatientPathway)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCriteriaRequest"
+      responses:
+        "200":
+          description: "Critérios atualizados com sucesso"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPathway"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patients/{mpi_id}/pathways/{id}/progress:
+    get:
+      operationId: getPathwayProgress
+      summary: "Consultar progresso do paciente em um pathway"
+      description: >
+        Retorna o progresso detalhado do paciente em um pathway específico,
+        incluindo estado atual, histórico de transições, critérios avaliados
+        e tendência.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: "ID da inscrição do paciente no pathway (PatientPathway)"
+      responses:
+        "200":
+          description: "Progresso do pathway"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PathwayProgress"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT obtido via endpoint de autenticação"
+
+  schemas:
+    Pathway:
+      type: object
+      required:
+        - id
+        - name
+        - states
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Ventilação Mecânica"
+          description: "Nome do pathway clínico"
+        description:
+          type: string
+          example: "Acompanhamento de pacientes em ventilação mecânica invasiva"
+        slug:
+          type: string
+          example: "ventilacao"
+          description: "Identificador único do pathway"
+        active:
+          type: boolean
+          default: true
+        states:
+          type: array
+          items:
+            $ref: "#/components/schemas/PathwayState"
+          description: "Estados possíveis do pathway, em ordem"
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/PathwayCriteria"
+          description: "Critérios de avaliação associados ao pathway"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PathwayState:
+      type: object
+      required:
+        - id
+        - name
+        - order
+      properties:
+        id:
+          type: string
+          example: "initial"
+          description: "Identificador do estado"
+        name:
+          type: string
+          example: "Avaliação Inicial"
+          description: "Nome legível do estado"
+        order:
+          type: integer
+          minimum: 0
+          description: "Ordem sequencial do estado no pathway"
+        description:
+          type: string
+          example: "Paciente recém-inscrito, aguardando avaliação inicial dos critérios"
+        is_terminal:
+          type: boolean
+          default: false
+          description: "Estado terminal (ex.: alta do pathway)"
+
+    PathwayCriteria:
+      type: object
+      required:
+        - id
+        - name
+        - category
+      properties:
+        id:
+          type: string
+          example: "crit-pf-ratio"
+        name:
+          type: string
+          example: "Relação PaO₂/FiO₂"
+        category:
+          type: string
+          example: "oxigenacao"
+          description: "Categoria clínica do critério"
+        description:
+          type: string
+          example: "Relação entre pressão parcial de oxigênio arterial e fração inspirada de oxigênio"
+        unit:
+          type: string
+          example: "mmHg"
+        normal_range:
+          type: string
+          example: "> 300"
+          description: "Faixa de referência para valores normais"
+        alert_threshold:
+          type: string
+          example: "< 200"
+          description: "Limiar que dispara alerta"
+        met:
+          type: boolean
+          description: "Critério atendido (avaliado no contexto do paciente)"
+        value:
+          type: string
+          description: "Valor observado para o paciente"
+          example: "185"
+        evaluated_at:
+          type: string
+          format: date-time
+
+    PatientPathway:
+      type: object
+      required:
+        - id
+        - mpi_id
+        - pathway
+        - current_state
+        - enrolled_at
+      properties:
+        id:
+          type: integer
+          example: 42
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        pathway:
+          $ref: "#/components/schemas/Pathway"
+        current_state:
+          $ref: "#/components/schemas/PathwayState"
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/PathwayCriteria"
+          description: "Critérios com avaliação atual"
+        status:
+          type: string
+          enum: [active, completed, archived]
+          default: active
+        severity:
+          type: string
+          enum: [normal, watch, urgent, critical]
+          description: "Severidade baseada nos critérios avaliados"
+        enrolled_at:
+          type: string
+          format: date-time
+        enrolled_by:
+          type: string
+          description: "Usuário que inscreveu o paciente"
+        completed_at:
+          type: string
+          format: date-time
+          description: "Data de conclusão (se aplicável)"
+        updated_at:
+          type: string
+          format: date-time
+
+    EnrollPatientRequest:
+      type: object
+      required:
+        - pathway_id
+      properties:
+        pathway_id:
+          type: integer
+          example: 1
+          description: "ID do pathway no qual inscrever o paciente"
+        initial_criteria:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: "ID do critério"
+              met:
+                type: boolean
+              value:
+                type: string
+          description: "Avaliação inicial opcional dos critérios"
+
+    UpdateCriteriaRequest:
+      type: object
+      required:
+        - criteria
+      properties:
+        criteria:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - met
+            properties:
+              id:
+                type: string
+                description: "ID do critério a ser atualizado"
+              met:
+                type: boolean
+              value:
+                type: string
+                description: "Valor observado (opcional)"
+          description: "Lista de critérios com avaliação atualizada"
+
+    PathwayProgress:
+      type: object
+      required:
+        - patient_pathway_id
+        - mpi_id
+        - pathway_name
+        - current_state
+        - criteria_summary
+      properties:
+        patient_pathway_id:
+          type: integer
+          example: 42
+        mpi_id:
+          type: string
+          example: "PAT-0042"
+        pathway_name:
+          type: string
+          example: "Ventilação Mecânica"
+        current_state:
+          $ref: "#/components/schemas/PathwayState"
+        criteria_summary:
+          type: object
+          properties:
+            total:
+              type: integer
+              description: "Total de critérios"
+            met:
+              type: integer
+              description: "Quantidade de critérios atendidos"
+            not_met:
+              type: integer
+              description: "Quantidade de critérios não atendidos"
+            pending:
+              type: integer
+              description: "Quantidade de critérios pendentes de avaliação"
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/PathwayCriteria"
+        state_history:
+          type: array
+          items:
+            type: object
+            properties:
+              from_state:
+                type: string
+              to_state:
+                type: string
+              changed_at:
+                type: string
+                format: date-time
+              reason:
+                type: string
+                description: "Motivo da transição (ex.: critérios atendidos)"
+        trend:
+          type: string
+          enum: [improving, stable, worsening, none]
+          description: "Tendência em relação à avaliação anterior"
+        last_evaluated_at:
+          type: string
+          format: date-time
+        recommendation:
+          type: string
+          example: "Reavaliar critérios de oxigenação em 6h. Considerar ajuste de PEEP."
+
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+
+  responses:
+    NotFound:
+      description: "Recurso não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
