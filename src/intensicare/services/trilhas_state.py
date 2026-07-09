@@ -13,6 +13,15 @@ Removes mutable global state — converted to factory functions.
     update, and progress endpoints — but all read endpoints now use the new
     engine.  New code should use TrilhasEngine instead of PathwayStore.
 
+    **Migration deadline: 2026-09-01.**  After this date, this module will
+    be removed and all references must be migrated to TrilhasEngine.
+
+    **Do NOT add new imports or new code that depends on this module.**
+    The only allowed consumer is
+    :mod:`intensicare.services.domain_trilhas_engine`, which re-exports
+    symbols for backward compatibility.  All other modules must import from
+    ``domain_trilhas_engine`` or ``trilhas_engine`` directly.
+
 Contains:
 - PatientPathwayDict: typed enrollment record
 - PathwayStore: encapsulated in-memory store (factory via create_pathway_store)
@@ -30,6 +39,11 @@ from typing import Any, TypedDict
 from intensicare.services.trilhas_definitions import _PATHWAY_BY_ID, _ensure_lookups
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level deprecation flag — scanned by tooling, linters, and CI
+# ---------------------------------------------------------------------------
+__deprecated__ = True
 
 # ---------------------------------------------------------------------------
 # Deprecation warning (M4: 2026-07-09)

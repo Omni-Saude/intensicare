@@ -1,5 +1,23 @@
 """
-Care Pathway Engine (Trilhas Engine) — core domain service.
+Care Pathway Engine (Trilhas Engine) — **thin backward-compatibility wrapper.**
+
+.. warning:: DEPRECATED THIN WRAPPER
+
+    This module is a **thin re-export wrapper** around the following modules:
+
+    - :mod:`intensicare.services.trilhas_engine` — new stateless YAML rule engine (ADR-0020)
+    - :mod:`intensicare.services.trilhas_state` — legacy PathwayStore state machine (deprecated)
+    - :mod:`intensicare.services.trilhas_definitions` — pathway catalog seeds
+
+    It wires a module-level ``_default_store`` singleton so that existing
+    callers of ``enroll_patient``, ``evaluate_criteria``, etc. continue to
+    work without changes.  **This convenience layer exists only for
+    backward compatibility and will be removed by 2026-09-01.**
+
+    **Do NOT add new business logic here.**  New code must import directly
+    from ``trilhas_engine`` (stateless engine) or, during migration,
+    ``trilhas_state`` for the legacy store.  All new endpoint
+    implementations should use TrilhasEngine.
 
 Implements 18 clinical business rules across 4 pathway catalogs:
   - Ventilação Mecânica (ventilacao)
