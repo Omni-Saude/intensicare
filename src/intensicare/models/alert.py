@@ -3,9 +3,10 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from intensicare.core.database import Base
+from intensicare.models.patient_cache import PatientCache
 
 
 class Alert(Base):
@@ -48,3 +49,11 @@ class Alert(Base):
     acknowledged_by: Mapped[str | None] = mapped_column(String(255))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution: Mapped[str | None] = mapped_column(String(32))
+
+    # ── Relationships (eager-load targets, F-CODE-001) ────────────────
+    patient: Mapped["PatientCache"] = relationship(
+        "PatientCache",
+        primaryjoin="foreign(Alert.mpi_id) == PatientCache.mpi_id",
+        lazy="raise",
+        viewonly=True,
+    )

@@ -139,6 +139,9 @@ def _score_temperature(value: float | None) -> dict[str, Any]:
     """
     if value is None:
         return {"temperature": 0, "temperature_status": "missing"}
+    # Round to 1 decimal to prevent float boundary edge cases
+    # (e.g., 34.9999999999 < 35 causing wrong score).
+    value = round(value, 1)
     if value <= MEWS_TEMP_HYPOTHERMIA_MAX:
         pts = 2
     elif value <= MEWS_TEMP_LOW_MAX:

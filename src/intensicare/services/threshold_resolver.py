@@ -4,6 +4,7 @@ Também fornece helpers para escrever entradas de audit_trail em toda mutação
 de threshold_config (REQ-INV-1-2).
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -11,6 +12,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.audit_trail import AuditTrail
 from intensicare.models.threshold_config import ThresholdConfig
+
+
+@dataclass
+class ThresholdContext:
+    """Resolved threshold context with rate-limiting and cooldown settings.
+
+    Attributes:
+        watch_threshold: Score threshold for 'watch' severity alerts.
+        urgent_threshold: Score threshold for 'urgent' severity alerts.
+        critical_threshold: Score threshold for 'critical' severity alerts.
+        rate_limit_per_hour: Maximum alerts per hour for this threshold scope.
+        cooldown_minutes: Minimum minutes between same-severity alerts.
+        guideline_source: Clinical guideline source citation.
+    """
+
+    watch_threshold: int = 0
+    urgent_threshold: int = 0
+    critical_threshold: int = 0
+    rate_limit_per_hour: int = 10
+    cooldown_minutes: int = 5
+    guideline_source: str | None = None
 
 
 # ---------------------------------------------------------------------------

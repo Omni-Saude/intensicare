@@ -1,8 +1,10 @@
 """Care Pathways (Trilhas Engine) — SQLAlchemy models."""
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from intensicare.core.database import Base
 
 class Pathway(Base):
@@ -16,6 +18,14 @@ class Pathway(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    # ── Relationships (eager-load targets, F-CODE-001) ────────────────
+    criteria: Mapped[list["PathwayCriteria"]] = relationship(
+        "PathwayCriteria", back_populates="pathway", lazy="raise",
+    )
+    patient_pathways: Mapped[list["PatientPathway"]] = relationship(
+        "PatientPathway", back_populates="pathway", lazy="raise",
+    )
+
 class PathwayCriteria(Base):
     __tablename__ = "pathway_criteria"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -26,6 +36,9 @@ class PathwayCriteria(Base):
     normal_range: Mapped[str | None] = mapped_column(String(128), nullable=True)
     alert_threshold: Mapped[str | None] = mapped_column(String(128), nullable=True)
     pathway_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pathways.id"), nullable=False)
+
+    # ── Relationships (eager-load targets, F-CODE-001) ────────────────
+    pathway: Mapped["Pathway"] = relationship("Pathway", back_populates="criteria")
 
 class PatientPathway(Base):
     __tablename__ = "patient_pathways"
@@ -40,6 +53,12 @@ class PatientPathway(Base):
     enrolled_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # ── Relationships (eager-load targets, F-CODE-001) ────────────────
+    pathway: Mapped["Pathway"] = relationship("Pathway", back_populates="patient_pathways")
+    transitions: Mapped[list["PathwayStateTransition"]] = relationship(
+        "PathwayStateTransition", lazy="raise",
+    )
 
 class PathwayStateTransition(Base):
     __tablename__ = "pathway_state_transitions"

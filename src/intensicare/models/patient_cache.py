@@ -8,10 +8,12 @@ mrn_bidx é um blind-index (HMAC-SHA256) que permite busca por MRN
 sem descriptografar o valor armazenado.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, LargeBinary, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from intensicare.core.database import Base
 
@@ -41,3 +43,23 @@ class PatientCache(Base):
     unit: Mapped[str | None] = mapped_column(String(64))
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # ── Relationships (eager-load targets, F-CODE-001) ────────────────
+    scores: Mapped[list["ClinicalScore"]] = relationship(
+        "ClinicalScore",
+        primaryjoin="foreign(ClinicalScore.mpi_id) == PatientCache.mpi_id",
+        lazy="raise",
+        viewonly=True,
+    )
+    alerts: Mapped[list["Alert"]] = relationship(
+        "Alert",
+        primaryjoin="foreign(Alert.mpi_id) == PatientCache.mpi_id",
+        lazy="raise",
+        viewonly=True,
+    )
+    pathways: Mapped[list["PatientPathway"]] = relationship(
+        "PatientPathway",
+        primaryjoin="foreign(PatientPathway.mpi_id) == PatientCache.mpi_id",
+        lazy="raise",
+        viewonly=True,
+    )

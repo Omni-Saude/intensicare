@@ -76,6 +76,11 @@ def _score_numeric(
     if value is None:
         return 0
 
+    # Round floats to 1 decimal to prevent boundary edge cases
+    # (e.g., 34.9999999999 < 35 causing wrong score).
+    if isinstance(value, float):
+        value = round(value, 1)
+
     for lo, hi, score in thresholds:
         lo_ok = lo is None or value >= lo
         hi_ok = hi is None or value <= hi

@@ -281,11 +281,27 @@ def test_calculate_mews_is_deterministic():
 
 
 def test_calculate_mews_with_floats():
-    """Temperatura como float deve ser tratada corretamente."""
+    """Temperatura como float deve ser tratada corretamente (com arredondamento)."""
+    # 35.05 rounds to 35.0 (banker's rounding) → <= 35.0 → 2 pts
     score, comp = calculate_mews(temperature=35.05)
-    # 35.05 > 35.0, então <= 35.0 é False, cai no próximo: <= 36.0 -> 1 pt
-    assert score == 1
-    assert comp["temperature"] == 1
+    assert score == 2
+    assert comp["temperature"] == 2
+
+    # 35.15 > 35.0 after rounding → falls to <= 36.0 → 1 pt
+    score2, comp2 = calculate_mews(temperature=35.15)
+    assert score2 == 1
+    assert comp2["temperature"] == 1
+
+
+def test_temperature_float_boundary_rounding():
+    """F-CLIN-010: Float boundary — 35.0000000001 rounds to 35.0 and scores same."""
+    result1 = _score_temperature(35.0000000001)
+    result2 = _score_temperature(35.0)
+    assert result1["temperature"] == result2["temperature"] == 2
+    # Also verify the rounding doesn't break normal values
+    result3 = _score_temperature(38.0000000001)
+    result4 = _score_temperature(38.0)
+    assert result3["temperature"] == result4["temperature"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════

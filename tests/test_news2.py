@@ -377,6 +377,14 @@ class TestTemperature:
     def test_none_returns_zero(self):
         assert score_temperature(None) == 0
 
+    def test_float_boundary_rounding_f_clin_010(self):
+        """F-CLIN-010: 35.0000000001 rounds to 35.0 → same score as 35.0."""
+        assert score_temperature(35.0000000001) == score_temperature(35.0)
+        # 35.0 should be scored as 3 (≤35.0 in NEWS2)
+        assert score_temperature(35.0) == 3
+        # Verify rounding doesn't break normal values
+        assert score_temperature(38.0000000001) == score_temperature(38.0) == 0
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Full NEWS2 Calculation

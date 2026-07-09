@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
@@ -37,8 +38,12 @@ async def get_dashboard(
         db: Async database session.
         unit: Optional unit filter.
     """
-    # Get all active patients
-    patient_query = select(PatientCache).where(PatientCache.is_active.is_(True))
+    # Get all active patients with eager-loaded relationships (F-CODE-001)
+    patient_query = select(PatientCache).options(
+        selectinload(PatientCache.scores),
+        selectinload(PatientCache.alerts),
+        selectinload(PatientCache.pathways),
+    ).where(PatientCache.is_active.is_(True))
     if unit:
         patient_query = patient_query.where(PatientCache.unit == unit)
     patient_query = patient_query.order_by(PatientCache.bed_id)
@@ -256,8 +261,16 @@ async def get_patient_detail(
         db: Async database session.
         mpi_id: Patient MPI ID.
     """
-    # Get patient cache
-    patient_result = await db.execute(select(PatientCache).where(PatientCache.mpi_id == mpi_id))
+    # Get patient cache with eager-loaded relationships (F-CODE-001)
+    patient_result = await db.execute(
+        select(PatientCache)
+        .options(
+            selectinload(PatientCache.scores),
+            selectinload(PatientCache.alerts),
+            selectinload(PatientCache.pathways),
+        )
+        .where(PatientCache.mpi_id == mpi_id)
+    )
     patient = patient_result.scalar_one_or_none()
     if not patient:
         return None

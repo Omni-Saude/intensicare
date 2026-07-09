@@ -16,6 +16,8 @@ Dose calculator: weight-based, renal-adjusted, age-adjusted, infusion limits.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 import logging
 import math
 import re
