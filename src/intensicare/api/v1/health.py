@@ -12,6 +12,7 @@ can gracefully report "degraded" instead of returning 500 when the database is d
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -245,6 +246,22 @@ async def _get_watchdog_last_seen() -> str | None:
 # ── Endpoint ─────────────────────────────────────────────────────────────────
 
 
+def _unwrap_check(result: ComponentCheck | BaseException, name: str) -> ComponentCheck:
+    """Handle unexpected exceptions from asyncio.gather into ComponentCheck error entries.
+
+    Each ``_check_*`` function already catches its own errors internally, but
+    ``return_exceptions=True`` ensures that any truly unhandled exception
+    (e.g. an import error, memory error) doesn't cancel sibling checks.
+    """
+    if isinstance(result, BaseException):
+        logger.error("%s health check raised unexpected exception: %s", name, result)
+        return ComponentCheck(
+            status="error",
+            detail=f"{type(result).__name__}: {result}",
+        )
+    return result
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Full readiness check: PostgreSQL, Redis, ARQ, Athena + staleness matrix.
@@ -256,20 +273,25 @@ async def health_check() -> HealthResponse:
     Uses raw engine connections for DB checks so the endpoint gracefully
     reports ``degraded`` instead of returning 500 when the database is down.
     """
-    checks: dict[str, ComponentCheck] = {}
+    # Run checks concurrently using asyncio.gather.
+    # Each check internally catches its own errors so a single component
+    # failure never cascades.  ``return_exceptions=True`` is a safety net
+    # for any truly unhandled exception (import error, memory error, etc.)
+    # so it doesn't cancel sibling checks.
+    pg_check, redis_check, arq_check, athena_check = await asyncio.gather(
+        _check_postgresql(),
+        _check_redis(),
+        _check_arq(),
+        _check_athena(),
+        return_exceptions=True,
+    )
 
-    # Run checks concurrently where possible.
-    pg_check = await _check_postgresql()
-    checks["postgresql"] = pg_check
-
-    redis_check = await _check_redis()
-    checks["redis"] = redis_check
-
-    arq_check = await _check_arq()
-    checks["arq"] = arq_check
-
-    athena_check = await _check_athena()
-    checks["athena"] = athena_check
+    checks: dict[str, ComponentCheck] = {
+        "postgresql": _unwrap_check(pg_check, "PostgreSQL"),
+        "redis": _unwrap_check(redis_check, "Redis"),
+        "arq": _unwrap_check(arq_check, "ARQ"),
+        "athena": _unwrap_check(athena_check, "Athena"),
+    }
 
     # Record this request as a watchdog ping.
     await _record_watchdog_ping()
