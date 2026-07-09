@@ -1,0 +1,210 @@
+# Nutrição Enteral — Pathway Definition
+# ESPEN / ASPEN-SCCM guideline-based pathway
+pathway:
+  id: 4
+  name: "Nutrição Enteral"
+  slug: "nutricao"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000004"
+  description: "Acompanhamento da terapia nutricional enteral (TNE) em pacientes críticos. Triagem nutricional, progressão da dieta até meta calórico-proteica, monitorização de tolerância e transição para via oral."
+  active: true
+
+evaluation:
+  mode: micro-batch
+  inputs:
+    - name: nrs_score
+      source: amh_gold
+      unit: points
+      description: "Nutritional Risk Screening 2002 score (0-7)."
+    - name: aporte_calorico
+      source: amh_gold
+      unit: "%"
+      description: "Percentual da meta calórica diária atingida."
+    - name: aporte_proteico
+      source: amh_gold
+      unit: g/kg/dia
+      description: "Oferta proteica diária ajustada ao peso."
+    - name: residuo_gastrico
+      source: amh_gold
+      unit: mL
+      description: "Volume de resíduo gástrico medido a cada 4-6h."
+    - name: albumina
+      source: amh_gold
+      unit: g/dL
+      description: "Albumina sérica — marcador do estado nutricional."
+    - name: diarreia_episodios
+      source: amh_gold
+      unit: "episódios/dia"
+      description: "Frequência de episódios diarreicos."
+
+criteria:
+  - id: crit-nut-triagem
+    name: "Triagem NRS-2002"
+    category: triagem
+    description: "Nutritional Risk Screening 2002. Identifica pacientes com risco nutricional que se beneficiam de TNE precoce."
+    predicate:
+      type: graded
+      input: nrs_score
+      bands:
+        - range: [0, 3]
+          severity: normal
+          score: 0
+          label: "Sem risco nutricional"
+        - range: [3, 5]
+          severity: watch
+          score: 1
+          label: "Risco nutricional moderado"
+        - range: [5, null]
+          severity: urgent
+          score: 2
+          label: "Alto risco nutricional — TNE precoce indicada"
+      unit: points
+
+  - id: crit-nut-calorias
+    name: "Aporte Calórico"
+    category: nutricional
+    description: "Percentual da meta calórica diária atingida via nutrição enteral. Alvo: atingir ≥80% da meta em até 72h de TNE."
+    predicate:
+      type: graded
+      input: aporte_calorico
+      bands:
+        - range: [0, 60]
+          severity: critical
+          score: 3
+          label: "Aporte calórico muito abaixo da meta"
+        - range: [60, 80]
+          severity: watch
+          score: 1
+          label: "Aporte calórico parcial"
+        - range: [80, null]
+          severity: normal
+          score: 0
+          label: "Meta calórica atingida"
+      unit: "%"
+
+  - id: crit-nut-proteinas
+    name: "Aporte Proteico"
+    category: nutricional
+    description: "Oferta proteica diária ajustada ao peso. Meta mínima: 1.2 g/kg/dia, podendo chegar a 2.0 g/kg/dia em situações de catabolismo acentuado."
+    predicate:
+      type: graded
+      input: aporte_proteico
+      bands:
+        - range: [0, 0.8]
+          severity: critical
+          score: 3
+          label: "Aporte proteico insuficiente"
+        - range: [0.8, 1.2]
+          severity: watch
+          score: 1
+          label: "Aporte proteico subótimo"
+        - range: [1.2, null]
+          severity: normal
+          score: 0
+          label: "Meta proteica atingida"
+      unit: g/kg/dia
+
+  - id: crit-nut-residuo
+    name: "Resíduo Gástrico"
+    category: tolerancia
+    description: "Volume de resíduo gástrico medido a cada 4-6h. Indicador de intolerância à dieta enteral e risco de broncoaspiração."
+    predicate:
+      type: graded
+      input: residuo_gastrico
+      bands:
+        - range: [0, 200]
+          severity: normal
+          score: 0
+          label: "Tolerância adequada"
+        - range: [200, 500]
+          severity: watch
+          score: 1
+          label: "Intolerância leve — reduzir velocidade"
+        - range: [500, null]
+          severity: critical
+          score: 3
+          label: "Intolerância grave — suspender dieta"
+      unit: mL
+
+  - id: crit-nut-albumina
+    name: "Albumina Sérica"
+    category: laboratorial
+    description: "Marcador do estado nutricional e resposta inflamatória. Hipoalbuminemia associa-se a piores desfechos em UTI."
+    predicate:
+      type: graded
+      input: albumina
+      bands:
+        - range: [0, 2.5]
+          severity: critical
+          score: 3
+          label: "Hipoalbuminemia grave"
+        - range: [2.5, 3.0]
+          severity: watch
+          score: 1
+          label: "Hipoalbuminemia moderada"
+        - range: [3.0, null]
+          severity: normal
+          score: 0
+          label: "Albumina normal"
+      unit: g/dL
+
+  - id: crit-nut-diarreia
+    name: "Diarreia"
+    category: tolerancia
+    description: "Frequência de episódios diarreicos. Pode indicar intolerância à fórmula, infecção ou necessidade de ajuste na velocidade de infusão."
+    predicate:
+      type: graded
+      input: diarreia_episodios
+      bands:
+        - range: [0, 1]
+          severity: normal
+          score: 0
+          label: "Sem diarreia"
+        - range: [1, 4]
+          severity: watch
+          score: 1
+          label: "Diarreia moderada"
+        - range: [4, null]
+          severity: urgent
+          score: 2
+          label: "Diarreia grave"
+      unit: "episódios/dia"
+
+states:
+  - id: initial
+    name: "Avaliação Nutricional"
+    order: 0
+    is_terminal: false
+    description: "Triagem nutricional (NRS-2002) e avaliação inicial. Definição de meta calórico-proteica individualizada."
+
+  - id: progressao
+    name: "Progressão da Dieta"
+    order: 1
+    is_terminal: false
+    description: "Aumento gradual do volume e concentração da dieta enteral conforme tolerância gastrointestinal. Monitorização de resíduo gástrico."
+
+  - id: meta
+    name: "Meta Nutricional"
+    order: 2
+    is_terminal: false
+    description: "Aporte calórico ≥80% da meta e proteico ≥1.2 g/kg/dia. Paciente tolerando dieta sem intercorrências significativas."
+
+  - id: alta
+    name: "Via Oral Plena"
+    order: 3
+    is_terminal: true
+    description: "Transição completa para dieta por via oral. Paciente com ingestão oral adequada (>75% das necessidades). Encerramento do pathway de nutrição enteral."
+
+suppression:
+  cooldown_minutes: 60
+  rate_limit_per_hour: 3
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "ESPEN Guideline on Clinical Nutrition in the Intensive Care Unit (2019); ASPEN/SCCM Guidelines for Nutrition Support in Critically Ill Adult Patients (2016)"
+  doi: "10.1016/j.clnu.2018.08.037"
+  recommendations:
+    - "Realizar triagem nutricional (NRS-2002) nas primeiras 24-48h de UTI"
+    - "Iniciar TNE precoce (24-48h) em pacientes sem contraindicação"
+    - "Monitorizar resíduo gástrico a cada 4-6h durante a progressão"
+    - "Atingir meta calórica ≥80% e proteica ≥1.2 g/kg/dia em até 72h"

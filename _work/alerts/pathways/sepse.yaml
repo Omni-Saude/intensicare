@@ -1,0 +1,216 @@
+# Sepse — Pathway Definition
+# Surviving Sepsis Campaign 2021 (SSC-2021) based pathway
+pathway:
+  id: 2
+  name: "Sepse"
+  slug: "sepse"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+  description: "Acompanhamento de pacientes com sepse ou choque séptico conforme diretrizes SSC-2021. Inclui triagem (qSOFA), confirmação diagnóstica (lactato, PCT), bundle de 1ª hora e monitorização de resposta."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: qsofa_score
+      source: vitals_stream
+      unit: points
+      description: "Quick SOFA score (0-3): FR ≥22 irpm, PAS ≤100 mmHg, Glasgow <15."
+    - name: lactato
+      source: amh_gold
+      unit: mmol/L
+      description: "Lactato sérico — marcador de hipoperfusão tecidual."
+    - name: pct
+      source: amh_gold
+      unit: ng/mL
+      description: "Procalcitonina — biomarcador de infecção bacteriana."
+    - name: pam
+      source: vitals_stream
+      unit: mmHg
+      description: "Pressão arterial média."
+    - name: culturas_status
+      source: amh_gold
+      unit: ratio
+      description: "Status de coleta de culturas (true = coletadas)."
+    - name: atb_status
+      source: amh_gold
+      unit: ratio
+      description: "Status de administração de antibiótico em 1h (true = administrado)."
+    - name: fluid_volume
+      source: amh_gold
+      unit: mL/kg
+      description: "Volume de cristaloide administrado para ressuscitação volêmica."
+
+criteria:
+  - id: crit-sep-qsofa
+    name: "qSOFA ≥ 2"
+    category: triagem
+    description: "Quick SOFA: FR ≥22 irpm, PAS ≤100 mmHg, Glasgow <15. ≥2 pontos configura disfunção orgânica suspeita de sepse."
+    predicate:
+      type: graded
+      input: qsofa_score
+      bands:
+        - range: [0, 2]
+          severity: normal
+          score: 0
+          label: "Baixo risco"
+        - range: [2, 3]
+          severity: urgent
+          score: 2
+          label: "Disfunção orgânica"
+        - range: [3, null]
+          severity: critical
+          score: 3
+          label: "Alta probabilidade de sepse"
+      unit: points
+
+  - id: crit-sep-lactato
+    name: "Lactato Sérico"
+    category: laboratorial
+    description: "Marcador de hipoperfusão tecidual. Níveis elevados indicam metabolismo anaeróbico e maior gravidade."
+    predicate:
+      type: graded
+      input: lactato
+      bands:
+        - range: [0, 2.0]
+          severity: normal
+          score: 0
+          label: "Normal"
+        - range: [2.0, 4.0]
+          severity: watch
+          score: 1
+          label: "Elevação moderada"
+        - range: [4.0, null]
+          severity: critical
+          score: 3
+          label: "Choque séptico / hipoperfusão grave"
+      unit: mmol/L
+
+  - id: crit-sep-pct
+    name: "Procalcitonina (PCT)"
+    category: laboratorial
+    description: "Biomarcador de infecção bacteriana. Útil para guiar antibioticoterapia e descalonamento."
+    predicate:
+      type: graded
+      input: pct
+      bands:
+        - range: [0, 0.5]
+          severity: normal
+          score: 0
+          label: "Infecção bacteriana improvável"
+        - range: [0.5, 2.0]
+          severity: watch
+          score: 1
+          label: "Infecção bacteriana possível"
+        - range: [2.0, null]
+          severity: urgent
+          score: 2
+          label: "Infecção bacteriana provável"
+      unit: ng/mL
+
+  - id: crit-sep-pam
+    name: "PAM ≥ 65 mmHg"
+    category: hemodinamica
+    description: "Pressão arterial média alvo durante a ressuscitação inicial da sepse (SSC-2021)."
+    predicate:
+      type: graded
+      input: pam
+      bands:
+        - range: [0, 65]
+          severity: critical
+          score: 3
+          label: "Hipotensão — necessita intervenção"
+        - range: [65, null]
+          severity: normal
+          score: 0
+          label: "PAM adequada"
+      unit: mmHg
+
+  - id: crit-sep-culturas
+    name: "Culturas Coletadas"
+    category: microbiologia
+    description: "Coleta de 2 pares de hemoculturas e culturas de sítios relevantes antes do início do antibiótico."
+    predicate:
+      type: boolean
+      input: culturas_status
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-sep-atb
+    name: "Antibiótico em 1h"
+    category: bundle
+    description: "Administração de antibioticoterapia empírica de amplo espectro em até 1 hora do diagnóstico de sepse."
+    predicate:
+      type: boolean
+      input: atb_status
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-sep-fluid
+    name: "Ressuscitação Volêmica"
+    category: bundle
+    description: "Cristaloide 30 mL/kg nas primeiras 3 horas para pacientes com hipoperfusão ou lactato ≥4 mmol/L."
+    predicate:
+      type: graded
+      input: fluid_volume
+      bands:
+        - range: [0, 20]
+          severity: critical
+          score: 3
+          label: "Volume insuficiente"
+        - range: [20, 30]
+          severity: urgent
+          score: 2
+          label: "Volume parcial"
+        - range: [30, null]
+          severity: normal
+          score: 0
+          label: "Meta atingida"
+      unit: mL/kg
+
+states:
+  - id: initial
+    name: "Triagem Inicial"
+    order: 0
+    is_terminal: false
+    description: "Paciente com suspeita de infecção e alteração de sinais clínicos. Aguardando confirmação com qSOFA e coleta de exames."
+
+  - id: confirmacao
+    name: "Confirmação Diagnóstica"
+    order: 1
+    is_terminal: false
+    description: "Sepse confirmada: qSOFA ≥2 + lactato elevado. Coleta de culturas e início da antibioticoterapia empírica em até 1 hora."
+
+  - id: tratamento
+    name: "Tratamento Ativo"
+    order: 2
+    is_terminal: false
+    description: "Bundle de 1ª hora em andamento: antibiótico administrado, ressuscitação volêmica iniciada, reavaliação hemodinâmica em curso."
+
+  - id: estabilizacao
+    name: "Estabilização Clínica"
+    order: 3
+    is_terminal: false
+    description: "Paciente hemodinamicamente estável, lactato em clearance, culturas em andamento. Reavaliação diária do esquema antimicrobiano."
+
+  - id: alta
+    name: "Resolução"
+    order: 4
+    is_terminal: true
+    description: "Resolução da sepse: lactato normalizado, PAM estável, descalonamento antimicrobiano concluído. Encerramento do pathway sepse."
+
+suppression:
+  cooldown_minutes: 15
+  rate_limit_per_hour: 6
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "Surviving Sepsis Campaign: International Guidelines for Management of Sepsis and Septic Shock 2021 (SSC-2021)"
+  doi: "10.1007/s00134-021-06506-y"
+  recommendations:
+    - "Coletar lactato sérico e hemoculturas antes do antibiótico"
+    - "Administrar antibioticoterapia de amplo espectro em até 1 hora"
+    - "Iniciar ressuscitação volêmica com cristaloide 30 mL/kg nas primeiras 3 horas"
+    - "Reavaliar volemia e perfusão tecidual a cada 6 horas"

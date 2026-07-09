@@ -1,0 +1,177 @@
+# Desmame — Pathway Definition
+# Evidence-based weaning protocol
+pathway:
+  id: 3
+  name: "Desmame"
+  slug: "desmame"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000003"
+  description: "Protocolo de desmame ventilatório baseado em evidências. Avaliação sistemática de prontidão, teste de respiração espontânea (TRE), extubação e monitorização pós-extubação."
+  active: true
+
+evaluation:
+  mode: hybrid
+  inputs:
+    - name: rsbi
+      source: amh_gold
+      unit: ratio
+      description: "Índice de respiração rápida e superficial (Rapid Shallow Breathing Index). FR/Vt (L)."
+    - name: nif
+      source: amh_gold
+      unit: cmH2O
+      description: "Negative Inspiratory Force — pressão inspiratória máxima."
+    - name: glasgow
+      source: vitals_stream
+      unit: ratio
+      description: "Escala de Coma de Glasgow (3-15)."
+    - name: tosse_eficaz
+      source: vitals_stream
+      unit: ratio
+      description: "Capacidade de tosse eficaz (true = presente)."
+    - name: controle_secrecao
+      source: vitals_stream
+      unit: ratio
+      description: "Controle adequado de secreção traqueal (true = adequado)."
+    - name: gasometria_status
+      source: amh_gold
+      unit: ratio
+      description: "Gasometria pós-extubação estável (true = estável)."
+
+criteria:
+  - id: crit-des-frvt
+    name: "FR/Vt (RSBI)"
+    category: mecanica
+    description: "Índice de respiração rápida e superficial (Rapid Shallow Breathing Index). FR / Vt (L). Prediz sucesso do desmame."
+    predicate:
+      type: graded
+      input: rsbi
+      bands:
+        - range: [0, 80]
+          severity: normal
+          score: 0
+          label: "Alta probabilidade de sucesso"
+        - range: [80, 105]
+          severity: watch
+          score: 1
+          label: "Zona de atenção"
+        - range: [105, null]
+          severity: critical
+          score: 3
+          label: "Alto risco de falha no desmame"
+      unit: ciclos/min/L
+
+  - id: crit-des-nif
+    name: "NIF (Pressão Inspiratória Máxima)"
+    category: mecanica
+    description: "Negative Inspiratory Force. Mede a força muscular inspiratória. Valores mais negativos indicam melhor força."
+    predicate:
+      type: graded
+      input: nif
+      bands:
+        - range: [-100, -25]
+          severity: normal
+          score: 0
+          label: "Força inspiratória adequada"
+        - range: [-25, -20]
+          severity: watch
+          score: 1
+          label: "Força inspiratória limítrofe"
+        - range: [-20, null]
+          severity: critical
+          score: 3
+          label: "Fraqueza muscular inspiratória"
+      unit: cmH2O
+
+  - id: crit-des-glasgow
+    name: "Escala de Glasgow"
+    category: neurologico
+    description: "Nível de consciência adequado para proteção de via aérea e cooperação com o desmame."
+    predicate:
+      type: graded
+      input: glasgow
+      bands:
+        - range: [11, null]
+          severity: normal
+          score: 0
+          label: "Nível de consciência adequado"
+        - range: [9, 11]
+          severity: watch
+          score: 1
+          label: "Sonolência moderada"
+        - range: [0, 9]
+          severity: critical
+          score: 3
+          label: "Rebaixamento importante — risco de falha"
+      unit: dimensionless
+
+  - id: crit-des-tosse
+    name: "Tosse Eficaz"
+    category: clinico
+    description: "Capacidade de tossir e mobilizar secreções. Essencial para manutenção da via aérea pérvia pós-extubação."
+    predicate:
+      type: boolean
+      input: tosse_eficaz
+      operator: "=="
+      value: true
+      unit: dimensionless
+
+  - id: crit-des-secrecao
+    name: "Controle de Secreção"
+    category: clinico
+    description: "Quantidade e qualidade das secreções traqueais. Secreção excessiva ou purulenta contraindica extubação eletiva."
+    predicate:
+      type: boolean
+      input: controle_secrecao
+      operator: "=="
+      value: true
+      unit: dimensionless
+
+  - id: crit-des-gasometria
+    name: "Gasometria Pós-EXT"
+    category: gasometria
+    description: "Gasometria arterial após extubação para confirmar manutenção de trocas gasosas adequadas sem suporte ventilatório invasivo."
+    predicate:
+      type: boolean
+      input: gasometria_status
+      operator: "=="
+      value: true
+      unit: dimensionless
+
+states:
+  - id: initial
+    name: "Avaliação de Prontidão"
+    order: 0
+    is_terminal: false
+    description: "Avaliação diária dos critérios de prontidão para desmame: causa da insuficiência respiratória resolvida, estabilidade hemodinâmica, drive respiratório adequado."
+
+  - id: tps
+    name: "Teste de Respiração Espontânea"
+    order: 1
+    is_terminal: false
+    description: "Realização do TRE (tubo T, PSV 5-7 cmH₂O, ou CPAP). Paciente mantém ventilação espontânea por 30-120 minutos sem sinais de falência."
+
+  - id: extubacao
+    name: "Pós-Extubação"
+    order: 2
+    is_terminal: false
+    description: "Paciente extubado. Monitorização de sinais de desconforto respiratório, gasometria de controle e necessidade de suporte não invasivo."
+
+  - id: alta
+    name: "Desmame Completo"
+    order: 3
+    is_terminal: true
+    description: "Paciente em ar ambiente ou oxigenoterapia de baixo fluxo por >48h após extubação. Encerramento do pathway de desmame."
+
+suppression:
+  cooldown_minutes: 30
+  rate_limit_per_hour: 4
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "ACCP/SCCM/AARC/ATS Evidence-Based Guidelines for Weaning and Discontinuing Ventilatory Support (2001); BURN Trial (2016)"
+  doi: "10.1378/chest.120.6_suppl.375S"
+  recommendations:
+    - "Realizar avaliação diária de prontidão para desmame"
+    - "Conduzir teste de respiração espontânea (TRE) de 30-120 minutos"
+    - "Avaliar RSBI (FR/Vt) antes da extubação"
+    - "Monitorizar gasometria e sinais de desconforto respiratório pós-extubação"

@@ -11,7 +11,14 @@ Contains:
 
 from __future__ import annotations
 
+import logging
+import os
+from pathlib import Path
 from typing import Any
+
+import yaml
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Seed pathway definitions
@@ -429,14 +436,173 @@ PATHWAY_SEEDS: list[dict[str, Any]] = [
 # Convenience lookup — built lazily for module-load performance
 _PATHWAY_BY_ID: dict[int, dict[str, Any]] = {}
 _PATHWAY_BY_SLUG: dict[str, dict[str, Any]] = {}
+_LOADED_FROM_YAML: bool = False
+
+# ── Default YAML pathway directories (relative to repo root) ──
+_DEFAULT_YAML_DIRS: tuple[str, ...] = (
+    "_work/alerts/pathways",
+)
+
+
+def _load_pathways_from_yaml(
+    yaml_dirs: tuple[str, ...] | None = None,
+    repo_root: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load pathway definitions from YAML files in the given directories.
+
+    Reads *.yaml and *.yml files from each directory, parses them,
+    and returns a list of pathway dicts compatible with the PATHWAY_SEEDS
+    structure. Files are loaded relative to the repository root.
+
+    Args:
+        yaml_dirs: Tuple of directory paths relative to repo_root.
+                   Defaults to _DEFAULT_YAML_DIRS.
+        repo_root: Absolute path to the repository root. Auto-detected
+                   by traversing up from this file's location if None.
+
+    Returns:
+        List of pathway dicts with states and criteria from YAML files.
+        Returns empty list if no YAML files are found or parse errors occur.
+    """
+    if yaml_dirs is None:
+        yaml_dirs = _DEFAULT_YAML_DIRS
+
+    if repo_root is None:
+        # Auto-detect repo root: go up from this source file until we find
+        # a marker like .git or setup.py, or just use ../../../ from this file
+        _this_file = Path(__file__).resolve()
+        _candidate = _this_file.parent.parent.parent  # src/intensicare/services -> repo root
+        # Validate by checking for a known marker
+        for marker in (".git", "pyproject.toml", "setup.py", "setup.cfg"):
+            if (_candidate / marker).exists():
+                repo_root = str(_candidate)
+                break
+        if repo_root is None:
+            # Fallback: just use the computed parent dir
+            repo_root = str(_candidate)
+
+    pathways: list[dict[str, Any]] = []
+    for yaml_dir in yaml_dirs:
+        full_dir = os.path.join(repo_root, yaml_dir)
+        if not os.path.isdir(full_dir):
+            logger.debug("YAML pathway directory not found: %s", full_dir)
+            continue
+
+        for fname in sorted(os.listdir(full_dir)):
+            fpath = os.path.join(full_dir, fname)
+            if not fname.endswith((".yaml", ".yml")):
+                continue
+            if not os.path.isfile(fpath):
+                continue
+
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    raw = yaml.safe_load(f)
+            except yaml.YAMLError as exc:
+                logger.warning("Failed to parse YAML pathway %s: %s", fpath, exc)
+                continue
+            except OSError as exc:
+                logger.warning("Failed to read YAML pathway %s: %s", fpath, exc)
+                continue
+
+            if not isinstance(raw, dict):
+                logger.warning("YAML pathway %s is not a dict, skipping", fpath)
+                continue
+
+            # Normalize the YAML structure into the seed pathway format
+            pathway_meta = raw.get("pathway", {})
+            evaluation = raw.get("evaluation", {})
+            criteria_yaml = raw.get("criteria", [])
+            states_yaml = raw.get("states", [])
+
+            pathway_id = pathway_meta.get("id")
+            if pathway_id is None:
+                logger.warning("YAML pathway %s missing pathway.id, skipping", fpath)
+                continue
+
+            # Build states in seed format
+            states: list[dict[str, Any]] = []
+            for s in states_yaml:
+                states.append({
+                    "id": s.get("id", ""),
+                    "name": s.get("name", ""),
+                    "order": s.get("order", 0),
+                    "description": s.get("description", ""),
+                    "is_terminal": s.get("is_terminal", False),
+                })
+
+            # Build criteria in seed format
+            criteria: list[dict[str, Any]] = []
+            for c in criteria_yaml:
+                pred = c.get("predicate", {})
+                criteria.append({
+                    "id": c.get("id", ""),
+                    "name": c.get("name", ""),
+                    "category": c.get("category", ""),
+                    "description": c.get("description", ""),
+                    "unit": pred.get("unit", c.get("unit", "")),
+                    "normal_range": c.get("normal_range", ""),
+                    "alert_threshold": c.get("alert_threshold", ""),
+                    # Preserve the full predicate for the compiler
+                    "predicate": pred,
+                })
+
+            pathway_dict: dict[str, Any] = {
+                "id": pathway_id,
+                "name": pathway_meta.get("name", ""),
+                "description": pathway_meta.get("description", ""),
+                "slug": pathway_meta.get("slug", ""),
+                "active": pathway_meta.get("active", True),
+                "states": states,
+                "criteria": criteria,
+                # Preserve raw YAML for predicate compilation
+                "_source_file": fpath,
+                "_raw": raw,
+            }
+            pathways.append(pathway_dict)
+            logger.info("Loaded YAML pathway: %s (%s)", pathway_meta.get("name"), fname)
+
+    return pathways
+
+
+def _merge_and_cache() -> None:
+    """Build convenience lookup dicts, merging seed + YAML pathways.
+
+    YAML-loaded pathways are appended after seed pathways.
+    Duplicate pathway IDs from YAML override seeds (last wins).
+    """
+    global _PATHWAY_BY_ID, _PATHWAY_BY_SLUG, _LOADED_FROM_YAML  # noqa: PLW0603
+
+    if _PATHWAY_BY_ID and _LOADED_FROM_YAML:
+        # Already fully loaded
+        return
+
+    # Start with seed pathways
+    for p in PATHWAY_SEEDS:
+        _PATHWAY_BY_ID[p["id"]] = p
+        _PATHWAY_BY_SLUG[p["slug"]] = p
+
+    # Load YAML pathways
+    try:
+        yaml_pathways = _load_pathways_from_yaml()
+        for p in yaml_pathways:
+            pid = p.get("id")
+            if pid is not None:
+                _PATHWAY_BY_ID[pid] = p
+            slug = p.get("slug", "")
+            if slug:
+                _PATHWAY_BY_SLUG[slug] = p
+    except Exception as exc:
+        logger.warning("Failed to load YAML pathways: %s", exc)
+        # Non-fatal — fall back to seeds only
+
+    _LOADED_FROM_YAML = True
 
 
 def _ensure_lookups() -> None:
     """Build convenience lookup dicts if not already populated."""
-    if not _PATHWAY_BY_ID:
-        for p in PATHWAY_SEEDS:
-            _PATHWAY_BY_ID[p["id"]] = p
-            _PATHWAY_BY_SLUG[p["slug"]] = p
+    if not _PATHWAY_BY_ID or not _LOADED_FROM_YAML:
+        _merge_and_cache()
 
 
 # ============================================================================
@@ -445,7 +611,7 @@ def _ensure_lookups() -> None:
 
 
 def get_pathway_catalog(active_only: bool = True) -> list[dict[str, Any]]:
-    """Return the pathway catalog (seed data for now).
+    """Return the pathway catalog (seed data + YAML pathways).
 
     Rule 1: Only active pathways are returned when active_only=True.
 
@@ -455,10 +621,16 @@ def get_pathway_catalog(active_only: bool = True) -> list[dict[str, Any]]:
     Returns:
         List of pathway dicts with states and criteria.
     """
+    _ensure_lookups()
     catalog: list[dict[str, Any]] = []
-    for p in PATHWAY_SEEDS:
+    seen_ids: set[int] = set()
+    for p in _PATHWAY_BY_ID.values():
         if active_only and not p.get("active", True):
             continue
+        pid = p["id"]
+        if pid in seen_ids:
+            continue
+        seen_ids.add(pid)
         # Return a shallow copy so callers don't mutate seeds
         catalog.append({
             "id": p["id"],

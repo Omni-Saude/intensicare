@@ -24,6 +24,7 @@ CANONICAL_UNITS: dict[str, set[str]] = {
     "volume": {"mL", "L", "mL/kg"},
     "time": {"h", "min", "s", "days"},
     "scoring": {"points", "score"},
+    "nutrition": {"g/kg/dia", "episódios/dia"},
     "ratio": {"", "ratio"},
 }
 

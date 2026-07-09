@@ -49,7 +49,9 @@ CANONICAL_UNITS: dict[str, set[str]] = {
     "volume": {"mL", "L", "mL/kg"},
     "time": {"h", "min", "s", "days"},
     "scoring": {"points", "score"},
-    "ratio": {"", "ratio"},
+    "ratio": {"", "ratio", "ciclos/min/L", "dimensionless"},
+    "nutrition": {"g/kg/dia", "kcal/kg/dia", "episódios/dia"},
+    "events": {"episodios/dia", "episódios/dia"},
 }
 
 ALL_CANONICAL: set[str] = {u for units in CANONICAL_UNITS.values() for u in units}
