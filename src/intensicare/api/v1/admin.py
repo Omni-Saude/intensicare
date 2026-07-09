@@ -17,7 +17,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.auth.dependencies import require_admin
+from intensicare.auth.dependencies import get_current_tenant_id, require_admin
+from intensicare.auth.abac import (
+    ABACAccessDenied,
+    Action,
+    ResourceType,
+    require_abac,
+)
 from intensicare.core.database import get_db
 from intensicare.models.audit_trail import AuditTrail
 from intensicare.models.user import User
@@ -157,12 +163,23 @@ async def _write_audit(
     "/users",
     response_model=UserListResponse,
     summary="List all users",
-    dependencies=[Depends(require_admin)],
 )
 async def list_users(
+    request: Request,
     session: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_admin),
 ) -> UserListResponse:
     """List all registered users with their roles and statuses (admin-only)."""
+    # ABAC enforcement
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str="admin",
+        resource=ResourceType.USER,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await session.execute(select(User).order_by(User.id))
     users = result.scalars().all()
     return UserListResponse(
@@ -184,6 +201,16 @@ async def create_user(
     request: Request = None,  # type: ignore[assignment]  # noqa: ARG001
 ) -> UserOut:
     """Create a new user (admin-only)."""
+    # ABAC enforcement
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str="admin",
+        resource=ResourceType.USER,
+        action=Action.WRITE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     # Check for duplicate username
     result = await session.execute(
         select(User).where(User.username == body.username)
@@ -255,6 +282,16 @@ async def update_user(
     request: Request = None,  # type: ignore[assignment]  # noqa: ARG001
 ) -> UserOut:
     """Update a user's role, active status, or display name (admin-only)."""
+    # ABAC enforcement
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str="admin",
+        resource=ResourceType.USER,
+        action=Action.WRITE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     user = await _get_user_or_404(session, user_id)
 
     # Serialize before-state for audit

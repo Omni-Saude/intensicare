@@ -54,6 +54,8 @@ class ResourceType(str, Enum):
     DASHBOARD = "dashboard"
     ALERTS = "alerts"
     THRESHOLDS = "thresholds"
+    USER = "user"
+    TENANT = "tenant"
 
 
 class Action(str, Enum):
@@ -228,6 +230,18 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         role=ClinicalRole.ADMIN,
         resource=ResourceType.DASHBOARD,
         allowed_actions={Action.READ, Action.ADMIN},
+    ),
+    # Admin: user management
+    ABACPolicy(
+        role=ClinicalRole.ADMIN,
+        resource=ResourceType.USER,
+        allowed_actions={Action.READ, Action.WRITE, Action.DELETE, Action.ADMIN},
+    ),
+    # Admin: tenant management
+    ABACPolicy(
+        role=ClinicalRole.ADMIN,
+        resource=ResourceType.TENANT,
+        allowed_actions={Action.READ, Action.WRITE, Action.DELETE, Action.ADMIN},
     ),
 
     # Viewer: somente leitura
