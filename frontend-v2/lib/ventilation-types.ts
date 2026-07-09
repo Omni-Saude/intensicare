@@ -220,6 +220,12 @@ export const MOCK_PARAMETERS: VentilationParameters = {
 
 // ─── Mock: Histórico de parâmetros ──────────────────────────────────────────
 
+/** Gerador determinístico — substitui Math.random() para reprodutibilidade */
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
 function generateMockHistory(count: number): VentilationParameters[] {
   const now = Date.now();
   const records: VentilationParameters[] = [];
@@ -228,16 +234,16 @@ function generateMockHistory(count: number): VentilationParameters[] {
     const t = new Date(now - i * 2 * 60 * 60 * 1000); // a cada 2h
     records.push({
       mode: (['PCV', 'PCV', 'PCV', 'VCV', 'PCV', 'PSV', 'PCV', 'PCV', 'SIMV', 'PCV'] as VentilationMode[])[i] ?? 'PCV',
-      FiO2: 0.35 + Math.round((Math.random() * 0.15) * 100) / 100,
-      PEEP: 6 + Math.floor(Math.random() * 5),
-      VC: 380 + Math.floor(Math.random() * 80),
-      FR: 14 + Math.floor(Math.random() * 10),
-      Pplat: 18 + Math.floor(Math.random() * 8),
-      driving_pressure: 10 + Math.floor(Math.random() * 8),
-      PaO2_FiO2_ratio: 150 + Math.floor(Math.random() * 100),
-      SpO2: 92 + Math.floor(Math.random() * 7),
-      tidal_volume_per_kg_pbw: 5.5 + Math.round(Math.random() * 2 * 10) / 10,
-      spontaneous_rate: Math.random() > 0.5 ? Math.floor(Math.random() * 6) : undefined,
+      FiO2: 0.35 + Math.round((seededRandom(i * 10 + 0) * 0.15) * 100) / 100,
+      PEEP: 6 + Math.floor(seededRandom(i * 10 + 1) * 5),
+      VC: 380 + Math.floor(seededRandom(i * 10 + 2) * 80),
+      FR: 14 + Math.floor(seededRandom(i * 10 + 3) * 10),
+      Pplat: 18 + Math.floor(seededRandom(i * 10 + 4) * 8),
+      driving_pressure: 10 + Math.floor(seededRandom(i * 10 + 5) * 8),
+      PaO2_FiO2_ratio: 150 + Math.floor(seededRandom(i * 10 + 6) * 100),
+      SpO2: 92 + Math.floor(seededRandom(i * 10 + 7) * 7),
+      tidal_volume_per_kg_pbw: 5.5 + Math.round(seededRandom(i * 10 + 8) * 2 * 10) / 10,
+      spontaneous_rate: seededRandom(i * 10 + 9) > 0.5 ? Math.floor(seededRandom(i * 10 + 10) * 6) : undefined,
       collected_at: t.toISOString(),
       source: 'ventilator',
     });
@@ -261,7 +267,7 @@ function generateTrendSeries(
 
   for (let i = count - 1; i >= 0; i--) {
     const t = new Date(now - i * (hoursBack / count) * 60 * 60 * 1000);
-    const variation = (Math.sin(i / (count / 4)) * amplitude) + (Math.random() - 0.5) * amplitude * 0.5;
+    const variation = (Math.sin(i / (count / 4)) * amplitude) + (seededRandom(i * 1000) - 0.5) * amplitude * 0.5;
     series.push({
       value: Math.round((baseValue + variation) * 10) / 10,
       collected_at: t.toISOString(),

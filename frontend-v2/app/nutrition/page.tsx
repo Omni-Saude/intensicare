@@ -125,7 +125,6 @@ export default function NutritionPage(): React.ReactElement {
     MOCK_PATIENTS[0]!.mpiId,
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [simulatedError, setSimulatedError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const form = useForm<NutritionFormValues>({
@@ -181,7 +180,6 @@ export default function NutritionPage(): React.ReactElement {
 
   const handleSave = useCallback(
     (data: NutritionFormValues) => {
-      setSimulatedError(null);
       setIsLoading(true);
       setSaveSuccess(false);
 
@@ -219,14 +217,7 @@ export default function NutritionPage(): React.ReactElement {
   const handleReset = useCallback(() => {
     reset(DEFAULT_FORM_VALUES);
     setSaveSuccess(false);
-    setSimulatedError(null);
   }, [reset]);
-
-  const handleSimulateError = useCallback(() => {
-    setSimulatedError(
-      'Erro ao carregar dados do paciente. Verifique a conexão com o servidor e tente novamente.',
-    );
-  }, []);
 
   // ─── Loading state ─────────────────────────────────────────────────────────
 
@@ -368,35 +359,6 @@ export default function NutritionPage(): React.ReactElement {
             </div>
           )}
 
-          {/* ── Error state (simulated) ─────────────────────────────────── */}
-          {simulatedError && (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl border text-sm"
-              style={{
-                backgroundColor: 'var(--feedback-error-bg-dark)',
-                color: 'var(--feedback-error-text-dark)',
-                borderColor: 'var(--feedback-error-border-dark)',
-              }}
-            >
-              <AlertTriangle
-                className="w-5 h-5 flex-shrink-0"
-                aria-hidden="true"
-              />
-              <span className="flex-1">{simulatedError}</span>
-              <button
-                onClick={() => setSimulatedError(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                style={{
-                  backgroundColor: 'var(--semantic-surface-raised)',
-                  color: 'var(--semantic-text-primary)',
-                }}
-              >
-                Fechar
-              </button>
-            </div>
-          )}
 
           {/* ── BMI Display ─────────────────────────────────────────────── */}
           <div>
@@ -733,20 +695,6 @@ export default function NutritionPage(): React.ReactElement {
                   Resetar
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleSimulateError}
-                  className="inline-flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 hover:opacity-80 ml-auto"
-                  style={{
-                    backgroundColor: 'var(--feedback-error-bg-dark)',
-                    color: 'var(--feedback-error-text-dark)',
-                    borderColor: 'var(--feedback-error-border-dark)',
-                    borderWidth: '1px',
-                  }}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-                  Simular Erro
-                </button>
               </div>
             </form>
           </div>

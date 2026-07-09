@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import Layout, { FullScreenLayout } from './Layout';
+import { setUser } from '@/lib/auth';
 
-// Set up a mock user in sessionStorage so getUser() works
+// Set up a mock user in the in-memory store so getUser() works
 function setupMockUser(isAdmin = false) {
   const user = {
     id: 1,
@@ -11,7 +12,7 @@ function setupMockUser(isAdmin = false) {
     is_admin: isAdmin,
     is_active: true,
   };
-  sessionStorage.setItem('intensicare_user', JSON.stringify(user));
+  setUser(user);
 }
 
 const meta: Meta<typeof Layout> = {

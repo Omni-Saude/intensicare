@@ -328,7 +328,6 @@ function EmptyState(): React.ReactElement {
 export default function FluidBalancePage(): React.ReactElement {
   const [viewMode, setViewMode] = useState<ViewMode>('24h');
   const [isLoading, setIsLoading] = useState(false);
-  const [simulatedError, setSimulatedError] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
 
   // ── Derived state ─────────────────────────────────────────────────────
@@ -349,28 +348,17 @@ export default function FluidBalancePage(): React.ReactElement {
   // ── Simulators ────────────────────────────────────────────────────────
   const simulateLoading = useCallback(() => {
     setIsLoading(true);
-    setSimulatedError(null);
     setIsEmpty(false);
     setTimeout(() => setIsLoading(false), 1500);
   }, []);
 
-  const simulateError = useCallback(() => {
-    setIsLoading(false);
-    setIsEmpty(false);
-    setSimulatedError(
-      'Erro ao carregar dados de balanço hídrico. Verifique a conexão com o servidor e tente novamente.',
-    );
-  }, []);
-
   const simulateEmpty = useCallback(() => {
     setIsLoading(false);
-    setSimulatedError(null);
     setIsEmpty(true);
   }, []);
 
   const restoreData = useCallback(() => {
     setIsLoading(false);
-    setSimulatedError(null);
     setIsEmpty(false);
   }, []);
 
@@ -434,19 +422,6 @@ export default function FluidBalancePage(): React.ReactElement {
                 Loading
               </button>
               <button
-                onClick={simulateError}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-                style={{
-                  backgroundColor: 'var(--feedback-error-bg-dark)',
-                  color: 'var(--feedback-error-text-dark)',
-                  borderColor: 'var(--feedback-error-border-dark)',
-                }}
-                aria-label="Simular erro"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-                Error
-              </button>
-              <button
                 onClick={simulateEmpty}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
                 style={{
@@ -459,7 +434,7 @@ export default function FluidBalancePage(): React.ReactElement {
                 <Droplets className="w-3.5 h-3.5" aria-hidden="true" />
                 Empty
               </button>
-              {(simulatedError || isEmpty) && (
+              {isEmpty && (
                 <button
                   onClick={restoreData}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
@@ -476,41 +451,11 @@ export default function FluidBalancePage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ── Error state (simulated) ─────────────────────────────────── */}
-          {simulatedError && (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className="flex items-start gap-3 px-4 py-3 rounded-xl border text-sm"
-              style={{
-                backgroundColor: 'var(--feedback-error-bg-dark)',
-                color: 'var(--feedback-error-text-dark)',
-                borderColor: 'var(--feedback-error-border-dark)',
-              }}
-            >
-              <AlertTriangle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <span className="flex-1">{simulatedError}</span>
-              <button
-                onClick={() => setSimulatedError(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                style={{
-                  backgroundColor: 'var(--semantic-surface-raised)',
-                  color: 'var(--semantic-text-primary)',
-                }}
-              >
-                Fechar
-              </button>
-            </div>
-          )}
-
           {/* ── Empty state ────────────────────────────────────────────── */}
-          {isEmpty && !simulatedError && <EmptyState />}
+          {isEmpty && <EmptyState />}
 
           {/* ── Main content ───────────────────────────────────────────── */}
-          {!isEmpty && !simulatedError && (
+          {!isEmpty && (
             <>
               {/* ── Summary Cards ─────────────────────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -4,6 +4,12 @@ import type { FluidBalanceTrend } from '@/lib/fluid-balance-types';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
+/** Gerador determinístico — substitui Math.random() para reprodutibilidade */
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
 function makeTrendData(): FluidBalanceTrend[] {
   const today = new Date();
   const records: FluidBalanceTrend[] = [];
@@ -13,8 +19,8 @@ function makeTrendData(): FluidBalanceTrend[] {
     d.setDate(d.getDate() - i);
     const date = d.toISOString().slice(0, 10);
 
-    const intake = 2000 + Math.round(Math.random() * 1200);
-    const output = 1500 + Math.round(Math.random() * 1000);
+    const intake = 2000 + Math.round(seededRandom(i * 2 + 0) * 1200);
+    const output = 1500 + Math.round(seededRandom(i * 2 + 1) * 1000);
 
     records.push({
       date,

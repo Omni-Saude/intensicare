@@ -304,11 +304,6 @@ function ProphylaxisBundlesPage() {
     setTimeout(() => setIsLoading(false), 1500);
   }, []);
 
-  const simulateError = useCallback(() => {
-    setIsLoading(false);
-    setError('Falha na conexão ao servidor de profilaxia. Verifique sua rede e tente novamente.');
-  }, []);
-
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -373,19 +368,6 @@ function ProphylaxisBundlesPage() {
             >
               <Loader2 className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               Loading
-            </button>
-            <button
-              onClick={simulateError}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-              style={{
-                backgroundColor: 'var(--clinical-severity-critical-wash)',
-                color: 'var(--clinical-severity-critical-on-surface)',
-                borderColor: 'var(--clinical-severity-critical-signal)',
-              }}
-              aria-label="Simular erro"
-            >
-              <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-              Error
             </button>
           </div>
         </div>

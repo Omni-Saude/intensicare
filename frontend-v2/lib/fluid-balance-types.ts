@@ -106,14 +106,20 @@ export const MOCK_TREND: FluidBalanceTrend[] = (() => {
   const today = new Date();
   const records: FluidBalanceTrend[] = [];
 
+  /** Gerador determinístico — substitui Math.random() para reprodutibilidade */
+  const seededRandom = (seed: number): number => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  };
+
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const date = d.toISOString().slice(0, 10);
 
     // Dados realistas variando com padrão clínico
-    const intake = 2000 + Math.round(Math.random() * 1200); // 2000–3200 ml
-    const output = 1500 + Math.round(Math.random() * 1000); // 1500–2500 ml
+    const intake = 2000 + Math.round(seededRandom(i * 2 + 0) * 1200); // 2000–3200 ml
+    const output = 1500 + Math.round(seededRandom(i * 2 + 1) * 1000); // 1500–2500 ml
     const balance = intake - output;
 
     records.push({

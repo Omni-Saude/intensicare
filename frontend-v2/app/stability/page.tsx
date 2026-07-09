@@ -227,16 +227,20 @@ function TrendMiniChart({
           style={{ backgroundColor: 'var(--semantic-surface-overlay)' }}
         />
         <div className="flex items-end gap-2 h-24">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-t"
-              style={{
-                height: `${30 + Math.random() * 60}%`,
-                backgroundColor: 'var(--semantic-surface-overlay)',
-              }}
-            />
-          ))}
+          {Array.from({ length: 7 }).map((_, i) => {
+            const seed = i * 37 + 13;
+            const pseudo = ((seed * 9301 + 49297) % 233280) / 233280;
+            return (
+              <div
+                key={i}
+                className="flex-1 rounded-t"
+                style={{
+                  height: `${30 + pseudo * 60}%`,
+                  backgroundColor: 'var(--semantic-surface-overlay)',
+                }}
+              />
+            );
+          })}
         </div>
       </div>
     );
