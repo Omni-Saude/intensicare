@@ -97,6 +97,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Security headers — OWASP-recommended headers (HSTS, CSP, X-Frame-Options, …)
+    from intensicare.core.security_headers import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware)
+
     # Rate limiting — prevents brute-force attacks on auth endpoints
     from intensicare.core.rate_limit import RateLimitMiddleware
     app.add_middleware(RateLimitMiddleware)

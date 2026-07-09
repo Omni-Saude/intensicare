@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # O valor ["*"] NÃO é suportado em produção com allow_credentials=True.
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Content-Security-Policy (CSP) — header value for the SecurityHeadersMiddleware.
+    # When empty, the built-in strict healthcare default is used.
+    # Set explicitly to add trusted third-party origins (e.g. CDN for fonts,
+    # monitoring RUM agent, analytics). Example:
+    #   "default-src 'self' https://cdn.example.com; script-src 'self'; …"
+    security_csp_header: str = ""
+
     # JWT / Auth (MVP — mantido como fallback para dev/test; Fase 3 usa IAM IC)
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 30
