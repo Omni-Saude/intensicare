@@ -213,14 +213,41 @@ class TestAthenaCheck:
 
     @pytest.mark.asyncio
     async def test_ok_when_configured(self):
-        """Should return ok when Athena is enabled and configured."""
+        """Should return ok when Athena query succeeds."""
+        from intensicare.clients.athena_client import AthenaQueryResult
+
+        mock_result = AthenaQueryResult(
+            rows=[{"1": "1"}],
+            column_names=["1"],
+            total_rows=1,
+            query_execution_id="test-exec-id",
+        )
         with patch(
             "intensicare.api.v1.health.settings.athena_enabled", True
         ), patch(
             "intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"
+        ), patch(
+            "intensicare.clients.athena_client.AthenaClient.execute_query",
+            AsyncMock(return_value=mock_result),
         ):
             result = await _check_athena()
             assert result.status == "ok"
+            assert "test-exec-id" in (result.detail or "")
+
+    @pytest.mark.asyncio
+    async def test_error_when_athena_fails(self):
+        """Should return error when Athena query fails."""
+        with patch(
+            "intensicare.api.v1.health.settings.athena_enabled", True
+        ), patch(
+            "intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"
+        ), patch(
+            "intensicare.clients.athena_client.AthenaClient.execute_query",
+            AsyncMock(side_effect=Exception("Athena unreachable")),
+        ):
+            result = await _check_athena()
+            assert result.status == "error"
+            assert "Athena unreachable" in (result.detail or "")
 
 
 # ─── Staleness matrix tests ──────────────────────────────────────────────────

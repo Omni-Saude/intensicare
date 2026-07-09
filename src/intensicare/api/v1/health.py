@@ -139,18 +139,20 @@ async def _check_arq() -> ComponentCheck:
 
 
 async def _check_athena() -> ComponentCheck:
-    """Verify Athena connectivity (placeholder — skipped if not configured)."""
+    """Verify Athena connectivity with a real lightweight query."""
     if not settings.athena_enabled or not settings.athena_output_location:
         return ComponentCheck(status="skipped", detail="Athena not configured")
     t0 = datetime.now(timezone.utc)
     try:
-        # Placeholder: real Athena check would use boto3 to execute a query.
-        # For now, we just verify the config is present.
+        from intensicare.clients.athena_client import AthenaClient  # noqa: PLC0415
+
+        client = AthenaClient(query_timeout=5)
+        result = await client.execute_query("SELECT 1")
         latency = (datetime.now(timezone.utc) - t0).total_seconds() * 1000
         return ComponentCheck(
             status="ok",
             latency_ms=round(latency, 2),
-            detail=f"Athena configured (database={settings.athena_database})",
+            detail=f"Athena query succeeded (exec={result.query_execution_id})",
         )
     except Exception as exc:
         logger.error("Athena health check failed: %s", exc)
