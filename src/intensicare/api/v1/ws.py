@@ -22,13 +22,13 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from starlette.websockets import WebSocketState
 
 from intensicare.auth.jwt import decode_token
-from intensicare.core.websocket import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,12 @@ class WSConnectionManager:
     async def publish(self, channel: str, data: dict[str, Any]) -> None:
         """Publish an event to all connections subscribed to *channel*."""
         disconnected: list[WebSocket] = []
-        payload = {"type": channel, "data": data}
+        payload = {
+            "type": channel,
+            "data": data,          # backward-compat (legacy consumers)
+            "payload": data,       # unified envelope
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
         for ws, conn in list(self._connections.items()):
             # Broadcast to clients listening to this channel, or to clients
@@ -275,11 +280,6 @@ async def websocket_endpoint(
     manager = get_ws_manager()
     await manager.connect(ws, user=username)
 
-    # ---- Also register with the legacy broadcast manager
-    # (so vitals ingestion, etc. can reach WS clients).
-    legacy = get_websocket_manager()
-    await legacy.connect(ws)
-
     try:
         while True:
             # Receive client messages (subscribe, unsubscribe, pong).
@@ -324,7 +324,6 @@ async def websocket_endpoint(
     except Exception:
         logger.exception("WebSocket error for user=%s", username)
     finally:
-        legacy.disconnect(ws)
         manager.disconnect(ws)
         try:
             await ws.close()

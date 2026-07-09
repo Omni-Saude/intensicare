@@ -36,7 +36,24 @@ class WebSocketManager:
         return len(self._connections)
 
     async def connect(self, websocket: WebSocket) -> None:
-        """Accept a new WebSocket connection and register it."""
+        """Accept a new WebSocket connection and register it.
+
+        .. deprecated::
+            This method is deprecated for client-facing connections.
+            Use ``WSConnectionManager.connect()`` from ``intensicare.api.v1.ws``
+            instead. The legacy ``WebSocketManager`` is now internal-only and
+            should only be used via ``broadcast_alert()`` for server-side
+            broadcasting (e.g. from vitals ingestion and notification workers).
+        """
+        import warnings
+
+        warnings.warn(
+            'WebSocketManager.connect() is deprecated for client connections. '
+            'Use WSConnectionManager (api.v1.ws) instead. '
+            'This legacy manager is now internal-only for broadcast_alert().',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         await websocket.accept()
         self._connections.append(websocket)
         self._subscriptions[websocket] = None
