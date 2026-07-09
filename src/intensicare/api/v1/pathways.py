@@ -1,14 +1,17 @@
 """Care Pathways API Router — 6 endpoints for Trilhas Engine.
 
-M4 (2026-07-09): Wired new stateless TrilhasEngine (YAML-based) for read
-endpoints (catalog, detail, patient listing). Legacy PathwayStore still
-used for enrollment, criteria update, and progress endpoints.
+M4 (2026-07-09): Wired new stateless TrilhasEngine (YAML-based) for all
+endpoints. GET endpoints use the engine as primary source with legacy
+fallback. POST/PUT endpoints use the engine for validation and declarative
+evaluation passes while still delegating state mutation to the legacy
+PathwayStore (which is the only persistent store).
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -221,6 +224,21 @@ def _find_enrollment(mpi_id: str, patient_pathway_id: int) -> dict | None:
     return None
 
 
+def _criteria_to_patient_data(
+    criteria: list[dict],
+) -> dict[str, Any]:
+    """Convert criteria update dicts to a flat patient_data dict for TrilhasEngine.
+
+    Extracts ``id`` and ``value`` from each criteria dict, suitable for
+    passing to ``TrilhasEngine.evaluate()``.
+    """
+    return {
+        c["id"]: c["value"]
+        for c in criteria
+        if c.get("id") and c.get("value") is not None
+    }
+
+
 def _parse_dt(value: object) -> datetime | None:
     """Parse a datetime-ish value into a datetime or None."""
     if value is None:
@@ -356,7 +374,33 @@ async def enroll_patient_in_pathway(
 
     Dispara a avaliação inicial dos critérios e posiciona o paciente
     no estado inicial do pathway.
+
+    M4: Validates pathway existence via new TrilhasEngine (YAML-based)
+    before enrolling via legacy PathwayStore. Falls back to pure legacy
+    if the engine is unavailable.
     """
+    engine = _get_engine()
+
+    # ── Try new TrilhasEngine for pathway validation ──
+    if engine is not None:
+        pdef = engine.get_pathway(body.pathway_id)
+        if pdef is not None:
+            logger.info(
+                "TrilhasEngine validated pathway %d (%s); enrolling via legacy store",
+                body.pathway_id, pdef.name,
+            )
+        else:
+            logger.warning(
+                "Pathway %d not found in TrilhasEngine; falling back to legacy catalog",
+                body.pathway_id,
+            )
+    else:
+        logger.warning(
+            "TrilhasEngine unavailable; enrolling via legacy PathwayStore (deprecated "
+            "— migrate YAML pathway definitions per ADR-0020)"
+        )
+
+    # ── Actual enrollment always goes through legacy store (engine is stateless) ──
     result = enroll_patient(
         mpi_id=mpi_id,
         pathway_id=body.pathway_id,
@@ -379,6 +423,23 @@ async def enroll_patient_in_pathway(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.error,
         )
+
+    # ── Run new engine evaluation as a validation pass (non-blocking) ──
+    if engine is not None and body.initial_criteria:
+        try:
+            patient_data = _criteria_to_patient_data(body.initial_criteria)
+            if patient_data:
+                alerts = engine.evaluate(mpi_id, patient_data)
+                if alerts:
+                    logger.info(
+                        "TrilhasEngine produced %d alert(s) on enrollment for mpi=%s pathway=%d",
+                        len(alerts), mpi_id, body.pathway_id,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "TrilhasEngine evaluation pass failed on enrollment (%s); continuing",
+                exc,
+            )
 
     # Fetch the created enrollment to build the full response
     enrollment = _find_enrollment(mpi_id, result.patient_pathway_id)
@@ -409,6 +470,10 @@ async def update_pathway_criteria(
     Atualiza a avaliação dos critérios para uma inscrição de pathway
     específica. Pode disparar transição de estado se todos os critérios
     forem atendidos.
+
+    M4: Runs new TrilhasEngine declarative evaluation as a validation pass
+    before applying criteria via legacy PathwayStore. Falls back to pure
+    legacy if the engine is unavailable.
     """
     # Verify enrollment exists before evaluating
     enrollment = _find_enrollment(mpi_id, patient_pathway_id)
@@ -427,6 +492,39 @@ async def update_pathway_criteria(
                    f"Apenas pathways ativos podem ter critérios atualizados.",
         )
 
+    engine = _get_engine()
+
+    # ── Run new TrilhasEngine evaluation as a validation pass (non-blocking) ──
+    if engine is not None:
+        try:
+            patient_data = _criteria_to_patient_data(body.criteria)
+            if patient_data:
+                alerts = engine.evaluate(mpi_id, patient_data)
+                if alerts:
+                    logger.info(
+                        "TrilhasEngine produced %d alert(s) on criteria update "
+                        "for mpi=%s pp_id=%d",
+                        len(alerts), mpi_id, patient_pathway_id,
+                    )
+                else:
+                    logger.debug(
+                        "TrilhasEngine evaluation pass: 0 alerts for mpi=%s pp_id=%d",
+                        mpi_id, patient_pathway_id,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "TrilhasEngine evaluation pass failed on criteria update (%s); "
+                "continuing with legacy only",
+                exc,
+            )
+    else:
+        logger.warning(
+            "TrilhasEngine unavailable; evaluating criteria via legacy "
+            "PathwayStore (deprecated — migrate YAML pathway definitions "
+            "per ADR-0020)"
+        )
+
+    # ── Actual criteria update always goes through legacy store (engine is stateless) ──
     evaluate_criteria(
         mpi_id=mpi_id,
         patient_pathway_id=patient_pathway_id,
