@@ -6,7 +6,7 @@ docs/contracts/movimentacao-openapi.yaml.
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
@@ -121,6 +121,12 @@ class AdmissionEpisode(Base):
     mpi_id: Mapped[str] = mapped_column(
         String(64), nullable=False, index=True, comment="Patient MPI identifier"
     )
+    encounter_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        comment="External encounter identifier (e.g., from AMH Gold)",
+    )
     admission_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -138,4 +144,127 @@ class AdmissionEpisode(Base):
         String(16),
         default="active",
         comment="Episode status: active, discharged",
+    )
+
+
+# ---------------------------------------------------------------------------
+# PatientLocationCurrent — localização atual do paciente (uma linha por paciente)
+# ---------------------------------------------------------------------------
+
+
+class PatientLocationCurrent(Base):
+    """Current patient location (one row per admitted patient).
+
+    Maps to the patient_location_current projection defined in ADR-025.
+    Updated by every movement event via the movement domain logic.
+    """
+
+    __tablename__ = "patient_location_current"
+
+    mpi_id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        comment="One row per admitted patient",
+    )
+    encounter_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("admission_episodes.encounter_id"),
+        nullable=False,
+        comment="Current admission episode",
+    )
+    unit: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="Current unit (e.g., UTI-1)"
+    )
+    bed_id: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="Current bed (e.g., L-101)"
+    )
+    specialty: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="Responsible clinical specialty"
+    )
+    admitted_to_unit_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When patient arrived at current unit",
+    )
+    last_movement_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp of most recent movement",
+    )
+    source_cdc_offset: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="CDC offset of the latest event applied"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        comment="Last update timestamp",
+    )
+
+    __table_args__ = (
+        Index("ix_plc_unit_bed", "unit", "bed_id"),
+        Index("ix_plc_unit", "unit"),
+        Index("ix_plc_specialty", "specialty"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# DischargeSummary — resumo de alta
+# ---------------------------------------------------------------------------
+
+
+class DischargeSummary(Base):
+    """Discharge summary — one row per discharged encounter.
+
+    Maps to the discharge_summary table defined in ADR-025.
+    Contains clinical and operational data about the discharge.
+    """
+
+    __tablename__ = "discharge_summaries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    encounter_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("admission_episodes.encounter_id"),
+        unique=True,
+        nullable=False,
+        comment="One row per discharge (unique encounter)",
+    )
+    mpi_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="Patient MPI identifier"
+    )
+    discharge_datetime: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Discharge date/time",
+    )
+    discharge_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="domiciliar, transferencia_hospitalar, obito, alta_pedido, evasao",
+    )
+    destination: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="Post-discharge destination"
+    )
+    discharge_diagnosis: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="CID-10 at discharge"
+    )
+    follow_up_scheduled: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="Whether follow-up was scheduled"
+    )
+    continuity_medication_prescribed: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="Medication continuity at discharge"
+    )
+    source_cdc_offset: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="CDC offset of source event"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        comment="Record creation timestamp",
+    )
+
+    __table_args__ = (
+        Index("ix_ds_mpi_dt", "mpi_id", "discharge_datetime"),
+        Index("ix_ds_discharge_dt", "discharge_datetime"),
+        Index("ix_ds_followup_dt", "follow_up_scheduled", "discharge_datetime"),
     )

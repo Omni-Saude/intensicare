@@ -302,8 +302,8 @@ def build_vinculo_lookup(
 
 def build_camera_rtsp_url(
     camera_ip: str,
-    username: str = "admin",
-    password: str = "admin",
+    username: str | None = None,
+    password: str | None = None,
     channel: int = 1,
     subtype: int = 0,
 ) -> str:
@@ -312,16 +312,18 @@ def build_camera_rtsp_url(
     RULE-MOVIMENTACAO-ADT-010 (RATIFIED, UNVERIFIABLE).
     Format: rtsp://{user}:{pass}@{ip}/cam/realmonitor?channel={ch}&subtype={st}
 
-    Args:
-        camera_ip: Camera IP address.
-        username: RTSP username (default: admin).
-        password: RTSP password (default: admin).
-        channel: Camera channel (default: 1).
-        subtype: Stream subtype (default: 0).
-
-    Returns:
-        RTSP URL string.
+    Credentials resolved from env var RTSP_CREDENTIALS (format
+    "user:pass"), falling back to RTSP_USER / RTSP_PASS.
     """
+    import os
+
+    if username is None or password is None:
+        creds = os.getenv("RTSP_CREDENTIALS", "")
+        if ":" in creds:
+            username, password = creds.split(":", 1)
+        else:
+            username = os.getenv("RTSP_USER", "intensicare_cam")
+            password = os.getenv("RTSP_PASS", "")
     return (
         f"rtsp://{username}:{password}@{camera_ip}"
         f"/cam/realmonitor?channel={channel}&subtype={subtype}"

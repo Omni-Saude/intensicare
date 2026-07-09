@@ -189,7 +189,7 @@ export default function AdminUsersPage() {
             <button
               onClick={loadUsers}
               style={{ borderColor: 'var(--semantic-border-default)', color: 'var(--semantic-text-secondary)' }}
-              className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-slate-50"
+              className="flex items-center gap-2 px-3 py-2 bg-[var(--semantic-surface-raised)] border rounded-lg text-sm hover:bg-[var(--semantic-surface-canvas)]"
               disabled={loading}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -231,7 +231,7 @@ export default function AdminUsersPage() {
       {!loading && users.length > 0 && (
         <div
           style={{ borderColor: 'var(--semantic-border-default)' }}
-          className="bg-white rounded-xl border shadow-sm overflow-hidden"
+          className="bg-[var(--semantic-surface-raised)] rounded-xl border shadow-sm overflow-hidden"
         >
           {/* Table header */}
           <div
@@ -252,7 +252,7 @@ export default function AdminUsersPage() {
           </div>
 
           {/* User rows */}
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-[var(--semantic-border-default)]">
             {users.map((user) => {
               const isSelf = user.id === currentUser?.id;
               const isUpdating = updating === user.id;
@@ -266,7 +266,7 @@ export default function AdminUsersPage() {
                   {/* User info */}
                   <div className="md:col-span-2">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[var(--semantic-text-secondary)] to-[var(--semantic-text-primary)] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                         {user.display_name?.[0]?.toUpperCase() || user.username[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
@@ -297,7 +297,7 @@ export default function AdminUsersPage() {
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
                         disabled={isUpdating || isSelf}
                         style={{ borderColor: 'var(--semantic-border-default)' }}
-                        className="px-2 py-1 text-xs border rounded-lg bg-white focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none disabled:opacity-40"
+                        className="px-2 py-1 text-xs border rounded-lg bg-[var(--semantic-surface-raised)] focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none disabled:opacity-40"
                       >
                         {ABAC_ROLES.map((r) => (
                           <option key={r.value} value={r.value}>
@@ -371,7 +371,7 @@ export default function AdminUsersPage() {
                       onClick={() => handleAdminToggle(user.id, user.is_admin)}
                       disabled={isUpdating || isSelf}
                       style={{ borderColor: 'var(--semantic-border-default)' }}
-                      className="px-2.5 py-1 text-xs rounded-lg border hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                      className="px-2.5 py-1 text-xs rounded-lg border hover:bg-[var(--semantic-surface-canvas)] disabled:opacity-40 transition-colors"
                       title={isSelf ? 'Não pode alterar seu próprio status de admin' : user.is_admin ? 'Remover admin' : 'Tornar admin'}
                     >
                       {isUpdating ? '...' : user.is_admin ? 'Rebaixar' : 'Promover'}
@@ -408,7 +408,7 @@ export default function AdminUsersPage() {
       {!loading && users.length === 0 && (
         <div
           style={{ borderColor: 'var(--semantic-border-default)' }}
-          className="text-center py-20 bg-white rounded-xl border"
+          className="text-center py-20 bg-[var(--semantic-surface-raised)] rounded-xl border"
         >
           <Shield className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--semantic-text-secondary)', opacity: 0.4 }} aria-hidden="true" />
           <p style={{ color: 'var(--semantic-text-secondary)' }} className="font-medium">Nenhum usuário encontrado</p>
@@ -510,7 +510,7 @@ export default function AdminUsersPage() {
               type="checkbox"
               checked={createForm.is_admin}
               onChange={(e) => setCreateForm((f) => ({ ...f, is_admin: e.target.checked }))}
-              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="rounded border-[var(--semantic-border-default)] text-blue-600 focus:ring-blue-500"
             />
             <span style={{ color: 'var(--semantic-text-primary)' }} className="text-sm">Conceder privilégios de administrador</span>
           </label>
@@ -520,7 +520,7 @@ export default function AdminUsersPage() {
           <button
             onClick={() => setShowCreate(false)}
             style={{ color: 'var(--semantic-text-secondary)', borderColor: 'var(--semantic-border-default)' }}
-            className="flex-1 px-4 py-2 text-sm font-medium bg-white border rounded-lg hover:bg-slate-50 transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-medium bg-[var(--semantic-surface-raised)] border rounded-lg hover:bg-[var(--semantic-surface-canvas)] transition-colors"
           >
             Cancelar
           </button>

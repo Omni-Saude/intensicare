@@ -3,19 +3,47 @@
 Extracted from domain_prescricao.py as part of F-CODE-004 component refactoring.
 
 Contains:
-- DRUG_INTERACTIONS: pairwise drug interaction knowledge base
+- DRUG_INTERACTIONS: pairwise drug interaction knowledge base (local ANVISA subset)
 - DRUG_CLASSES: therapeutic class groupings
 - DRUG_ALLERGY_GROUPS: cross-reactivity allergy groups
 - _check_interactions: drug-drug, drug-allergy, duplicate detection (R17-R26)
+
+ANVISA Integration (H5):
+    This module currently uses a hardcoded local knowledge base. To integrate
+    with the ANVISA Bulário Eletrônico API, import the facade from
+    ``intensicare.services.anvisa_drug_database`` and call
+    ``get_anvisa_database()`` to obtain the configured backend. The factory
+    returns ``LocalDrugDatabase`` (in-memory stub) by default and
+    ``ANVISADrugAPIClient`` (real HTTPS client) when ANVISA_API_KEY is set.
+
+    See ``_check_interactions_via_anvisa()`` below for the integration point.
+    See ``anvisa_drug_database.py`` for the full stub implementation.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from intensicare.services.domain_prescricao import PrescriptionRecord
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# ANVISA fallback import (H5)
+# =============================================================================
+#
+# When ANVISA API credentials are provisioned, uncomment the import below
+# and call _check_interactions_via_anvisa() instead of using the local
+# DRUG_INTERACTIONS dict.
+#
+# from intensicare.services.anvisa_drug_database import (
+#     ANVISAInteractionResult,
+#     get_anvisa_database,
+# )
 
 
 @dataclass
@@ -376,3 +404,79 @@ def _check_interactions(
         )
 
     return alerts
+
+
+# =============================================================================
+# ANVISA-backed interaction checker (H5 — integration point)
+# =============================================================================
+#
+# This function demonstrates how the local DRUG_INTERACTIONS dict would be
+# replaced by a call to the ANVISA API when credentials are provisioned.
+#
+# To activate:
+#   1. Set environment variables:
+#        export ANVISA_ENABLED=true
+#        export ANVISA_API_KEY="your-api-key"
+#   2. Uncomment the ANVISA imports at the top of this file.
+#   3. Replace calls to _check_interactions() with
+#      _check_interactions_via_anvisa() in domain_prescricao.py.
+
+
+async def _check_interactions_via_anvisa(
+    drug: str,
+    mpi_id: str,
+    active_prescriptions: list["PrescriptionRecord"],
+) -> list[InteractionAlert]:
+    """Check drug interactions using ANVISA API (when available).
+
+    This function mirrors ``_check_interactions()`` but delegates pairwise
+    interaction lookups to the ANVISA Bulário Eletrônico API instead of
+    the hardcoded ``DRUG_INTERACTIONS`` dict.
+
+    The ANVISA API is expected to support:
+        POST /v2/interactions/check        — pairwise check
+        POST /v2/interactions/check-bulk   — bulk pairwise check
+
+    When ANVISA is unavailable, this falls back to the local knowledge base.
+
+    Args:
+        drug: New drug name being added.
+        mpi_id: Patient identifier.
+        active_prescriptions: List of active PrescriptionRecord objects.
+
+    Returns:
+        List of InteractionAlert objects.
+    """
+    # ── ANVISA path (future) ──────────────────────────────────────────────
+    # from intensicare.services.anvisa_drug_database import (
+    #     ANVISAInteractionResult,
+    #     get_anvisa_database,
+    # )
+    #
+    # anvisa_db = get_anvisa_database()
+    # if await anvisa_db.is_available():
+    #     alerts: list[InteractionAlert] = []
+    #     for rx in active_prescriptions:
+    #         if rx.mpi_id != mpi_id or rx.status != "active":
+    #             continue
+    #         result = await anvisa_db.check_interaction(drug, rx.drug)
+    #         if result:
+    #             alerts.append(InteractionAlert(
+    #                 severity=result.severity,
+    #                 interaction_type="drug-drug",
+    #                 description=(
+    #                     f"[{result.drug_a} × {result.drug_b}] "
+    #                     f"{result.description}"
+    #                 ),
+    #                 resolved=False,
+    #             ))
+    #     return alerts
+    # ────────────────────────────────────────────────────────────────────────
+
+    # Fallback: use local knowledge base (current behavior)
+    logger.info(
+        "ANVISA API not available — falling back to local interaction database "
+        "for drug=%s patient=%s",
+        drug, mpi_id,
+    )
+    return _check_interactions(drug, mpi_id, active_prescriptions)

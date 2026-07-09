@@ -70,6 +70,9 @@ class PatientPathwayDict(TypedDict):
 
     id: int
     mpi_id: str
+    encounter_id: str
+    bed_id: str | None
+    unit: str | None
     pathway_id: int
     pathway_name: str
     pathway_slug: str
@@ -135,6 +138,9 @@ def create_pathway_store() -> PathwayStore:
 def enroll_patient(
     mpi_id: str,
     pathway_id: int,
+    encounter_id: str = "",
+    bed_id: str | None = None,
+    unit: str | None = None,
     initial_criteria: list[dict[str, Any]] | None = None,
     enrolled_by: str = "system",
     store: PathwayStore | None = None,
@@ -148,6 +154,9 @@ def enroll_patient(
     Args:
         mpi_id: Patient identifier.
         pathway_id: Pathway ID to enroll in.
+        encounter_id: Admission identifier from AMH Gold.
+        bed_id: Current bed at time of enrollment.
+        unit: Current unit at time of enrollment.
         initial_criteria: Optional list of initial criteria evaluations [{id, met, value}].
         enrolled_by: User or system identifier performing enrollment.
         store: PathwayStore instance. Uses default if None.
@@ -219,6 +228,9 @@ def enroll_patient(
     enrollment: PatientPathwayDict = {
         "id": pp_id,
         "mpi_id": mpi_id,
+        "encounter_id": encounter_id,
+        "bed_id": bed_id,
+        "unit": unit,
         "pathway_id": pathway_id,
         "pathway_name": pathway["name"],
         "pathway_slug": pathway["slug"],
@@ -456,6 +468,9 @@ def get_patient_pathways(
         results.append({
             "id": pp["id"],
             "mpi_id": pp["mpi_id"],
+            "encounter_id": pp.get("encounter_id", ""),
+            "bed_id": pp.get("bed_id"),
+            "unit": pp.get("unit"),
             "pathway_id": pp["pathway_id"],
             "pathway_name": pp.get("pathway_name", pathway["name"] if pathway else "Desconhecido"),
             "pathway_slug": pp.get("pathway_slug", pathway["slug"] if pathway else ""),

@@ -129,6 +129,11 @@ class ClinicalFormSubmissionSchema(BaseModel):
         description="Versão da definição de formulário usada",
         examples=["1.0.0"],
     )
+    definition_version: str | None = Field(
+        None,
+        description="Versão do schema do formulário (e.g., 'rass-v1.0')",
+        examples=["rass-v1.0"],
+    )
 
     class Config:
         from_attributes = True
@@ -171,6 +176,11 @@ class ClinicalFormSubmitRequest(BaseModel):
     severity: str | None = Field(
         None,
         description="Nível de severidade associado ao escore",
+    )
+    definition_version: str | None = Field(
+        None,
+        description="Versão do schema do formulário (e.g., 'rass-v1.0')",
+        examples=["rass-v1.0"],
     )
     notes: str | None = Field(
         None,

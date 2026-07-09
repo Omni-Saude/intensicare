@@ -1,0 +1,170 @@
+# Estabilidade Hemodinâmica — Pathway Definition
+# Hemodynamic stability monitoring pathway
+pathway:
+  id: 5
+  name: "Estabilidade Hemodinâmica"
+  slug: "estabilidade"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000005"
+  description: "Monitorização contínua da estabilidade hemodinâmica em pacientes críticos. Avaliação de PAM, frequência cardíaca, perfusão tecidual (lactato) e uso de vasopressores conforme diretrizes da Surviving Sepsis Campaign e ESICM."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: pam
+      source: vitals_stream
+      unit: mmHg
+      description: "Pressão arterial média — alvo hemodinâmico primário."
+    - name: fc
+      source: vitals_stream
+      unit: bpm
+      description: "Frequência cardíaca — indicador de resposta compensatória."
+    - name: lactato
+      source: amh_gold
+      unit: mmol/L
+      description: "Lactato sérico — marcador de hipoperfusão tecidual."
+    - name: vasopressor_dose
+      source: amh_gold
+      unit: mcg/kg/min
+      description: "Dose de noradrenalina (ou equivalente) em mcg/kg/min."
+
+criteria:
+  - id: crit-est-pam
+    name: "PAM"
+    category: hemodinamica
+    description: "Pressão arterial média. Alvo: PAM ≥ 65 mmHg para garantir perfusão tecidual adequada."
+    predicate:
+      type: graded
+      input: pam
+      bands:
+        - range: [0, 55]
+          severity: critical
+          score: 3
+          label: "Hipotensão grave — risco de choque"
+        - range: [55, 65]
+          severity: urgent
+          score: 2
+          label: "Hipotensão moderada — necessita ajuste"
+        - range: [65, null]
+          severity: normal
+          score: 0
+          label: "PAM adequada"
+      unit: mmHg
+
+  - id: crit-est-fc
+    name: "Frequência Cardíaca"
+    category: hemodinamica
+    description: "Frequência cardíaca como indicador de instabilidade hemodinâmica e resposta adrenérgica compensatória."
+    predicate:
+      type: graded
+      input: fc
+      bands:
+        - range: [0, 50]
+          severity: critical
+          score: 3
+          label: "Bradicardia grave"
+        - range: [50, 60]
+          severity: watch
+          score: 1
+          label: "Bradicardia leve"
+        - range: [60, 100]
+          severity: normal
+          score: 0
+          label: "FC normal"
+        - range: [100, 130]
+          severity: watch
+          score: 1
+          label: "Taquicardia leve"
+        - range: [130, null]
+          severity: urgent
+          score: 2
+          label: "Taquicardia significativa"
+      unit: bpm
+
+  - id: crit-est-lactato
+    name: "Lactato Sérico"
+    category: perfusao
+    description: "Marcador de hipoperfusão tecidual e metabolismo anaeróbico. Clearance de lactato é indicador de resposta à ressuscitação."
+    predicate:
+      type: graded
+      input: lactato
+      bands:
+        - range: [0, 2.0]
+          severity: normal
+          score: 0
+          label: "Perfusão adequada"
+        - range: [2.0, 4.0]
+          severity: watch
+          score: 1
+          label: "Hiperlactatemia moderada"
+        - range: [4.0, null]
+          severity: critical
+          score: 3
+          label: "Hipoperfusão grave / choque"
+      unit: mmol/L
+
+  - id: crit-est-vasopressor
+    name: "Dose de Vasopressor"
+    category: hemodinamica
+    description: "Dose de noradrenalina (ou equivalente). Doses elevadas indicam choque refratário e maior gravidade."
+    predicate:
+      type: graded
+      input: vasopressor_dose
+      bands:
+        - range: [0, 0.1]
+          severity: normal
+          score: 0
+          label: "Sem necessidade de vasopressor"
+        - range: [0.1, 0.3]
+          severity: watch
+          score: 1
+          label: "Dose baixa de vasopressor"
+        - range: [0.3, 0.5]
+          severity: urgent
+          score: 2
+          label: "Dose moderada — choque em evolução"
+        - range: [0.5, null]
+          severity: critical
+          score: 3
+          label: "Dose elevada — choque refratário"
+      unit: mcg/kg/min
+
+states:
+  - id: initial
+    name: "Avaliação Inicial"
+    order: 0
+    is_terminal: false
+    description: "Avaliação inicial da estabilidade hemodinâmica: PAM, FC, perfusão periférica e necessidade de suporte vasoativo."
+
+  - id: ajuste
+    name: "Ajuste Hemodinâmico"
+    order: 1
+    is_terminal: false
+    description: "Otimização de fluidos e titulação de vasopressores. Monitorização seriada de lactato e parâmetros hemodinâmicos."
+
+  - id: estabilizacao
+    name: "Estabilização"
+    order: 2
+    is_terminal: false
+    description: "Paciente com PAM ≥ 65 mmHg, lactato em clearance, dose de vasopressor estável ou em redução. Vigilância contínua."
+
+  - id: alta
+    name: "Estabilidade Alcançada"
+    order: 3
+    is_terminal: true
+    description: "Paciente hemodinamicamente estável por >24h sem vasopressores, lactato normal. Encerramento do pathway de estabilidade hemodinâmica."
+
+suppression:
+  cooldown_minutes: 15
+  rate_limit_per_hour: 6
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "Surviving Sepsis Campaign 2021; ESICM Consensus on Circulatory Shock and Hemodynamic Monitoring (2014)"
+  doi: "10.1007/s00134-014-3525-z"
+  recommendations:
+    - "Manter PAM ≥ 65 mmHg como alvo inicial de ressuscitação"
+    - "Monitorizar clearance de lactato como indicador de resposta"
+    - "Titular vasopressores para alvo de PAM, evitar doses excessivas"
+    - "Reavaliar estado hemodinâmico a cada 1-4h conforme gravidade"

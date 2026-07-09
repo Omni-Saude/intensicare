@@ -102,6 +102,138 @@ async def require_admin(
 
 
 # ---------------------------------------------------------------------------
+# GAP C7 — Clinical roles para RBAC granular
+# ---------------------------------------------------------------------------
+
+CLINICAL_ROLES = [
+    "admin",
+    "medico",
+    "enfermeiro",
+    "fisioterapeuta",
+    "farmacia",
+    "nutricao",
+    "readonly",
+]
+
+
+def _has_role(user: User, *roles: str) -> bool:
+    """Verifica se o usuário é admin ou possui um dos roles especificados."""
+    if user.is_admin:
+        return True
+    return user.role in roles
+
+
+async def require_medico(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requer admin ou role 'medico'."""
+    if not _has_role(current_user, "medico"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Médico role required",
+        )
+    return current_user
+
+
+async def require_enfermeiro(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requer admin, médico ou role 'enfermeiro'."""
+    if not _has_role(current_user, "medico", "enfermeiro"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Enfermeiro role required",
+        )
+    return current_user
+
+
+async def require_fisioterapeuta(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requer admin ou role 'fisioterapeuta'."""
+    if not _has_role(current_user, "fisioterapeuta"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Fisioterapeuta role required",
+        )
+    return current_user
+
+
+async def require_farmacia(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requer admin ou role 'farmacia'."""
+    if not _has_role(current_user, "farmacia"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Farmácia role required",
+        )
+    return current_user
+
+
+async def require_nutricao(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Requer admin ou role 'nutricao'."""
+    if not _has_role(current_user, "nutricao"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nutrição role required",
+        )
+    return current_user
+
+
+# ---------------------------------------------------------------------------
+# H15: Account lockout — Redis-based brute-force protection
+# ---------------------------------------------------------------------------
+
+_MAX_FAILED_ATTEMPTS = 5
+_LOCKOUT_DURATION_SECONDS = 900  # 15 minutes
+
+
+async def check_account_lockout(username: str) -> None:
+    """Bloqueia autenticação se conta estiver em lockout.
+
+    Levanta HTTPException 423 (Locked) se a conta excedeu o limite
+    de tentativas de login malsucedidas.
+    """
+    redis_client = get_redis()
+    lockout_key = f"lockout:{username}"
+    locked = await redis_client.get(lockout_key)
+    if locked:
+        ttl = await redis_client.ttl(lockout_key)
+        raise HTTPException(
+            status_code=423,
+            detail=f"Account locked. Try again in {ttl}s.",
+        )
+
+
+async def record_failed_login(username: str) -> None:
+    """Registra tentativa de login malsucedida e aplica lockout se necessário."""
+    redis_client = get_redis()
+    attempts_key = f"login_attempts:{username}"
+    lockout_key = f"lockout:{username}"
+
+    attempts = await redis_client.incr(attempts_key)
+    if attempts == 1:
+        await redis_client.expire(attempts_key, _LOCKOUT_DURATION_SECONDS)
+    if attempts >= _MAX_FAILED_ATTEMPTS:
+        await redis_client.setex(
+            lockout_key, _LOCKOUT_DURATION_SECONDS, "1"
+        )
+        await redis_client.delete(attempts_key)
+
+
+async def reset_login_attempts(username: str) -> None:
+    """Limpa tentativas malsucedidas após login bem-sucedido."""
+    redis_client = get_redis()
+    await redis_client.delete(
+        f"login_attempts:{username}",
+        f"lockout:{username}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # ABAC dependencies (Fase 3 / WO-037)
 # ---------------------------------------------------------------------------
 

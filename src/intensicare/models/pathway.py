@@ -14,6 +14,10 @@ class Pathway(Base):
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    definition_hash: Mapped[str | None] = mapped_column(
+        String(128), nullable=True,
+        comment="SHA-256 content hash of the compiled YAML pathway definition"
+    )
     states: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True, comment="Array of PathwayState objects")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -44,8 +48,11 @@ class PatientPathway(Base):
     __tablename__ = "patient_pathways"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    encounter_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="Admission identifier from AMH Gold")
+    bed_id: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="Current bed at time of enrollment")
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="Current unit at time of enrollment")
     pathway_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pathways.id"), nullable=False)
-    current_state: Mapped[str] = mapped_column(String(64), nullable=False)
+    current_state: Mapped[str] = mapped_column(String(64), nullable=False, comment="Current state ID (see ADR-021)")
     criteria_data: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True, comment="Criteria evaluations array")
     status: Mapped[str] = mapped_column(String(16), default="active")
     severity: Mapped[str | None] = mapped_column(String(16), nullable=True)

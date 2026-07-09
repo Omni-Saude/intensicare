@@ -24,6 +24,7 @@ from intensicare.schemas.clinical_forms_extended import (
     ClinicalFormTypeSchema,
 )
 from intensicare.services.domain_formularios import (
+    CrossFieldValidationError,
     FormSubmissionResult,
     FormTypeInfo,
     get_form_types,
@@ -67,6 +68,7 @@ def _submission_to_schema(sub: FormSubmissionResult) -> ClinicalFormSubmissionSc
         if sub.submitted_at
         else datetime.now(timezone.utc),
         version=sub.version,
+        definition_version=sub.definition_version,
     )
 
 
@@ -161,7 +163,13 @@ async def submit_form_endpoint(
             form_type=body.form_type,
             data=body.data,
             submitted_by=current_user.username,
+            definition_version=body.definition_version,
         )
+    except CrossFieldValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

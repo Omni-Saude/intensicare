@@ -350,6 +350,9 @@ def check_pathway_eligibility(
 def enroll_patient(
     mpi_id: str,
     pathway_id: int,
+    encounter_id: str = "",
+    bed_id: str | None = None,
+    unit: str | None = None,
     initial_criteria: list[dict[str, Any]] | None = None,
     enrolled_by: str = "system",
 ) -> PathwayEnrollmentResult:
@@ -357,6 +360,9 @@ def enroll_patient(
     return _enroll_patient(
         mpi_id=mpi_id,
         pathway_id=pathway_id,
+        encounter_id=encounter_id,
+        bed_id=bed_id,
+        unit=unit,
         initial_criteria=initial_criteria,
         enrolled_by=enrolled_by,
         store=_default_store,

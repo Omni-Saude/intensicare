@@ -1,6 +1,6 @@
 # ADR-024: Estratégia de Detecção de Piora Clínica — 13 regras com pontuação graduada
 
-**Status:** Proposed
+Status: accepted
 **Data:** 2026-07-07
 **Area:** Agentes / Dados / Clinico
 **Regulado:** parcial — a pontuação de deterioração sinaliza risco e NUNCA decide conduta clínica (L0-hard, ADR-0008); o outcome é sempre roteamento para avaliação humana.

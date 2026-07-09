@@ -252,9 +252,14 @@ async def websocket_endpoint(
       - Server → client: heartbeat pings, event broadcasts.
 
     Client message protocol (JSON):
-      {"action": "subscribe",   "channel": "<event_type>"}
-      {"action": "unsubscribe", "channel": "<event_type>"}
-      {"action": "pong"}
+      {"action": "subscribe",   "channel": "<event_type>", "token": "<JWT>"}
+      {"action": "unsubscribe", "channel": "<event_type>", "token": "<JWT>"}
+      {"action": "pong",        "token": "<JWT>"}
+
+    Per-message auth (M7 / F-09):
+      Every client message MUST include a ``"token"`` field with a valid JWT.
+      The server validates the token on every message using ``decode_token``.
+      Messages without a valid token are rejected with a WS error frame.
 
     Server message protocol (JSON):
       {"type": "ping"}
@@ -297,6 +302,47 @@ async def websocket_endpoint(
                     ws, {"type": "error", "message": "Invalid JSON"}
                 )
                 continue
+
+            # ── Per-message auth check (M7 / F-09) ─────────────────────────
+            # Every client message MUST carry a valid JWT token.
+            # We re-validate on each message to ensure the session hasn't
+            # been revoked or expired since the initial WebSocket handshake.
+            message_token: str | None = data.get("token")
+            if not message_token:
+                await manager.send_to_connection(
+                    ws,
+                    {
+                        "type": "error",
+                        "message": "Missing required field: token. "
+                        "Every message must include a valid JWT.",
+                    },
+                )
+                continue
+
+            message_payload = decode_token(message_token)
+            if message_payload is None:
+                await manager.send_to_connection(
+                    ws,
+                    {
+                        "type": "error",
+                        "message": "Invalid or expired token. Re-authenticate.",
+                    },
+                )
+                continue
+
+            # Verify the per-message token belongs to the same user that
+            # established the WebSocket connection.
+            message_user: str | None = message_payload.get("sub")
+            if message_user != username:
+                await manager.send_to_connection(
+                    ws,
+                    {
+                        "type": "error",
+                        "message": "Token subject mismatch.",
+                    },
+                )
+                continue
+            # ── End per-message auth check ─────────────────────────────────
 
             action = data.get("action", "").strip().lower()
             channel = data.get("channel", "").strip().lower()

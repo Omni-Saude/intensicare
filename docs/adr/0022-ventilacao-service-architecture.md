@@ -1,6 +1,6 @@
 # 0022. Ventilação service architecture: merge vs separate vs shared library
 
-Status: proposed
+Status: accepted
 Date: 2026-07-07
 Depends on: ADR-001 (AMH Data Platform consumer), ADR 0017 (realtime consolidation), ADR 0020 (trilhas-engine architecture)
 

@@ -141,7 +141,7 @@ export default function AdminThresholdsPage() {
       <div className="mb-6">
         <button
           onClick={() => router.push('/admin')}
-          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-3 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--semantic-text-secondary)] hover:text-[var(--semantic-text-primary)] mb-3 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           Back to Admin
@@ -152,8 +152,8 @@ export default function AdminThresholdsPage() {
               <Sliders className="w-5 h-5 text-white" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">Threshold Configuration</h1>
-              <p className="text-slate-500 text-sm mt-0.5">
+              <h1 className="text-2xl font-bold text-[var(--semantic-text-primary)]">Threshold Configuration</h1>
+              <p className="text-[var(--semantic-text-secondary)] text-sm mt-0.5">
                 Clinical score thresholds — per score type and scope
               </p>
             </div>
@@ -161,7 +161,7 @@ export default function AdminThresholdsPage() {
           <button
             onClick={loadThresholds}
             disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-2 px-3 py-2 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm text-[var(--semantic-text-secondary)] hover:bg-[var(--semantic-surface-canvas)]"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
             Refresh
@@ -192,15 +192,15 @@ export default function AdminThresholdsPage() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" aria-hidden="true" />
+          <RefreshCw className="w-6 h-6 text-[var(--semantic-text-secondary)] animate-spin" aria-hidden="true" />
         </div>
       )}
 
       {/* Empty state */}
       {!loading && thresholds.length === 0 && (
-        <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
-          <Sliders className="w-12 h-12 text-slate-300 mx-auto mb-4" aria-hidden="true" />
-          <p className="text-slate-500 font-medium">No thresholds configured</p>
+        <div className="text-center py-20 bg-[var(--semantic-surface-raised)] rounded-xl border border-[var(--semantic-border-default)]">
+          <Sliders className="w-12 h-12 text-[var(--semantic-text-secondary)] mx-auto mb-4" aria-hidden="true" />
+          <p className="text-[var(--semantic-text-secondary)] font-medium">No thresholds configured</p>
         </div>
       )}
 
@@ -215,17 +215,17 @@ export default function AdminThresholdsPage() {
             return (
               <div
                 key={threshold.id}
-                className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm"
+                className="bg-[var(--semantic-surface-raised)] rounded-xl border border-[var(--semantic-border-default)] p-6 shadow-sm"
               >
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--semantic-text-secondary)] to-[var(--semantic-text-primary)] flex items-center justify-center">
                     <Sliders className="w-5 h-5 text-white" aria-hidden="true" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-800">
+                    <h3 className="font-semibold text-[var(--semantic-text-primary)]">
                       {SCORE_TYPE_LABELS[threshold.score_type] || threshold.score_type}
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-[var(--semantic-text-secondary)]">
                       {getScopeLabel(threshold)} · ID {threshold.id}
                     </p>
                   </div>
@@ -256,7 +256,7 @@ export default function AdminThresholdsPage() {
                 {/* Advanced settings */}
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div>
-                    <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    <label className="text-[10px] font-semibold text-[var(--semantic-text-secondary)] uppercase tracking-wider block mb-1">
                       Rate Limit (alerts/hr)
                     </label>
                     <input
@@ -270,11 +270,11 @@ export default function AdminThresholdsPage() {
                         )
                       }
                       min={0}
-                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      className="w-full px-3 py-1.5 text-sm border border-[var(--semantic-border-default)] rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                    <label className="text-[10px] font-semibold text-[var(--semantic-text-secondary)] uppercase tracking-wider block mb-1">
                       Cooldown (min)
                     </label>
                     <input
@@ -288,7 +288,7 @@ export default function AdminThresholdsPage() {
                         )
                       }
                       min={0}
-                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      className="w-full px-3 py-1.5 text-sm border border-[var(--semantic-border-default)] rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                     />
                   </div>
                 </div>
@@ -334,7 +334,7 @@ export default function AdminThresholdsPage() {
                       style={{ left: `${(threshold.urgent_threshold / Math.max(threshold.critical_threshold, 1)) * 100}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                  <div className="flex justify-between text-[10px] text-[var(--semantic-text-secondary)] mt-1">
                     <span>0 — Normal</span>
                     <span>Watch ≥{threshold.watch_threshold}</span>
                     <span>Urgent ≥{threshold.urgent_threshold}</span>
@@ -343,8 +343,8 @@ export default function AdminThresholdsPage() {
                 </div>
 
                 {/* Audit info & save */}
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                <div className="flex items-center justify-between pt-3 border-t border-[var(--semantic-border-default)]">
+                  <div className="flex items-center gap-3 text-xs text-[var(--semantic-text-secondary)]">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" aria-hidden="true" />
                       {formatDate(threshold.updated_at)}

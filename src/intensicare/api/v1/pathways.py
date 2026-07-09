@@ -203,6 +203,9 @@ def _to_patient_pathway_schema(pp: dict) -> PatientPathwaySchema:
     return PatientPathwaySchema(
         id=pp["id"],
         mpi_id=pp["mpi_id"],
+        encounter_id=pp.get("encounter_id", ""),
+        bed_id=pp.get("bed_id"),
+        unit=pp.get("unit"),
         pathway=_to_pathway_schema(pathway),
         current_state=PathwayStateSchema(**current_state_def),
         criteria=criteria_schemas,
@@ -404,6 +407,9 @@ async def enroll_patient_in_pathway(
     result = enroll_patient(
         mpi_id=mpi_id,
         pathway_id=body.pathway_id,
+        encounter_id=body.encounter_id,
+        bed_id=body.bed_id,
+        unit=body.unit,
         initial_criteria=body.initial_criteria,
         enrolled_by=current_user.username,
     )

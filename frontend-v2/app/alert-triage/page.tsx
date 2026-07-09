@@ -127,7 +127,7 @@ export default function AlertTriagePage() {
             onClick={loadAlerts}
             disabled={loading}
             aria-label="Refresh alerts"
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm disabled:opacity-50"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -171,14 +171,14 @@ export default function AlertTriagePage() {
         </div>
 
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--semantic-text-secondary)]" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar alertas..."
             aria-label="Search alerts"
-            className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
@@ -277,7 +277,7 @@ export default function AlertTriagePage() {
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             aria-label="Previous page"
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
+            className="px-3 py-1.5 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm disabled:opacity-50"
           >
             Anterior
           </button>
@@ -291,7 +291,7 @@ export default function AlertTriagePage() {
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             disabled={page >= totalPages - 1}
             aria-label="Next page"
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
+            className="px-3 py-1.5 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm disabled:opacity-50"
           >
             Próximo
           </button>

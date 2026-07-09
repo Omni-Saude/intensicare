@@ -1,6 +1,6 @@
 # 0012. Canonical component primitives versus parallel and dead implementations
 
-Status: proposed
+Status: superseded by ADR-0019
 Date: 2026-07-03
 Audit source: trilhas-frontend @ f9656be2660ec2048ce6240b4ac418b7fe7d5a5b
 

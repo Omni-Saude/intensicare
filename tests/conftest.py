@@ -88,8 +88,10 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
         _now = datetime.now(timezone.utc)
         _versions = [
             ("MEWS-v1.0", "MEWS", "1.0.0", "mews"),
+            ("MEWS-v2.0.0", "MEWS", "2.0.0", "mews"),
             ("NEWS2-v1.0", "NEWS2", "1.0.0", "news2"),
             ("SOFA-v1.0", "SOFA", "1.0.0", "sofa"),
+            ("SOFA-v2.0.0", "SOFA", "2.0.0", "sofa"),
             ("qSOFA-v1.0", "qSOFA", "1.0.0", "qsofa"),
         ]
         for _ver, _type, _semver, _desc in _versions:

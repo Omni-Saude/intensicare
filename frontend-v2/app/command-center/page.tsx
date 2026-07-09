@@ -235,7 +235,7 @@ export default function CommandCenterPage() {
             onClick={loadData}
             disabled={loading}
             aria-label="Refresh bed board"
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-lg text-sm disabled:opacity-50"
             style={{ color: 'var(--semantic-text-secondary)' }}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -255,7 +255,7 @@ export default function CommandCenterPage() {
           }
           aria-label={`Critical: ${criticalCount} patients`}
           aria-pressed={severityFilter === 'critical'}
-          className="p-4 rounded-xl border-2 transition-all bg-white border-slate-200"
+          className="p-4 rounded-xl border-2 transition-all bg-[var(--semantic-surface-raised)] border-[var(--semantic-border-default)]"
           style={
             severityFilter === 'critical'
               ? {
@@ -296,7 +296,7 @@ export default function CommandCenterPage() {
           }
           aria-label={`Warning: ${warningCount} patients`}
           aria-pressed={severityFilter === 'warning'}
-          className="p-4 rounded-xl border-2 transition-all bg-white border-slate-200"
+          className="p-4 rounded-xl border-2 transition-all bg-[var(--semantic-surface-raised)] border-[var(--semantic-border-default)]"
           style={
             severityFilter === 'warning'
               ? {
@@ -335,7 +335,7 @@ export default function CommandCenterPage() {
           }
           aria-label={`Stable: ${normalCount} patients`}
           aria-pressed={severityFilter === 'normal'}
-          className="p-4 rounded-xl border-2 transition-all bg-white border-slate-200"
+          className="p-4 rounded-xl border-2 transition-all bg-[var(--semantic-surface-raised)] border-[var(--semantic-border-default)]"
           style={
             severityFilter === 'normal'
               ? {
@@ -382,7 +382,7 @@ export default function CommandCenterPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nome, MPI ID ou leito..."
           aria-label="Buscar pacientes"
-          className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full pl-10 pr-4 py-2.5 bg-[var(--semantic-surface-raised)] border border-[var(--semantic-border-default)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
 
@@ -394,7 +394,7 @@ export default function CommandCenterPage() {
               key={patient.mpi_id}
               onClick={() => router.push(`/patient/${patient.mpi_id}`)}
               aria-label={`Patient ${patient.display_name}${patient.bed_id ? `, bed ${patient.bed_id}` : ''}`}
-              className={`text-left rounded-r-xl border border-slate-200 p-4 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 border-l-4 ${focusedIndex === index ? 'ring-2 ring-blue-500' : ''}`}
+              className={`text-left rounded-r-xl border border-[var(--semantic-border-default)] p-4 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 border-l-4 ${focusedIndex === index ? 'ring-2 ring-blue-500' : ''}`}
               style={getSeverityStyle(patient.highest_alert_severity, 'left-accent')}
             >
               <div className="flex items-start justify-between mb-2">

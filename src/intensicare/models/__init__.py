@@ -13,7 +13,7 @@ from intensicare.models.documentacao import Documentacao
 from intensicare.models.evolucao import Evolucao, EvolucaoSection, EvolucaoTemplate
 from intensicare.models.lab_result import LabResult
 from intensicare.models.medication import MedicationAdministration, MedicationOrder
-from intensicare.models.movimentacao import AdmissionEpisode, Bed, PatientMovement
+from intensicare.models.movimentacao import AdmissionEpisode, Bed, DischargeSummary, PatientLocationCurrent, PatientMovement
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.registry import Empresa, Estabelecimento, Setor
 from intensicare.models.pathway import (
@@ -54,6 +54,7 @@ __all__ = [
     "ClinicalFormSubmission",
     "CorrelationEvent",
     "DeteriorationAssessment",
+    "DischargeSummary",
     "Documentacao",
     "Evolucao",
     "EvolucaoSection",
@@ -69,6 +70,7 @@ __all__ = [
     "PatientCache",
     "PatientMovement",
     "PatientPathway",
+    "PatientLocationCurrent",
     "Prescricao",
     "PrescriptionStateLog",
     "ProphylaxisAssessment",

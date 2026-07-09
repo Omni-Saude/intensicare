@@ -1,0 +1,144 @@
+# Antimicrobiano — Pathway Definition
+# Antimicrobial Stewardship Program pathway
+pathway:
+  id: 8
+  name: "Antimicrobiano"
+  slug: "antimicrobiano"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000008"
+  description: "Programa de Stewardship de Antimicrobianos (ASP) em UTI. Monitorização de duração de antibioticoterapia, revisão diária, descalonamento guiado por biomarcadores (PCT) e culturas."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: atb_dias
+      source: amh_gold
+      unit: dias
+      description: "Dias de antibioticoterapia em curso."
+    - name: pct
+      source: amh_gold
+      unit: ng/mL
+      description: "Procalcitonina — biomarcador para guiar descalonamento antimicrobiano."
+    - name: culturas_resultado
+      source: amh_gold
+      unit: ratio
+      description: "Resultado de culturas disponível com antibiograma (true = disponível)."
+    - name: descalonamento_status
+      source: amh_gold
+      unit: ratio
+      description: "Descalonamento ou suspensão de antimicrobiano realizado (true = realizado)."
+
+criteria:
+  - id: crit-atb-duracao
+    name: "Duração da Antibioticoterapia"
+    category: duracao
+    description: "Dias de antibioticoterapia. Revisão mandatória após 72h. Duração prolongada sem justificativa documentada deve gerar alerta."
+    predicate:
+      type: graded
+      input: atb_dias
+      bands:
+        - range: [0, 3]
+          severity: normal
+          score: 0
+          label: "Início de antibioticoterapia"
+        - range: [3, 7]
+          severity: watch
+          score: 1
+          label: "Revisão de antibioticoterapia indicada"
+        - range: [7, 10]
+          severity: urgent
+          score: 2
+          label: "Reavaliação obrigatória — risco de uso prolongado"
+        - range: [10, null]
+          severity: critical
+          score: 3
+          label: "Uso prolongado — descalonar ou justificar"
+      unit: dias
+
+  - id: crit-atb-pct
+    name: "Procalcitonina para Descalonamento"
+    category: biomarcador
+    description: "PCT como guia para descalonamento. PCT < 0.5 ng/mL ou redução >80% do pico sugere possibilidade de suspensão."
+    predicate:
+      type: graded
+      input: pct
+      bands:
+        - range: [0, 0.25]
+          severity: normal
+          score: 0
+          label: "PCT normal — provável resolução"
+        - range: [0.25, 0.5]
+          severity: watch
+          score: 1
+          label: "PCT em queda — considerar descalonamento"
+        - range: [0.5, 2.0]
+          severity: urgent
+          score: 2
+          label: "PCT elevada — manter antibioticoterapia"
+        - range: [2.0, null]
+          severity: critical
+          score: 3
+          label: "PCT muito elevada — investigar foco"
+      unit: ng/mL
+
+  - id: crit-atb-cultura
+    name: "Resultado de Culturas"
+    category: microbiologia
+    description: "Disponibilidade de resultado de culturas com antibiograma para direcionar antibioticoterapia específica."
+    predicate:
+      type: boolean
+      input: culturas_resultado
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-atb-descalonamento
+    name: "Descalonamento Realizado"
+    category: stewardship
+    description: "Ação de descalonamento ou suspensão de antimicrobiano executada conforme resultado de culturas e evolução clínica."
+    predicate:
+      type: boolean
+      input: descalonamento_status
+      operator: "=="
+      value: true
+      unit: ratio
+
+states:
+  - id: initial
+    name: "Prescrição Inicial"
+    order: 0
+    is_terminal: false
+    description: "Antibioticoterapia empírica iniciada. Aguardando resultados de culturas e evolução clínica para guiar decisão."
+
+  - id: revisao_72h
+    name: "Revisão 72h"
+    order: 1
+    is_terminal: false
+    description: "Revisão estruturada da antibioticoterapia após 72h: avaliação de culturas, biomarcadores e resposta clínica. Decisão sobre continuar, descalonar ou suspender."
+
+  - id: descalonamento
+    name: "Descalonamento Guiado"
+    order: 2
+    is_terminal: false
+    description: "Antibioticoterapia ajustada conforme antibiograma. Redução de espectro ou suspensão de um dos antimicrobianos da terapia combinada."
+
+  - id: alta
+    name: "Terapia Concluída"
+    order: 3
+    is_terminal: true
+    description: "Antibioticoterapia suspensa após completar duração adequada, com resolução clínica e laboratorial. Encerramento do pathway de antimicrobiano."
+
+suppression:
+  cooldown_minutes: 30
+  rate_limit_per_hour: 4
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "IDSA/SHEA Guidelines for Implementing an Antibiotic Stewardship Program (2016); SSC-2021 Antimicrobial Recommendations"
+  doi: "10.1093/cid/ciw118"
+  recommendations:
+    - "Revisar antibioticoterapia após 48-72h com culturas e biomarcadores"
+    - "Utilizar procalcitonina como guia para descalonamento"
+    - "Descalonar conforme antibiograma assim que disponível"
+    - "Documentar indicação e duração planejada na prescrição"

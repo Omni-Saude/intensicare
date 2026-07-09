@@ -105,6 +105,145 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Cross-field clinical validation rules (invariants)
+# ---------------------------------------------------------------------------
+
+CROSS_FIELD_RULES: dict[str, dict[str, Any]] = {
+    "cam-icu_rass_block": {
+        "description": (
+            "CAM-ICU não pode ser aplicado quando RASS = -5 (paciente incapaz "
+            "de despertar / unarousable). A avaliação de delirium requer que o "
+            "paciente responda a estímulos."
+        ),
+        "blocked_form": "cam-icu",
+        "depends_on_form": "rass",
+        "blocking_value": -5.0,
+        "blocking_condition": "eq",
+        "error_message": (
+            "CAM-ICU não aplicável — RASS = -5 (paciente incapaz de despertar)"
+        ),
+        "http_status": 422,
+        "severity": "critical",
+        "clinical_rationale": (
+            "RASS -5 indica paciente não despertável (unarousable), o que "
+            "torna impossível avaliar as características do CAM-ICU (início "
+            "agudo, desatenção, pensamento desorganizado, nível de consciência "
+            "alterado). O escore CAM-ICU é inválido neste contexto."
+        ),
+    },
+    # Future invariants can be added here:
+    # "glasgow_intubated_block": { ... },
+    # "bps_nrs_unarousable_block": { ... },
+}
+
+
+def check_cross_field_rules(
+    mpi_id: str,
+    form_type: str,
+    data: dict,
+) -> None:
+    """Validate cross-field clinical invariants before form submission.
+
+    Checks the in-memory submission store for conditions that block
+    the current form. For example, CAM-ICU is blocked when the latest
+    RASS score for the patient is -5 (unarousable).
+
+    Args:
+        mpi_id: Patient MPI identifier.
+        form_type: Form type being submitted (e.g., 'cam-icu').
+        data: Form data dict (unused currently, available for future rules).
+
+    Raises:
+        CrossFieldValidationError: When a clinical invariant is violated.
+    """
+    if form_type == "cam-icu":
+        # Check latest RASS score for this patient
+        latest_rass = _get_latest_rass_score(mpi_id)
+        if latest_rass is not None and latest_rass == -5.0:
+            rule = CROSS_FIELD_RULES["cam-icu_rass_block"]
+            raise CrossFieldValidationError(
+                message=rule["error_message"],
+                rule_id="cam-icu_rass_block",
+                http_status=rule["http_status"],
+            )
+
+
+def _get_latest_rass_score(mpi_id: str) -> float | None:
+    """Get the most recent RASS score for a patient from submissions.
+
+    Args:
+        mpi_id: Patient MPI identifier.
+
+    Returns:
+        Latest RASS score (float), or None if no RASS submitted.
+    """
+    rass_subs = [
+        s for s in _submissions
+        if s["mpi_id"] == mpi_id and s["form_type"] == "rass" and s["score"] is not None
+    ]
+    if not rass_subs:
+        return None
+    # Return the most recent (sorted by submitted_at descending)
+    rass_subs.sort(key=lambda s: s["submitted_at"], reverse=True)
+    return float(rass_subs[0]["score"])
+
+
+class CrossFieldValidationError(ValueError):
+    """Raised when a cross-field clinical invariant is violated.
+
+    Carries additional metadata for API layer to produce proper HTTP responses.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        rule_id: str = "",
+        http_status: int = 422,
+    ) -> None:
+        super().__init__(message)
+        self.rule_id = rule_id
+        self.http_status = http_status
+
+
+# Known definition versions per form type
+VALID_DEFINITION_VERSIONS: dict[str, frozenset[str]] = {
+    "rass": frozenset({"rass-v1.0", "1.0.0"}),
+    "cam-icu": frozenset({"cam-icu-v1.0", "1.0.0"}),
+    "bps-nrs": frozenset({"bps-nrs-v1.0", "1.0.0"}),
+    "glasgow": frozenset({"glasgow-v1.0", "1.0.0"}),
+    "sofa": frozenset({"sofa-v1.0", "1.0.0"}),
+}
+
+
+def _validate_definition_version(
+    form_type: str,
+    definition_version: str | None,
+) -> None:
+    """Validate that the definition_version is known for the form_type.
+
+    Args:
+        form_type: Form type (rass, cam-icu, etc.).
+        definition_version: Schema version string.
+
+    Raises:
+        ValueError: If definition_version is unknown for the form_type.
+    """
+    if definition_version is None:
+        return  # None is acceptable (no version specified)
+
+    known_versions = VALID_DEFINITION_VERSIONS.get(form_type)
+    if known_versions is None:
+        # Unknown form_type — handled elsewhere
+        return
+
+    if definition_version not in known_versions:
+        raise ValueError(
+            f"definition_version '{definition_version}' não reconhecido para "
+            f"form_type '{form_type}'. Versões conhecidas: {sorted(known_versions)}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # In-memory submission store
 # ---------------------------------------------------------------------------
 
@@ -147,6 +286,7 @@ class FormSubmissionResult:
     submitted_by: str = ""
     submitted_at: str = ""
     version: str = "1.0.0"
+    definition_version: str | None = None
 
 
 @dataclass
@@ -193,6 +333,7 @@ def submit_form(
     form_type: str,
     data: dict,
     submitted_by: str = "system",
+    definition_version: str | None = None,
 ) -> FormSubmissionResult:
     """Submit a clinical form for a patient.
 
@@ -202,6 +343,7 @@ def submit_form(
         form_type: One of rass, cam-icu, bps-nrs, glasgow, sofa.
         data: Form-specific data dict.
         submitted_by: Clinician or system identifier.
+        definition_version: Form schema version (e.g., 'rass-v1.0').
 
     Returns:
         FormSubmissionResult with score and severity populated.
@@ -214,6 +356,12 @@ def submit_form(
             f"Unknown form_type: {form_type!r}. "
             f"Must be one of: {', '.join(FORM_DEFINITIONS)}"
         )
+
+    # ── Validate definition_version ────────────────────────────────────
+    _validate_definition_version(form_type, definition_version)
+
+    # ── Cross-field clinical invariant validation ──────────────────────
+    check_cross_field_rules(mpi_id, form_type, data)
 
     score, severity = calculate_score(form_type, data)
 
@@ -228,6 +376,7 @@ def submit_form(
         "submitted_by": submitted_by,
         "submitted_at": _now_iso(),
         "version": "1.0.0",
+        "definition_version": definition_version,
     }
     _submissions.append(submission)
 
@@ -242,6 +391,7 @@ def submit_form(
         submitted_by=submission["submitted_by"],
         submitted_at=submission["submitted_at"],
         version=submission["version"],
+        definition_version=submission.get("definition_version"),
     )
 
 
@@ -289,6 +439,7 @@ def list_submissions(
             submitted_by=s["submitted_by"],
             submitted_at=s["submitted_at"],
             version=s["version"],
+            definition_version=s.get("definition_version"),
         )
         for s in page
     ]

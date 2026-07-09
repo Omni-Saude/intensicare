@@ -58,7 +58,7 @@ function RASSBar({ currentScore }: RASSBarProps): React.ReactElement {
           return (
             <div
               key={val}
-              className={`flex-1 transition-all ${isActive ? 'ring-2 ring-offset-1 ring-white dark:ring-gray-900' : ''}`}
+              className={`flex-1 transition-all ${isActive ? 'ring-2 ring-offset-1 ring-white dark:ring-[var(--semantic-text-primary)]' : ''}`}
               style={{
                 backgroundColor: getRASSColor(val),
                 opacity: isActive ? 1 : 0.45,

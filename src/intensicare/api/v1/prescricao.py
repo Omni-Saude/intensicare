@@ -1,10 +1,11 @@
 """Prescription API Router — REST endpoints for ICU prescriptions.
 
-4 endpoints conforme contrato OpenAPI:
+5 endpoints conforme contrato OpenAPI + ADR-027:
   GET    /patients/{mpi_id}/prescriptions  — List patient prescriptions
   POST   /patients/{mpi_id}/prescriptions  — Create a new prescription
   GET    /prescriptions/{id}               — Get a single prescription
   PUT    /prescriptions/{id}               — Update a prescription (state machine)
+  POST   /prescriptions/{id}/state         — Execute a state transition (ADR-027)
 """
 
 from __future__ import annotations
@@ -12,14 +13,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user
+from intensicare.core.database import get_db
 from intensicare.models.user import User
 from intensicare.schemas.prescricao import (
     InteracaoAlertaSchema,
     PrescriptionCreate,
     PrescriptionListResponse,
     PrescriptionSchema,
+    PrescriptionStateTransition,
     PrescriptionUpdate,
 )
 from intensicare.services.domain_prescricao import (
@@ -32,6 +36,7 @@ from intensicare.services.domain_prescricao import (
     get_state_machine,
     list_prescriptions,
     update_prescription,
+    _transition_state,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["prescricao"])
@@ -129,16 +134,18 @@ async def list_patient_prescriptions(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> PrescriptionListResponse:
     """List prescriptions for a patient with optional status filter.
 
     Returns {prescriptions, total} following AUDIT-007 pattern.
     """
-    result = list_prescriptions(
+    result = await list_prescriptions(
         mpi_id=mpi_id,
         status=status_filter or "all",
         limit=limit,
         offset=offset,
+        db=db,
     )
 
     return PrescriptionListResponse(
@@ -161,6 +168,7 @@ async def create_patient_prescription(
     mpi_id: str,
     body: PrescriptionCreate,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> PrescriptionSchema:
     """Create a new prescription for a patient.
 
@@ -178,7 +186,7 @@ async def create_patient_prescription(
     dose, unit = _parse_dosage(body.dosage)
 
     try:
-        result = create_prescription(
+        result = await create_prescription(
             mpi_id=mpi_id,
             drug=body.medication,
             dose=dose,
@@ -188,6 +196,7 @@ async def create_patient_prescription(
             start_time=body.start_time.isoformat() if body.start_time else "",
             notes=body.notes,
             prescribed_by=body.prescribed_by or current_user.username,
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -210,12 +219,13 @@ async def create_patient_prescription(
 async def get_single_prescription(
     prescription_id: int,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> PrescriptionSchema:
     """Get a single prescription by ID.
 
     Returns 404 if not found.
     """
-    rx = get_prescription(prescription_id)
+    rx = await get_prescription(prescription_id, db)
 
     if rx is None:
         raise HTTPException(
@@ -239,6 +249,7 @@ async def update_single_prescription(
     prescription_id: int,
     body: PrescriptionUpdate,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> PrescriptionSchema:
     """Update a prescription with state machine support.
 
@@ -266,10 +277,11 @@ async def update_single_prescription(
         updates["version"] = body.version
 
     try:
-        rx = update_prescription(
+        rx = await update_prescription(
             prescription_id=prescription_id,
             updates=updates,
             changed_by=current_user.username,
+            db=db,
         )
     except KeyError:
         raise HTTPException(
@@ -288,6 +300,90 @@ async def update_single_prescription(
         )
 
     return _to_prescription_response(rx)
+
+
+# ---------------------------------------------------------------------------
+# POST /prescriptions/{prescription_id}/state — Transition prescription state
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/prescriptions/{prescription_id}/state",
+    response_model=PrescriptionSchema,
+)
+async def transition_prescription_state(
+    prescription_id: int,
+    body: PrescriptionStateTransition,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PrescriptionSchema:
+    """Execute a state transition on a prescription (ADR-027).
+
+    Validates the transition against the state machine, enforces required
+    clinical justifications, and applies auto-end_time for terminal states.
+
+    Returns 404 if not found, 409 on version conflict or invalid transition.
+    """
+    # Load current prescription
+    rx = await get_prescription(prescription_id, db)
+    if rx is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prescription {prescription_id} not found",
+        )
+
+    # Optimistic locking check
+    if body.version != rx.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Version conflict: expected version {body.version}, "
+                f"but current version is {rx.version}. Reload and retry."
+            ),
+        )
+
+    try:
+        updated_rx = _transition_state(
+            prescription=rx,
+            new_status=body.to_status,
+            reason=body.reason,
+            changed_by=body.changed_by or current_user.username,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    # Persist the state change to DB via update_prescription
+    try:
+        persisted_rx = await update_prescription(
+            prescription_id=prescription_id,
+            updates={
+                "status": updated_rx.status,
+                "reason": body.reason,
+                "version": body.version,
+            },
+            changed_by=body.changed_by or current_user.username,
+            db=db,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prescription {prescription_id} not found",
+        )
+    except ConcurrencyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    return _to_prescription_response(persisted_rx)
 
 
 # ---------------------------------------------------------------------------

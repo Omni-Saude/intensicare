@@ -13,6 +13,8 @@ Reference schema: /_work/alerts/schema/pathway.schema.json
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import operator
 from dataclasses import dataclass, field
@@ -34,6 +36,34 @@ _OPS: dict[str, Callable[[Any, Any], bool]] = {
 }
 
 _VALID_OPERATORS: frozenset[str] = frozenset(_OPS.keys())
+
+
+# ---------------------------------------------------------------------------
+# Content-addressing: SHA-256 hash for pathway definitions
+# ---------------------------------------------------------------------------
+
+
+def compute_content_hash(definition: dict) -> str:
+    """Compute SHA-256 content hash for a pathway definition.
+
+    Produces a deterministic, content-addressed hash that uniquely
+    identifies the semantic content of a pathway definition. The same
+    definition will always produce the same hash regardless of dict
+    key ordering, whitespace in YAML serialisation, or platform.
+
+    Used by the YAML loading flow to stamp definition_version_id
+    on compiled PathwayDefinition instances, providing immutable
+    content-addressed traceability per ADR-020/ADR-021.
+
+    Args:
+        definition: A pathway definition dict (typically the raw YAML
+                    content loaded via yaml.safe_load).
+
+    Returns:
+        64-character lowercase hex SHA-256 digest.
+    """
+    canonical = json.dumps(definition, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 # ---------------------------------------------------------------------------
 # AST Nodes

@@ -1,6 +1,6 @@
 # 0023. Estabilidade scoring model: threshold-based vs ML-based vs hybrid
 
-Status: proposed
+Status: accepted
 Date: 2026-07-07
 Depends on: ADR-001 (AMH Data Platform consumer), ADR 0020 (trilhas-engine architecture), ADR 0022 (ventilação service architecture)
 

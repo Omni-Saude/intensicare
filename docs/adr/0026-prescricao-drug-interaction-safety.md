@@ -1,6 +1,6 @@
 # ADR-026: Prescrição — Arquitetura de Segurança e Interação Medicamentosa (43 regras)
 
-**Status:** Proposed
+Status: accepted
 **Data:** 2026-07-07
 **Area:** Prescrição / Segurança Clínica / Integração
 **Referência:** ADR-001 (AMH Data Platform consumer), ADR-0013 (consumo CDC como contrato de integração), ADR-0002 (LGPD e direito ao esquecimento)

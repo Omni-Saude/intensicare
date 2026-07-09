@@ -18,6 +18,8 @@ from typing import Any
 
 import yaml
 
+from intensicare.services.trilhas_compiler import compute_content_hash
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -553,6 +555,7 @@ def _load_pathways_from_yaml(
                 "description": pathway_meta.get("description", ""),
                 "slug": pathway_meta.get("slug", ""),
                 "active": pathway_meta.get("active", True),
+                "content_hash": pathway_meta.get("content_hash", "") or compute_content_hash(raw),
                 "states": states,
                 "criteria": criteria,
                 # Preserve raw YAML for predicate compilation

@@ -12,16 +12,25 @@ State machine (ADR-027):
 
 Drug interactions (ADR-026): local ANVISA base with 4 severity levels.
 Dose calculator: weight-based, renal-adjusted, age-adjusted, infusion limits.
+
+Storage: PostgreSQL via SQLAlchemy AsyncSession (Prescricao + InteracaoAlerta models).
 """
 
 from __future__ import annotations
 
-__version__ = "3.0.0"
+__version__ = "3.2.0"
 
+import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from intensicare.models.prescricao import InteracaoAlerta, Prescricao
 
 # Re-exports from extracted modules for backward compatibility
 from intensicare.services.drug_safety import (  # noqa: F401
@@ -41,17 +50,88 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Conversion helpers: PrescriptionRecord <-> Prescricao (DB model)
+# =============================================================================
+
+
+def _parse_dosage(dosage_str: str) -> tuple[float, str]:
+    """Parse a dosage string like '500mg' into (dose, unit).
+
+    Returns (0.0, 'mg') if unable to parse.
+    """
+    if not dosage_str:
+        return 0.0, "mg"
+    dosage_str = dosage_str.strip()
+    match = re.match(r"^([\d.]+)\s*([a-zA-Z/%]+)$", dosage_str)
+    if match:
+        return float(match.group(1)), match.group(2)
+    try:
+        return float(dosage_str), "mg"
+    except ValueError:
+        return 0.0, "mg"
+
+
+def _record_to_dosage(dose: float, unit: str) -> str:
+    """Convert dose + unit to combined dosage string (e.g., 500.0, 'mg' → '500.0mg')."""
+    return f"{dose}{unit}"
+
+
+def _model_to_record(model: Prescricao) -> PrescriptionRecord:
+    """Convert a DB Prescricao model to a domain PrescriptionRecord."""
+    dose, unit = _parse_dosage(model.dosage)
+    return PrescriptionRecord(
+        id=model.id,
+        mpi_id=model.mpi_id,
+        drug=model.medication,
+        dose=dose,
+        unit=unit,
+        route=model.route,
+        frequency=model.frequency,
+        start_time=model.start_time.isoformat() if model.start_time else "",
+        end_time=model.end_time.isoformat() if model.end_time else None,
+        status=model.status,
+        version=model.version,
+        notes=model.notes,
+        prescribed_by=model.prescribed_by,
+        created_at=model.created_at.isoformat() if model.created_at else "",
+        updated_at=model.updated_at.isoformat() if model.updated_at else "",
+    )
+
+
+def _alert_model_to_domain(model: InteracaoAlerta) -> InteractionAlert:
+    """Convert a DB InteracaoAlerta to a domain InteractionAlert."""
+    return InteractionAlert(
+        id=model.id,
+        severity=model.severity,
+        interaction_type=model.interaction_type,
+        description=model.description,
+        resolved=model.resolved,
+    )
+
+
+# =============================================================================
 # Backward-compatible wrapper for _check_interactions
 # =============================================================================
 
 
-def _check_interactions(drug: str, mpi_id: str) -> list[InteractionAlert]:
-    """R17-R26: Check drug-drug/duplicate interactions (backward-compatible wrapper).
+async def _check_interactions(
+    drug: str,
+    mpi_id: str,
+    db: AsyncSession,
+) -> list[InteractionAlert]:
+    """R17-R26: Check drug-drug/duplicate interactions (DB-backed).
 
-    Maintains the original 2-argument signature expected by existing test suites.
-    Internally delegates to the refactored version in drug_interactions.py.
+    Queries active prescriptions from PostgreSQL for the given patient
+    and delegates to the refactored core in drug_interactions.py.
     """
-    active_rx_list = list(_prescriptions.values())
+    result = await db.execute(
+        select(Prescricao).where(
+            Prescricao.mpi_id == mpi_id,
+            Prescricao.status == "active",
+        )
+    )
+    active_models = result.scalars().all()
+    active_rx_list = [_model_to_record(m) for m in active_models]
     return _check_interactions_core(drug, mpi_id, active_rx_list)
 
 
@@ -333,25 +413,18 @@ class PrescriptionListResult:
 
 
 # =============================================================================
-# In-memory store (to be replaced by DB via API router)
+# DB-backed storage helpers (replaces in-memory _prescriptions / _alerts dicts)
 # =============================================================================
-
-_prescriptions: dict[int, PrescriptionRecord] = {}
-_alerts: dict[int, list[InteractionAlert]] = {}
-_next_id: int = 1
-
-
-def _generate_id() -> int:
-    """Generate next sequential prescription ID."""
-    global _next_id
-    pid = _next_id
-    _next_id += 1
-    return pid
 
 
 def _now_iso() -> str:
     """Return current UTC timestamp as ISO-8601 string."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _now_dt() -> datetime:
+    """Return current UTC datetime."""
+    return datetime.now(timezone.utc)
 
 
 # =============================================================================
@@ -433,29 +506,41 @@ def _validate_input(
 
 
 # =============================================================================
-# Rule R11-R16: Duplicate and conflict detection
+# Rule R11-R16: Duplicate and conflict detection (DB-backed)
 # =============================================================================
 
 
-def _check_duplicate(mpi_id: str, drug: str, route: str) -> list[str]:
+async def _check_duplicate(
+    mpi_id: str,
+    drug: str,
+    route: str,
+    db: AsyncSession,
+) -> list[str]:
     """R11: Check for duplicate active prescription for same drug+route+patient."""
     warnings: list[str] = []
-    drug_key = drug.lower().replace(" ", "_")
-    for rx in _prescriptions.values():
-        if (
-            rx.mpi_id == mpi_id
-            and rx.drug.lower().replace(" ", "_") == drug_key
-            and rx.route == route
-            and rx.status == "active"
-        ):
+    drug_lower = drug.lower().replace(" ", "_")
+
+    result = await db.execute(
+        select(Prescricao).where(
+            Prescricao.mpi_id == mpi_id,
+            Prescricao.route == route,
+            Prescricao.status == "active",
+        )
+    )
+    for rx_model in result.scalars().all():
+        if rx_model.medication.lower().replace(" ", "_") == drug_lower:
             warnings.append(
                 f"R11: Paciente {mpi_id} já possui prescrição ativa de {drug} "
-                f"via {route} (ID: {rx.id}). Verificar duplicidade."
+                f"via {route} (ID: {rx_model.id}). Verificar duplicidade."
             )
     return warnings
 
 
-def _check_same_class_duplicate(mpi_id: str, drug: str) -> list[str]:
+async def _check_same_class_duplicate(
+    mpi_id: str,
+    drug: str,
+    db: AsyncSession,
+) -> list[str]:
     """R12: Check for duplicate therapeutic class."""
     warnings: list[str] = []
     drug_key = drug.lower().replace(" ", "_")
@@ -463,15 +548,20 @@ def _check_same_class_duplicate(mpi_id: str, drug: str) -> list[str]:
     if not new_class:
         return warnings
 
-    for rx in _prescriptions.values():
-        if rx.mpi_id == mpi_id and rx.status == "active":
-            rx_key = rx.drug.lower().replace(" ", "_")
-            rx_class = DRUG_CLASSES.get(rx_key)
-            if rx_class and rx_class == new_class and rx_key != drug_key:
-                warnings.append(
-                    f"R12: Duplicação de classe terapêutica '{new_class}': "
-                    f"{drug} + {rx.drug} já ativos para o paciente {mpi_id}."
-                )
+    result = await db.execute(
+        select(Prescricao).where(
+            Prescricao.mpi_id == mpi_id,
+            Prescricao.status == "active",
+        )
+    )
+    for rx_model in result.scalars().all():
+        rx_key = rx_model.medication.lower().replace(" ", "_")
+        rx_class = DRUG_CLASSES.get(rx_key)
+        if rx_class and rx_class == new_class and rx_key != drug_key:
+            warnings.append(
+                f"R12: Duplicação de classe terapêutica '{new_class}': "
+                f"{drug} + {rx_model.medication} já ativos para o paciente {mpi_id}."
+            )
     return warnings
 
 
@@ -507,14 +597,17 @@ def _validate_temporal_constraints(
     return warnings
 
 
-def _validate_prescription_limits(mpi_id: str) -> list[str]:
+async def _validate_prescription_limits(
+    mpi_id: str,
+    db: AsyncSession,
+) -> list[str]:
     """R15-R16: Prescription safety limits.
 
     R15: Maximum active prescriptions per patient (15).
     R16: Polypharmacy alert threshold (8 active drugs).
     """
     warnings: list[str] = []
-    active_count = count_active_prescriptions(mpi_id)
+    active_count = await count_active_prescriptions(mpi_id, db)
 
     # R15: Hard limit — max 15 active prescriptions
     if active_count >= 15:
@@ -580,17 +673,18 @@ def _transition_state(
 
 
 # =============================================================================
-# Public API — Main functions
+# Public API — Main functions (DB-backed)
 # =============================================================================
 
 
-def create_prescription(
+async def create_prescription(
     mpi_id: str,
     drug: str,
     dose: float,
     unit: str,
     route: str,
     frequency: str,
+    db: AsyncSession,
     start_time: str = "",
     notes: str | None = None,
     prescribed_by: str = "system",
@@ -605,7 +699,7 @@ def create_prescription(
     2. Check duplicates (R11-R12)
     3. Check drug interactions (R17-R26)
     4. Validate dose (R27-R35)
-    5. Create record in in-memory store
+    5. Persist to PostgreSQL
 
     Args:
         mpi_id: Patient identifier (MPI — Master Patient Index).
@@ -614,6 +708,7 @@ def create_prescription(
         unit: Dose unit (mg, g, mcg, UI, mEq, etc.).
         route: Administration route (IV, PO, SC, etc.).
         frequency: Dosing frequency (8/8h, QID, continuous, etc.).
+        db: Async SQLAlchemy session.
         start_time: ISO-8601 timestamp. Defaults to now.
         notes: Optional clinical notes.
         prescribed_by: Prescribing clinician identifier.
@@ -634,13 +729,13 @@ def create_prescription(
         raise ValueError("Erro de validação:\n" + "\n".join(f"  - {e}" for e in errors))
 
     # Step 2: Check duplicates and temporal constraints
-    dup_warnings = _check_duplicate(mpi_id, drug, route)
-    dup_warnings += _check_same_class_duplicate(mpi_id, drug)
+    dup_warnings = await _check_duplicate(mpi_id, drug, route, db)
+    dup_warnings += await _check_same_class_duplicate(mpi_id, drug, db)
     dup_warnings += _validate_temporal_constraints(start_time)
-    dup_warnings += _validate_prescription_limits(mpi_id)
+    dup_warnings += await _validate_prescription_limits(mpi_id, db)
 
     # Step 3: Check drug interactions
-    alerts = _check_interactions(drug, mpi_id)
+    alerts = await _check_interactions(drug, mpi_id, db)
 
     # Step 4: Validate dose
     dose_valid, dose_warnings = _validate_dose(
@@ -658,17 +753,17 @@ def create_prescription(
             + "\n".join(f"  - {a.description}" for a in contraindicated)
         )
 
-    # Step 5: Create prescription record
-    now = _now_iso()
-    record = PrescriptionRecord(
-        id=_generate_id(),
+    # Step 5: Persist to PostgreSQL
+    now = _now_dt()
+    start_dt = datetime.fromisoformat(start_time) if start_time else now
+
+    db_model = Prescricao(
         mpi_id=mpi_id,
-        drug=drug,
-        dose=dose,
-        unit=unit,
+        medication=drug,
+        dosage=_record_to_dosage(dose, unit),
         route=route,
         frequency=frequency,
-        start_time=start_time or now,
+        start_time=start_dt,
         status="active",
         version=1,
         notes=notes,
@@ -676,11 +771,25 @@ def create_prescription(
         created_at=now,
         updated_at=now,
     )
+    db.add(db_model)
+    await db.flush()  # Get the auto-generated id
 
-    # Store in memory (id is guaranteed set by _generate_id above)
-    assert record.id is not None
-    _prescriptions[record.id] = record
-    _alerts[record.id] = alerts
+    # Persist interaction alerts
+    for alert in alerts:
+        alert_model = InteracaoAlerta(
+            prescricao_id=db_model.id,
+            severity=alert.severity,
+            interaction_type=alert.interaction_type,
+            description=alert.description,
+            resolved=alert.resolved,
+            created_at=now,
+        )
+        db.add(alert_model)
+
+    await db.flush()
+
+    # Build domain record for return
+    record = _model_to_record(db_model)
 
     logger.info(
         "Prescription created: id=%s, patient=%s, drug=%s, dose=%s %s, route=%s, "
@@ -696,13 +805,23 @@ def create_prescription(
     )
 
 
-def get_prescription(prescription_id: int) -> PrescriptionRecord | None:
-    """Get a single prescription by ID from in-memory store."""
-    return _prescriptions.get(prescription_id)
+async def get_prescription(
+    prescription_id: int,
+    db: AsyncSession,
+) -> PrescriptionRecord | None:
+    """Get a single prescription by ID from PostgreSQL."""
+    result = await db.execute(
+        select(Prescricao).where(Prescricao.id == prescription_id)
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        return None
+    return _model_to_record(model)
 
 
-def list_prescriptions(
+async def list_prescriptions(
     mpi_id: str,
+    db: AsyncSession,
     status: str = "active",
     limit: int = 50,
     offset: int = 0,
@@ -711,6 +830,7 @@ def list_prescriptions(
 
     Args:
         mpi_id: Patient identifier. If empty string, returns all patients.
+        db: Async SQLAlchemy session.
         status: Filter by status. Use 'all' to include all statuses.
         limit: Max prescriptions to return.
         offset: Pagination offset.
@@ -718,30 +838,40 @@ def list_prescriptions(
     Returns:
         PrescriptionListResult with prescriptions and total count.
     """
+    # Build base query
+    stmt = select(Prescricao)
+
     # Filter by patient
     if mpi_id:
-        candidates = [rx for rx in _prescriptions.values() if rx.mpi_id == mpi_id]
-    else:
-        candidates = list(_prescriptions.values())
+        stmt = stmt.where(Prescricao.mpi_id == mpi_id)
 
     # Filter by status
     if status and status != "all":
-        candidates = [rx for rx in candidates if rx.status == status]
+        stmt = stmt.where(Prescricao.status == status)
+
+    # Count total
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
 
     # Sort by created_at descending (newest first)
-    candidates.sort(key=lambda rx: rx.created_at, reverse=True)
-
-    total = len(candidates)
+    stmt = stmt.order_by(Prescricao.created_at.desc())
 
     # Paginate
-    paginated = candidates[offset : offset + limit]
+    stmt = stmt.offset(offset).limit(limit)
 
-    return PrescriptionListResult(prescriptions=paginated, total=total)
+    result = await db.execute(stmt)
+    models = result.scalars().all()
+
+    records = [_model_to_record(m) for m in models]
+
+    return PrescriptionListResult(prescriptions=records, total=total)
 
 
-def update_prescription(
+async def update_prescription(
     prescription_id: int,
     updates: dict[str, Any],
+    db: AsyncSession,
     changed_by: str = "system",
 ) -> PrescriptionRecord:
     """R43: Update a prescription with state transition support.
@@ -757,6 +887,7 @@ def update_prescription(
             - status (state transition)
             - version (optimistic locking)
             - reason (required for discontinued/suspended transitions)
+        db: Async SQLAlchemy session.
         changed_by: Clinician executing the update.
 
     Returns:
@@ -766,9 +897,16 @@ def update_prescription(
         ValueError: On validation errors, invalid transitions, or version mismatch.
         KeyError: If prescription_id not found.
     """
-    record = _prescriptions.get(prescription_id)
-    if record is None:
+    # Load DB model
+    result = await db.execute(
+        select(Prescricao).where(Prescricao.id == prescription_id)
+    )
+    db_model = result.scalar_one_or_none()
+    if db_model is None:
         raise KeyError(f"Prescrição {prescription_id} não encontrada.")
+
+    # Convert to domain record for transition logic
+    record = _model_to_record(db_model)
 
     # Optimistic locking check
     expected_version = updates.pop("version", None)
@@ -785,7 +923,7 @@ def update_prescription(
     if new_status is not None:
         _transition_state(record, new_status, reason, changed_by)
 
-    # Apply value updates
+    # Apply value updates to domain record
     updatable_fields = {"dose", "unit", "route", "frequency", "notes"}
     for field, value in updates.items():
         if field in updatable_fields:
@@ -804,6 +942,20 @@ def update_prescription(
     record.version += 1
     record.updated_at = _now_iso()
 
+    # Sync changes back to DB model
+    db_model.medication = record.drug
+    db_model.dosage = _record_to_dosage(record.dose, record.unit) if "dose" in updates or "unit" in updates else db_model.dosage
+    db_model.route = record.route
+    db_model.frequency = record.frequency
+    db_model.status = record.status
+    db_model.version = record.version
+    db_model.notes = record.notes
+    db_model.updated_at = _now_dt()
+    if record.end_time:
+        db_model.end_time = datetime.fromisoformat(record.end_time) if record.end_time else None
+
+    await db.flush()
+
     logger.info(
         "Prescription updated: id=%s, fields=%s, by=%s",
         prescription_id, list(updates.keys()), changed_by,
@@ -812,29 +964,447 @@ def update_prescription(
     return record
 
 
-def count_active_prescriptions(mpi_id: str) -> int:
-    """Count active prescriptions for a patient."""
-    return sum(
-        1 for rx in _prescriptions.values()
-        if rx.mpi_id == mpi_id and rx.status == "active"
+async def count_active_prescriptions(
+    mpi_id: str,
+    db: AsyncSession,
+) -> int:
+    """Count active prescriptions for a patient from PostgreSQL."""
+    result = await db.execute(
+        select(func.count()).select_from(Prescricao).where(
+            Prescricao.mpi_id == mpi_id,
+            Prescricao.status == "active",
+        )
+    )
+    return result.scalar() or 0
+
+
+async def get_alerts_for_prescription(
+    prescription_id: int,
+    db: AsyncSession,
+) -> list[InteractionAlert]:
+    """Get all interaction alerts for a prescription from PostgreSQL."""
+    result = await db.execute(
+        select(InteracaoAlerta).where(
+            InteracaoAlerta.prescricao_id == prescription_id,
+        )
+    )
+    models = result.scalars().all()
+    return [_alert_model_to_domain(m) for m in models]
+
+
+async def resolve_alert(
+    prescription_id: int,
+    alert_index: int,
+    db: AsyncSession,
+) -> InteractionAlert | None:
+    """Mark an interaction alert as resolved in PostgreSQL."""
+    result = await db.execute(
+        select(InteracaoAlerta).where(
+            InteracaoAlerta.prescricao_id == prescription_id,
+        ).order_by(InteracaoAlerta.id)
+    )
+    alerts = result.scalars().all()
+    if not alerts or alert_index < 0 or alert_index >= len(alerts):
+        return None
+
+    alert_model = alerts[alert_index]
+    alert_model.resolved = True
+    await db.flush()
+
+    return _alert_model_to_domain(alert_model)
+
+
+# =============================================================================
+# PrescricaoValidationPipeline — Composable validation pipeline (H4)
+# =============================================================================
+
+
+@dataclass
+class ValidatorResult:
+    """Result of a single validation check in the pipeline.
+
+    Attributes:
+        passed: Whether the validation passed.
+        severity: One of 'pass', 'fail', 'warn'.
+        rule_id: Identifier of the validation rule (e.g. 'V01').
+        message: Human-readable explanation of the result.
+    """
+
+    passed: bool
+    severity: str  # "pass", "fail", "warn"
+    rule_id: str
+    message: str
+
+
+class PrescricaoValidationPipeline:
+    """Composable validation pipeline for prescription creation/update.
+
+    Chains validators that each examine a prescription context and return
+    pass/fail/warn results. Fails are hard-stops that break the pipeline;
+    warns are advisory and do not block execution.
+
+    Usage::
+
+        pipeline = PrescricaoValidationPipeline()
+        pipeline.add_validator(validate_dose_range)
+        pipeline.add_validator(validate_weight_required)
+        results = await pipeline.run(context)
+        if pipeline.has_failures(results):
+            raise ValueError(...)
+    """
+
+    def __init__(self, name: str = "prescricao_validation") -> None:
+        self.name = name
+        self._validators: list[Callable[..., Any]] = []
+
+    def add_validator(
+        self, validator: Callable[..., Any]
+    ) -> "PrescricaoValidationPipeline":
+        """Add a validator to the pipeline. Returns self for chaining."""
+        self._validators.append(validator)
+        return self
+
+    async def run(
+        self, context: dict[str, Any]
+    ) -> list[ValidatorResult]:
+        """Run all validators sequentially.
+
+        Fails (severity='fail') stop the pipeline immediately.
+        Warns and passes continue to the next validator.
+        """
+        results: list[ValidatorResult] = []
+        for validator in self._validators:
+            try:
+                if asyncio.iscoroutinefunction(validator):
+                    result = await validator(context)
+                else:
+                    result = validator(context)
+            except Exception as exc:
+                result = ValidatorResult(
+                    passed=False,
+                    severity="fail",
+                    rule_id="V_ERR",
+                    message=f"Validator error: {exc}",
+                )
+            results.append(result)
+            if result.severity == "fail":
+                break
+        return results
+
+    def has_failures(self, results: list[ValidatorResult]) -> bool:
+        """Return True if any validator returned a failure."""
+        return any(r.severity == "fail" for r in results)
+
+    def get_warnings(self, results: list[ValidatorResult]) -> list[str]:
+        """Extract warning messages from results."""
+        return [r.message for r in results if r.severity == "warn"]
+
+    def get_errors(self, results: list[ValidatorResult]) -> list[str]:
+        """Extract error messages from results."""
+        return [r.message for r in results if r.severity == "fail"]
+
+
+# ── Individual validators (12) ───────────────────────────────────────────────
+
+
+async def validate_dose_range(context: dict[str, Any]) -> ValidatorResult:
+    """V01: Validate dose against DRUG_SAFETY range limits."""
+    drug = context.get("drug", "")
+    dose = context.get("dose", 0.0)
+    unit = context.get("unit", "")
+    route = context.get("route", "")
+    frequency = context.get("frequency", "")
+    weight_kg = context.get("weight_kg")
+    gfr = context.get("gfr")
+    age_years = context.get("age_years")
+
+    drug_key = drug.lower().replace(" ", "_")
+    safety = DRUG_SAFETY.get(drug_key)
+    if not safety:
+        return ValidatorResult(
+            passed=True, severity="pass", rule_id="V01",
+            message=f"Dose range not defined for {drug} — skipping.",
+        )
+
+    dose_valid, warnings_list = _validate_dose(
+        drug, dose, unit, route, frequency, weight_kg, gfr, age_years,
+    )
+    if not dose_valid:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V01",
+            message=f"Dose out of range: {'; '.join(warnings_list)}",
+        )
+    if warnings_list:
+        return ValidatorResult(
+            passed=True, severity="warn", rule_id="V01",
+            message=f"Dose warning: {'; '.join(warnings_list)}",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V01",
+        message="Dose within safe range.",
     )
 
 
-def get_alerts_for_prescription(prescription_id: int) -> list[InteractionAlert]:
-    """Get all interaction alerts for a prescription."""
-    return _alerts.get(prescription_id, [])
+async def validate_weight_required(context: dict[str, Any]) -> ValidatorResult:
+    """V02: Check if patient weight is required for weight-based drugs."""
+    drug = context.get("drug", "")
+    weight_kg = context.get("weight_kg")
+
+    drug_key = drug.lower().replace(" ", "_")
+    safety = DRUG_SAFETY.get(drug_key)
+    if safety and safety.get("weight_based") and (weight_kg is None or weight_kg <= 0):
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V02",
+            message=f"Weight-based drug '{drug}' requires patient weight (weight_kg).",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V02",
+        message="Weight check passed.",
+    )
 
 
-def resolve_alert(
-    prescription_id: int,
-    alert_index: int,
-) -> InteractionAlert | None:
-    """Mark an interaction alert as resolved."""
-    alerts = _alerts.get(prescription_id, [])
-    if not alerts or alert_index < 0 or alert_index >= len(alerts):
-        return None
-    alerts[alert_index].resolved = True
-    return alerts[alert_index]
+async def validate_allergy_check(context: dict[str, Any]) -> ValidatorResult:
+    """V03: Check drug allergy cross-reactivity groups."""
+    drug = context.get("drug", "")
+    drug_key = drug.lower().replace(" ", "_")
+
+    for allergy_group, drugs_in_group in DRUG_ALLERGY_GROUPS.items():
+        if drug_key in drugs_in_group:
+            return ValidatorResult(
+                passed=True, severity="warn", rule_id="V03",
+                message=(
+                    f"Drug '{drug}' belongs to allergy group '{allergy_group}'. "
+                    "Verify patient allergy history."
+                ),
+            )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V03",
+        message="No allergy group cross-reactivity flagged.",
+    )
+
+
+async def validate_interaction_check(context: dict[str, Any]) -> ValidatorResult:
+    """V04: Check drug-drug interactions against active prescriptions."""
+    drug = context.get("drug", "")
+    mpi_id = context.get("mpi_id", "")
+    db = context.get("db")
+
+    if not db:
+        return ValidatorResult(
+            passed=True, severity="pass", rule_id="V04",
+            message="No DB session provided for interaction check.",
+        )
+
+    alerts = await _check_interactions(drug, mpi_id, db)
+    contraindicated = [a for a in alerts if a.severity == "contraindicated"]
+    if contraindicated:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V04",
+            message=(
+                "Contraindicated interactions: "
+                + "; ".join(a.description for a in contraindicated)
+            ),
+        )
+    if alerts:
+        return ValidatorResult(
+            passed=True, severity="warn", rule_id="V04",
+            message=f"{len(alerts)} interaction(s) detected.",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V04",
+        message="No drug interactions detected.",
+    )
+
+
+async def validate_frequency_valid(context: dict[str, Any]) -> ValidatorResult:
+    """V05: Validate frequency string is in VALID_FREQUENCIES."""
+    frequency = context.get("frequency", "")
+    if frequency not in VALID_FREQUENCIES:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V05",
+            message=f"Invalid frequency '{frequency}'. Valid: {', '.join(VALID_FREQUENCIES)}",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V05",
+        message="Frequency valid.",
+    )
+
+
+async def validate_route_valid(context: dict[str, Any]) -> ValidatorResult:
+    """V06: Validate administration route is in VALID_ROUTES."""
+    route = context.get("route", "")
+    if route not in VALID_ROUTES:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V06",
+            message=f"Invalid route '{route}'. Valid: {', '.join(VALID_ROUTES)}",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V06",
+        message="Route valid.",
+    )
+
+
+async def validate_duplicate_check(context: dict[str, Any]) -> ValidatorResult:
+    """V07: Check for duplicate active prescription (same drug+route+patient)."""
+    drug = context.get("drug", "")
+    route = context.get("route", "")
+    mpi_id = context.get("mpi_id", "")
+    db = context.get("db")
+
+    if not db:
+        return ValidatorResult(
+            passed=True, severity="pass", rule_id="V07",
+            message="No DB session for duplicate check.",
+        )
+
+    warnings_list = await _check_duplicate(mpi_id, drug, route, db)
+    if warnings_list:
+        return ValidatorResult(
+            passed=True, severity="warn", rule_id="V07",
+            message=f"Duplicate: {'; '.join(warnings_list)}",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V07",
+        message="No duplicate prescriptions found.",
+    )
+
+
+async def validate_co_signature_required(context: dict[str, Any]) -> ValidatorResult:
+    """V08: Check if co-signature is recommended for high-risk drugs."""
+    HIGH_RISK_DRUGS: set[str] = {
+        "heparina_nao_fracionada", "enoxaparina", "insulina_regular",
+        "noradrenalina", "dobutamina", "morfina", "fentanil",
+        "cloreto_de_potassio",
+    }
+    drug = context.get("drug", "")
+    drug_key = drug.lower().replace(" ", "_")
+
+    if drug_key in HIGH_RISK_DRUGS:
+        return ValidatorResult(
+            passed=True, severity="warn", rule_id="V08",
+            message=(
+                f"High-risk drug '{drug}' — co-signature recommended "
+                "per institutional protocol."
+            ),
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V08",
+        message="Co-signature not required.",
+    )
+
+
+async def validate_pregnancy_contraindicated(context: dict[str, Any]) -> ValidatorResult:
+    """V09: Warn about pregnancy risk for teratogenic/contraindicated drugs."""
+    PREGNANCY_CONTRAINDICATED: set[str] = {
+        "amiodarona", "heparina_nao_fracionada",
+    }
+    drug = context.get("drug", "")
+    drug_key = drug.lower().replace(" ", "_")
+
+    if drug_key in PREGNANCY_CONTRAINDICATED:
+        return ValidatorResult(
+            passed=True, severity="warn", rule_id="V09",
+            message=(
+                f"Drug '{drug}' has pregnancy risk — "
+                "verify pregnancy status before administration."
+            ),
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V09",
+        message="No pregnancy contraindications flagged.",
+    )
+
+
+async def validate_renal_adjustment(context: dict[str, Any]) -> ValidatorResult:
+    """V10: Check if renal dose adjustment is needed based on GFR."""
+    drug = context.get("drug", "")
+    gfr = context.get("gfr")
+
+    drug_key = drug.lower().replace(" ", "_")
+    safety = DRUG_SAFETY.get(drug_key)
+
+    if safety and safety.get("renal_adjust"):
+        if gfr is not None and gfr < 50:
+            return ValidatorResult(
+                passed=True, severity="warn", rule_id="V10",
+                message=(
+                    f"Renal adjustment needed for '{drug}' (GFR={gfr} mL/min). "
+                    "Consider dose reduction per RENAL_ADJUSTMENTS table."
+                ),
+            )
+        if gfr is None:
+            return ValidatorResult(
+                passed=True, severity="warn", rule_id="V10",
+                message=(
+                    f"GFR not provided for renally-adjusted drug '{drug}'. "
+                    "Consider obtaining GFR for dose optimization."
+                ),
+            )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V10",
+        message="Renal adjustment not required or GFR normal.",
+    )
+
+
+async def validate_unit_valid(context: dict[str, Any]) -> ValidatorResult:
+    """V11: Validate dose unit is in VALID_UNITS."""
+    unit = context.get("unit", "")
+    if unit not in VALID_UNITS:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V11",
+            message=f"Invalid unit '{unit}'. Valid: {', '.join(VALID_UNITS)}",
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V11",
+        message="Unit valid.",
+    )
+
+
+async def validate_continuous_only_route(context: dict[str, Any]) -> ValidatorResult:
+    """V12: Validate continuous-only drugs use an infusion-compatible route."""
+    drug = context.get("drug", "")
+    route = context.get("route", "")
+    drug_key = drug.lower().replace(" ", "_")
+    safety = DRUG_SAFETY.get(drug_key)
+
+    if safety and safety.get("continuous_only") and route not in INFUSION_ROUTES:
+        return ValidatorResult(
+            passed=False, severity="fail", rule_id="V12",
+            message=(
+                f"Continuous-only drug '{drug}' requires infusion route "
+                f"(IV, SC), got '{route}'."
+            ),
+        )
+    return ValidatorResult(
+        passed=True, severity="pass", rule_id="V12",
+        message="Continuous-only route check passed.",
+    )
+
+
+# ── Pipeline builder ─────────────────────────────────────────────────────────
+
+
+def build_default_validation_pipeline() -> PrescricaoValidationPipeline:
+    """Build the default validation pipeline with all 12 validators.
+
+    Order: hard validators first (fail-fast), then warning validators.
+    """
+    pipeline = PrescricaoValidationPipeline(name="default_prescricao")
+    # Hard validators (can fail and stop the pipeline)
+    pipeline.add_validator(validate_route_valid)           # V06
+    pipeline.add_validator(validate_frequency_valid)       # V05
+    pipeline.add_validator(validate_unit_valid)            # V11
+    pipeline.add_validator(validate_weight_required)       # V02
+    pipeline.add_validator(validate_continuous_only_route) # V12
+    pipeline.add_validator(validate_dose_range)            # V01
+    pipeline.add_validator(validate_interaction_check)     # V04
+    # Warning validators (advisory, do not block)
+    pipeline.add_validator(validate_duplicate_check)       # V07
+    pipeline.add_validator(validate_allergy_check)         # V03
+    pipeline.add_validator(validate_co_signature_required) # V08
+    pipeline.add_validator(validate_pregnancy_contraindicated)  # V09
+    pipeline.add_validator(validate_renal_adjustment)      # V10
+    return pipeline
 
 
 # =============================================================================
@@ -852,4 +1422,12 @@ __all__ = [
     "get_alerts_for_prescription", "resolve_alert",
     "_calculate_dose_weight_based", "_calculate_dose_renal_adjusted",
     "_validate_dose", "_check_interactions", "_transition_state",
+    "ValidatorResult", "PrescricaoValidationPipeline",
+    "build_default_validation_pipeline",
+    "validate_dose_range", "validate_weight_required",
+    "validate_allergy_check", "validate_interaction_check",
+    "validate_frequency_valid", "validate_route_valid",
+    "validate_duplicate_check", "validate_co_signature_required",
+    "validate_pregnancy_contraindicated", "validate_renal_adjustment",
+    "validate_unit_valid", "validate_continuous_only_route",
 ]

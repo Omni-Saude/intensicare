@@ -244,11 +244,11 @@ export default function Layout({ children }: LayoutProps) {
           <div>
             <h3 className="font-semibold mb-2">Atalhos de Teclado</h3>
             <ul className="space-y-1 text-xs" style={{ color: 'var(--semantic-text-secondary)' }}>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">?</kbd> — Abrir/fechar ajuda</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">/</kbd> — Focar busca</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">1-4</kbd> — Filtrar por gravidade (Central de Comando)</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">Esc</kbd> — Limpar filtros</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">j/k</kbd> ou <kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">↓/↑</kbd> — Navegar lista</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">?</kbd> — Abrir/fechar ajuda</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">/</kbd> — Focar busca</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">1-4</kbd> — Filtrar por gravidade (Central de Comando)</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">Esc</kbd> — Limpar filtros</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">j/k</kbd> ou <kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">↓/↑</kbd> — Navegar lista</li>
             </ul>
           </div>
           <div>
@@ -309,7 +309,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/dashboard')}
-            className="flex items-center gap-2 text-slate-800 hover:text-blue-600 transition-colors"
+            className="flex items-center gap-2 text-[var(--semantic-text-primary)] hover:text-blue-600 transition-colors"
             aria-label="Ir para o painel"
           >
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center">
@@ -323,7 +323,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                 pathname === '/dashboard'
                   ? 'bg-blue-50 text-blue-700'
-                  : 'text-slate-500 hover:bg-slate-100'
+                  : 'text-[var(--semantic-text-secondary)] hover:bg-[var(--semantic-surface-canvas)]'
               }`}
             >
               Painel
@@ -333,7 +333,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                 pathname.startsWith('/command-center')
                   ? 'bg-blue-50 text-blue-700'
-                  : 'text-slate-500 hover:bg-slate-100'
+                  : 'text-[var(--semantic-text-secondary)] hover:bg-[var(--semantic-surface-canvas)]'
               }`}
             >
               Central de Comando
@@ -343,7 +343,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                 pathname.startsWith('/alert-triage')
                   ? 'bg-blue-50 text-blue-700'
-                  : 'text-slate-500 hover:bg-slate-100'
+                  : 'text-[var(--semantic-text-secondary)] hover:bg-[var(--semantic-surface-canvas)]'
               }`}
             >
               Triagem de Alertas
@@ -353,7 +353,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setHelpOpen(true)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-1.5 rounded-lg text-[var(--semantic-text-secondary)] hover:text-[var(--semantic-text-primary)] transition-colors"
             aria-label="Ajuda"
             title="Ajuda (?)"
           >
@@ -364,7 +364,7 @@ export function FullScreenLayout({ children }: LayoutProps) {
               logout();
               router.push('/login');
             }}
-            className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+            className="text-xs text-[var(--semantic-text-secondary)] hover:text-[var(--semantic-text-primary)] transition-colors"
             aria-label="Sair"
           >
             Sair
@@ -385,11 +385,11 @@ export function FullScreenLayout({ children }: LayoutProps) {
           <div>
             <h3 className="font-semibold mb-2">Atalhos de Teclado</h3>
             <ul className="space-y-1 text-xs" style={{ color: 'var(--semantic-text-secondary)' }}>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">?</kbd> — Abrir/fechar ajuda</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">/</kbd> — Focar busca</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">1-4</kbd> — Filtrar por gravidade (Central de Comando)</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">Esc</kbd> — Limpar filtros</li>
-              <li><kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">j/k</kbd> ou <kbd className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs">↓/↑</kbd> — Navegar lista</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">?</kbd> — Abrir/fechar ajuda</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">/</kbd> — Focar busca</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">1-4</kbd> — Filtrar por gravidade (Central de Comando)</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">Esc</kbd> — Limpar filtros</li>
+              <li><kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">j/k</kbd> ou <kbd className="px-1.5 py-0.5 rounded bg-[var(--semantic-surface-canvas)] text-[var(--semantic-text-primary)] font-mono text-xs">↓/↑</kbd> — Navegar lista</li>
             </ul>
           </div>
           <div>

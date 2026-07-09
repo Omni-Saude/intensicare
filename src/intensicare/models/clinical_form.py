@@ -63,6 +63,11 @@ class ClinicalFormSubmission(Base):
     version: Mapped[str] = mapped_column(
         String(16), nullable=False, comment="Versão da definição de formulário usada"
     )
+    definition_version: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Form schema version (e.g., 'rass-v1.0')",
+    )
 
     # Relacionamento com a definição do formulário
     form_definition: Mapped["FormDefinition"] = relationship(

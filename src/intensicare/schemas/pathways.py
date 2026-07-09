@@ -35,6 +35,9 @@ class PathwaySchema(BaseModel):
 class PatientPathwaySchema(BaseModel):
     id: int
     mpi_id: str
+    encounter_id: str = Field(..., description="Admission identifier from AMH Gold")
+    bed_id: str | None = Field(None, description="Current bed at time of enrollment")
+    unit: str | None = Field(None, description="Current unit at time of enrollment")
     pathway: PathwaySchema
     current_state: PathwayStateSchema
     criteria: list[PathwayCriteriaSchema] = []
@@ -55,6 +58,9 @@ class PathwayListResponse(BaseModel):
 
 class EnrollPatientRequest(BaseModel):
     pathway_id: int = Field(..., description="Pathway ID to enroll patient in")
+    encounter_id: str = Field(..., description="Admission identifier from AMH Gold")
+    bed_id: str | None = Field(None, description="Current bed at time of enrollment")
+    unit: str | None = Field(None, description="Current unit at time of enrollment")
     initial_criteria: list[dict] | None = None
 
 class UpdateCriteriaRequest(BaseModel):

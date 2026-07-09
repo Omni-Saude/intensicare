@@ -1,0 +1,140 @@
+# Sedação — Pathway Definition
+# PADIS Guideline-based sedation management pathway
+pathway:
+  id: 6
+  name: "Sedação"
+  slug: "sedacao"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000006"
+  description: "Manejo estruturado da sedação em pacientes críticos conforme diretrizes PADIS. Avaliação diária com RASS, adequação do nível de sedação, prevenção de sedação excessiva e interrupção diária."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: rass_score
+      source: vitals_stream
+      unit: points
+      description: "Richmond Agitation-Sedation Scale (-5 a +4). Alvo: -2 a 0 para maioria dos pacientes."
+    - name: bps_score
+      source: vitals_stream
+      unit: points
+      description: "Behavioral Pain Scale (3-12). Avaliação de dor em pacientes sob ventilação mecânica."
+    - name: sedativo_dose
+      source: amh_gold
+      unit: mg/h
+      description: "Dose de infusão contínua de sedativo (midazolam equivalente)."
+    - name: interrupcao_diaria
+      source: amh_gold
+      unit: ratio
+      description: "Status da interrupção diária de sedação (true = realizada)."
+
+criteria:
+  - id: crit-sed-rass
+    name: "RASS (Nível de Sedação)"
+    category: sedacao
+    description: "Richmond Agitation-Sedation Scale. Alvo leve: -2 a 0 (PADIS 2018). Sedação profunda (-3 a -5) reservada para indicações específicas."
+    predicate:
+      type: graded
+      input: rass_score
+      bands:
+        - range: [-5, -3]
+          severity: critical
+          score: 3
+          label: "Sedação profunda — risco de super-sedação"
+        - range: [-3, -2]
+          severity: watch
+          score: 1
+          label: "Sedação moderada — avaliar redução"
+        - range: [-2, 1]
+          severity: normal
+          score: 0
+          label: "Sedação adequada (alvo leve)"
+        - range: [1, 5]
+          severity: urgent
+          score: 2
+          label: "Agitação — necessita intervenção"
+      unit: points
+
+  - id: crit-sed-bps
+    name: "BPS (Avaliação de Dor)"
+    category: analgesia
+    description: "Behavioral Pain Scale para pacientes não comunicativos. BPS ≥ 5 indica dor presente e necessidade de analgesia."
+    predicate:
+      type: graded
+      input: bps_score
+      bands:
+        - range: [3, 5]
+          severity: normal
+          score: 0
+          label: "Sem dor significativa"
+        - range: [5, 8]
+          severity: watch
+          score: 1
+          label: "Dor moderada"
+        - range: [8, 13]
+          severity: urgent
+          score: 2
+          label: "Dor intensa — necessita analgesia"
+      unit: points
+
+  - id: crit-sed-infusao
+    name: "Dose de Sedativo Contínuo"
+    category: sedacao
+    description: "Dose de infusão de sedativo (midazolam equivalente). Doses elevadas associam-se a maior tempo de VM e delirium."
+    predicate:
+      type: graded
+      input: sedativo_dose
+      bands:
+        - range: [0, 3]
+          severity: normal
+          score: 0
+          label: "Dose baixa ou sem infusão contínua"
+        - range: [3, 10]
+          severity: watch
+          score: 1
+          label: "Dose moderada — avaliar desmame"
+        - range: [10, null]
+          severity: urgent
+          score: 2
+          label: "Dose elevada — risco de acúmulo"
+      unit: mg/h
+
+states:
+  - id: initial
+    name: "Avaliação Inicial"
+    order: 0
+    is_terminal: false
+    description: "Avaliação inicial do protocolo de sedação: definição de alvo RASS, escolha do agente sedativo e plano de interrupção diária."
+
+  - id: ajuste
+    name: "Ajuste de Sedação"
+    order: 1
+    is_terminal: false
+    description: "Titulação de sedativos para alvo RASS. Controle de dor com BPS. Ajuste conforme resposta individual e farmacocinética."
+
+  - id: interrupcao
+    name: "Interrupção Diária"
+    order: 2
+    is_terminal: false
+    description: "Interrupção diária da sedação (SAT — Spontaneous Awakening Trial). Avaliação neurológica, redução gradual e prevenção de abstinência."
+
+  - id: alta
+    name: "Despertar Adequado"
+    order: 3
+    is_terminal: true
+    description: "Paciente com RASS adequado (0 a -1), sem infusão contínua ou em dose mínima, acordado e cooperativo. Encerramento do pathway de sedação."
+
+suppression:
+  cooldown_minutes: 30
+  rate_limit_per_hour: 4
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "PADIS Guidelines: Clinical Practice Guidelines for the Prevention and Management of Pain, Agitation/Sedation, Delirium, Immobility, and Sleep Disruption (CCM 2018)"
+  doi: "10.1097/CCM.0000000000003299"
+  recommendations:
+    - "Manter sedação leve (RASS -2 a 0) sempre que possível"
+    - "Realizar interrupção diária da sedação (SAT)"
+    - "Monitorizar dor sistematicamente com BPS ou CPOT"
+    - "Evitar benzodiazepínicos como primeira linha — preferir propofol ou dexmedetomidina"

@@ -1,6 +1,6 @@
 # ADR-028: Arquitetura de Evoluções Clínicas — 81 regras de documentação
 
-**Status:** Proposed
+Status: accepted
 **Data:** 2026-07-07
 **Area:** Documentação Clínica / Dados / Agentes
 **Referência:** Catálogo `docs/rules/extraction/phase2/catalog/evolucoes.yaml` (81 regras); ADR-0015 (form engine); ADR-0008 (L0-hard — sistema nunca decide conduta)

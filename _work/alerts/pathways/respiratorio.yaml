@@ -1,0 +1,192 @@
+# Insuficiência Respiratória — Pathway Definition
+# Acute Respiratory Failure management pathway
+pathway:
+  id: 12
+  name: "Insuficiência Respiratória"
+  slug: "respiratorio"
+  version: "3.0.0"
+  content_hash: "sha256:000000000000000000000000000000000000000000000000000000000000000c"
+  description: "Monitorização e manejo de insuficiência respiratória aguda (IRpA) em pacientes críticos. Avaliação de oxigenação (SpO₂, PaO₂/FiO₂), ventilação (PaCO₂, FR) e suporte ventilatório (VNI, VM)."
+  active: true
+
+evaluation:
+  mode: hybrid
+  inputs:
+    - name: spo2
+      source: vitals_stream
+      unit: "%"
+      description: "Saturação periférica de oxigênio — monitorização contínua não invasiva."
+    - name: fr
+      source: vitals_stream
+      unit: irpm
+      description: "Frequência respiratória — indicador de desconforto e trabalho respiratório."
+    - name: fio2
+      source: vitals_stream
+      unit: "%"
+      description: "Fração inspirada de oxigênio — necessidade de suporte de O₂."
+    - name: gaso_paco2
+      source: amh_gold
+      unit: mmHg
+      description: "Pressão parcial arterial de CO₂ — indicador de ventilação alveolar."
+    - name: gaso_ph
+      source: amh_gold
+      unit: dimensionless
+      description: "pH arterial — avaliação de acidose/alcalose respiratória."
+
+criteria:
+  - id: crit-resp-spo2
+    name: "SpO₂"
+    category: oxigenacao
+    description: "Saturação periférica de oxigênio. Alvo: SpO₂ ≥ 92% (ou 88-92% em pacientes com risco de hipercapnia)."
+    predicate:
+      type: graded
+      input: spo2
+      bands:
+        - range: [0, 85]
+          severity: critical
+          score: 3
+          label: "Hipoxemia grave"
+        - range: [85, 92]
+          severity: urgent
+          score: 2
+          label: "Hipoxemia moderada"
+        - range: [92, 96]
+          severity: normal
+          score: 0
+          label: "SpO₂ adequada"
+        - range: [96, null]
+          severity: watch
+          score: 1
+          label: "Hiperóxia — avaliar redução de FiO₂"
+      unit: "%"
+
+  - id: crit-resp-fr
+    name: "Frequência Respiratória"
+    category: ventilacao
+    description: "Frequência respiratória. Taquipneia (>30 irpm) indica desconforto respiratório e risco de fadiga muscular."
+    predicate:
+      type: graded
+      input: fr
+      bands:
+        - range: [0, 8]
+          severity: critical
+          score: 3
+          label: "Bradipneia grave — risco de apneia"
+        - range: [8, 12]
+          severity: watch
+          score: 1
+          label: "Bradipneia"
+        - range: [12, 24]
+          severity: normal
+          score: 0
+          label: "FR normal"
+        - range: [24, 35]
+          severity: watch
+          score: 1
+          label: "Taquipneia moderada"
+        - range: [35, null]
+          severity: urgent
+          score: 2
+          label: "Taquipneia grave — risco de falência"
+      unit: irpm
+
+  - id: crit-resp-fio2
+    name: "FiO₂ Necessária"
+    category: oxigenacao
+    description: "Fração inspirada de oxigênio necessária para manter SpO₂ alvo. FiO₂ > 50% indica disfunção de troca gasosa significativa."
+    predicate:
+      type: graded
+      input: fio2
+      bands:
+        - range: [21, 40]
+          severity: normal
+          score: 0
+          label: "Oxigenoterapia de baixo fluxo"
+        - range: [40, 60]
+          severity: watch
+          score: 1
+          label: "Necessidade moderada de O₂"
+        - range: [60, 80]
+          severity: urgent
+          score: 2
+          label: "Necessidade elevada — avaliar VNI/IOT"
+        - range: [80, null]
+          severity: critical
+          score: 3
+          label: "FiO₂ muito elevada — SDRA grave"
+      unit: "%"
+
+  - id: crit-resp-paco2
+    name: "PaCO₂ (Ventilação Alveolar)"
+    category: ventilacao
+    description: "Pressão parcial arterial de CO₂. Hipercapnia (>50 mmHg) com acidose (pH < 7.35) indica falência ventilatória."
+    predicate:
+      type: graded
+      input: gaso_paco2
+      bands:
+        - range: [0, 35]
+          severity: watch
+          score: 1
+          label: "Hipocapnia — hiperventilação"
+        - range: [35, 45]
+          severity: normal
+          score: 0
+          label: "PaCO₂ normal"
+        - range: [45, 55]
+          severity: watch
+          score: 1
+          label: "Hipercapnia leve"
+        - range: [55, 70]
+          severity: urgent
+          score: 2
+          label: "Hipercapnia moderada — vigilância"
+        - range: [70, null]
+          severity: critical
+          score: 3
+          label: "Hipercapnia grave — risco de narcose CO₂"
+      unit: mmHg
+
+states:
+  - id: initial
+    name: "Avaliação Respiratória"
+    order: 0
+    is_terminal: false
+    description: "Avaliação inicial da função respiratória: padrão ventilatório, oxigenação, gasometria arterial e necessidade de suporte ventilatório."
+
+  - id: insuficiencia
+    name: "Insuficiência Respiratória"
+    order: 1
+    is_terminal: false
+    description: "IRpA identificada: hipoxêmica (PaO₂/FiO₂ < 300) e/ou hipercápnica (PaCO₂ > 50 com pH < 7.35). Início de suporte ventilatório conforme gravidade."
+
+  - id: suporte
+    name: "Suporte Ventilatório"
+    order: 2
+    is_terminal: false
+    description: "Paciente em suporte ventilatório (O₂ suplementar, VNI ou VM). Otimização de parâmetros conforme gasometria e mecânica respiratória."
+
+  - id: recuperacao
+    name: "Recuperação Respiratória"
+    order: 3
+    is_terminal: false
+    description: "Melhora progressiva: redução de FiO₂, normalização de FR, gasometria compensada. Desmame de suporte ventilatório em andamento."
+
+  - id: alta
+    name: "Função Respiratória Estável"
+    order: 4
+    is_terminal: true
+    description: "Paciente em ar ambiente ou oxigenoterapia de baixo fluxo, gasometria normalizada, sem desconforto respiratório. Encerramento do pathway respiratório."
+
+suppression:
+  cooldown_minutes: 15
+  rate_limit_per_hour: 6
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "ARDSNet Protocol (2000); ATS/ERS Guidelines on Acute Respiratory Failure; British Thoracic Society Guidelines on Oxygen Therapy (2017)"
+  doi: "10.1136/thoraxjnl-2016-209729"
+  recommendations:
+    - "Manter SpO₂ alvo 92-96% (ou 88-92% em risco de hipercapnia)"
+    - "Monitorizar FR como indicador precoce de deterioração respiratória"
+    - "Utilizar gasometria arterial para avaliação de PaCO₂ e pH em IRpA"
+    - "Escalonar suporte ventilatório: O₂ suplementar → VNI → IOT conforme resposta clínica"

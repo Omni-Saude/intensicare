@@ -1,6 +1,6 @@
 # 0021. trilhas-engine data model: versioned pathways, state snapshots, and patient-pathway cardinality
 
-Status: proposed
+Status: accepted
 Date: 2026-07-07
 Depends on: ADR-001 (AMH Data Platform consumer), ADR 0020 (trilhas-engine architecture)
 Audit source: trilhas-engine cluster — 18 legacy rules; data model audit of `ahlabs-trilhas` @ `8166c07e` and `trilhas-frontend` @ `f9656be2`

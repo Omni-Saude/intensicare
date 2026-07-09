@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,18 +17,133 @@ import CheckboxField from './renderers/CheckboxField';
 import DateField from './renderers/DateField';
 import MaskedField from './renderers/MaskedField';
 
-// ─── Field renderer map ──────────────────────────────────────────────────────
+// ─── Offline queue (M8 / ADR-0029) ───────────────────────────────────────────
 
-const rendererMap: Record<string, React.ComponentType<{ field: FormField; form: any; error?: string }>> = {
-  string: StringField,
-  select: SelectField,
-  number: NumberField,
-  boolean: BooleanField,
-  checkbox: CheckboxField,
-  date: DateField,
-  masked: MaskedField,
-  multicheck: StringField, // fallback to multi-input; not used in current forms
-};
+const OFFLINE_QUEUE_KEY = 'intensicare:offline-queue';
+const OFFLINE_FLUSH_BATCH_SIZE = 5;
+
+interface OfflineEntry {
+  /** ISO timestamp when the submission was queued */
+  queuedAt: string;
+  /** The form data payload */
+  data: Record<string, any>;
+  /** Whether this entry has been marked for retry */
+  retryCount: number;
+  /** Unique ID for deduplication */
+  id: string;
+}
+
+function loadOfflineQueue(): OfflineEntry[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as OfflineEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflineQueue(queue: OfflineEntry[]): void {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch {
+    // Storage full — silently drop; the queue is best-effort.
+  }
+}
+
+/**
+ * Attempt to flush the offline queue to the server.
+ * Called on connectivity restoration and after successful online submissions.
+ */
+async function flushOfflineQueue(
+  submitFn: (data: Record<string, any>) => void | Promise<void>,
+): Promise<void> {
+  const queue = loadOfflineQueue();
+  if (queue.length === 0) return;
+
+  // Process in small batches to avoid overwhelming the server.
+  const batch = queue.slice(0, OFFLINE_FLUSH_BATCH_SIZE);
+  const remaining = queue.slice(OFFLINE_FLUSH_BATCH_SIZE);
+
+  const failed: OfflineEntry[] = [];
+
+  for (const entry of batch) {
+    try {
+      await submitFn({ ...entry.data, submitted_offline: true });
+    } catch {
+      // If flush fails, keep the entry (with incremented retry count).
+      failed.push({ ...entry, retryCount: (entry.retryCount || 0) + 1 });
+    }
+  }
+
+  // Retain failed entries and unprocessed remaining entries.
+  const newQueue = [...failed, ...remaining];
+  saveOfflineQueue(newQueue);
+}
+
+/**
+ * Hook that listens for online/offline events and flushes the queue
+ * when connectivity is restored.
+ */
+function useOfflineQueue(
+  submitFn: (data: Record<string, any>) => void | Promise<void>,
+): { isOnline: boolean; queueSize: number; enqueue: (data: Record<string, any>) => void } {
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [queueSize, setQueueSize] = useState<number>(() => {
+    if (typeof localStorage === 'undefined') return 0;
+    return loadOfflineQueue().length;
+  });
+
+  const submitRef = useRef(submitFn);
+  submitRef.current = submitFn;
+
+  // Listen for online/offline events.
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Flush the queue when we come back online.
+      flushOfflineQueue(submitRef.current).then(() => {
+        setQueueSize(loadOfflineQueue().length);
+      });
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Also check for service worker registration as a connectivity signal.
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      // Service worker is active — good signal for offline readiness.
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const enqueue = useCallback(
+    (data: Record<string, any>) => {
+      const entry: OfflineEntry = {
+        queuedAt: new Date().toISOString(),
+        data,
+        retryCount: 0,
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      };
+      const queue = loadOfflineQueue();
+      queue.push(entry);
+      saveOfflineQueue(queue);
+      setQueueSize(queue.length);
+    },
+    [],
+  );
+
+  return { isOnline, queueSize, enqueue };
+}
 
 // ─── Dynamic schema builder ──────────────────────────────────────────────────
 
@@ -132,8 +247,45 @@ export default function FormEngine({ config, onSubmit, defaultValues }: FormEngi
     formState: { errors, isSubmitting },
   } = form;
 
+  // ─── Offline queue (M8 / ADR-0029) ────────────────────────────────────────
+  const { isOnline, queueSize, enqueue } = useOfflineQueue(onSubmit);
+
   const onValid = async (data: Record<string, any>) => {
-    await onSubmit(data);
+    if (!isOnline && typeof navigator !== 'undefined' && !navigator.onLine) {
+      // Offline: queue the submission locally. The server expects a
+      // ``submitted_offline`` flag on queued submissions so it can apply
+      // the correct timestamp logic (ADR-0029).
+      enqueue(data);
+      return;
+    }
+
+    try {
+      await onSubmit(data);
+      // After a successful online submission, try flushing any backlog.
+      flushOfflineQueue(onSubmit).catch(() => {
+        // Silently ignore flush failures — entries stay queued for next attempt.
+      });
+    } catch (err: unknown) {
+      // Network error or server unavailable — save to localStorage queue.
+      // Check if it's likely a network issue (fetch failed, timeout, etc.)
+      const isNetworkError =
+        err instanceof TypeError ||
+        (err instanceof Error &&
+          (err.message.includes('fetch') ||
+           err.message.includes('network') ||
+           err.message.includes('Failed to fetch') ||
+           err.message.includes('NetworkError') ||
+           err.message.includes('AbortError')));
+
+      if (isNetworkError || !navigator.onLine) {
+        enqueue(data);
+        // Prevent react-hook-form from showing an error state.
+        return;
+      }
+
+      // Non-network errors re-throw so the form can display validation/server errors.
+      throw err;
+    }
   };
 
   // ─── Collapsible group state ──────────────────────────────────────────────
@@ -169,6 +321,27 @@ export default function FormEngine({ config, onSubmit, defaultValues }: FormEngi
         >
           {config.description}
         </p>
+      )}
+
+      {/* ─── Offline queue indicator (M8) ───────────────────────────────── */}
+      {queueSize > 0 && (
+        <div
+          className="mb-4 px-3 py-2 rounded-md text-sm flex items-center gap-2"
+          style={{
+            backgroundColor: 'var(--clinical-severity-warning-fill, #fef3c7)',
+            color: 'var(--clinical-severity-warning-on-fill, #92400e)',
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <span aria-hidden="true">⚠</span>
+          <span>
+            {queueSize} formulário{queueSize > 1 ? 's' : ''} pendente{queueSize > 1 ? 's' : ''} de envio.
+            {isOnline
+              ? ' Serão enviados automaticamente.'
+              : ' Sincronização automática ao reconectar.'}
+          </span>
+        </div>
       )}
 
       {config.groups.map((group) => {

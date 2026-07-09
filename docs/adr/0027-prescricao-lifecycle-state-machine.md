@@ -1,6 +1,6 @@
 # ADR-027: Prescrição — Máquina de Estados do Ciclo de Vida da Prescrição
 
-**Status:** Proposed
+Status: accepted
 **Data:** 2026-07-07
 **Area:** Prescrição / Domínio Clínico / Arquitetura de Dados
 **Referência:** ADR-026 (drug interaction safety), ADR-0013 (consumo CDC), ADR-0008 (L0-hard — decisão clínica é humana), INV-1 (trilha de auditoria completa)

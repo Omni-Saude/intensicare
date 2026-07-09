@@ -1,6 +1,6 @@
 # ADR-025: Padrão de Integração Movimentação-ADT — 74 regras de movimento
 
-**Status:** Proposed
+Status: accepted
 **Data:** 2026-07-07
 **Area:** Integração / Dados / Agentes
 **Referência:** ADR-001 (hospitalar) — `amh-data-platform` como plataforma de dados de registro e

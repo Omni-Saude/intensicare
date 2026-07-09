@@ -1,0 +1,119 @@
+# Profilaxia — Pathway Definition
+# ICU prophylaxis bundle pathway
+pathway:
+  id: 7
+  name: "Profilaxia"
+  slug: "profilaxia"
+  version: "3.0.0"
+  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000007"
+  description: "Bundle de profilaxias essenciais em UTI: tromboembolismo venoso (TEV), úlcera gástrica por estresse (UGE), mobilização precoce e cabeceira elevada. Prevenção de complicações evitáveis em pacientes críticos."
+  active: true
+
+evaluation:
+  mode: micro-batch
+  inputs:
+    - name: tev_profilaxia
+      source: amh_gold
+      unit: ratio
+      description: "Profilaxia de TEV prescrita e administrada (true = conforme protocolo)."
+    - name: ugb_profilaxia
+      source: amh_gold
+      unit: ratio
+      description: "Profilaxia de úlcera gástrica por estresse prescrita (true = conforme protocolo)."
+    - name: mobilizacao_status
+      source: amh_gold
+      unit: ratio
+      description: "Mobilização precoce realizada conforme protocolo (true = realizada)."
+    - name: cabeca_elevada
+      source: vitals_stream
+      unit: graus
+      description: "Ângulo de elevação da cabeceira do leito (graus)."
+
+criteria:
+  - id: crit-prof-tev
+    name: "Profilaxia de TEV"
+    category: profilaxia
+    description: "Profilaxia farmacológica e/ou mecânica de tromboembolismo venoso. Todos os pacientes críticos devem receber profilaxia, salvo contraindicação documentada."
+    predicate:
+      type: boolean
+      input: tev_profilaxia
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-prof-ugb
+    name: "Profilaxia de Úlcera Gástrica"
+    category: profilaxia
+    description: "Profilaxia de úlcera gástrica por estresse com IBP ou antagonista H2. Indicada para pacientes com fatores de risco: VM >48h, coagulopatia, choque."
+    predicate:
+      type: boolean
+      input: ugb_profilaxia
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-prof-mobilizacao
+    name: "Mobilização Precoce"
+    category: mobilizacao
+    description: "Protocolo de mobilização precoce e progressiva. Reduz tempo de VM, delirium e tempo de internação na UTI."
+    predicate:
+      type: boolean
+      input: mobilizacao_status
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-prof-cabeca
+    name: "Cabeceira Elevada"
+    category: pav
+    description: "Elevação da cabeceira do leito entre 30 e 45 graus para prevenção de pneumonia associada à ventilação mecânica (PAV)."
+    predicate:
+      type: graded
+      input: cabeca_elevada
+      bands:
+        - range: [0, 20]
+          severity: critical
+          score: 3
+          label: "Cabeceira abaixo do recomendado"
+        - range: [20, 30]
+          severity: watch
+          score: 1
+          label: "Cabeceira em ângulo subótimo"
+        - range: [30, null]
+          severity: normal
+          score: 0
+          label: "Cabeceira em posição adequada"
+      unit: graus
+
+states:
+  - id: initial
+    name: "Auditoria de Profilaxias"
+    order: 0
+    is_terminal: false
+    description: "Verificação sistemática da prescrição e administração das profilaxias essenciais: TEV, UGE, mobilização e cabeceira elevada."
+
+  - id: conformidade
+    name: "Em Conformidade"
+    order: 1
+    is_terminal: false
+    description: "Todas as profilaxias do bundle estão prescritas e sendo administradas conforme protocolo institucional."
+
+  - id: alta
+    name: "Bundle Completo"
+    order: 2
+    is_terminal: true
+    description: "Bundle de profilaxias mantido adequadamente. Paciente recebeu alta da UTI ou as profilaxias não são mais indicadas. Encerramento do pathway."
+
+suppression:
+  cooldown_minutes: 60
+  rate_limit_per_hour: 2
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "SCCM/ACCM Guidelines; IHI Ventilator Bundle; Surviving Sepsis Campaign; WHO Patient Safety Guidelines"
+  doi: "10.1097/CCM.0b013e3182783b72"
+  recommendations:
+    - "Prescrever profilaxia de TEV para todos os pacientes de UTI"
+    - "Prescrever profilaxia de UGE para pacientes com fatores de risco"
+    - "Implementar protocolo de mobilização precoce e progressiva"
+    - "Manter cabeceira elevada entre 30 e 45 graus para prevenção de PAV"

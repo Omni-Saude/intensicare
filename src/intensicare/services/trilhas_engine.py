@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from intensicare.services.trilhas_compiler import PredicateCompiler
+from intensicare.services.trilhas_compiler import PredicateCompiler, compute_content_hash
 from intensicare.services.trilhas_evaluator import (
     AlertFiring,
     CriterionFiring,
@@ -265,7 +265,13 @@ class TrilhasEngine:
         name: str = pathway_meta.get("name", "")
         slug: str = pathway_meta.get("slug", "")
         version: str = pathway_meta.get("version", "0.0.0")
-        content_hash: str = pathway_meta.get("content_hash", "")
+
+        # Compute content hash from the full raw YAML dict for
+        # content-addressed traceability (ADR-020/ADR-021).
+        # If the YAML already provides a content_hash, prefer it
+        # (enables pre-computed / signed hashes). Otherwise, derive
+        # the hash from the canonical JSON form of the raw dict.
+        content_hash: str = pathway_meta.get("content_hash", "") or compute_content_hash(raw)
         description: str = pathway_meta.get("description", "")
         active: bool = pathway_meta.get("active", True)
         states: list[dict[str, Any]] = raw.get("states", [])

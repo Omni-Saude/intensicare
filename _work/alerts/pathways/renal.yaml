@@ -1,0 +1,154 @@
+# Função Renal / AKI — Pathway Definition
+# KDIGO-based Acute Kidney Injury pathway
+pathway:
+  id: 10
+  name: "Função Renal / AKI"
+  slug: "renal"
+  version: "3.0.0"
+  content_hash: "sha256:000000000000000000000000000000000000000000000000000000000000000a"
+  description: "Monitorização da função renal e prevenção de lesão renal aguda (AKI) conforme diretrizes KDIGO. Avaliação de creatinina, débito urinário, estadiamento KDIGO e indicação de terapia renal substitutiva (TRS)."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: creatinina
+      source: amh_gold
+      unit: mg/dL
+      description: "Creatinina sérica. Marcador principal de função renal e critério KDIGO para AKI."
+    - name: debito_urinario
+      source: amh_gold
+      unit: mL/kg/h
+      description: "Débito urinário horário ajustado ao peso. Oligúria é critério KDIGO para AKI."
+    - name: kdigo_stage
+      source: amh_gold
+      unit: stage
+      description: "Estadiamento KDIGO (0 = sem AKI, 1-3 = AKI conforme gravidade)."
+    - name: trs_status
+      source: amh_gold
+      unit: ratio
+      description: "Status de terapia renal substitutiva (true = em TRS)."
+
+criteria:
+  - id: crit-renal-creatinina
+    name: "Creatinina Sérica"
+    category: funcao_renal
+    description: "Creatinina sérica. Aumento ≥0.3 mg/dL em 48h ou ≥1.5x basal define AKI (KDIGO 2012)."
+    predicate:
+      type: graded
+      input: creatinina
+      bands:
+        - range: [0, 1.2]
+          severity: normal
+          score: 0
+          label: "Função renal normal"
+        - range: [1.2, 2.0]
+          severity: watch
+          score: 1
+          label: "Disfunção renal leve"
+        - range: [2.0, 4.0]
+          severity: urgent
+          score: 2
+          label: "AKI moderada — KDIGO 2"
+        - range: [4.0, null]
+          severity: critical
+          score: 3
+          label: "AKI grave — KDIGO 3 / risco de TRS"
+      unit: mg/dL
+
+  - id: crit-renal-debito
+    name: "Débito Urinário"
+    category: funcao_renal
+    description: "Débito urinário horário. Oligúria (<0.5 mL/kg/h por >6h) é critério independente de AKI conforme KDIGO."
+    predicate:
+      type: graded
+      input: debito_urinario
+      bands:
+        - range: [0, 0.3]
+          severity: critical
+          score: 3
+          label: "Anúria — emergência nefrológica"
+        - range: [0.3, 0.5]
+          severity: urgent
+          score: 2
+          label: "Oligúria — AKI oligúrica"
+        - range: [0.5, 1.0]
+          severity: watch
+          score: 1
+          label: "Diurese reduzida — vigilância"
+        - range: [1.0, null]
+          severity: normal
+          score: 0
+          label: "Diurese adequada"
+      unit: mL/kg/h
+
+  - id: crit-renal-kdigo
+    name: "Estadiamento KDIGO"
+    category: estadiamento
+    description: "Classificação KDIGO para gravidade da lesão renal aguda. Estágio 0 = sem AKI, 1 = risco, 2 = lesão, 3 = falência."
+    predicate:
+      type: graded
+      input: kdigo_stage
+      bands:
+        - range: [0, 1]
+          severity: normal
+          score: 0
+          label: "Sem AKI ou risco"
+        - range: [1, 2]
+          severity: watch
+          score: 1
+          label: "KDIGO 1 — AKI leve"
+        - range: [2, 3]
+          severity: urgent
+          score: 2
+          label: "KDIGO 2 — AKI moderada"
+        - range: [3, null]
+          severity: critical
+          score: 3
+          label: "KDIGO 3 — AKI grave"
+      unit: stage
+
+states:
+  - id: initial
+    name: "Avaliação Renal"
+    order: 0
+    is_terminal: false
+    description: "Avaliação inicial da função renal: creatinina basal, débito urinário, fatores de risco para AKI (sepse, nefrotóxicos, hipovolemia)."
+
+  - id: vigilancia
+    name: "Vigilância Renal"
+    order: 1
+    is_terminal: false
+    description: "Monitorização seriada de creatinina e débito urinário. Prevenção secundária: evitar nefrotóxicos, otimizar hemodinâmica."
+
+  - id: aki
+    name: "AKI em Tratamento"
+    order: 2
+    is_terminal: false
+    description: "Lesão renal aguda estabelecida (KDIGO 2-3). Avaliação de indicação de TRS, ajuste de doses de fármacos, balanço hídrico rigoroso."
+
+  - id: recuperacao
+    name: "Recuperação Renal"
+    order: 3
+    is_terminal: false
+    description: "Creatinina em queda, débito urinário em recuperação. Fase poliúrica pós-AKI. Monitorização de eletrólitos e balanço hídrico."
+
+  - id: alta
+    name: "Função Renal Estável"
+    order: 4
+    is_terminal: true
+    description: "Função renal recuperada (retorno à creatinina basal ou novo basal estável). Paciente sem necessidade de TRS. Encerramento do pathway renal."
+
+suppression:
+  cooldown_minutes: 30
+  rate_limit_per_hour: 4
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "KDIGO Clinical Practice Guideline for Acute Kidney Injury (2012); ADQI Consensus on AKI Biomarkers (2020)"
+  doi: "10.1038/kisup.2012.1"
+  recommendations:
+    - "Monitorizar creatinina sérica e débito urinário para detecção precoce de AKI"
+    - "Estadiar AKI conforme critérios KDIGO (creatinina + débito urinário)"
+    - "Evitar agentes nefrotóxicos sempre que possível"
+    - "Iniciar TRS quando indicado: hipercalemia refratária, acidose grave, hipervolemia refratária a diuréticos"

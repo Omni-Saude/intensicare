@@ -109,7 +109,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-[var(--semantic-surface-raised)] rounded-xl border border-[var(--semantic-border-default)] shadow-sm hover:shadow-md transition-shadow">
       <div className="p-4">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -273,7 +273,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
               onClick={() => setWhyPanelOpen(!whyPanelOpen)}
               aria-label={whyPanelOpen ? 'Hide alert details' : 'Show alert details'}
               aria-expanded={whyPanelOpen}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--semantic-border-default)] bg-[var(--semantic-surface-raised)] text-[var(--semantic-text-secondary)] hover:bg-[var(--semantic-surface-canvas)] transition-colors"
             >
               <Info className="w-3.5 h-3.5" aria-hidden="true" />
               Por quê?
@@ -290,7 +290,7 @@ export default function AlertCard({ alert, onUpdate }: AlertCardProps) {
       {/* Expandable Why-Panel */}
       {whyPanelOpen && hasWhyPanel && (
         <div
-          className="border-t border-slate-100 px-4 py-3"
+          className="border-t border-[var(--semantic-border-default)] px-4 py-3"
           style={{ backgroundColor: 'var(--semantic-surface-raised)' }}
           role="region"
           aria-label="Alert clinical rationale"

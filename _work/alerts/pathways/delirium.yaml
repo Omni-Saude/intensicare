@@ -1,0 +1,129 @@
+# Delirium — Pathway Definition
+# PADIS Guideline-based delirium management pathway
+pathway:
+  id: 11
+  name: "Delirium"
+  slug: "delirium"
+  version: "3.0.0"
+  content_hash: "sha256:000000000000000000000000000000000000000000000000000000000000000b"
+  description: "Prevenção, detecção e manejo de delirium em pacientes críticos conforme diretrizes PADIS 2018. Screening diário com CAM-ICU, manejo não farmacológico e farmacológico quando indicado."
+  active: true
+
+evaluation:
+  mode: near-real-time
+  inputs:
+    - name: cam_icu
+      source: vitals_stream
+      unit: ratio
+      description: "Confusion Assessment Method for ICU — positivo ou negativo para delirium."
+    - name: rass_target
+      source: vitals_stream
+      unit: points
+      description: "Richmond Agitation-Sedation Scale — avaliação de agitação/hipoatividade."
+    - name: haloperidol_dose
+      source: amh_gold
+      unit: mg/dia
+      description: "Dose diária de haloperidol para manejo de delirium hiperativo."
+    - name: dexmedetomidina_dose
+      source: amh_gold
+      unit: mcg/kg/h
+      description: "Dose de dexmedetomidina — sedativo com propriedades anti-delirium."
+
+criteria:
+  - id: crit-del-cam
+    name: "CAM-ICU (Screening de Delirium)"
+    category: screening
+    description: "Confusion Assessment Method for ICU. Ferramenta validada para diagnóstico de delirium em pacientes críticos sob VM ou não."
+    predicate:
+      type: boolean
+      input: cam_icu
+      operator: "=="
+      value: true
+      unit: ratio
+
+  - id: crit-del-agitacao
+    name: "Agitação (RASS)"
+    category: comportamento
+    description: "Avaliação de agitação psicomotora via RASS. Delirium pode apresentar-se como hiperativo, hipoativo ou misto."
+    predicate:
+      type: graded
+      input: rass_target
+      bands:
+        - range: [-5, -1]
+          severity: watch
+          score: 1
+          label: "Sedação ou hipoatividade — delirium hipoativo?"
+        - range: [-1, 1]
+          severity: normal
+          score: 0
+          label: "Calmo e cooperativo"
+        - range: [1, 3]
+          severity: urgent
+          score: 2
+          label: "Agitação moderada — investigar delirium"
+        - range: [3, 5]
+          severity: critical
+          score: 3
+          label: "Agitação grave — risco de autoextubação"
+      unit: points
+
+  - id: crit-del-haloperidol
+    name: "Dose de Haloperidol"
+    category: farmacologico
+    description: "Antipsicótico de primeira linha para delirium hiperativo. Doses elevadas aumentam risco de prolongamento QT e efeitos extrapiramidais."
+    predicate:
+      type: graded
+      input: haloperidol_dose
+      bands:
+        - range: [0, 5]
+          severity: normal
+          score: 0
+          label: "Dose baixa — manejo inicial"
+        - range: [5, 15]
+          severity: watch
+          score: 1
+          label: "Dose moderada — monitorizar ECG"
+        - range: [15, null]
+          severity: urgent
+          score: 2
+          label: "Dose elevada — risco de cardiotoxicidade"
+      unit: mg/dia
+
+states:
+  - id: initial
+    name: "Prevenção e Screening"
+    order: 0
+    is_terminal: false
+    description: "Medidas não farmacológicas de prevenção: mobilização precoce, orientação, ciclo sono-vigília. Screening diário com CAM-ICU."
+
+  - id: delirium_identificado
+    name: "Delirium Identificado"
+    order: 1
+    is_terminal: false
+    description: "CAM-ICU positivo. Investigação de causas reversíveis (hipóxia, sepse, distúrbios metabólicos, abstinência). Início de medidas não farmacológicas intensificadas."
+
+  - id: tratamento
+    name: "Tratamento Ativo"
+    order: 2
+    is_terminal: false
+    description: "Manejo farmacológico (haloperidol ou dexmedetomidina) associado a medidas não farmacológicas. Controle ambiental e prevenção de complicações."
+
+  - id: alta
+    name: "Delirium Resolvido"
+    order: 3
+    is_terminal: true
+    description: "CAM-ICU negativo por >48h, paciente calmo e cooperativo, sem necessidade de antipsicóticos. Encerramento do pathway de delirium."
+
+suppression:
+  cooldown_minutes: 60
+  rate_limit_per_hour: 3
+  dedup_key: ["mpi_id", "criteria_id"]
+
+evidence:
+  guideline: "PADIS Guidelines: Clinical Practice Guidelines for the Prevention and Management of Pain, Agitation/Sedation, Delirium, Immobility, and Sleep Disruption (CCM 2018)"
+  doi: "10.1097/CCM.0000000000003299"
+  recommendations:
+    - "Realizar screening diário de delirium com CAM-ICU"
+    - "Implementar bundle ABCDEF de prevenção (Awakening, Breathing, Choice, Delirium, Early mobility, Family)"
+    - "Evitar benzodiazepínicos como primeira linha para sedação — reduzem risco de delirium"
+    - "Utilizar dexmedetomidina em pacientes com delirium que necessitam sedação"

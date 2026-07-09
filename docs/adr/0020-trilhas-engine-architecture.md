@@ -1,6 +1,6 @@
 # 0020. trilhas-engine architecture: state machine vs declarative rule engine
 
-**Status: IMPLEMENTED** (2026-07-09)
+**Status: accepted** (implemented 2026-07-09)
 
 Delivered across 4 milestones:
 

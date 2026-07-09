@@ -132,7 +132,24 @@ _TEMPLATES: dict[str, EvolutionTemplate] = {}
 
 
 def _build_all_templates() -> dict[str, EvolutionTemplate]:
-    """Build and cache all 14 role-specific SBAR templates."""
+    """Build and cache all 14 role-specific SBAR templates.
+
+    Covers all 14 clinical roles defined in CLINICAL_ROLES:
+      1. medico             → medico_diaria
+      2. enfermeiro          → enfermeiro_diaria
+      3. fisioterapeuta      → fisioterapeuta_diaria
+      4. farmaceutico        → farmaceutico_diaria
+      5. nutricionista       → nutricionista_diaria
+      6. psicologo           → psicologo_diaria
+      7. fonoaudiologo       → fonoaudiologo_diaria
+      8. musicoterapeuta     → musicoterapeuta_diaria
+      9. tecnico_enfermagem  → tecnico_enfermagem_diaria
+     10. admissao            → admissao
+     11. alta                → alta (inclui alta_remocao)
+     12. movimentacao        → movimentacao
+     13. intercorrencia      → intercorrencia
+     14. balanco_hidrico     → balanco_hidrico
+    """
     global _TEMPLATES
     if _TEMPLATES:
         return _TEMPLATES
@@ -818,6 +835,9 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
         ],
     )
 
+    # ── Post-build verification: ensure all 14 clinical roles are covered ──
+    _verify_all_role_templates(templates)
+
     _TEMPLATES = templates
     return _TEMPLATES
 
@@ -830,6 +850,30 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
 def _ensure_templates_loaded() -> dict[str, EvolutionTemplate]:
     """Lazy-load and cache all templates."""
     return _build_all_templates()
+
+
+def _verify_all_role_templates(
+    templates: dict[str, EvolutionTemplate],
+) -> None:
+    """Verify that all 14 CLINICAL_ROLES have at least one template defined.
+
+    Raises:
+        AssertionError: If any clinical role is missing a template.
+    """
+    covered_roles: set[str] = {t.role for t in templates.values()}
+
+    missing = [r for r in CLINICAL_ROLES if r not in covered_roles]
+    if missing:
+        raise AssertionError(
+            f"CLINICAL_ROLES sem template definido: {missing}. "
+            f"Total de roles cobertos: {len(covered_roles)}/{len(CLINICAL_ROLES)}"
+        )
+
+    logger.info(
+        "Template coverage: %d/%d clinical roles covered",
+        len(covered_roles),
+        len(CLINICAL_ROLES),
+    )
 
 
 def _compute_content_hash(sections: list[dict]) -> str:

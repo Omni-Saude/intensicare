@@ -73,8 +73,8 @@ export default function AdminPage() {
             <Shield className="w-5 h-5 text-white" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Administração</h1>
-            <p className="text-slate-500 text-sm mt-0.5">Configuração do sistema e gerenciamento de usuários</p>
+            <h1 className="text-2xl font-bold text-[var(--semantic-text-primary)]">Administração</h1>
+            <p className="text-[var(--semantic-text-secondary)] text-sm mt-0.5">Configuração do sistema e gerenciamento de usuários</p>
           </div>
         </div>
       </div>
@@ -118,11 +118,11 @@ export default function AdminPage() {
           <div
             key={stat.label}
             style={{ borderColor: 'var(--semantic-border-default)' }}
-            className="bg-white rounded-xl border p-5 shadow-sm"
+            className="bg-[var(--semantic-surface-raised)] rounded-xl border p-5 shadow-sm"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500 font-medium">{stat.label}</p>
+                <p className="text-sm text-[var(--semantic-text-secondary)] font-medium">{stat.label}</p>
                 {loading ? (
                   <div
                     style={{ backgroundColor: 'var(--semantic-surface-canvas)' }}
@@ -131,7 +131,7 @@ export default function AdminPage() {
                 ) : error ? (
                   <p className="text-2xl font-bold text-[var(--clinical-severity-critical-on-surface)] mt-0.5">!</p>
                 ) : (
-                  <p className="text-2xl font-bold text-slate-800 mt-0.5">{stat.value}</p>
+                  <p className="text-2xl font-bold text-[var(--semantic-text-primary)] mt-0.5">{stat.value}</p>
                 )}
               </div>
               <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
@@ -143,14 +143,14 @@ export default function AdminPage() {
       </div>
 
       {/* Admin cards */}
-      <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Ações Rápidas</h2>
+      <h2 className="text-sm font-semibold text-[var(--semantic-text-secondary)] uppercase tracking-wider mb-3">Ações Rápidas</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {adminCards.map((card) => (
           <button
             key={card.href}
             onClick={() => router.push(card.href)}
             style={{ borderColor: 'var(--semantic-border-default)' }}
-            className="group text-left bg-white rounded-xl border p-6 shadow-sm hover:shadow-md transition-all hover:border-slate-300"
+            className="group text-left bg-[var(--semantic-surface-raised)] rounded-xl border p-6 shadow-sm hover:shadow-md transition-all hover:border-[var(--semantic-border-default)]"
           >
             <div className="flex items-start gap-4">
               <div
@@ -159,10 +159,10 @@ export default function AdminPage() {
                 <card.icon className="w-6 h-6 text-white" aria-hidden="true" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors">
+                <h3 className="text-lg font-semibold text-[var(--semantic-text-primary)] group-hover:text-indigo-600 transition-colors">
                   {card.title}
                 </h3>
-                <p className="text-sm text-slate-500 mt-1">{card.description}</p>
+                <p className="text-sm text-[var(--semantic-text-secondary)] mt-1">{card.description}</p>
               </div>
             </div>
           </button>
@@ -172,27 +172,27 @@ export default function AdminPage() {
       {/* System info */}
       <div
         style={{ borderColor: 'var(--semantic-border-default)' }}
-        className="mt-8 bg-white rounded-xl border p-6 shadow-sm"
+        className="mt-8 bg-[var(--semantic-surface-raised)] rounded-xl border p-6 shadow-sm"
       >
-        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">
+        <h3 className="text-sm font-semibold text-[var(--semantic-text-secondary)] uppercase tracking-wider mb-4">
           Informações do Sistema
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-400 mb-1">Versão</div>
-            <div className="font-semibold text-slate-700">0.1.0</div>
+          <div className="p-3 bg-[var(--semantic-surface-canvas)] rounded-lg">
+            <div className="text-xs text-[var(--semantic-text-secondary)] mb-1">Versão</div>
+            <div className="font-semibold text-[var(--semantic-text-primary)]">0.1.0</div>
           </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-400 mb-1">Ambiente</div>
-            <div className="font-semibold text-slate-700">Development</div>
+          <div className="p-3 bg-[var(--semantic-surface-canvas)] rounded-lg">
+            <div className="text-xs text-[var(--semantic-text-secondary)] mb-1">Ambiente</div>
+            <div className="font-semibold text-[var(--semantic-text-primary)]">Development</div>
           </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-400 mb-1">Modo de Autenticação</div>
-            <div className="font-semibold text-slate-700">JWT (MVP)</div>
+          <div className="p-3 bg-[var(--semantic-surface-canvas)] rounded-lg">
+            <div className="text-xs text-[var(--semantic-text-secondary)] mb-1">Modo de Autenticação</div>
+            <div className="font-semibold text-[var(--semantic-text-primary)]">JWT (MVP)</div>
           </div>
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-400 mb-1">Frontend</div>
-            <div className="font-semibold text-slate-700">Next.js 14</div>
+          <div className="p-3 bg-[var(--semantic-surface-canvas)] rounded-lg">
+            <div className="text-xs text-[var(--semantic-text-secondary)] mb-1">Frontend</div>
+            <div className="font-semibold text-[var(--semantic-text-primary)]">Next.js 14</div>
           </div>
         </div>
       </div>

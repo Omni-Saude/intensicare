@@ -110,6 +110,9 @@ class AdmissionEpisodeSchema(BaseModel):
 
     id: int = Field(..., description="Unique episode identifier")
     mpi_id: str = Field(..., description="Patient MPI identifier")
+    encounter_id: str = Field(
+        ..., description="External encounter identifier (e.g., from AMH Gold)"
+    )
     admission_date: datetime = Field(..., description="Admission date/time")
     discharge_date: datetime | None = Field(
         None, description="Discharge date/time (null if active)"
@@ -118,3 +121,56 @@ class AdmissionEpisodeSchema(BaseModel):
         ..., description="Admission type: eletiva, urgencia, emergencia, transferencia"
     )
     status: str = Field(..., description="Episode status: active, discharged")
+
+
+# ---------------------------------------------------------------------------
+# PatientLocationCurrent
+# ---------------------------------------------------------------------------
+
+
+class PatientLocationCurrentSchema(BaseModel):
+    """Current patient location — one row per admitted patient."""
+
+    mpi_id: str = Field(..., description="Patient MPI identifier (primary key)")
+    encounter_id: str = Field(..., description="Current admission episode identifier")
+    unit: str = Field(..., description="Current unit (e.g., UTI-1)")
+    bed_id: str | None = Field(None, description="Current bed (e.g., L-101)")
+    specialty: str | None = Field(None, description="Responsible clinical specialty")
+    admitted_to_unit_at: datetime | None = Field(
+        None, description="When patient arrived at current unit"
+    )
+    last_movement_at: datetime | None = Field(
+        None, description="Timestamp of most recent movement"
+    )
+    source_cdc_offset: int | None = Field(
+        None, description="CDC offset of the latest event applied"
+    )
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+
+# ---------------------------------------------------------------------------
+# DischargeSummary
+# ---------------------------------------------------------------------------
+
+
+class DischargeSummarySchema(BaseModel):
+    """Discharge summary — one row per discharged encounter."""
+
+    id: int = Field(..., description="Unique discharge summary identifier")
+    encounter_id: str = Field(..., description="Admission episode identifier (unique)")
+    mpi_id: str = Field(..., description="Patient MPI identifier")
+    discharge_datetime: datetime = Field(..., description="Discharge date/time")
+    discharge_type: str = Field(
+        ...,
+        description="domiciliar, transferencia_hospitalar, obito, alta_pedido, evasao",
+    )
+    destination: str | None = Field(None, description="Post-discharge destination")
+    discharge_diagnosis: str | None = Field(None, description="CID-10 at discharge")
+    follow_up_scheduled: bool = Field(
+        default=False, description="Whether follow-up was scheduled"
+    )
+    continuity_medication_prescribed: bool = Field(
+        default=False, description="Medication continuity at discharge"
+    )
+    source_cdc_offset: int | None = Field(None, description="CDC offset of source event")
+    created_at: datetime = Field(..., description="Record creation timestamp")

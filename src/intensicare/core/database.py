@@ -20,7 +20,7 @@ class Base(DeclarativeBase):
 
 def create_engine() -> AsyncEngine:
     """Cria engine assíncrona para PostgreSQL/TimescaleDB."""
-    return create_async_engine(
+    engine = create_async_engine(
         settings.database_url,
         echo=settings.debug,
         pool_size=settings.postgres_min_connections,
@@ -28,6 +28,20 @@ def create_engine() -> AsyncEngine:
         pool_pre_ping=True,
         pool_recycle=3600,
     )
+
+    # H14: statement_timeout — prevents runaway queries (DoS protection)
+    _STATEMENT_TIMEOUT_MS = 30_000  # 30 seconds
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_statement_timeout(dbapi_connection, _connection_record):
+        """Enforce query timeout on every new connection."""
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(f"SET statement_timeout = {_STATEMENT_TIMEOUT_MS}")
+        finally:
+            cursor.close()
+
+    return engine
 
 
 # Engine global (inicializada lazy no primeiro acesso).
