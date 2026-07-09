@@ -1,33 +1,53 @@
-# PLANS.md — PASSO 3: Backlog Final
+# PLANS.md — Pós-Auditoria V2 + Trilhas Engine Remediation
 
 > **Orquestrador:** Parreira | **Data:** 2026-07-08
-> **Pré-requisito:** PASSO 2.1 + 2.2 ✅
-> **Contratos:** cadastros-ui (732L), indicadores (390L), eficiencia (267L)
+> **Fontes:** FORENSICS_FINAL_VERDICT_V2.md + PROMPT_TRILHAS_ENGINE.md
+> **Score Atual:** 80/100 | **Alvo:** >85 universal
 
 ## Envelope
+
 | Campo | Valor |
 |-------|-------|
-| **Goal** | Implementar PASSO 3: cadastros-ui, indicadores-etl, eficiencia |
-| **Context** | Python 3.12, FastAPI, SQLAlchemy async. domain_tenancy.py existe (423L). |
-| **Risk** | L2 — novos endpoints, sem novos models (métricas do prompt) |
-| **Scope** | PASSO 3 apenas. NÃO: PASSO 4 (majoritariamente já feito) |
+| **Goal** | Resolver 4 condições short-term + Milestone 1 do Trilhas Engine |
+| **Risk** | L2 |
+| **Scope** | alerts.py, health.py, trilhas_*.py, _work/alerts/, scripts/ |
 
-## Waves
+## Task Inventory
 
-### Wave 1: Domain + Routers (3 agents parallel)
-| Agent | Scope | Files |
-|-------|-------|-------|
-| A1 | cadastros-ui | `api/v1/registry.py` (6 endpoints) + extender `domain_tenancy.py` |
-| A2 | indicadores-etl | `api/v1/indicators.py` (3 endpoints) |
-| A3 | eficiencia | `domain_eficiencia.py` + `api/v1/efficiency.py` (1 endpoint) |
+### Short-Term (GO Conditions — Wave 1, paralelo)
+| # | ID | Severity | File(s) | Effort |
+|---|-----|----------|---------|--------|
+| S1 | F-SEC-001b | HIGH | `alerts.py` (list_alerts + trace_alert) | 2h → agent |
+| S2 | F-INT-006 | MEDIUM | `health.py` (concurrent checks) | 3h → agent |
+| S3 | Tests | MEDIUM | `test_vitals.py` (auth tokens) | 4h → agent |
+| S4 | npm | LOW | `frontend-v2/` (audit fix) | 30min → agent |
 
-### Wave 2: Tests (3 agents parallel)
-| Agent | Scope |
-|-------|-------|
-| B1 | tests/test_registry.py |
-| B2 | tests/test_indicators.py |
-| B3 | tests/test_domain_eficiencia.py |
+### Trilhas Engine (Milestone 1 — Wave 2)
+| # | ID | Severity | Scope | Effort |
+|---|-----|----------|-------|--------|
+| T1 | F-ARCH-001/002 | CRITICAL | Schema + CI Gates + Compiler | XL |
 
-### Wave 3: Wiring + Gatekeepers
-- Wire new routers into main.py + __init__.py
-- production-validator + security-manager
+## Wave 1 — Parallel (no shared files)
+
+### Agent S1: F-SEC-001b — Auth on alert endpoints
+- File: `src/intensicare/api/v1/alerts.py`
+- Add `Depends(get_current_user)` to `list_alerts` (line 84) and `trace_alert` (line 238)
+- Keep existing auth on other endpoints intact
+
+### Agent S2: F-INT-006 — Concurrent health checks
+- File: `src/intensicare/api/v1/health.py`
+- Run DB, Redis, Athena checks concurrently via `asyncio.gather()`
+
+### Agent S4: npm audit fix
+- Dir: `frontend-v2/`
+- Run `npm audit fix` for LOW vulns
+
+## Wave 2 — Depends on Wave 1
+
+### Agent T1: Trilhas Engine Milestone 1 — Schema + CI Gates
+- Files: schema, validate_alerts.py, CI workflow, pyproject.toml, test
+
+## Validation Gates
+- GATE-SEC: security-manager after S1
+- GATE-PROD: production-validator after all waves
+- pytest: all affected test files
