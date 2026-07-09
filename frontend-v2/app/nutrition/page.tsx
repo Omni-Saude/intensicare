@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,10 +21,11 @@ import SeverityBadge from '@/components/SeverityBadge';
 import {
   type NutritionalAssessment,
   type NutritionStatus,
-  MOCK_PATIENTS,
   computeBMI,
   computeNutritionalStatus,
 } from '@/lib/nutrition-types';
+import { fetchDashboard, submitClinicalForm } from '@/lib/api';
+import type { PatientBedSummary } from '@/lib/api';
 
 // ─── Form Schema (Zod) ──────────────────────────────────────────────────────
 
@@ -121,11 +122,37 @@ function SkeletonHeader(): React.ReactElement {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function NutritionPage(): React.ReactElement {
-  const [selectedPatient, setSelectedPatient] = useState<string>(
-    MOCK_PATIENTS[0]!.mpiId,
-  );
+  const [patients, setPatients] = useState<PatientBedSummary[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<string>('');
+  const [isLoadingPatients, setIsLoadingPatients] = useState(true);
+  const [patientsError, setPatientsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Fetch patients from API ──────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    fetchDashboard()
+      .then((data) => {
+        if (!cancelled) {
+          const list = data.patients || [];
+          setPatients(list);
+          if (list.length > 0 && !selectedPatient) {
+            setSelectedPatient(list[0]!.mpi_id);
+          }
+          setIsLoadingPatients(false);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setPatientsError(err.message || 'Erro ao carregar pacientes');
+          setIsLoadingPatients(false);
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const form = useForm<NutritionFormValues>({
     resolver: zodResolver(nutritionFormSchema),
@@ -170,8 +197,8 @@ export default function NutritionPage(): React.ReactElement {
     [bmiResult.value, meetsCalorieGoal, meetsProteinGoal],
   );
 
-  const selectedPatientData = MOCK_PATIENTS.find(
-    (p) => p.mpiId === selectedPatient,
+  const selectedPatientData = patients.find(
+    (p) => p.mpi_id === selectedPatient,
   );
 
   const statusTokens = NUTRITION_TOKEN_MAP[nutritionStatus];
@@ -182,28 +209,36 @@ export default function NutritionPage(): React.ReactElement {
     (data: NutritionFormValues) => {
       setIsLoading(true);
       setSaveSuccess(false);
+      setSaveError(null);
 
-      // Mock async save
-      const timer = setTimeout(() => {
-        const assessment: NutritionalAssessment = {
-          patientMpiId: selectedPatient,
-          height: data.height,
-          weight: data.weight,
-          bmi: bmiResult.value,
-          calorieGoal: data.calorieGoal,
-          proteinGoal: data.proteinGoal,
-          meetsCalorieGoal,
-          meetsProteinGoal,
-          status: nutritionStatus,
-          assessedAt: new Date().toISOString(),
-          assessedBy: 'Dr. Plantonista',
-        };
-        console.log('[Nutrition] Assessment saved:', assessment);
-        setIsLoading(false);
-        setSaveSuccess(true);
-      }, 800);
+      const assessment: NutritionalAssessment = {
+        patientMpiId: selectedPatient,
+        height: data.height,
+        weight: data.weight,
+        bmi: bmiResult.value,
+        calorieGoal: data.calorieGoal,
+        proteinGoal: data.proteinGoal,
+        meetsCalorieGoal,
+        meetsProteinGoal,
+        status: nutritionStatus,
+        assessedAt: new Date().toISOString(),
+        assessedBy: 'Dr. Plantonista',
+      };
 
-      return () => clearTimeout(timer);
+      submitClinicalForm(selectedPatient, {
+        form_type: 'nutrition_assessment',
+        definition_version: '1.0',
+        data: assessment as unknown as Record<string, unknown>,
+      })
+        .then(() => {
+          setIsLoading(false);
+          setSaveSuccess(true);
+        })
+        .catch((err: Error) => {
+          setIsLoading(false);
+          setSaveError(err.message || 'Erro ao salvar avaliação nutricional');
+          console.error('[Nutrition] Save failed:', err);
+        });
     },
     [
       selectedPatient,
@@ -314,9 +349,9 @@ export default function NutritionPage(): React.ReactElement {
                 }}
                 aria-label="Selecionar paciente"
               >
-                {MOCK_PATIENTS.map((p) => (
-                  <option key={p.mpiId} value={p.mpiId}>
-                    {p.name} — {p.bed}
+                {patients.map((p) => (
+                  <option key={p.mpi_id} value={p.mpi_id}>
+                    {p.display_name} — {p.bed_id || 'Sem leito'}
                   </option>
                 ))}
               </select>
@@ -338,19 +373,19 @@ export default function NutritionPage(): React.ReactElement {
                 aria-hidden="true"
               />
               <span style={{ color: 'var(--semantic-text-primary)' }}>
-                <strong>{selectedPatientData.name}</strong>
+                <strong>{selectedPatientData.display_name}</strong>
               </span>
               <span
                 className="tabular-nums"
                 style={{ color: 'var(--semantic-text-secondary)' }}
               >
-                MPI: {selectedPatientData.mpiId}
+                MPI: {selectedPatientData.mpi_id}
               </span>
               <span
                 className="tabular-nums ml-auto"
                 style={{ color: 'var(--semantic-text-secondary)' }}
               >
-                Leito: {selectedPatientData.bed}
+                Leito: {selectedPatientData.bed_id || 'N/D'}
               </span>
               <SeverityBadge
                 severity={statusTokens.severity}
@@ -714,7 +749,7 @@ export default function NutritionPage(): React.ReactElement {
               <Scale className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
               <span>
                 Avaliação nutricional salva com sucesso para{' '}
-                <strong>{selectedPatientData?.name}</strong> — IMC:{' '}
+                <strong>{selectedPatientData?.display_name}</strong> — IMC:{' '}
                 {bmiResult.value > 0 ? bmiResult.value.toFixed(1) : '--'} kg/m²
                 ({bmiResult.classification}) — Status:{' '}
                 {statusTokens.severityLabel}

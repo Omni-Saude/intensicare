@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Pill,
   Plus,
@@ -21,14 +21,19 @@ import type {
   DrugInteraction,
 } from '@/lib/prescription-types';
 import {
-  MOCK_PRESCRIPTIONS,
-  MOCK_PATIENTS,
-  MOCK_DRUG_INTERACTIONS,
   ROUTE_LABELS,
   STATUS_LABELS,
-  findInteraction,
   type PrescriptionRoute,
 } from '@/lib/prescription-types';
+import {
+  fetchPrescriptions,
+  createPrescription,
+  transitionPrescriptionState,
+  type PrescriptionRecord,
+  type PrescriptionCreatePayload,
+  type StateTransitionPayload,
+  type InteractionAlert,
+} from '@/lib/api';
 
 // ─── Route options for select ────────────────────────────────────────────────
 
@@ -46,6 +51,103 @@ const STATUS_TABS: StatusTab[] = [
   { key: 'completed', label: 'Concluídas' },
   { key: 'discontinued', label: 'Descontinuadas' },
   { key: 'all', label: 'Todas' },
+];
+
+// ─── Adapters: API types ↔ local types ──────────────────────────────────────
+
+function mapRecordToPrescription(record: PrescriptionRecord): Prescription {
+  // Map estado to PrescriptionStatus
+  let status: PrescriptionStatus;
+  switch (record.estado) {
+    case 'completed':
+      status = 'completed';
+      break;
+    case 'discontinued':
+      status = 'discontinued';
+      break;
+    case 'active':
+    case 'draft':
+    case 'suspended':
+    default:
+      status = 'active';
+      break;
+  }
+
+  return {
+    id: record.id,
+    mpi_id: record.patient_id,
+    drug: record.medication_name ?? record.medication_id,
+    dose: record.dose,
+    unit: record.dose_unit,
+    route: record.via_administracao as Prescription['route'],
+    frequency: record.frequencia,
+    start_time: record.data_inicio,
+    end_time: record.data_fim,
+    status,
+    notes: record.instrucoes,
+    prescribed_by: 'Sistema',
+    created_at: record.created_at,
+  };
+}
+
+function mapAlertToInteraction(alert: InteractionAlert): DrugInteraction {
+  let severity: DrugInteraction['severity'];
+  switch (alert.gravidade) {
+    case 'contraindicated':
+      severity = 'contraindicado';
+      break;
+    case 'severe':
+      severity = 'grave';
+      break;
+    case 'moderate':
+    case 'minor':
+    default:
+      severity = 'moderado';
+      break;
+  }
+
+  return {
+    drugPair: ['', ''],
+    description: `${alert.mecanismo}: ${alert.recomendacao}`,
+    severity,
+  };
+}
+
+function mapFormToPayload(
+  mpiId: string,
+  form: PrescriptionCreate,
+): PrescriptionCreatePayload {
+  return {
+    patient_id: mpiId,
+    medication_id: form.drug.trim(), // Using drug name as medication_id for now
+    dose: form.dose,
+    dose_unit: form.unit,
+    via_administracao: form.route,
+    frequencia: form.frequency.trim(),
+    data_inicio: form.start_time ?? new Date().toISOString(),
+    data_fim: undefined,
+    instrucoes: form.notes?.trim() || undefined,
+  };
+}
+
+function mapStatusToTransition(
+  newStatus: PrescriptionStatus,
+): StateTransitionPayload['transition'] {
+  switch (newStatus) {
+    case 'completed':
+      return 'complete';
+    case 'discontinued':
+      return 'discontinue';
+    default:
+      return 'complete';
+  }
+}
+
+// ─── Default patient (hardcoded while patient list API is not integrated) ────
+
+const DEFAULT_MPI_ID = 'MPI-001';
+const DEFAULT_PATIENTS = [
+  { mpi_id: 'MPI-001', name: 'Paciente MPI-001', bed: 'UTI' },
 ];
 
 // ─── Loading Skeleton ────────────────────────────────────────────────────────
@@ -156,7 +258,7 @@ interface PrescriptionFormProps {
 
 function PrescriptionForm({ onSubmit, onCancel }: PrescriptionFormProps) {
   const [formData, setFormData] = useState<PrescriptionCreate>({
-    mpi_id: MOCK_PATIENTS[0]?.mpi_id ?? '',
+    mpi_id: DEFAULT_MPI_ID,
     drug: '',
     dose: 0,
     unit: 'mg',
@@ -209,10 +311,11 @@ function PrescriptionForm({ onSubmit, onCancel }: PrescriptionFormProps) {
       if (!validate()) return;
 
       setIsSubmitting(true);
-      // Simula chamada à API
-      await new Promise((r) => setTimeout(r, 800));
-      onSubmit({ ...formData });
-      setIsSubmitting(false);
+      try {
+        onSubmit({ ...formData });
+      } finally {
+        setIsSubmitting(false);
+      }
     },
     [validate, onSubmit, formData],
   );
@@ -237,7 +340,7 @@ function PrescriptionForm({ onSubmit, onCancel }: PrescriptionFormProps) {
             color: 'var(--semantic-text-primary)',
           }}
         >
-          {MOCK_PATIENTS.map((p) => (
+          {DEFAULT_PATIENTS.map((p) => (
             <option key={p.mpi_id} value={p.mpi_id}>
               {p.name} — {p.bed}
             </option>
@@ -535,7 +638,7 @@ function GlobalInteractionAlert({ interactions }: { interactions: DrugInteractio
         </p>
         <p className="text-xs mt-0.5">
           {interactions.length === 1
-            ? `${interactions[0]?.drugPair.join(' + ')}: ${interactions[0]?.description ?? ''}`
+            ? `${interactions[0]?.description ?? ''}`
             : `${interactions.length} interações medicamentosas detectadas. Verifique os cards com ícone de alerta.`}
         </p>
       </div>
@@ -573,16 +676,57 @@ function ToastNotification({
 // ─── Page Component ──────────────────────────────────────────────────────────
 
 function PrescriptionPage() {
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>(MOCK_PRESCRIPTIONS);
+  // API data: raw records from backend
+  const [records, setRecords] = useState<PrescriptionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // UI state
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PrescriptionStatus | 'all'>('active');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({
     message: '',
     visible: false,
   });
+
+  // ── Derive local Prescription array from API records ───────────────────────
+  const prescriptions = useMemo<Prescription[]>(
+    () => records.map(mapRecordToPrescription),
+    [records],
+  );
+
+  // ── Derive patients list from prescription data ───────────────────────────
+  const patients = useMemo(() => {
+    const seen = new Set<string>();
+    const result: { mpi_id: string; name: string; bed: string }[] = [];
+    for (const p of prescriptions) {
+      if (!seen.has(p.mpi_id)) {
+        seen.add(p.mpi_id);
+        result.push({ mpi_id: p.mpi_id, name: `Paciente ${p.mpi_id}`, bed: 'UTI' });
+      }
+    }
+    if (result.length === 0) {
+      // Fallback: show default patient so the form still works
+      result.push(...DEFAULT_PATIENTS);
+    }
+    return result;
+  }, [prescriptions]);
+
+  // ── Fetch prescriptions on mount ──────────────────────────────────────────
+  const loadPrescriptions = useCallback(() => {
+    setLoading(true);
+    setFetchError(null);
+    fetchPrescriptions(DEFAULT_MPI_ID)
+      .then((data) => setRecords(data.prescriptions))
+      .catch((err) => setFetchError(err instanceof Error ? err.message : 'Erro desconhecido'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadPrescriptions();
+  }, [loadPrescriptions]);
 
   // ── Toast helper ───────────────────────────────────────────────────────────
   const showToast = useCallback((message: string) => {
@@ -590,55 +734,49 @@ function PrescriptionPage() {
     setTimeout(() => setToast({ message: '', visible: false }), 3500);
   }, []);
 
-  // ── Status change handler ──────────────────────────────────────────────────
+  // ── Status change handler (calls real API) ────────────────────────────────
   const handleStatusChange = useCallback(
-    (id: string, newStatus: PrescriptionStatus) => {
-      setPrescriptions((prev) =>
-        prev.map((rx) =>
-          rx.id === id
-            ? { ...rx, status: newStatus, end_time: newStatus !== 'active' ? new Date().toISOString() : undefined }
-            : rx,
-        ),
-      );
-      const label = STATUS_LABELS[newStatus];
-      showToast(`Prescrição marcada como "${label}"`);
+    async (id: string, newStatus: PrescriptionStatus) => {
+      setActionLoading(true);
+      try {
+        const transition = mapStatusToTransition(newStatus);
+        const payload: StateTransitionPayload = { transition };
+        const updated = await transitionPrescriptionState(id, payload);
+        // Replace the record in state with the updated one
+        setRecords((prev) =>
+          prev.map((r) => (r.id === id ? updated : r)),
+        );
+        const label = STATUS_LABELS[newStatus];
+        showToast(`Prescrição marcada como "${label}"`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Erro ao atualizar status';
+        showToast(`Erro: ${msg}`);
+      } finally {
+        setActionLoading(false);
+      }
     },
     [showToast],
   );
 
-  // ── New prescription handler ───────────────────────────────────────────────
+  // ── New prescription handler (calls real API) ─────────────────────────────
   const handleNewPrescription = useCallback(
-    (data: PrescriptionCreate) => {
-      const newRx: Prescription = {
-        id: `rx-${Date.now()}`,
-        mpi_id: data.mpi_id,
-        drug: data.drug.trim(),
-        dose: data.dose,
-        unit: data.unit,
-        route: data.route,
-        frequency: data.frequency.trim(),
-        start_time: data.start_time ?? new Date().toISOString(),
-        status: 'active',
-        notes: data.notes?.trim() || undefined,
-        prescribed_by: 'Você (mock)',
-        created_at: new Date().toISOString(),
-      };
-
-      setPrescriptions((prev) => [newRx, ...prev]);
-      setDrawerOpen(false);
-      showToast(`Prescrição de ${newRx.drug} criada com sucesso!`);
+    async (data: PrescriptionCreate) => {
+      setActionLoading(true);
+      try {
+        const payload = mapFormToPayload(DEFAULT_MPI_ID, data);
+        const created = await createPrescription(DEFAULT_MPI_ID, payload);
+        setRecords((prev) => [created, ...prev]);
+        setDrawerOpen(false);
+        showToast(`Prescrição de ${data.drug.trim()} criada com sucesso!`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Erro ao criar prescrição';
+        showToast(`Erro: ${msg}`);
+      } finally {
+        setActionLoading(false);
+      }
     },
     [showToast],
   );
-
-  // ── Simulate loading & error ───────────────────────────────────────────────
-  const simulateLoading = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-    setTimeout(() => setIsLoading(false), 1500);
-  }, []);
-
-  const clearError = useCallback(() => setError(null), []);
 
   // ── Filtered prescriptions ─────────────────────────────────────────────────
   const filteredPrescriptions = useMemo(() => {
@@ -657,18 +795,34 @@ function PrescriptionPage() {
     return filtered;
   }, [prescriptions, selectedPatient, activeTab]);
 
-  // ── Drug interactions for the global banner ────────────────────────────────
+  // ── Drug interactions for the global banner (from record alertas) ──────────
   const activeInteractions = useMemo(() => {
-    // Only for active prescriptions
-    const activeDrugs = prescriptions
-      .filter((rx) => rx.status === 'active')
-      .map((rx) => rx.drug);
+    const allAlerts: DrugInteraction[] = [];
+    for (const record of records) {
+      if (record.alertas && record.alertas.length > 0) {
+        for (const alert of record.alertas) {
+          if (!alert.resolvido) {
+            allAlerts.push(mapAlertToInteraction(alert));
+          }
+        }
+      }
+    }
+    return allAlerts;
+  }, [records]);
 
-    return MOCK_DRUG_INTERACTIONS.filter((ix) => {
-      const [a, b] = ix.drugPair;
-      return activeDrugs.some((d) => d === a) && activeDrugs.some((d) => d === b);
-    });
-  }, [prescriptions]);
+  // ── Interaction lookup per prescription ───────────────────────────────────
+  const interactionMap = useMemo(() => {
+    const map = new Map<string, DrugInteraction>();
+    for (const record of records) {
+      if (record.alertas && record.alertas.length > 0) {
+        const unresolved = record.alertas.find((a) => !a.resolvido);
+        if (unresolved) {
+          map.set(record.id, mapAlertToInteraction(unresolved));
+        }
+      }
+    }
+    return map;
+  }, [records]);
 
   // ── Counts ─────────────────────────────────────────────────────────────────
   const counts = useMemo(
@@ -701,25 +855,26 @@ function PrescriptionPage() {
           </div>
 
           <div className="flex gap-2">
-            {/* Demo: simulate loading */}
+            {/* Refresh button */}
             <button
-              onClick={simulateLoading}
-              disabled={isLoading}
+              onClick={loadPrescriptions}
+              disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--semantic-surface-raised)',
                 color: 'var(--semantic-text-secondary)',
                 borderColor: 'var(--semantic-border-default)',
               }}
-              aria-label="Simular carregamento"
+              aria-label="Recarregar prescrições"
             >
-              <Loader2 className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              Loading
+              <Loader2 className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              Atualizar
             </button>
             {/* New prescription button */}
             <button
               onClick={() => setDrawerOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              disabled={actionLoading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--clinical-severity-normal-fill)',
                 color: 'var(--clinical-severity-normal-on-fill)',
@@ -738,21 +893,18 @@ function PrescriptionPage() {
         )}
 
         {/* ── Error ────────────────────────────────────────────────────────── */}
-        {error && (
+        {fetchError && (
           <ErrorDisplay
-            message={error}
-            onRetry={() => {
-              clearError();
-              simulateLoading();
-            }}
+            message={fetchError}
+            onRetry={loadPrescriptions}
           />
         )}
 
         {/* ── Loading ──────────────────────────────────────────────────────── */}
-        {isLoading && <LoadingSkeleton />}
+        {loading && <LoadingSkeleton />}
 
         {/* ── Main Content ─────────────────────────────────────────────────── */}
-        {!error && !isLoading && (
+        {!fetchError && !loading && (
           <>
             {/* Patient Selector + Status Tabs */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
@@ -772,7 +924,7 @@ function PrescriptionPage() {
                   style={{ color: 'var(--semantic-text-primary)' }}
                 >
                   <option value="">Todos os pacientes</option>
-                  {MOCK_PATIENTS.map((p) => (
+                  {patients.map((p) => (
                     <option key={p.mpi_id} value={p.mpi_id}>
                       {p.name} ({p.bed})
                     </option>
@@ -866,7 +1018,7 @@ function PrescriptionPage() {
                 className="space-y-4"
               >
                 {filteredPrescriptions.map((rx) => {
-                  const interaction = findInteraction(rx.drug, MOCK_DRUG_INTERACTIONS);
+                  const interaction = interactionMap.get(rx.id) ?? null;
                   return (
                     <PrescriptionCard
                       key={rx.id}

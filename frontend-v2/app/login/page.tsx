@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Eye, EyeOff } from 'lucide-react';
 import { loginApi, setApiToken, type LoginRequest } from '@/lib/api';
 import { setUser } from '@/lib/auth';
+import { type ClinicalRole } from '@/hooks/useRole';
 
 function LoginForm() {
   const router = useRouter();
@@ -45,6 +46,7 @@ function LoginForm() {
           display_name: username,
           is_admin: payload.is_admin || false,
           is_active: true,
+          role: (payload.role as ClinicalRole) || null,
         });
       } catch {
         // Fallback minimal user
@@ -55,6 +57,7 @@ function LoginForm() {
           display_name: username,
           is_admin: false,
           is_active: true,
+          role: null,
         });
       }
 

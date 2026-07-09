@@ -3,6 +3,7 @@ import './globals.css';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { OverlayStackProvider } from '@/hooks/useOverlayStack';
 import TenantProvider from '@/components/TenantProvider';
+import Breadcrumb from '@/components/Breadcrumb';
 
 export const metadata: Metadata = {
   title: 'Intensicare — Clinical Command Center',
@@ -20,6 +21,7 @@ export default function RootLayout({
         <TenantProvider tenant="default" />
         <OverlayStackProvider>
           <ErrorBoundary>
+            <Breadcrumb />
             {children}
           </ErrorBoundary>
         </OverlayStackProvider>

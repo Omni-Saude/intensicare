@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Droplets,
   TrendingUp,
@@ -19,14 +19,12 @@ import {
   type FluidBalanceSummary,
   type FluidBalanceRecord,
   type BalanceStatus,
-  MOCK_SUMMARY,
-  MOCK_TREND,
-  MOCK_RECORDS,
   classifyBalance,
   formatVolume,
   BALANCE_STATUS_LABELS,
   CATEGORY_LABELS_FLUID,
 } from '@/lib/fluid-balance-types';
+import { fetchDashboard, fetchEfficiency } from '@/lib/api';
 
 // ─── View mode ──────────────────────────────────────────────────────────────
 
@@ -327,40 +325,84 @@ function EmptyState(): React.ReactElement {
 
 export default function FluidBalancePage(): React.ReactElement {
   const [viewMode, setViewMode] = useState<ViewMode>('24h');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
 
-  // ── Derived state ─────────────────────────────────────────────────────
-  const summary: FluidBalanceSummary = useMemo(() => MOCK_SUMMARY, []);
-  const trendData: FluidBalanceTrend[] = useMemo(() => MOCK_TREND, []);
-  const records: FluidBalanceRecord[] = useMemo(() => MOCK_RECORDS, []);
+  // ── Data from API ──────────────────────────────────────────────────────
+  const [summary, setSummary] = useState<FluidBalanceSummary | null>(null);
+  const [trendData, setTrendData] = useState<FluidBalanceTrend[]>([]);
+  const [records, setRecords] = useState<FluidBalanceRecord[]>([]);
 
+  // ── Fetch fluid balance data ──────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Get first patient from dashboard as context
+        const dashboard = await fetchDashboard();
+        if (cancelled) return;
+
+        const firstPatient = dashboard.patients?.[0];
+        if (!firstPatient) {
+          setIsEmpty(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // Fetch efficiency data (includes fluid balance info)
+        const efficiencyData = await fetchEfficiency(firstPatient.mpi_id);
+        if (cancelled) return;
+
+        const data = efficiencyData as {
+          fluid_balance_summary?: FluidBalanceSummary;
+          fluid_balance_trend?: FluidBalanceTrend[];
+          fluid_balance_records?: FluidBalanceRecord[];
+        };
+
+        if (data.fluid_balance_summary) {
+          setSummary(data.fluid_balance_summary);
+        }
+        if (data.fluid_balance_trend) {
+          setTrendData(data.fluid_balance_trend);
+        }
+        if (data.fluid_balance_records) {
+          setRecords(data.fluid_balance_records);
+        }
+
+        if (!data.fluid_balance_summary && !data.fluid_balance_trend?.length) {
+          setIsEmpty(true);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Erro ao carregar balanço hídrico';
+          setError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadData();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Derived state ─────────────────────────────────────────────────────
   const balanceStatus: BalanceStatus = useMemo(
-    () => classifyBalance(summary.net_balance_ml),
-    [summary.net_balance_ml],
+    () => summary ? classifyBalance(summary.net_balance_ml) : 'neutral',
+    [summary],
   );
 
   const balanceTokens = useMemo(
     () => getBalanceTokens(balanceStatus),
     [balanceStatus],
   );
-
-  // ── Simulators ────────────────────────────────────────────────────────
-  const simulateLoading = useCallback(() => {
-    setIsLoading(true);
-    setIsEmpty(false);
-    setTimeout(() => setIsLoading(false), 1500);
-  }, []);
-
-  const simulateEmpty = useCallback(() => {
-    setIsLoading(false);
-    setIsEmpty(true);
-  }, []);
-
-  const restoreData = useCallback(() => {
-    setIsLoading(false);
-    setIsEmpty(false);
-  }, []);
 
   // ── Loading state ─────────────────────────────────────────────────────
   if (isLoading) {
@@ -401,61 +443,33 @@ export default function FluidBalancePage(): React.ReactElement {
                 Monitoramento de entradas, saídas e balanço líquido
               </p>
             </div>
-
-            {/* Demo state toggles */}
-            <div className="flex gap-2">
-              <button
-                onClick={simulateLoading}
-                disabled={isLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
-                style={{
-                  backgroundColor: 'var(--semantic-surface-raised)',
-                  color: 'var(--semantic-text-secondary)',
-                  borderColor: 'var(--semantic-border-default)',
-                }}
-                aria-label="Simular carregamento"
-              >
-                <Loader2
-                  className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`}
-                  aria-hidden="true"
-                />
-                Loading
-              </button>
-              <button
-                onClick={simulateEmpty}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-                style={{
-                  backgroundColor: 'var(--semantic-surface-raised)',
-                  color: 'var(--semantic-text-secondary)',
-                  borderColor: 'var(--semantic-border-default)',
-                }}
-                aria-label="Simular vazio"
-              >
-                <Droplets className="w-3.5 h-3.5" aria-hidden="true" />
-                Empty
-              </button>
-              {isEmpty && (
-                <button
-                  onClick={restoreData}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-                  style={{
-                    backgroundColor: 'var(--feedback-success-bg-dark)',
-                    color: 'var(--feedback-success-text-dark)',
-                    borderColor: 'var(--feedback-success-border-dark)',
-                  }}
-                  aria-label="Restaurar dados"
-                >
-                  Restaurar
-                </button>
-              )}
-            </div>
           </div>
+
+          {/* ── Error state ────────────────────────────────────────────── */}
+          {error && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="flex items-start gap-3 rounded-xl border p-4"
+              style={{
+                borderColor: 'var(--clinical-severity-critical-signal)',
+                backgroundColor: 'var(--clinical-severity-critical-wash)',
+                color: 'var(--clinical-severity-critical-on-surface)',
+              }}
+            >
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-sm">Erro ao carregar balanço hídrico</p>
+                <p className="text-xs mt-0.5 opacity-90">{error}</p>
+              </div>
+            </div>
+          )}
 
           {/* ── Empty state ────────────────────────────────────────────── */}
           {isEmpty && <EmptyState />}
 
           {/* ── Main content ───────────────────────────────────────────── */}
-          {!isEmpty && (
+          {!isEmpty && summary && (
             <>
               {/* ── Summary Cards ─────────────────────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -540,7 +554,7 @@ export default function FluidBalancePage(): React.ReactElement {
                     error={null}
                   />
                 ) : (
-                  /* 24h: mostra gráfico com dados mock truncados (ex: últimos 2 dias para visualização) */
+                  /* 24h: mostra gráfico com dados recentes (ex: últimos 2 dias para visualização) */
                   <FluidBalanceChart
                     data={trendData.slice(-2)}
                     isLoading={false}

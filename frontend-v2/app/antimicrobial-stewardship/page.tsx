@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Shield,
   Save,
@@ -20,12 +20,12 @@ import {
   type AntimicrobialAssessment,
   type StewardshipSeverity,
   DEFAULT_CRITERIA,
-  MOCK_PATIENTS,
   CATEGORY_LABELS,
   computeScore,
   computeSeverity,
   getRecommendation,
 } from '@/lib/antimicrobial-types';
+import { fetchAntimicrobialAssessments, createAntimicrobialAssessment, fetchAntimicrobialCriteria } from '@/lib/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -63,11 +63,23 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
   const [criteria, setCriteria] = useState<AntimicrobialCriterion[]>(
     () => DEFAULT_CRITERIA,
   );
-  const [selectedPatient, setSelectedPatient] = useState<string>(
-    MOCK_PATIENTS[0]!.mpiId,
-  );
+  const [mpiId, setMpiId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Load criteria from API on mount, fallback to DEFAULT_CRITERIA
+  useEffect(() => {
+    fetchAntimicrobialCriteria()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCriteria(data as AntimicrobialCriterion[]);
+        }
+      })
+      .catch(() => {
+        // Keep DEFAULT_CRITERIA as fallback
+      });
+  }, []);
 
   // ─── Derived state ─────────────────────────────────────────────────────────
 
@@ -80,9 +92,7 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
     () => getRecommendation(severity, score),
     [severity, score],
   );
-  const selectedPatientData = MOCK_PATIENTS.find(
-    (p) => p.mpiId === selectedPatient,
-  );
+  const selectedPatientData = mpiId ? { mpiId, name: `MPI ${mpiId}`, bed: '—' } : null;
 
   /** Mapeia StewardshipSeverity → SeverityBadge severity. */
   const clinicalSeverity = useMemo(() => {
@@ -103,14 +113,18 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
     setSaveSuccess(false);
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (!mpiId) {
+      setSaveError('Informe o MPI do paciente');
+      return;
+    }
     setIsLoading(true);
     setSaveSuccess(false);
+    setSaveError(null);
 
-    // Mock async save
-    const timer = setTimeout(() => {
+    try {
       const assessment: AntimicrobialAssessment = {
-        patientMpiId: selectedPatient,
+        patientMpiId: mpiId,
         criteria,
         score,
         severity,
@@ -118,16 +132,15 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
         assessedAt: new Date().toISOString(),
         assessedBy: 'Dr. Plantonista',
       };
-      console.log(
-        '[AntimicrobialStewardship] Assessment saved:',
-        assessment,
-      );
-      setIsLoading(false);
+      await createAntimicrobialAssessment(assessment as unknown);
       setSaveSuccess(true);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [selectedPatient, criteria, score, severity, recommendation]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao salvar avaliação';
+      setSaveError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [mpiId, criteria, score, severity, recommendation]);
 
   const handleReset = useCallback(() => {
     setCriteria(DEFAULT_CRITERIA);
@@ -197,26 +210,23 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
                 style={{ color: 'var(--semantic-text-secondary)' }}
                 aria-hidden="true"
               />
-              <select
-                value={selectedPatient}
+              <input
+                type="text"
+                value={mpiId}
                 onChange={(e) => {
-                  setSelectedPatient(e.target.value);
+                  setMpiId(e.target.value);
                   setSaveSuccess(false);
+                  setSaveError(null);
                 }}
+                placeholder="MPI do paciente"
                 className="text-sm rounded-lg border px-3 py-2 min-w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
                 style={{
                   borderColor: 'var(--semantic-border-default)',
                   backgroundColor: 'var(--semantic-surface-raised)',
                   color: 'var(--semantic-text-primary)',
                 }}
-                aria-label="Selecionar paciente"
-              >
-                {MOCK_PATIENTS.map((p) => (
-                  <option key={p.mpiId} value={p.mpiId}>
-                    {p.name} — {p.bed}
-                  </option>
-                ))}
-              </select>
+                aria-label="MPI do paciente"
+              />
             </div>
           </div>
 
@@ -380,6 +390,23 @@ export default function AntimicrobialStewardshipPage(): React.ReactElement {
             </button>
 
           </div>
+
+          {/* ── Save error ─────────────────────────────────────────── */}
+          {saveError && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="flex items-center gap-2 px-4 py-3 rounded-xl border text-sm"
+              style={{
+                borderColor: 'var(--clinical-severity-critical-signal)',
+                backgroundColor: 'var(--clinical-severity-critical-wash)',
+                color: 'var(--clinical-severity-critical-on-surface)',
+              }}
+            >
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              <span>{saveError}</span>
+            </div>
+          )}
 
           {/* ── Save confirmation ──────────────────────────────────────── */}
           {saveSuccess && (

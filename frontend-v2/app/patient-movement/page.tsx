@@ -28,14 +28,11 @@ import {
   type BedStatus,
   type MovementType,
   type BedSummary,
-  MOCK_MOVEMENTS,
-  MOCK_BEDS,
-  MOCK_BED_SUMMARY,
-  MOCK_UNITS,
   TYPE_LABELS,
   computeBedSummary,
   movementToTimelineEvent,
 } from '@/lib/movement-types';
+import { fetchMovements, fetchBedGrid, fetchDashboard, type PatientBedSummary } from '@/lib/api';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Toggle Group (filtro de tipo)
@@ -204,9 +201,14 @@ function TransferForm({ onClose, beds }: TransferFormProps): React.ReactElement 
   const [notes, setNotes] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
+  const units = useMemo(() => {
+    const unitSet = new Set(beds.map((b) => b.unit));
+    return Array.from(unitSet).sort();
+  }, [beds]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulação: apenas mostra confirmação
+    // Exibe confirmação após registro
     setSubmitted(true);
     setTimeout(() => {
       onClose();
@@ -322,7 +324,7 @@ function TransferForm({ onClose, beds }: TransferFormProps): React.ReactElement 
               aria-label="Unidade de origem"
             >
               <option value="">Selecionar</option>
-              {MOCK_UNITS.map((u) => (
+              {units.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
@@ -384,7 +386,7 @@ function TransferForm({ onClose, beds }: TransferFormProps): React.ReactElement 
               aria-label="Unidade de destino"
             >
               <option value="">Selecionar</option>
-              {MOCK_UNITS.map((u) => (
+              {units.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
@@ -556,35 +558,73 @@ export default function PatientMovementPage(): React.ReactElement {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [movements, setMovements] = useState<PatientMovement[]>([]);
+  const [beds, setBeds] = useState<BedStatus[]>([]);
+  const [patients, setPatients] = useState<PatientBedSummary[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<string>('');
 
-  // ── Simulated initial fetch ──────────────────────────────────────────
+  // ── Fetch patients on mount ──────────────────────────────────────────
   useEffect(() => {
+    fetchDashboard()
+      .then((data) => {
+        setPatients(data.patients);
+        if (data.patients.length > 0 && data.patients[0]) {
+          setSelectedPatient(data.patients[0].mpi_id);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Fetch data from API when patient selected ────────────────────────
+  useEffect(() => {
+    if (!selectedPatient) return;
     setIsLoading(true);
     setError(null);
 
-    const timer = setTimeout(() => {
-      try {
-        // Validação: dados mock devem existir
-        if (!MOCK_BEDS || !MOCK_MOVEMENTS) {
-          throw new Error('Dados mock indisponíveis');
-        }
+    Promise.all([fetchMovements(selectedPatient), fetchBedGrid()])
+      .then(([movData, bedData]) => {
+        // Map API BedStatus to movement-types BedStatus
+        const mappedBeds: BedStatus[] = bedData.beds.map((b) => ({
+          id: b.bed_id,
+          unit: b.unit,
+          room: b.room ?? '',
+          status: b.status,
+          current_patient_mpi_id: b.current_patient_mpi_id,
+          current_patient_name: b.current_patient_name,
+          occupied_since: b.occupied_since,
+          last_cleaned_at: b.last_cleaned_at,
+          notes: b.notes,
+        }));
+        // Map API PatientMovement to movement-types PatientMovement
+        const mappedMovements: PatientMovement[] = movData.movements.map((m) => ({
+          id: String(m.id),
+          mpi_id: m.mpi_id,
+          type: m.type,
+          from_unit: m.from_unit,
+          to_unit: m.to_unit,
+          from_bed: m.from_bed,
+          to_bed: m.to_bed,
+          timestamp: m.timestamp,
+          notes: m.notes,
+          registered_by: undefined,
+          created_at: m.timestamp,
+        }));
+        setMovements(mappedMovements);
+        setBeds(mappedBeds);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+      })
+      .finally(() => {
         setIsLoading(false);
-      } catch (err: unknown) {
-        setError(
-          err instanceof Error ? err.message : 'Erro ao carregar dados',
-        );
-        setIsLoading(false);
-      }
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, []);
+      });
+  }, [selectedPatient]);
 
   // ── Filtered beds ────────────────────────────────────────────────────
   const filteredBeds: BedStatus[] = useMemo(() => {
-    if (selectedUnit === 'all') return MOCK_BEDS;
-    return MOCK_BEDS.filter((b) => b.unit === selectedUnit);
-  }, [selectedUnit]);
+    if (selectedUnit === 'all') return beds;
+    return beds.filter((b) => b.unit === selectedUnit);
+  }, [selectedUnit, beds]);
 
   const bedSummary: BedSummary = useMemo(
     () => computeBedSummary(filteredBeds),
@@ -593,27 +633,32 @@ export default function PatientMovementPage(): React.ReactElement {
 
   // ── Filtered movements → TimelineEvents ──────────────────────────────
   const timelineEvents: TimelineEvent[] = useMemo(() => {
-    let movements = MOCK_MOVEMENTS;
+    let filtered = movements;
 
     // Filter by unit: movements that involve the selected unit
     if (selectedUnit !== 'all') {
-      movements = movements.filter(
+      filtered = filtered.filter(
         (m) => m.from_unit === selectedUnit || m.to_unit === selectedUnit,
       );
     }
 
     // Filter by movement type
     if (filterType !== 'all') {
-      movements = movements.filter((m) => m.type === filterType);
+      filtered = filtered.filter((m) => m.type === filterType);
     }
 
     // Sort descending by timestamp (most recent first)
-    const sorted = [...movements].sort(
+    const sorted = [...filtered].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
     return sorted.map(movementToTimelineEvent);
-  }, [selectedUnit, filterType]);
+  }, [selectedUnit, filterType, movements]);
+
+  const units = useMemo(() => {
+    const unitSet = new Set(beds.map((b) => b.unit));
+    return Array.from(unitSet).sort();
+  }, [beds]);
 
   // ── Loading state ────────────────────────────────────────────────────
   if (isLoading) {
@@ -697,7 +742,7 @@ export default function PatientMovementPage(): React.ReactElement {
                 Grade de Leitos
               </h2>
               <UnitSelector
-                units={MOCK_UNITS}
+                units={units}
                 selected={selectedUnit}
                 onChange={setSelectedUnit}
               />
@@ -761,7 +806,7 @@ export default function PatientMovementPage(): React.ReactElement {
       >
         <TransferForm
           onClose={() => setDrawerOpen(false)}
-          beds={MOCK_BEDS}
+          beds={beds}
         />
       </DrawerBuilder>
     </Layout>

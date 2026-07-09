@@ -120,7 +120,9 @@ export function OverlayStackProvider({ children }: OverlayStackProviderProps) {
 
       // Pop the topmost
       const popped = prev[prev.length - 1];
-      historyRef.current = historyRef.current.filter((hid) => hid !== popped.id);
+      if (popped) {
+        historyRef.current = historyRef.current.filter((hid) => hid !== popped.id);
+      }
       return prev.slice(0, -1);
     });
   }, []);
@@ -138,7 +140,9 @@ export function OverlayStackProvider({ children }: OverlayStackProviderProps) {
       setStack((prev) => {
         if (prev.length === 0) return prev;
         const popped = prev[prev.length - 1];
-        historyRef.current = historyRef.current.filter((hid) => hid !== popped.id);
+        if (popped) {
+          historyRef.current = historyRef.current.filter((hid) => hid !== popped.id);
+        }
         return prev.slice(0, -1);
       });
     };

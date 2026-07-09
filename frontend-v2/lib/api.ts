@@ -1,5 +1,7 @@
 'use client';
 
+import { type ClinicalRole } from '@/hooks/useRole';
+
 const BASE_URL = ''; // Uses Next.js rewrites to proxy to localhost:8000
 
 export class ApiError extends Error {
@@ -103,7 +105,7 @@ export interface UserResponse {
   display_name: string | null;
   is_admin: boolean;
   is_active: boolean;
-  role: string | null;
+  role: ClinicalRole | null;
   created_at: string | null;
 }
 
@@ -143,6 +145,7 @@ export interface LatestVitals {
 
 export interface PatientBedSummary {
   mpi_id: string;
+  encounter_id: string;
   bed_id: string | null;
   display_name: string;
   unit: string | null;
@@ -206,6 +209,7 @@ export interface AlertInfo {
   triggering_parameters?: TriggeringParameter[];
   rule_reference?: string;
   alert_definition_version?: string;
+  definition_version_id?: string;
   data_coverage_note?: string;
 }
 
@@ -219,6 +223,7 @@ export interface TriggeringParameter {
 
 export interface PatientDetailResponse {
   mpi_id: string;
+  encounter_id: string;
   bed_id: string | null;
   display_name: string;
   unit: string | null;
@@ -424,4 +429,601 @@ export interface HealthResponse {
 
 export async function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Pathways API (TDD domain — P0)
+// ═══════════════════════════════════════════════════════════════
+
+export interface PathwayInfo {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  active: boolean;
+  definition_version_id?: string;
+  definition_hash?: string;
+  states: PathwayState[];
+  criteria: PathwayCriterion[];
+  created_at: string;
+}
+
+export interface PathwayState {
+  id: string;
+  name: string;
+  order: number;
+  is_terminal?: boolean;
+}
+
+export interface PathwayCriterion {
+  id: string;
+  name: string;
+  category: string;
+  unit?: string;
+  normal_range?: string;
+  alert_threshold?: string;
+}
+
+export interface PatientPathway {
+  id: number;
+  mpi_id: string;
+  encounter_id: string;
+  bed_id?: string;
+  unit?: string;
+  pathway: PathwayInfo;
+  current_state_id: string;
+  status: 'active' | 'completed' | 'archived';
+  severity: 'normal' | 'watch' | 'urgent' | 'critical';
+  criteria: PathwayCriteriaEval[];
+  enrolled_at: string;
+  completed_at?: string;
+}
+
+export interface PathwayCriteriaEval {
+  criteria_id: string;
+  met: boolean;
+  value?: string;
+  evaluated_at: string;
+}
+
+export interface PathwayProgress {
+  patient_pathway_id: number;
+  mpi_id: string;
+  encounter_id: string;
+  pathway_name: string;
+  current_state: string;
+  criteria_summary: { total: number; met: number; not_met: number; pending: number };
+  state_history: { from_state: string; to_state: string; changed_at: string; reason: string }[];
+  trend: string;
+  recommendation: string;
+}
+
+export interface PathwayListResponse { pathways: PathwayInfo[]; }
+export interface PatientPathwayListResponse { pathways: PatientPathway[]; }
+
+export async function fetchPathways(): Promise<PathwayListResponse> {
+  return request<PathwayListResponse>('/api/v1/pathways');
+}
+
+export async function fetchPathway(pathwayId: number): Promise<PathwayInfo> {
+  return request<PathwayInfo>(`/api/v1/pathways/${pathwayId}`);
+}
+
+export async function fetchPatientPathways(mpiId: string): Promise<PatientPathwayListResponse> {
+  return request<PatientPathwayListResponse>(`/api/v1/patients/${encodeURIComponent(mpiId)}/pathways`);
+}
+
+export async function enrollPatientInPathway(mpiId: string, pathwayId: number): Promise<PatientPathway> {
+  return request<PatientPathway>(`/api/v1/patients/${encodeURIComponent(mpiId)}/pathways`, {
+    method: 'POST',
+    body: JSON.stringify({ pathway_definition_id: pathwayId }),
+  });
+}
+
+export async function updatePathwayCriteria(mpiId: string, patientPathwayId: number, criteria: { criteria_id: string; met: boolean; value?: string }[]): Promise<PatientPathway> {
+  return request<PatientPathway>(`/api/v1/patients/${encodeURIComponent(mpiId)}/pathways/${patientPathwayId}/criteria`, {
+    method: 'PUT',
+    body: JSON.stringify({ criteria }),
+  });
+}
+
+export async function fetchPathwayProgress(mpiId: string, patientPathwayId: number): Promise<PathwayProgress> {
+  return request<PathwayProgress>(`/api/v1/patients/${encodeURIComponent(mpiId)}/pathways/${patientPathwayId}/progress`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Prescricao API (TDD domain — P0)
+// ═══════════════════════════════════════════════════════════════
+
+export interface PrescriptionRecord {
+  id: string;
+  patient_id: string;
+  medication_id: string;
+  medication_name?: string;
+  estado: 'draft' | 'active' | 'completed' | 'discontinued' | 'suspended';
+  dose: number;
+  dose_unit: string;
+  via_administracao: string;
+  frequencia: string;
+  data_inicio: string;
+  data_fim?: string;
+  instrucoes?: string;
+  versao: number;
+  alertas?: InteractionAlert[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface InteractionAlert {
+  tipo: string;
+  gravidade: 'contraindicated' | 'severe' | 'moderate' | 'minor';
+  mecanismo: string;
+  recomendacao: string;
+  resolvido: boolean;
+}
+
+export interface PrescriptionCreatePayload {
+  patient_id: string;
+  medication_id: string;
+  dose: number;
+  dose_unit: string;
+  via_administracao: string;
+  frequencia: string;
+  data_inicio: string;
+  data_fim?: string;
+  instrucoes?: string;
+}
+
+export interface PrescriptionUpdatePayload {
+  dose?: number;
+  dose_unit?: string;
+  via_administracao?: string;
+  frequencia?: string;
+  data_fim?: string;
+  instrucoes?: string;
+}
+
+export interface StateTransitionPayload {
+  transition: 'activate' | 'complete' | 'discontinue' | 'suspend' | 'resume';
+  reason?: string;
+  co_signatario_id?: string;
+}
+
+export interface StateMachineDefinition {
+  states: string[];
+  transitions: { from: string; to: string; guard: string }[];
+}
+
+export interface PrescriptionListResponse { prescriptions: PrescriptionRecord[]; }
+
+export async function fetchPrescriptions(mpiId: string): Promise<PrescriptionListResponse> {
+  return request<PrescriptionListResponse>(`/api/v1/patients/${encodeURIComponent(mpiId)}/prescriptions`);
+}
+
+export async function createPrescription(mpiId: string, data: PrescriptionCreatePayload): Promise<PrescriptionRecord> {
+  return request<PrescriptionRecord>(`/api/v1/patients/${encodeURIComponent(mpiId)}/prescriptions`, {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+export async function fetchPrescription(prescriptionId: string): Promise<PrescriptionRecord> {
+  return request<PrescriptionRecord>(`/api/v1/prescriptions/${prescriptionId}`);
+}
+
+export async function updatePrescription(prescriptionId: string, data: PrescriptionUpdatePayload, version: number): Promise<PrescriptionRecord> {
+  return request<PrescriptionRecord>(`/api/v1/prescriptions/${prescriptionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    headers: { 'If-Match': String(version) },
+  });
+}
+
+export async function transitionPrescriptionState(prescriptionId: string, data: StateTransitionPayload): Promise<PrescriptionRecord> {
+  return request<PrescriptionRecord>(`/api/v1/prescriptions/${prescriptionId}/state`, {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+export async function fetchStateMachine(): Promise<StateMachineDefinition> {
+  return request<StateMachineDefinition>('/api/v1/prescriptions/state-machine');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Movimentacao API (TDD domain — P0)
+// ═══════════════════════════════════════════════════════════════
+
+export interface PatientMovement {
+  id: number;
+  mpi_id: string;
+  encounter_id?: string;
+  type: 'admission' | 'transfer' | 'discharge';
+  from_unit?: string;
+  to_unit?: string;
+  from_bed?: string;
+  to_bed?: string;
+  timestamp: string;
+  notes?: string;
+}
+
+export interface BedStatus {
+  bed_id: string;
+  unit: string;
+  room?: string;
+  status: 'free' | 'occupied' | 'blocked' | 'cleaning';
+  current_patient_mpi_id?: string;
+  current_patient_name?: string;
+  occupied_since?: string;
+  last_cleaned_at?: string;
+  notes?: string;
+}
+
+export interface MovementListResponse { movements: PatientMovement[]; }
+export interface BedGridResponse { beds: BedStatus[]; }
+
+export async function fetchMovements(mpiId: string): Promise<MovementListResponse> {
+  return request<MovementListResponse>(`/api/v1/patients/${encodeURIComponent(mpiId)}/movements`);
+}
+
+export async function registerMovement(mpiId: string, data: Partial<PatientMovement>): Promise<PatientMovement> {
+  return request<PatientMovement>(`/api/v1/patients/${encodeURIComponent(mpiId)}/movements`, {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+export async function fetchBedGrid(): Promise<BedGridResponse> {
+  return request<BedGridResponse>('/api/v1/beds');
+}
+
+export async function updateBedStatus(bedId: string, data: { status: string; notes?: string }): Promise<BedStatus> {
+  return request<BedStatus>(`/api/v1/beds/${encodeURIComponent(bedId)}`, {
+    method: 'PUT', body: JSON.stringify(data),
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Formularios API (TDD domain — P0)
+// ═══════════════════════════════════════════════════════════════
+
+export interface ClinicalFormType {
+  form_type: string;
+  name: string;
+  description: string;
+  score_range?: { min: number; max: number };
+  fields: { key: string; type: string; label: string; required: boolean }[];
+}
+
+export interface ClinicalFormSubmission {
+  id: string;
+  mpi_id: string;
+  encounter_id: string;
+  form_type: string;
+  definition_version: string;
+  data: Record<string, unknown>;
+  score?: number;
+  score_components?: Record<string, number>;
+  created_at: string;
+  created_by: string;
+}
+
+export interface ClinicalFormListResponse { forms: ClinicalFormType[]; }
+export interface PatientClinicalFormListResponse { submissions: ClinicalFormSubmission[]; }
+
+export async function fetchClinicalFormTypes(): Promise<ClinicalFormListResponse> {
+  return request<ClinicalFormListResponse>('/api/v1/clinical-forms');
+}
+
+export async function fetchPatientClinicalForms(mpiId: string): Promise<PatientClinicalFormListResponse> {
+  return request<PatientClinicalFormListResponse>(`/api/v1/patients/${encodeURIComponent(mpiId)}/clinical-forms`);
+}
+
+export async function submitClinicalForm(mpiId: string, data: { form_type: string; definition_version: string; data: Record<string, unknown>; notes?: string }): Promise<ClinicalFormSubmission> {
+  return request<ClinicalFormSubmission>(`/api/v1/patients/${encodeURIComponent(mpiId)}/clinical-forms`, {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Evolucoes API (TDD domain — P0)
+// ═══════════════════════════════════════════════════════════════
+
+export interface ClinicalEvolution {
+  id: string;
+  mpi_id: string;
+  encounter_id: string;
+  type: 'admissao' | 'diaria' | 'alta' | 'obito' | 'intercorrencia';
+  role: string;
+  content: string;
+  structured_data: Record<string, unknown>;
+  sofa_score?: number;
+  bundles_confirmed?: string[];
+  enrichment?: Record<string, unknown>;
+  status: 'draft' | 'liberado' | 'assinado';
+  content_hash: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface EvolutionListResponse { evolucoes: ClinicalEvolution[]; }
+
+export async function fetchEvolucoes(mpiId: string, params?: { type?: string; offset?: number; limit?: number }): Promise<EvolutionListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.type) qs.set('type', params.type);
+  if (params?.offset) qs.set('offset', String(params.offset));
+  if (params?.limit) qs.set('limit', String(params.limit));
+  return request<EvolutionListResponse>(`/api/v1/patients/${encodeURIComponent(mpiId)}/evolucoes${qs.toString() ? '?' + qs : ''}`);
+}
+
+export async function createEvolucao(mpiId: string, data: { type: string; content: string; structured_data?: Record<string, unknown>; bundles_confirmed?: string[]; status?: string }): Promise<ClinicalEvolution> {
+  return request<ClinicalEvolution>(`/api/v1/patients/${encodeURIComponent(mpiId)}/evolucoes`, {
+    method: 'POST', body: JSON.stringify(data),
+  });
+}
+
+export async function fetchEvolucao(evolutionId: string): Promise<ClinicalEvolution> {
+  return request<ClinicalEvolution>(`/api/v1/evolucoes/${evolutionId}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Domínios Clínicos API (P1)
+// ═══════════════════════════════════════════════════════════════
+
+// ventilacao
+export async function fetchVentilation(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/ventilation`);
+}
+export async function fetchVentilationHistory(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/ventilation/history`);
+}
+
+// stability
+export async function fetchStability(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/stability`);
+}
+export async function fetchStabilityTrend(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/stability/trend`);
+}
+
+// sedacao
+export async function fetchSedation(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/sedation`);
+}
+export async function fetchSedationHistory(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/sedation/history`);
+}
+
+// deterioration
+export async function fetchDeterioration(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/deterioration`);
+}
+export async function fetchDeteriorationHistory(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/deterioration/history`);
+}
+
+// antimicrobial
+export async function fetchAntimicrobialAssessments(): Promise<unknown> {
+  return request('/api/v1/antimicrobial/assessments');
+}
+export async function createAntimicrobialAssessment(data: unknown): Promise<unknown> {
+  return request('/api/v1/antimicrobial/assessments', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function fetchAntimicrobialAssessment(id: string): Promise<unknown> {
+  return request(`/api/v1/antimicrobial/assessments/${id}`);
+}
+export async function fetchAntimicrobialCriteria(): Promise<unknown> {
+  return request('/api/v1/antimicrobial/criteria');
+}
+
+// prophylaxis
+export async function fetchProphylaxisBundles(): Promise<unknown> {
+  return request('/api/v1/prophylaxis/bundles');
+}
+export async function fetchProphylaxisBundle(id: string): Promise<unknown> {
+  return request(`/api/v1/prophylaxis/bundles/${id}`);
+}
+export async function updateProphylaxisBundle(id: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/prophylaxis/bundles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function fetchProphylaxisBundleCriteria(id: string): Promise<unknown> {
+  return request(`/api/v1/prophylaxis/bundles/${id}/criteria`);
+}
+
+// efficiency
+export async function fetchEfficiency(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/efficiency`);
+}
+
+// indicators
+export async function fetchIndicators(): Promise<unknown> {
+  return request('/api/v1/indicators');
+}
+export async function fetchIndicatorsSummary(): Promise<unknown> {
+  return request('/api/v1/indicators/summary');
+}
+export async function fetchIndicator(id: string): Promise<unknown> {
+  return request(`/api/v1/indicators/${id}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Admin + Infra API (P2)
+// ═══════════════════════════════════════════════════════════════
+
+// documentacao
+export async function fetchDocumentacao(mpiId: string): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/documentacao`);
+}
+export async function createDocumentacao(mpiId: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/patients/${encodeURIComponent(mpiId)}/documentacao`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+// alert_routing
+export async function fetchAlertRoutingRules(): Promise<unknown> {
+  return request('/api/v1/alert-routing');
+}
+export async function createAlertRoutingRule(data: unknown): Promise<unknown> {
+  return request('/api/v1/alert-routing', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function fetchAlertRoutingRule(id: string): Promise<unknown> {
+  return request(`/api/v1/alert-routing/${id}`);
+}
+export async function updateAlertRoutingRule(id: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/alert-routing/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function deleteAlertRoutingRule(id: string): Promise<void> {
+  return request(`/api/v1/alert-routing/${id}`, { method: 'DELETE' });
+}
+
+// registry
+export async function fetchEmpresas(): Promise<unknown> {
+  return request('/api/v1/registry/empresas');
+}
+export async function createEmpresa(data: unknown): Promise<unknown> {
+  return request('/api/v1/registry/empresas', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function fetchEmpresa(id: string): Promise<unknown> {
+  return request(`/api/v1/registry/empresas/${id}`);
+}
+export async function updateEmpresa(id: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/registry/empresas/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function deleteEmpresa(id: string): Promise<void> {
+  return request(`/api/v1/registry/empresas/${id}`, { method: 'DELETE' });
+}
+export async function fetchEstabelecimentos(): Promise<unknown> {
+  return request('/api/v1/registry/estabelecimentos');
+}
+export async function createEstabelecimento(data: unknown): Promise<unknown> {
+  return request('/api/v1/registry/estabelecimentos', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function fetchEstabelecimento(id: string): Promise<unknown> {
+  return request(`/api/v1/registry/estabelecimentos/${id}`);
+}
+export async function updateEstabelecimento(id: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/registry/estabelecimentos/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function deleteEstabelecimento(id: string): Promise<void> {
+  return request(`/api/v1/registry/estabelecimentos/${id}`, { method: 'DELETE' });
+}
+
+// --- Registry: Setores CRUD ---
+
+export async function fetchSetores(): Promise<unknown> {
+  return request('/api/v1/registry/setores');
+}
+export async function createSetor(data: unknown): Promise<unknown> {
+  return request('/api/v1/registry/setores', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function fetchSetor(id: string): Promise<unknown> {
+  return request(`/api/v1/registry/setores/${id}`);
+}
+export async function updateSetor(id: string, data: unknown): Promise<unknown> {
+  return request(`/api/v1/registry/setores/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function deleteSetor(id: string): Promise<void> {
+  return request(`/api/v1/registry/setores/${id}`, { method: 'DELETE' });
+}
+
+// --- Handoff API ---
+
+export interface HandoffPatient {
+  mpi_id: string;
+  name: string;
+  bed_id?: string;
+  status: 'stable' | 'watch' | 'critical';
+}
+
+export interface HandoffResponse {
+  patients: HandoffPatient[];
+  last_handoff_at: string | null;
+}
+
+export async function fetchHandoff(): Promise<HandoffResponse> {
+  return request<HandoffResponse>('/api/v1/handoff');
+}
+
+export async function submitHandoff(data: {
+  mpi_ids: string[];
+  summary?: string;
+  active_issues?: string;
+  pending_actions?: string;
+  medications?: string;
+}): Promise<{ timestamp: string }> {
+  return request<{ timestamp: string }>('/api/v1/handoff', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// --- Communication / Handoff Messages API ---
+
+export interface HandoffMessageResponse {
+  id: string;
+  from_user: string;
+  to_shift: string;
+  sbar_s: string;
+  sbar_b: string;
+  sbar_a: string;
+  sbar_r: string;
+  created_at: string;
+  read: boolean;
+  urgent: boolean;
+}
+
+export interface ShiftOption {
+  value: string;
+  label: string;
+}
+
+export async function fetchHandoffMessages(): Promise<{ messages: HandoffMessageResponse[] }> {
+  return request<{ messages: HandoffMessageResponse[] }>('/api/v1/communication/handoff');
+}
+
+export async function createHandoffMessage(data: {
+  to_shift: string;
+  sbar_s: string;
+  sbar_b: string;
+  sbar_a: string;
+  sbar_r: string;
+  urgent: boolean;
+}): Promise<HandoffMessageResponse> {
+  return request<HandoffMessageResponse>('/api/v1/communication/handoff', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function markHandoffMessageRead(id: string): Promise<void> {
+  return request<void>(`/api/v1/communication/handoff/${id}/read`, {
+    method: 'PUT',
+  });
+}
+
+export async function fetchShifts(): Promise<{ shifts: ShiftOption[] }> {
+  return request<{ shifts: ShiftOption[] }>('/api/v1/communication/shifts');
+}
+
+// --- Tenancy API ---
+
+export async function fetchTenancy(): Promise<unknown> {
+  return request('/api/v1/tenancy');
+}
+
+// --- Audit Log API ---
+
+export async function fetchAuditLogs(params?: {
+  actor?: string;
+  action?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ logs: unknown[]; total: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.actor) searchParams.set('actor', params.actor);
+  if (params?.action) searchParams.set('action', params.action);
+  if (params?.date_from) searchParams.set('date_from', params.date_from);
+  if (params?.date_to) searchParams.set('date_to', params.date_to);
+  if (params?.limit) searchParams.set('limit', String(params.limit));
+  if (params?.offset) searchParams.set('offset', String(params.offset));
+  const qs = searchParams.toString();
+  return request<{ logs: unknown[]; total: number }>(`/api/v1/audit-log${qs ? '?' + qs : ''}`);
 }

@@ -7,17 +7,15 @@ import {
   DoorOpen,
   ChevronRight,
   ChevronDown,
-  Settings,
-  Users,
   AlertTriangle,
-  Loader2,
   CheckCircle2,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 import Layout from '@/components/Layout';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { fetchTenancy } from '@/lib/api';
 import {
-  MOCK_TREE,
   flattenTree,
   getTokenRoot,
   getTypeLabel,
@@ -67,19 +65,46 @@ const LEVEL_ICON: Record<Level, React.ComponentType<{ className?: string; 'aria-
 // ─── Main Page Component ──────────────────────────────────────────────────────
 
 export default function AdminTenancyPage() {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(['org-sl']));
+  const [tree, setTree] = useState<OrganizationNode | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [focusedId, setFocusedId] = useState<string>('org-sl');
-  const [loading] = useState(false); // mock data loads instantly; set true to test skeleton
-  const [error] = useState<string | null>(null); // set to trigger error state for testing
+  const [focusedId, setFocusedId] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const treeRef = useRef<HTMLDivElement>(null);
+
+  // ── Fetch tree from API ──────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchTenancy()
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const root = data as OrganizationNode;
+        setTree(root);
+        setFocusedId(root.data?.id ?? '');
+        setExpandedIds(new Set([root.data?.id ?? '']));
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar estrutura');
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Compute visible items ─────────────────────────────────────────────────
 
   const visibleItems = useMemo(
-    () => flattenTree(MOCK_TREE, expandedIds),
-    [expandedIds],
+    () => (tree ? flattenTree(tree, expandedIds) : []),
+    [tree, expandedIds],
   );
 
   const focusedIndex = useMemo(
@@ -119,6 +144,7 @@ export default function AdminTenancyPage() {
   // ── Expand all ─────────────────────────────────────────────────────────────
 
   const expandAll = useCallback(() => {
+    if (!tree) return;
     const allIds = new Set<string>();
     function collect(node: TenancyNode) {
       if (node.kind === 'organization' || node.kind === 'establishment') {
@@ -126,15 +152,17 @@ export default function AdminTenancyPage() {
         node.children.forEach(collect);
       }
     }
-    collect(MOCK_TREE);
+    collect(tree);
     setExpandedIds(allIds);
-  }, []);
+  }, [tree]);
 
   // ── Collapse all ───────────────────────────────────────────────────────────
 
   const collapseAll = useCallback(() => {
-    setExpandedIds(new Set(['org-sl']));
-  }, []);
+    if (tree) {
+      setExpandedIds(new Set([tree.data.id]));
+    }
+  }, [tree]);
 
   // ── Keyboard Navigation ────────────────────────────────────────────────────
 
@@ -162,7 +190,6 @@ export default function AdminTenancyPage() {
           if (current.hasChildren && !current.isExpanded) {
             toggleExpand(current.id);
           } else if (current.hasChildren && current.isExpanded) {
-            // Move focus to first child
             const childIdx = focusedIndex + 1;
             if (childIdx < visibleItems.length) {
               focusItem(visibleItems[childIdx]!.id);
@@ -214,8 +241,10 @@ export default function AdminTenancyPage() {
   // ── Auto-focus tree on mount ───────────────────────────────────────────────
 
   useEffect(() => {
-    treeRef.current?.focus();
-  }, []);
+    if (!loading && tree) {
+      treeRef.current?.focus();
+    }
+  }, [loading, tree]);
 
   // ── Find selected node for detail card ─────────────────────────────────────
 
@@ -339,6 +368,14 @@ export default function AdminTenancyPage() {
               <div>
                 <p className="font-semibold text-lg">Erro ao carregar estrutura</p>
                 <p className="text-sm mt-1 opacity-90">{error}</p>
+                <button
+                  onClick={() => { setError(null); setLoading(true); }}
+                  className="mt-3 inline-flex items-center gap-2 text-sm underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                  style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
+                >
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                  Tentar novamente
+                </button>
               </div>
             </div>
           </div>
@@ -349,7 +386,7 @@ export default function AdminTenancyPage() {
 
   // ── Empty State ────────────────────────────────────────────────────────────
 
-  if (!MOCK_TREE || MOCK_TREE.children.length === 0) {
+  if (!tree || tree.children.length === 0) {
     return (
       <Layout>
         <div className="max-w-4xl mx-auto">
@@ -499,7 +536,7 @@ export default function AdminTenancyPage() {
                   style={{
                     marginLeft: item.depth * 24,
                     backgroundColor: isFocused
-                      ? tokens.wash + '1A' // wash with low opacity for focus
+                      ? tokens.wash + '1A'
                       : 'transparent',
                     borderRadius: '0.5rem',
                   }}

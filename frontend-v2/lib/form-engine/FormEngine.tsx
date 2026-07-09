@@ -17,6 +17,18 @@ import CheckboxField from './renderers/CheckboxField';
 import DateField from './renderers/DateField';
 import MaskedField from './renderers/MaskedField';
 
+// ─── Renderer map (maps field type → component) ─────────────────────────────
+
+const rendererMap: Record<string, React.ComponentType<any>> = {
+  string: StringField,
+  select: SelectField,
+  number: NumberField,
+  boolean: BooleanField,
+  checkbox: CheckboxField,
+  date: DateField,
+  masked: MaskedField,
+};
+
 // ─── Offline queue (M8 / ADR-0029) ───────────────────────────────────────────
 
 const OFFLINE_QUEUE_KEY = 'intensicare:offline-queue';

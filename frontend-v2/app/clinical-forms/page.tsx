@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ClipboardList,
   Brain,
@@ -29,12 +29,13 @@ import {
   FORM_SCORE_RANGES,
   SOFA_SYSTEMS,
   GLASGOW_COMPONENTS,
-  MOCK_FORMS,
   computeSOFATotal,
   computeGlasgowTotal,
   getScoreColor,
   getScoreInterpretation,
 } from '@/lib/clinical-forms-types';
+import { fetchDashboard, fetchPatientClinicalForms, submitClinicalForm } from '@/lib/api';
+import type { ClinicalFormSubmission } from '@/lib/api';
 
 // ─── Config imports ──────────────────────────────────────────────────────────
 
@@ -62,14 +63,7 @@ interface SubmissionResult {
   timestamp: string;
 }
 
-// ─── Mock patients ───────────────────────────────────────────────────────────
-
-const MOCK_PATIENTS: PatientOption[] = [
-  { mpiId: 'MPI-001', name: 'João Silva', bedId: 'ICU-1-01' },
-  { mpiId: 'MPI-002', name: 'Maria Santos', bedId: 'ICU-1-02' },
-  { mpiId: 'MPI-003', name: 'Carlos Oliveira', bedId: 'ICU-2-05' },
-  { mpiId: 'MPI-004', name: 'Ana Costa', bedId: 'ER-03' },
-];
+// ─── Patients (fetched from dashboard API) ─────────────────────────────────
 
 // ─── Config map ──────────────────────────────────────────────────────────────
 
@@ -187,8 +181,52 @@ export default function ClinicalFormsPage() {
   const [result, setResult] = useState<'success' | 'error' | null>(null);
   const [lastSubmission, setLastSubmission] = useState<SubmissionResult | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(true);
+  const [patientHistory, setPatientHistory] = useState<ClinicalFormSubmission[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  const filteredPatients = MOCK_PATIENTS.filter(
+  // ── Fetch patients from dashboard ─────────────────────────────────────
+  useEffect(() => {
+    fetchDashboard()
+      .then((data) => {
+        setPatients(
+          data.patients.map((p) => ({
+            mpiId: p.mpi_id,
+            name: p.display_name,
+            bedId: p.bed_id ?? undefined,
+          })),
+        );
+      })
+      .catch((err) => {
+        console.error('[ClinicalForms] Failed to fetch patients:', err);
+      })
+      .finally(() => {
+        setPatientsLoading(false);
+      });
+  }, []);
+
+  // ── Fetch patient history when patient changes ────────────────────────
+  useEffect(() => {
+    if (!selectedPatient) {
+      setPatientHistory([]);
+      return;
+    }
+    setHistoryLoading(true);
+    fetchPatientClinicalForms(selectedPatient.mpiId)
+      .then((data) => {
+        setPatientHistory(data.submissions);
+      })
+      .catch((err) => {
+        console.error('[ClinicalForms] Failed to fetch patient history:', err);
+        setPatientHistory([]);
+      })
+      .finally(() => {
+        setHistoryLoading(false);
+      });
+  }, [selectedPatient]);
+
+  const filteredPatients = patients.filter(
     (p) =>
       !patientSearch ||
       p.name.toLowerCase().includes(patientSearch.toLowerCase()) ||
@@ -202,19 +240,11 @@ export default function ClinicalFormsPage() {
       setSubmitting(true);
       setResult(null);
       try {
-        const res = await fetch('/api/clinical-forms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mpiId: selectedPatient.mpiId,
-            formId: activeTab,
-            data,
-          }),
+        await submitClinicalForm(selectedPatient.mpiId, {
+          form_type: activeTab,
+          definition_version: '1.0',
+          data,
         });
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
 
         const formType = tabToFormType(activeTab);
         const score = computeScore(formType, data);
@@ -233,6 +263,11 @@ export default function ClinicalFormsPage() {
           timestamp: new Date().toISOString(),
         });
         setResult('success');
+
+        // Refresh history after submission
+        fetchPatientClinicalForms(selectedPatient.mpiId)
+          .then((res) => setPatientHistory(res.submissions))
+          .catch(() => {});
       } catch {
         setResult('error');
       } finally {
@@ -271,13 +306,7 @@ export default function ClinicalFormsPage() {
   }, [lastSubmission]);
 
   // ─── History for selected patient ────────────────────────────────────────
-
-  const patientHistory = useMemo(() => {
-    if (!selectedPatient) return [];
-    return MOCK_FORMS
-      .filter((f) => f.mpiId === selectedPatient.mpiId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [selectedPatient]);
+  // (fetched via useEffect above, stored in patientHistory state)
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -540,11 +569,13 @@ export default function ClinicalFormsPage() {
                   ) : (
                     <div className="space-y-2">
                       {patientHistory.map((form) => {
-                        const colorVar = form.score !== null
-                          ? getScoreColor(form.formType, form.score)
+                        const formType = form.form_type as FormType;
+                        const score = form.score ?? null;
+                        const colorVar = score !== null
+                          ? getScoreColor(formType, score)
                           : 'var(--semantic-text-secondary)';
-                        const interpretation = form.score !== null
-                          ? getScoreInterpretation(form.formType, form.score)
+                        const interpretation = score !== null
+                          ? getScoreInterpretation(formType, score)
                           : '';
 
                         return (
@@ -561,19 +592,19 @@ export default function ClinicalFormsPage() {
                                 className="font-semibold text-xs uppercase"
                                 style={{ color: 'var(--semantic-text-secondary)' }}
                               >
-                                {FORM_LABELS[form.formType]}
+                                {FORM_LABELS[formType] ?? form.form_type}
                               </span>
                               <span
                                 className="text-xs"
                                 style={{ color: 'var(--semantic-text-secondary)' }}
                               >
-                                {formatTimestamp(form.createdAt)}
+                                {formatTimestamp(form.created_at)}
                               </span>
                             </div>
-                            {form.score !== null && (
+                            {score !== null && (
                               <div className="flex items-baseline gap-2">
                                 <span className="text-xl font-bold" style={{ color: colorVar }}>
-                                  {form.score}
+                                  {score}
                                 </span>
                                 {interpretation && (
                                   <span className="text-xs" style={{ color: colorVar, opacity: 0.8 }}>
@@ -582,20 +613,12 @@ export default function ClinicalFormsPage() {
                                 )}
                               </div>
                             )}
-                            {form.createdBy && (
+                            {form.created_by && (
                               <p
                                 className="text-xs mt-1"
                                 style={{ color: 'var(--semantic-text-secondary)' }}
                               >
-                                {form.createdBy}
-                              </p>
-                            )}
-                            {form.notes && (
-                              <p
-                                className="text-xs mt-1 italic"
-                                style={{ color: 'var(--semantic-text-secondary)' }}
-                              >
-                                {form.notes}
+                                {form.created_by}
                               </p>
                             )}
                           </div>

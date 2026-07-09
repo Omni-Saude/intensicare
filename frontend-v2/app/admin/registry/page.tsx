@@ -19,13 +19,19 @@ import Layout from '@/components/Layout';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DrawerBuilder from '@/components/DrawerBuilder';
 import {
-  MOCK_EMPRESAS,
-  MOCK_ESTABELECIMENTOS,
-  MOCK_SETORES,
+  fetchEmpresas,
+  createEmpresa,
+  updateEmpresa,
+  fetchEstabelecimentos,
+  createEstabelecimento,
+  updateEstabelecimento,
+  fetchSetores,
+  createSetor,
+  updateSetor,
+} from '@/lib/api';
+import {
   SETOR_TIPO_LABELS,
-  generateId,
   formatCNPJ,
-  getTipoLabel,
   type Empresa,
   type EmpresaCreate,
   type Estabelecimento,
@@ -173,32 +179,39 @@ export default function AdminRegistryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Simulated initial fetch ──────────────────────────────────────────
+  // Data state (fetched from API)
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([]);
+  const [setores, setSetores] = useState<Setor[]>([]);
+
+  // ── Fetch data from API ──────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
-    const timer = setTimeout(() => {
-      try {
-        if (!MOCK_EMPRESAS || !MOCK_ESTABELECIMENTOS || !MOCK_SETORES) {
-          throw new Error('Dados mock indisponíveis');
-        }
+    Promise.all([
+      fetchEmpresas(),
+      fetchEstabelecimentos(),
+      fetchSetores(),
+    ])
+      .then(([empData, estabData, setorData]) => {
+        if (cancelled) return;
+        setEmpresas(empData as Empresa[]);
+        setEstabelecimentos(estabData as Estabelecimento[]);
+        setSetores(setorData as Setor[]);
         setLoading(false);
-      } catch (err: unknown) {
-        setError(
-          err instanceof Error ? err.message : 'Erro ao carregar dados',
-        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
         setLoading(false);
-      }
-    }, 800);
+      });
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  // Mock data state (mutable for CRUD simulation)
-  const [empresas, setEmpresas] = useState<Empresa[]>(MOCK_EMPRESAS);
-  const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>(MOCK_ESTABELECIMENTOS);
-  const [setores, setSetores] = useState<Setor[]>(MOCK_SETORES);
 
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -279,7 +292,7 @@ export default function AdminRegistryPage() {
 
   // ── Handlers: Submit ───────────────────────────────────────────────────────
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setFormError(null);
 
     if (drawerEntity === 'empresas') {
@@ -288,100 +301,102 @@ export default function AdminRegistryPage() {
         return;
       }
       setSubmitting(true);
-      // Simulate async
-      setTimeout(() => {
+      try {
         if (editingId) {
-          setEmpresas((prev) =>
-            prev.map((e) =>
-              e.id === editingId
-                ? { ...e, ...empresaForm, updated_at: new Date().toISOString() }
-                : e,
-            ),
-          );
+          const updated = await updateEmpresa(editingId, empresaForm) as Empresa;
+          setEmpresas((prev) => prev.map((e) => (e.id === editingId ? updated : e)));
         } else {
-          const now = new Date().toISOString();
-          const nova: Empresa = {
-            id: generateId('emp'),
-            ...empresaForm,
-            ativo: true,
-            created_at: now,
-            updated_at: now,
-          };
+          const nova = await createEmpresa(empresaForm) as Empresa;
           setEmpresas((prev) => [...prev, nova]);
         }
         setSubmitting(false);
         setDrawerOpen(false);
-      }, 400);
+      } catch (err: unknown) {
+        setFormError(err instanceof Error ? err.message : 'Erro ao salvar');
+        setSubmitting(false);
+      }
     } else if (drawerEntity === 'estabelecimentos') {
       if (!estabelecimentoForm.empresa_id || !estabelecimentoForm.cnes || !estabelecimentoForm.nome || !estabelecimentoForm.endereco) {
         setFormError('Todos os campos são obrigatórios.');
         return;
       }
       setSubmitting(true);
-      setTimeout(() => {
+      try {
         if (editingId) {
-          setEstabelecimentos((prev) =>
-            prev.map((e) =>
-              e.id === editingId ? { ...e, ...estabelecimentoForm } : e,
-            ),
-          );
+          const updated = await updateEstabelecimento(editingId, estabelecimentoForm) as Estabelecimento;
+          setEstabelecimentos((prev) => prev.map((e) => (e.id === editingId ? updated : e)));
         } else {
-          const novo: Estabelecimento = {
-            id: generateId('est'),
-            ...estabelecimentoForm,
-            ativo: true,
-          };
+          const novo = await createEstabelecimento(estabelecimentoForm) as Estabelecimento;
           setEstabelecimentos((prev) => [...prev, novo]);
         }
         setSubmitting(false);
         setDrawerOpen(false);
-      }, 400);
+      } catch (err: unknown) {
+        setFormError(err instanceof Error ? err.message : 'Erro ao salvar');
+        setSubmitting(false);
+      }
     } else if (drawerEntity === 'setores') {
       if (!setorForm.estabelecimento_id || !setorForm.nome || !setorForm.sigla) {
         setFormError('Nome, sigla e estabelecimento são obrigatórios.');
         return;
       }
       setSubmitting(true);
-      setTimeout(() => {
+      try {
         if (editingId) {
-          setSetores((prev) =>
-            prev.map((s) =>
-              s.id === editingId ? { ...s, ...setorForm } : s,
-            ),
-          );
+          const updated = await updateSetor(editingId, setorForm) as Setor;
+          setSetores((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
         } else {
-          const novo: Setor = {
-            id: generateId('set'),
-            ...setorForm,
-            ativo: true,
-          };
+          const novo = await createSetor(setorForm) as Setor;
           setSetores((prev) => [...prev, novo]);
         }
         setSubmitting(false);
         setDrawerOpen(false);
-      }, 400);
+      } catch (err: unknown) {
+        setFormError(err instanceof Error ? err.message : 'Erro ao salvar');
+        setSubmitting(false);
+      }
     }
   }, [drawerEntity, empresaForm, estabelecimentoForm, setorForm, editingId]);
 
   // ── Handlers: Toggle Ativo ─────────────────────────────────────────────────
 
   const toggleAtivo = useCallback(
-    (entity: TabKey, id: string) => {
+    async (entity: TabKey, id: string) => {
       if (entity === 'empresas') {
-        setEmpresas((prev) =>
-          prev.map((e) => (e.id === id ? { ...e, ativo: !e.ativo, updated_at: new Date().toISOString() } : e)),
-        );
+        const emp = empresas.find((e) => e.id === id);
+        if (!emp) return;
+        const updated = { ...emp, ativo: !emp.ativo };
+        // Optimistic update
+        setEmpresas((prev) => prev.map((e) => (e.id === id ? updated : e)));
+        try {
+          await updateEmpresa(id, { ativo: updated.ativo } as unknown as Record<string, unknown>);
+        } catch {
+          // Revert on error
+          setEmpresas((prev) => prev.map((e) => (e.id === id ? emp : e)));
+        }
       } else if (entity === 'estabelecimentos') {
-        setEstabelecimentos((prev) =>
-          prev.map((e) => (e.id === id ? { ...e, ativo: !e.ativo } : e)),
-        );
+        const est = estabelecimentos.find((e) => e.id === id);
+        if (!est) return;
+        const updated = { ...est, ativo: !est.ativo };
+        setEstabelecimentos((prev) => prev.map((e) => (e.id === id ? updated : e)));
+        try {
+          await updateEstabelecimento(id, { ativo: updated.ativo } as unknown as Record<string, unknown>);
+        } catch {
+          setEstabelecimentos((prev) => prev.map((e) => (e.id === id ? est : e)));
+        }
       } else {
-        setSetores((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, ativo: !s.ativo } : s)),
-        );
+        const set = setores.find((s) => s.id === id);
+        if (!set) return;
+        const updated = { ...set, ativo: !set.ativo };
+        setSetores((prev) => prev.map((s) => (s.id === id ? updated : s)));
+        try {
+          await updateSetor(id, { ativo: updated.ativo } as unknown as Record<string, unknown>);
+        } catch {
+          setSetores((prev) => prev.map((s) => (s.id === id ? set : s)));
+        }
       }
     },
-    [],
+    [empresas, estabelecimentos, setores],
   );
 
   // ── Drawer Title ────────────────────────────────────────────────────────────

@@ -19,8 +19,6 @@ import DrawerBuilder from '@/components/DrawerBuilder';
 import IndicatorCard from '@/components/IndicatorCard';
 import type { Indicator, IndicatorDetail, IndicatorCategory, Trend } from '@/lib/indicators-types';
 import {
-  MOCK_INDICATORS,
-  MOCK_DETAILS,
   CATEGORY_LABELS,
   TREND_LABELS,
   TREND_ICONS,
@@ -31,6 +29,7 @@ import {
   isWithinRange,
   getRangePercentage,
 } from '@/lib/indicators-types';
+import { fetchIndicators, fetchIndicator } from '@/lib/api';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -232,32 +231,37 @@ function IndicatorDetailPanel({
 }) {
   const [detail, setDetail] = useState<IndicatorDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    // Simula fetch — usa mock com delay
-    const timer = setTimeout(() => {
-      const found =
-        MOCK_DETAILS[indicatorId] ??
-        ({
-          ...MOCK_INDICATORS.find((i) => i.id === indicatorId),
-          history: [],
-        } as IndicatorDetail);
-
-      // Se não tem history mockado, gera um
-      if (!found.history || found.history.length === 0) {
-        const base = MOCK_INDICATORS.find((i) => i.id === indicatorId);
-        if (base) {
-          found.history = generateFallbackHistory(base.current_value, 30, indicatorId);
-        }
-      }
-
-      setDetail(found);
-      setLoading(false);
-    }, 400);
-
-    return () => clearTimeout(timer);
+    setError(null);
+    fetchIndicator(indicatorId)
+      .then((data) => {
+        setDetail(data as IndicatorDetail);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar detalhes do indicador');
+      })
+      .finally(() => setLoading(false));
   }, [indicatorId]);
+
+  if (error) {
+    return (
+      <div
+        role="alert"
+        className="rounded-xl border p-6 text-center"
+        style={{
+          borderColor: 'var(--clinical-severity-critical-signal)',
+          backgroundColor: 'var(--clinical-severity-critical-wash)',
+          color: 'var(--clinical-severity-critical-on-surface)',
+        }}
+      >
+        <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+        <p className="text-sm font-semibold">{error}</p>
+      </div>
+    );
+  }
 
   if (loading || !detail) {
     return (
@@ -458,37 +462,6 @@ function IndicatorDetailPanel({
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Hash determinístico baseado em string — substitui Math.random() para reprodutibilidade */
-function seededRandom(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    const char = seed.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return (Math.abs(hash) % 10000) / 10000;
-}
-
-function generateFallbackHistory(
-  baseValue: number,
-  daysBack: number,
-  indicatorId: string,
-): IndicatorDetail['history'] {
-  const now = Date.now();
-  const points: IndicatorDetail['history'] = [];
-  for (let i = daysBack - 1; i >= 0; i--) {
-    const t = new Date(now - i * 24 * 60 * 60 * 1000);
-    const noise = (seededRandom(indicatorId + '-noise-' + i) - 0.5) * baseValue * 0.15;
-    points.push({
-      timestamp: t.toISOString(),
-      value: Math.round((baseValue + noise) * 10) / 10,
-    });
-  }
-  return points;
-}
-
 // ─── Página Principal ────────────────────────────────────────────────────────
 
 function IndicatorsPageContent() {
@@ -506,15 +479,8 @@ function IndicatorsPageContent() {
     setLoading(true);
     setError(null);
     try {
-      // Simula fetch — usa dados mock
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      // Validação: dados mock devem existir
-      if (!MOCK_INDICATORS || MOCK_INDICATORS.length === 0) {
-        throw new Error('Dados de indicadores indisponíveis');
-      }
-
-      setIndicators(MOCK_INDICATORS);
+      const data = await fetchIndicators();
+      setIndicators(data as Indicator[]);
     } catch (err: unknown) {
       setError(
         err instanceof Error ? err.message : 'Erro ao carregar indicadores',
@@ -673,7 +639,7 @@ function IndicatorsPageContent() {
             {Array.from({ length: 6 }).map((_, i) => (
               <IndicatorCard
                 key={i}
-                indicator={MOCK_INDICATORS[0]!}
+                indicator={indicators[0] ?? ({} as Indicator)}
                 isLoading
               />
             ))}

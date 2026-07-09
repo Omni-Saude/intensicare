@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Gauge,
   Droplets,
@@ -29,8 +29,6 @@ import {
   type TransfusionCriterion,
   type RestraintStatus,
   type FrailtyScale,
-  MOCK_ASSESSMENT,
-  MOCK_PATIENTS,
   DEFAULT_TRANSFUSION_CRITERIA,
   RESTRAINT_LABELS,
   FRAILTY_SCALE_LABELS,
@@ -40,6 +38,7 @@ import {
   getFrailtyLabel,
   getCFSInterpretation,
 } from '@/lib/efficiency-types';
+import { fetchEfficiency, fetchDashboard } from '@/lib/api';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -175,22 +174,54 @@ function SkeletonCard(): React.ReactElement {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function EfficiencyPage(): React.ReactElement {
+  const [patients, setPatients] = useState<Array<{ mpiId: string; name: string; bed: string }>>([]);
+
+  // ─── Fetch patients on mount ─────────────────────────────────────────────
+
+  useEffect(() => {
+    fetchDashboard()
+      .then((data) =>
+        setPatients(
+          data.patients.map(
+            (p: { mpi_id: string; display_name: string; bed_id: string | null }) => ({
+              mpiId: p.mpi_id,
+              name: p.display_name,
+              bed: p.bed_id || '',
+            }),
+          ),
+        ),
+      )
+      .catch(() => {});
+  }, []);
+
   const [selectedPatient, setSelectedPatient] = useState<string>(
-    MOCK_PATIENTS[0]!.mpiId,
+    patients[0]?.mpiId || '',
   );
-  const [isLoading, setIsLoading] = useState(false);
-  const [assessment, setAssessment] = useState<EfficiencyAssessment>(
-    () => MOCK_ASSESSMENT,
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<EfficiencyAssessment | null>(null);
+
+  const selectedPatientData = patients.find(
+    (p: { mpiId: string; name: string; bed: string }) => p.mpiId === selectedPatient,
   );
 
-  const selectedPatientData = MOCK_PATIENTS.find(
-    (p) => p.mpiId === selectedPatient,
-  );
+  // ─── Fetch on mount and patient change ──────────────────────────────────
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetchEfficiency(selectedPatient)
+      .then((data) => setAssessment(data as EfficiencyAssessment))
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : 'Erro ao carregar avaliação de eficiência'),
+      )
+      .finally(() => setLoading(false));
+  }, [selectedPatient]);
 
   // ─── Derived state ─────────────────────────────────────────────────────────
 
   const globalScore = useMemo(
-    () => computeGlobalEfficiency(assessment),
+    () => (assessment ? computeGlobalEfficiency(assessment) : 0),
     [assessment],
   );
 
@@ -201,29 +232,30 @@ export default function EfficiencyPage(): React.ReactElement {
 
   const transfusionMetCount = useMemo(
     () =>
-      assessment.transfusion_criteria.filter((c) => c.met).length,
+      assessment
+        ? assessment.transfusion_criteria.filter((c) => c.met).length
+        : 0,
     [assessment],
   );
 
-  const transfusionTotal = assessment.transfusion_criteria.length;
+  const transfusionTotal = assessment ? assessment.transfusion_criteria.length : 0;
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
   const handleRefresh = useCallback(() => {
-    setIsLoading(true);
-
-    const timer = setTimeout(() => {
-      // Simula novo fetch — mantém os mesmos dados mock
-      setAssessment({ ...MOCK_ASSESSMENT, id: `eff-${Date.now()}` });
-      setIsLoading(false);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, []);
+    setLoading(true);
+    setError(null);
+    fetchEfficiency(selectedPatient)
+      .then((data) => setAssessment(data as EfficiencyAssessment))
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : 'Erro ao atualizar avaliação'),
+      )
+      .finally(() => setLoading(false));
+  }, [selectedPatient]);
 
   // ─── Loading state ─────────────────────────────────────────────────────────
 
-  if (isLoading) {
+  if (loading) {
     return (
       <Layout>
         <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -234,6 +266,72 @@ export default function EfficiencyPage(): React.ReactElement {
             <SkeletonCard />
             <SkeletonCard />
           </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ─── Error state ─────────────────────────────────────────────────────────
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-4xl mx-auto py-12">
+          <div
+            role="alert"
+            className="rounded-xl border p-6 text-center"
+            style={{
+              borderColor: 'var(--clinical-severity-critical-signal)',
+              backgroundColor: 'var(--clinical-severity-critical-wash)',
+              color: 'var(--clinical-severity-critical-on-surface)',
+            }}
+          >
+            <AlertTriangle className="w-8 h-8 mx-auto mb-3" />
+            <p className="font-semibold text-lg mb-1">Erro ao carregar dados</p>
+            <p className="text-sm opacity-90">{error}</p>
+            <button
+              onClick={handleRefresh}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+              style={{
+                backgroundColor: 'var(--semantic-surface-raised)',
+                color: 'var(--semantic-text-primary)',
+                border: '1px solid var(--semantic-border-default)',
+              }}
+            >
+              <RefreshCw className="w-4 h-4" aria-hidden="true" />
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ─── Empty state (no assessment) ─────────────────────────────────────────
+
+  if (!assessment) {
+    return (
+      <Layout>
+        <div className="max-w-4xl mx-auto py-12 text-center">
+          <Gauge
+            className="w-12 h-12 mx-auto mb-4"
+            style={{ color: 'var(--semantic-text-secondary)', opacity: 0.4 }}
+          />
+          <p className="text-lg font-medium" style={{ color: 'var(--semantic-text-secondary)' }}>
+            Nenhuma avaliação encontrada
+          </p>
+          <button
+            onClick={handleRefresh}
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{
+              backgroundColor: 'var(--semantic-surface-raised)',
+              color: 'var(--semantic-text-primary)',
+              border: '1px solid var(--semantic-border-default)',
+            }}
+          >
+            <RefreshCw className="w-4 h-4" aria-hidden="true" />
+            Tentar novamente
+          </button>
         </div>
       </Layout>
     );
@@ -293,7 +391,7 @@ export default function EfficiencyPage(): React.ReactElement {
                 }}
                 aria-label="Selecionar paciente"
               >
-                {MOCK_PATIENTS.map((p) => (
+                {patients.map((p) => (
                   <option key={p.mpiId} value={p.mpiId}>
                     {p.name} — {p.bed}
                   </option>
@@ -949,7 +1047,7 @@ export default function EfficiencyPage(): React.ReactElement {
           >
             <button
               onClick={handleRefresh}
-              disabled={isLoading}
+              disabled={loading}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 backgroundColor:

@@ -11,6 +11,7 @@ function setupMockUser(isAdmin = false) {
     display_name: 'Dr. Silva',
     is_admin: isAdmin,
     is_active: true,
+    role: null,
   };
   setUser(user);
 }

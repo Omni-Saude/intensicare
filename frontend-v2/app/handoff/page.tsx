@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   FileText,
@@ -12,13 +12,13 @@ import {
   Download,
   CheckCircle,
   Search,
-  UserCheck,
   Edit3,
   Save,
   ShieldAlert,
   RefreshCw,
 } from 'lucide-react';
 import Layout from '@/components/Layout';
+import { fetchHandoff, submitHandoff, type HandoffPatient } from '@/lib/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,23 +31,9 @@ interface HandoffSection {
   content: string;
 }
 
-interface PatientOption {
-  mpiId: string;
-  name: string;
-  bedId?: string;
-  status: 'stable' | 'watch' | 'critical';
-}
-
-const MOCK_PATIENTS: PatientOption[] = [
-  { mpiId: 'MPI-001', name: 'João Silva', bedId: 'ICU-1-01', status: 'watch' },
-  { mpiId: 'MPI-002', name: 'Maria Santos', bedId: 'ICU-1-02', status: 'stable' },
-  { mpiId: 'MPI-003', name: 'Carlos Oliveira', bedId: 'ICU-2-05', status: 'critical' },
-  { mpiId: 'MPI-004', name: 'Ana Costa', bedId: 'ER-03', status: 'stable' },
-];
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function statusColour(status: PatientOption['status']): string {
+function statusColour(status: HandoffPatient['status']): string {
   switch (status) {
     case 'critical':
       return 'var(--clinical-severity-critical-signal)';
@@ -58,7 +44,7 @@ function statusColour(status: PatientOption['status']): string {
   }
 }
 
-function statusWash(status: PatientOption['status']): string {
+function statusWash(status: HandoffPatient['status']): string {
   switch (status) {
     case 'critical':
       return 'var(--clinical-severity-critical-wash)';
@@ -72,21 +58,37 @@ function statusWash(status: PatientOption['status']): string {
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function HandoffPage() {
+  const [patients, setPatients] = useState<HandoffPatient[]>([]);
   const [selectedPatients, setSelectedPatients] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<SectionName | null>(null);
-  const [lastHandoffTimestamp, setLastHandoffTimestamp] = useState<string | null>(
-    '2026-07-06T06:45:00Z',
-  );
+  const [lastHandoffTimestamp, setLastHandoffTimestamp] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Simulate data loading
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 600);
-    return () => clearTimeout(timer);
+  // ── Fetch patients from API ───────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchHandoff()
+      .then((data) => {
+        if (cancelled) return;
+        setPatients(data.patients);
+        setLastHandoffTimestamp(data.last_handoff_at);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar dados da passagem');
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const [sections, setSections] = useState<HandoffSection[]>([
@@ -111,11 +113,11 @@ export default function HandoffPage() {
     },
   ]);
 
-  const filteredPatients = MOCK_PATIENTS.filter(
+  const filteredPatients = patients.filter(
     (p) =>
       !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.mpiId.toLowerCase().includes(search.toLowerCase()),
+      p.mpi_id.toLowerCase().includes(search.toLowerCase()),
   );
 
   const togglePatient = (mpiId: string) => {
@@ -163,6 +165,24 @@ export default function HandoffPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleConcluirPassagem = async () => {
+    setSubmitting(true);
+    try {
+      const result = await submitHandoff({
+        mpi_ids: Array.from(selectedPatients),
+        summary: sections.find((s) => s.name === 'summary')?.content,
+        active_issues: sections.find((s) => s.name === 'activeIssues')?.content,
+        pending_actions: sections.find((s) => s.name === 'pendingActions')?.content,
+        medications: sections.find((s) => s.name === 'medications')?.content,
+      });
+      setLastHandoffTimestamp(result.timestamp);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao enviar passagem');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -192,7 +212,7 @@ export default function HandoffPage() {
           <h2 className="font-semibold">Erro ao carregar dados da passagem</h2>
           <p className="text-sm mt-1">{error}</p>
           <button
-            onClick={() => { setError(null); setLoading(true); setTimeout(() => setLoading(false), 600); }}
+            onClick={() => { setError(null); setLoading(true); }}
             className="mt-3 text-sm underline"
             style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
           >
@@ -301,11 +321,11 @@ export default function HandoffPage() {
 
             <div className="space-y-2 max-h-[calc(100vh-400px)] overflow-y-auto">
               {filteredPatients.map((patient) => {
-                const isSelected = selectedPatients.has(patient.mpiId);
+                const isSelected = selectedPatients.has(patient.mpi_id);
                 return (
                   <button
-                    key={patient.mpiId}
-                    onClick={() => togglePatient(patient.mpiId)}
+                    key={patient.mpi_id}
+                    onClick={() => togglePatient(patient.mpi_id)}
                     aria-label={`${isSelected ? 'Desselecionar' : 'Selecionar'} paciente ${patient.name}`}
                     aria-pressed={isSelected}
                     className="w-full text-left p-3 rounded-lg border transition-all flex items-center justify-between"
@@ -334,8 +354,8 @@ export default function HandoffPage() {
                           className="text-xs"
                           style={{ color: 'var(--semantic-text-secondary)' }}
                         >
-                          {patient.mpiId}
-                          {patient.bedId && ` · ${patient.bedId}`}
+                          {patient.mpi_id}
+                          {patient.bed_id && ` · ${patient.bed_id}`}
                         </p>
                       </div>
                     </div>
@@ -476,19 +496,17 @@ export default function HandoffPage() {
                 </p>
               </div>
               <button
-                disabled={selectedPatients.size === 0 || !sections.some((s) => s.content)}
+                disabled={submitting || selectedPatients.size === 0 || !sections.some((s) => s.content)}
                 aria-label="Enviar relatório de passagem"
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 style={{
                   backgroundColor: 'var(--clinical-severity-normal-fill)',
                   color: 'var(--clinical-severity-normal-on-fill)',
                 }}
-                onClick={() => {
-                  setLastHandoffTimestamp(new Date().toISOString());
-                }}
+                onClick={handleConcluirPassagem}
               >
                 <ShieldAlert className="w-4 h-4" aria-hidden="true" />
-                Concluir Passagem
+                {submitting ? 'Enviando...' : 'Concluir Passagem'}
               </button>
             </div>
           </div>

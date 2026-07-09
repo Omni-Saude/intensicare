@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   CheckCircle,
   Clock,
@@ -17,10 +17,10 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import BundleCard from '@/components/BundleCard';
 import type { BundleInfo, BundleStatus } from '@/components/BundleCard';
 import {
-  PROPHYLAXIS_BUNDLES,
   computeBundleScore,
   BUNDLE_STATUS_LABELS,
 } from '@/lib/prophylaxis-types';
+import { fetchProphylaxisBundles, updateProphylaxisBundle } from '@/lib/api';
 import { useKeyboardShortcuts, type KeyboardShortcut } from '@/hooks/useKeyboardShortcuts';
 
 // ─── Status → Icon mapping for the summary bar ──────────────────────────────
@@ -234,9 +234,30 @@ function ErrorDisplay({ message, onRetry }: { message: string; onRetry: () => vo
 
 function ProphylaxisBundlesPage() {
   const [activeTab, setActiveTab] = useState(0);
-  const [bundles, setBundles] = useState<BundleInfo[]>(PROPHYLAXIS_BUNDLES);
-  const [isLoading, setIsLoading] = useState(false);
+  const [bundles, setBundles] = useState<BundleInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Fetch bundles from API ──────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+    fetchProphylaxisBundles()
+      .then((data) => {
+        if (!cancelled) {
+          setBundles(data as BundleInfo[]);
+          setIsLoading(false);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setError(err.message || 'Erro ao carregar bundles de profilaxia');
+          setIsLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Keyboard navigation for tabs (← →) ─────────────────────────────────
   const shortcuts: KeyboardShortcut[] = useMemo(
@@ -257,9 +278,10 @@ function ProphylaxisBundlesPage() {
 
   useKeyboardShortcuts(shortcuts);
 
-  // ── Toggle criterion (mock callback) ───────────────────────────────────
+  // ── Toggle criterion (API call) ────────────────────────────────────────
   const handleToggle = useCallback(
     (bundleId: string, criterionId: string, met: boolean) => {
+      // Optimistic local update
       setBundles((prev) =>
         prev.map((b) => {
           if (b.id !== bundleId) return b;
@@ -293,20 +315,16 @@ function ProphylaxisBundlesPage() {
           };
         }),
       );
+
+      // Fire-and-forget API update (don't block UI)
+      updateProphylaxisBundle(bundleId, {
+        criteria: [{ criteria_id: criterionId, met }],
+      }).catch((err: Error) =>
+        console.error('[Prophylaxis] Failed to update criterion:', err),
+      );
     },
     [],
   );
-
-  // ── Simulate loading state (demo toggle) ──────────────────────────────
-  const simulateLoading = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-    setTimeout(() => setIsLoading(false), 1500);
-  }, []);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
 
   // ── Active bundle ─────────────────────────────────────────────────────
   const activeBundle = bundles[activeTab];
@@ -352,24 +370,6 @@ function ProphylaxisBundlesPage() {
               )}
             </p>
           </div>
-
-          {/* Demo state toggles */}
-          <div className="flex gap-2">
-            <button
-              onClick={simulateLoading}
-              disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'var(--semantic-surface-raised)',
-                color: 'var(--semantic-text-secondary)',
-                borderColor: 'var(--semantic-border-default)',
-              }}
-              aria-label="Simular carregamento"
-            >
-              <Loader2 className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              Loading
-            </button>
-          </div>
         </div>
 
         {/* ── Error ────────────────────────────────────────────────────── */}
@@ -377,8 +377,17 @@ function ProphylaxisBundlesPage() {
           <ErrorDisplay
             message={error}
             onRetry={() => {
-              clearError();
-              simulateLoading();
+              setError(null);
+              setIsLoading(true);
+              fetchProphylaxisBundles()
+                .then((data) => {
+                  setBundles(data as BundleInfo[]);
+                  setIsLoading(false);
+                })
+                .catch((err: Error) => {
+                  setError(err.message || 'Erro ao carregar bundles de profilaxia');
+                  setIsLoading(false);
+                });
             }}
           />
         )}

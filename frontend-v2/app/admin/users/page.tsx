@@ -18,22 +18,12 @@ import DrawerBuilder from '@/components/DrawerBuilder';
 import {
   fetchUsers,
   updateUser,
+  updateUserRole2,
   createUser,
   type UserResponse,
 } from '@/lib/api';
 import { getUser } from '@/lib/auth';
-
-const ABAC_ROLES = [
-  { value: 'physician', label: 'Médico(a)' },
-  { value: 'nurse', label: 'Enfermeiro(a)' },
-  { value: 'pharmacist', label: 'Farmacêutico(a)' },
-  { value: 'lab_tech', label: 'Técnico(a) de Lab.' },
-  { value: 'admin', label: 'Administrador' },
-  { value: 'viewer', label: 'Visualizador' },
-  { value: 'auditor', label: 'Auditor' },
-] as const;
-
-type AbacRole = (typeof ABAC_ROLES)[number]['value'];
+import { type ClinicalRole, ALL_ROLES, ROLE_LABELS } from '@/hooks/useRole';
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -51,7 +41,7 @@ export default function AdminUsersPage() {
     email: '',
     password: '',
     display_name: '',
-    role: 'viewer' as AbacRole,
+    role: 'readonly' as ClinicalRole,
     is_admin: false,
   });
   const [creating, setCreating] = useState(false);
@@ -82,7 +72,7 @@ export default function AdminUsersPage() {
   const handleRoleChange = async (userId: number, role: string) => {
     setUpdating(userId);
     try {
-      const updated = await updateUser(userId, { role });
+      const updated = await updateUserRole2(userId, role);
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
       setEditingRole(null);
     } catch (err: unknown) {
@@ -151,7 +141,7 @@ export default function AdminUsersPage() {
         email: '',
         password: '',
         display_name: '',
-        role: 'viewer',
+        role: 'readonly' as ClinicalRole,
         is_admin: false,
       });
     } catch (err: unknown) {
@@ -293,15 +283,15 @@ export default function AdminUsersPage() {
                   <div className="md:col-span-2 flex justify-center">
                     {editingRole === user.id ? (
                       <select
-                        value={user.role || 'viewer'}
+                        value={user.role || 'readonly'}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
                         disabled={isUpdating || isSelf}
                         style={{ borderColor: 'var(--semantic-border-default)' }}
                         className="px-2 py-1 text-xs border rounded-lg bg-[var(--semantic-surface-raised)] focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none disabled:opacity-40"
                       >
-                        {ABAC_ROLES.map((r) => (
-                          <option key={r.value} value={r.value}>
-                            {r.label}
+                        {ALL_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {ROLE_LABELS[role]}
                           </option>
                         ))}
                       </select>
@@ -312,9 +302,9 @@ export default function AdminUsersPage() {
                         className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title={isSelf ? 'Não pode alterar sua própria função' : 'Clique para alterar função'}
                       >
-                        {ABAC_ROLES.find((r) => r.value === user.role)?.label ||
+                        {ROLE_LABELS[user.role as ClinicalRole] ||
                           user.role ||
-                          'Visualizador'}
+                          'Desconhecida'}
                       </button>
                     )}
                   </div>
@@ -494,13 +484,13 @@ export default function AdminUsersPage() {
             <select
                id="create-role"
               value={createForm.role}
-              onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as AbacRole }))}
+              onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as ClinicalRole }))}
               style={{ borderColor: 'var(--semantic-border-default)' }}
               className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             >
-              {ABAC_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
+              {ALL_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_LABELS[role]}
                 </option>
               ))}
             </select>

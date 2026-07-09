@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
 import {
   Activity,
   TrendingDown,
@@ -40,12 +40,12 @@ import {
   STATUS_LABELS,
   STATUS_COLORS,
   TREND_LABELS,
-  MOCK_SCORE,
-  MOCK_HISTORY,
   getScoreColor,
   getDomainLabel,
   getTrendIcon,
 } from '@/lib/deterioration-types';
+import { fetchDeterioration, fetchDeteriorationHistory } from '@/lib/api';
+import { useSearchParams } from 'next/navigation';
 
 // ─── Domain Icon Component ─────────────────────────────────────────────────
 
@@ -526,19 +526,43 @@ function DomainCard({
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 function ClinicalDeteriorationPage(): React.ReactElement {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const mpiId = searchParams.get('mpiId');
 
-  // In a real app, these would come from API; using mock data per spec
-  const score: DeteriorationScore | null = MOCK_SCORE;
-  const history: DeteriorationScore[] = MOCK_HISTORY;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [score, setScore] = useState<DeteriorationScore | null>(null);
+  const [history, setHistory] = useState<DeteriorationScore[]>([]);
+
+  const loadData = useCallback(async () => {
+    if (!mpiId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const [scoreData, historyData] = await Promise.all([
+        fetchDeterioration(mpiId),
+        fetchDeteriorationHistory(mpiId),
+      ]);
+      setScore(scoreData as DeteriorationScore);
+      setHistory((historyData as DeteriorationScore[]) || []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao carregar dados';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [mpiId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleRetry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    // Simulate retry
-    setTimeout(() => setLoading(false), 800);
-  }, []);
+    loadData();
+  }, [loadData]);
 
   // Build timeline events from history
   const timelineEvents: TimelineEvent[] = useMemo(() => {
@@ -928,7 +952,9 @@ function ClinicalDeteriorationPage(): React.ReactElement {
 export default function ClinicalDeteriorationPageWithBoundary(): React.ReactElement {
   return (
     <ErrorBoundary>
-      <ClinicalDeteriorationPage />
+      <Suspense fallback={<div className="flex items-center justify-center py-20" aria-label="Carregando"><Activity className="w-8 h-8 animate-spin" style={{ color: 'var(--semantic-text-secondary)' }} /></div>}>
+        <ClinicalDeteriorationPage />
+      </Suspense>
     </ErrorBoundary>
   );
 }

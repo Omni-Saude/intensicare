@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   FileText,
   Plus,
@@ -22,12 +22,10 @@ import {
   type GlosaStatus,
   type DocType,
   GLOSA_STATUS_LABELS,
-  GLOSA_STATUS_COLORS,
   DOC_TYPE_LABELS,
-  MOCK_DOCS,
-  MOCK_PATIENTS,
   formatCurrency,
 } from '@/lib/doc-types';
+import { fetchDocumentacao, createDocumentacao, fetchDashboard } from '@/lib/api';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -374,26 +372,24 @@ function NewDocForm({ selectedPatient, onClose }: NewDocFormProps): React.ReactE
 
   const canSubmit = type && content.trim().length > 0 && !submitting;
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
     setSubmitting(true);
 
-    // Mock submit
-    const timer = setTimeout(() => {
-      const newDoc: DocumentacaoCreate = {
-        mpi_id: selectedPatient,
+    try {
+      await createDocumentacao(selectedPatient, {
         type,
         content,
-      };
-      console.log('[Documentation] Novo documento:', newDoc);
-      setSubmitting(false);
+      });
       setSuccess(true);
 
       // Close after delay
       setTimeout(() => onClose(), 1000);
-    }, 600);
-
-    return () => clearTimeout(timer);
+    } catch (err: unknown) {
+      console.error('[Documentation] Erro ao criar documento:', err);
+    } finally {
+      setSubmitting(false);
+    }
   }, [canSubmit, selectedPatient, type, content, onClose]);
 
   return (
@@ -496,49 +492,92 @@ function NewDocForm({ selectedPatient, onClose }: NewDocFormProps): React.ReactE
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function DocumentationPage(): React.ReactElement {
-  const [selectedPatient, setSelectedPatient] = useState<string>(
-    MOCK_PATIENTS[0]!.mpiId,
-  );
+  const [patients, setPatients] = useState<Array<{ mpiId: string; name: string; bed?: string }>>([]);
+  const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'TODOS' | GlosaStatus>('TODOS');
-  const [isLoading, setIsLoading] = useState(false);
+  const [docs, setDocs] = useState<Documentacao[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ─── Fetch patients on mount ─────────────────────────────────────────────
+
+  useEffect(() => {
+    fetchDashboard()
+      .then((data) =>
+        setPatients(
+          data.patients.map(
+            (p: { mpi_id: string; display_name: string; bed_id: string | null }) => ({
+              mpiId: p.mpi_id,
+              name: p.display_name,
+              bed: p.bed_id || '',
+            }),
+          ),
+        ),
+      )
+      .catch(() => {});
+  }, []);
 
   // Drawer state
   const [detailDoc, setDetailDoc] = useState<Documentacao | null>(null);
   const [newDocOpen, setNewDocOpen] = useState(false);
 
+  // ─── Fetch on mount and patient change ──────────────────────────────────
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetchDocumentacao(selectedPatient)
+      .then((data) => setDocs(data as Documentacao[]))
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : 'Erro ao carregar documentos'),
+      )
+      .finally(() => setLoading(false));
+  }, [selectedPatient]);
+
   // ─── Derived state ───────────────────────────────────────────────────────
 
   const selectedPatientData = useMemo(
-    () => MOCK_PATIENTS.find((p) => p.mpiId === selectedPatient),
+    () => patients.find((p: { mpiId: string; name: string }) => p.mpiId === selectedPatient),
     [selectedPatient],
   );
 
   const filteredDocs = useMemo(() => {
-    let docs = MOCK_DOCS.filter((d) => d.mpi_id === selectedPatient);
+    let result = docs;
     if (filterStatus !== 'TODOS') {
-      docs = docs.filter((d) => d.glosa_status === filterStatus);
+      result = result.filter((d) => d.glosa_status === filterStatus);
     }
-    return docs;
-  }, [selectedPatient, filterStatus]);
+    return result;
+  }, [docs, filterStatus]);
 
   // Status counters for tabs
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { TODOS: 0 };
+    const counts: Record<string, number> = { TODOS: docs.length };
     for (const status of GLOSA_STATUS_FILTERS) {
-      if (status === 'TODOS') {
-        counts['TODOS'] = MOCK_DOCS.filter((d) => d.mpi_id === selectedPatient).length;
-      } else {
-        counts[status] = MOCK_DOCS.filter(
-          (d) => d.mpi_id === selectedPatient && d.glosa_status === status,
+      if (status !== 'TODOS') {
+        counts[status] = docs.filter(
+          (d) => d.glosa_status === status,
         ).length;
       }
     }
     return counts;
+  }, [docs]);
+
+  // ─── Refresh handler ─────────────────────────────────────────────────────
+
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchDocumentacao(selectedPatient)
+      .then((data) => setDocs(data as Documentacao[]))
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : 'Erro ao atualizar documentos'),
+      )
+      .finally(() => setLoading(false));
   }, [selectedPatient]);
 
   // ─── Loading state ───────────────────────────────────────────────────────
 
-  if (isLoading) {
+  if (loading) {
     return (
       <Layout>
         <div className="max-w-3xl mx-auto space-y-6">
@@ -603,7 +642,7 @@ export default function DocumentationPage(): React.ReactElement {
                 }}
                 aria-label="Selecionar paciente"
               >
-                {MOCK_PATIENTS.map((p) => (
+                {patients.map((p) => (
                   <option key={p.mpiId} value={p.mpiId}>
                     {p.name} — {p.bed}
                   </option>

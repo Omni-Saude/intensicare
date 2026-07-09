@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Bell,
   BellOff,
@@ -13,6 +13,7 @@ import {
   ArrowUpCircle,
 } from 'lucide-react';
 import Layout from '@/components/Layout';
+import { fetchAlertRoutingRules, updateAlertRoutingRule } from '@/lib/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ type SeverityBand = 'normal' | 'watch' | 'urgent' | 'critical';
 type NotificationChannel = 'RRT' | 'SMS' | 'Push' | 'Badge';
 
 interface RoutingRule {
+  id?: string;
   severity: SeverityBand;
   label: string;
   channel: NotificationChannel;
@@ -105,20 +107,27 @@ function getSeverityWash(severity: SeverityBand): string {
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function AlertRoutingPage() {
-  const [rules, setRules] = useState<RoutingRule[]>(() =>
-    DEFAULT_RULES.map((r) => ({ ...r })),
-  );
-  const [isLoading, setIsLoading] = useState(true);
+  const [rules, setRules] = useState<RoutingRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Simulate initial data loading
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
+  // Fetch rules on mount
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetchAlertRoutingRules()
+      .then((data) => {
+        const fetched = data as RoutingRule[];
+        setRules(fetched.length > 0 ? fetched : DEFAULT_RULES);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Failed to load routing rules');
+        setRules(DEFAULT_RULES);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const toggleRule = (severity: SeverityBand) => {
@@ -153,8 +162,15 @@ export default function AlertRoutingPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      // Simulated API call — replace with real endpoint when available
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      // Save each rule individually via the API
+      const promises = rules.map((rule) => {
+        if (rule.id) {
+          return updateAlertRoutingRule(rule.id, rule);
+        }
+        // If no ID, skip (shouldn't happen with real API data)
+        return Promise.resolve();
+      });
+      await Promise.all(promises);
       setSaved(true);
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save routing rules');
@@ -163,7 +179,7 @@ export default function AlertRoutingPage() {
     }
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <Layout>
         <div className="flex items-center justify-center py-20">

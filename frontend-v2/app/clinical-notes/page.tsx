@@ -18,13 +18,20 @@ import DrawerBuilder from '@/components/DrawerBuilder';
 import NotesTimeline from '@/components/NotesTimeline';
 import type { Evolucao, EvolucaoCreate, EvolutionType } from '@/lib/clinical-notes-types';
 import {
-  MOCK_NOTES,
-  MOCK_PATIENTS,
   TYPE_LABELS,
   TYPE_ICONS,
   getTypeColor,
   formatNoteType,
 } from '@/lib/clinical-notes-types';
+import { fetchEvolucoes, createEvolucao, type ClinicalEvolution } from '@/lib/api';
+
+// ─── Local patient list (TODO: fetch from API) ────────────────────────────
+
+const DEFAULT_PATIENTS: { mpiId: string; name: string; bed: string }[] = [
+  { mpiId: 'MPI-001', name: 'João Silva', bed: 'UTI-A 101' },
+  { mpiId: 'MPI-002', name: 'Maria Oliveira', bed: 'UTI-A 203' },
+  { mpiId: 'MPI-003', name: 'Carlos Santos', bed: 'UTI-B 115' },
+];
 
 // ─── Types for filters ───────────────────────────────────────────────────────
 
@@ -115,19 +122,48 @@ function renderInlineBold(text: string): React.ReactNode {
 
 export default function ClinicalNotesPage() {
   // Patient state
-  const [selectedMpiId, setSelectedMpiId] = useState<string>(MOCK_PATIENTS[0]!.mpiId);
+  const [selectedMpiId, setSelectedMpiId] = useState<string>(DEFAULT_PATIENTS[0]!.mpiId);
   const [patientSearch, setPatientSearch] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
   // Filter
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('todas');
 
-  // Loading & error (simulated)
+  // Loading & error
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Notes state (mutable for mock submit)
-  const [notes, setNotes] = useState<Evolucao[]>(MOCK_NOTES);
+  // Notes state (fetched from API)
+  const [notes, setNotes] = useState<Evolucao[]>([]);
+
+  // ─── Fetch notes from API ─────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchEvolucoes(selectedMpiId)
+      .then((data) => {
+        if (cancelled) return;
+        const mapped: Evolucao[] = data.evolucoes.map((e: ClinicalEvolution) => ({
+          id: e.id,
+          mpi_id: e.mpi_id,
+          type: e.type,
+          content: e.content,
+          created_at: e.created_at,
+          created_by: e.created_by,
+        }));
+        setNotes(mapped);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedMpiId]);
 
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -136,12 +172,6 @@ export default function ClinicalNotesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<'success' | 'error' | null>(null);
   const [previewMode, setPreviewMode] = useState<'edit' | 'preview'>('edit');
-
-  // ─── Simulate initial load ─────────────────────────────────────────────────
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
 
   // ─── Filtered notes ───────────────────────────────────────────────────────
   const filteredNotes = useMemo(() => {
@@ -156,10 +186,10 @@ export default function ClinicalNotesPage() {
   }, [notes, selectedMpiId, typeFilter]);
 
   // ─── Selected patient info ─────────────────────────────────────────────────
-  const selectedPatient = MOCK_PATIENTS.find((p) => p.mpiId === selectedMpiId);
+  const selectedPatient = DEFAULT_PATIENTS.find((p) => p.mpiId === selectedMpiId);
 
   // ─── Patient search ────────────────────────────────────────────────────────
-  const filteredPatients = MOCK_PATIENTS.filter(
+  const filteredPatients = DEFAULT_PATIENTS.filter(
     (p) =>
       !patientSearch ||
       p.name.toLowerCase().includes(patientSearch.toLowerCase()) ||
@@ -173,17 +203,19 @@ export default function ClinicalNotesPage() {
     setSubmitting(true);
     setSubmitResult(null);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
     try {
-      const newNote: Evolucao = {
-        id: `evol-${Date.now()}`,
-        mpi_id: selectedMpiId,
+      const result = await createEvolucao(selectedMpiId, {
         type: newNoteType,
         content: newNoteContent.trim(),
-        created_at: new Date().toISOString(),
-        created_by: 'Dr. Usuário Atual',
+      });
+
+      const newNote: Evolucao = {
+        id: result.id,
+        mpi_id: result.mpi_id,
+        type: result.type,
+        content: result.content,
+        created_at: result.created_at,
+        created_by: result.created_by,
       };
 
       setNotes((prev) => [newNote, ...prev]);

@@ -1,5 +1,7 @@
 'use client';
 
+import { type ClinicalRole } from '@/hooks/useRole';
+
 export interface UserInfo {
   id: number;
   username: string;
@@ -7,6 +9,7 @@ export interface UserInfo {
   display_name: string | null;
   is_admin: boolean;
   is_active: boolean;
+  role: ClinicalRole | null;
 }
 
 // ── In-memory stores (module-scoped) ──

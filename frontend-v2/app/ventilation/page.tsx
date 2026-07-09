@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Wind,
   Gauge,
@@ -17,9 +17,6 @@ import {
   type VentilationTrend,
   type VentilationMode,
   type PFClass,
-  MOCK_PARAMETERS,
-  MOCK_HISTORY,
-  MOCK_VENT_PATIENTS,
   MODE_LABELS,
   formatFiO2,
   formatPressure,
@@ -31,8 +28,16 @@ import {
   classifyPFRatio,
   getPFColor,
   PF_CLASS_LABELS,
-  generateMockTrend,
 } from '@/lib/ventilation-types';
+import { fetchVentilation, fetchVentilationHistory } from '@/lib/api';
+
+// ─── Local patient list (TODO: fetch from API) ────────────────────────────
+
+const DEFAULT_VENT_PATIENTS: { mpiId: string; name: string; bed: string }[] = [
+  { mpiId: 'MPI-001', name: 'João Silva', bed: 'UTI-A 101' },
+  { mpiId: 'MPI-002', name: 'Maria Oliveira', bed: 'UTI-A 203' },
+  { mpiId: 'MPI-003', name: 'Carlos Santos', bed: 'UTI-B 115' },
+];
 
 // ─── View mode ──────────────────────────────────────────────────────────────
 
@@ -350,39 +355,146 @@ function PageSkeleton(): React.ReactElement {
   );
 }
 
+// ─── Compute trend from history ──────────────────────────────────────────
+
+function computeTrendFromHistory(
+  allHistory: VentilationParameters[],
+  periodHours: number,
+): VentilationTrend {
+  const now = Date.now();
+  const cutoff = now - periodHours * 60 * 60 * 1000;
+  const filtered = allHistory.filter(
+    (h) => new Date(h.collected_at).getTime() >= cutoff,
+  );
+
+  const paramKeys: (keyof VentilationTrend['parameters'])[] = [
+    'FiO2',
+    'PEEP',
+    'VC',
+    'FR',
+    'Pplat',
+    'driving_pressure',
+    'PaO2_FiO2_ratio',
+  ];
+
+  const parameters = {} as VentilationTrend['parameters'];
+
+  for (const key of paramKeys) {
+    const series = filtered.map((h) => ({
+      value: h[key] as number,
+      collected_at: h.collected_at,
+    }));
+
+    const values = series.map((s) => s.value);
+    const current = values.length > 0 ? values[values.length - 1]! : 0;
+    const min = values.length > 0 ? Math.min(...values) : 0;
+    const max = values.length > 0 ? Math.max(...values) : 0;
+    const avg =
+      values.length > 0
+        ? Math.round(
+            (values.reduce((a, b) => a + b, 0) / values.length) * 10,
+          ) / 10
+        : 0;
+    const first = values.length > 0 ? values[0]! : current;
+    const change_pct =
+      first !== 0
+        ? Math.round(((current - first) / Math.abs(first)) * 1000) / 10
+        : 0;
+
+    let direction: 'rising' | 'falling' | 'stable' = 'stable';
+    if (change_pct > 3) direction = 'rising';
+    else if (change_pct < -3) direction = 'falling';
+
+    parameters[key] = { current, min, max, avg, direction, change_pct, series };
+  }
+
+  return {
+    period_hours: periodHours,
+    start_time: new Date(now - periodHours * 60 * 60 * 1000).toISOString(),
+    end_time: new Date(now).toISOString(),
+    parameters,
+  };
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function VentilationPage(): React.ReactElement {
   const [periodHours, setPeriodHours] = useState<PeriodHours>(24);
   const [selectedParam, setSelectedParam] = useState<string>('FiO2');
-  const [selectedPatient, setSelectedPatient] = useState<string>(MOCK_VENT_PATIENTS[0]?.mpiId ?? 'MPI-001');
-  const [isLoading, setIsLoading] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<string>(DEFAULT_VENT_PATIENTS[0]?.mpiId ?? 'MPI-001');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useState<VentilationParameters | null>(null);
+  const [fullHistory, setFullHistory] = useState<VentilationParameters[]>([]);
+
+  // ── Fetch ventilation data from API ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    Promise.all([
+      fetchVentilation(selectedPatient),
+      fetchVentilationHistory(selectedPatient),
+    ])
+      .then(([ventData, histData]) => {
+        if (cancelled) return;
+        setParams(ventData as VentilationParameters);
+        setFullHistory(histData as VentilationParameters[]);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedPatient]);
 
   // ── Derived state ─────────────────────────────────────────────────────
-  const params: VentilationParameters = useMemo(() => MOCK_PARAMETERS, []);
-
-  const trend: VentilationTrend = useMemo(
-    () => generateMockTrend(periodHours),
-    [periodHours],
+  const history: VentilationParameters[] = useMemo(
+    () => fullHistory.slice(-5).reverse(),
+    [fullHistory],
   );
 
-  const history: VentilationParameters[] = useMemo(
-    () => MOCK_HISTORY.slice(-5).reverse(), // últimas 5 leituras, mais recente primeiro
-    [],
+  const trend: VentilationTrend = useMemo(
+    () => computeTrendFromHistory(fullHistory, periodHours),
+    [fullHistory, periodHours],
   );
 
   const pfClass: PFClass = useMemo(
-    () => classifyPFRatio(params.PaO2_FiO2_ratio),
-    [params.PaO2_FiO2_ratio],
+    () => (params ? classifyPFRatio(params.PaO2_FiO2_ratio) : 'normal'),
+    [params],
   );
 
   const pfColor: string = useMemo(
-    () => getPFColor(params.PaO2_FiO2_ratio),
-    [params.PaO2_FiO2_ratio],
+    () => (params ? getPFColor(params.PaO2_FiO2_ratio) : 'var(--clinical-ventilation-pf-normal)'),
+    [params],
   );
 
   // ── Loading state ─────────────────────────────────────────────────────
   if (isLoading) {
+    return <PageSkeleton />;
+  }
+
+  // ── Error state ────────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-4xl mx-auto py-12 text-center" role="alert">
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--clinical-ventilation-attention)' }} />
+          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--semantic-text-primary)' }}>
+            Erro ao carregar dados
+          </h2>
+          <p style={{ color: 'var(--semantic-text-secondary)' }}>{error}</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ── Guard: no data yet ─────────────────────────────────────────────────
+  if (!params) {
     return <PageSkeleton />;
   }
 
@@ -422,7 +534,7 @@ export default function VentilationPage(): React.ReactElement {
 
           {/* ── Patient Selector ────────────────────────────────────────── */}
           <PatientSelector
-            patients={MOCK_VENT_PATIENTS}
+            patients={DEFAULT_VENT_PATIENTS}
             selectedMpiId={selectedPatient}
             onChange={setSelectedPatient}
             disabled={isLoading}

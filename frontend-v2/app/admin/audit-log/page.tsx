@@ -18,17 +18,18 @@ import {
   ChevronRight,
   X,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import Layout from '@/components/Layout';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DrawerBuilder from '@/components/DrawerBuilder';
+import { fetchAuditLogs } from '@/lib/api';
 import {
   type AuditLogEntry,
   type AuditAction,
   type AuditLogFilter,
   ACTION_LABELS,
   ACTION_COLORS,
-  MOCK_LOGS,
   formatDateTime,
   formatRelativeTime,
 } from '@/lib/audit-types';
@@ -163,7 +164,7 @@ const columns = [
 // ─── Page Component ───────────────────────────────────────────────────────
 
 export default function AuditLogPage() {
-  const [logs] = useState<AuditLogEntry[]>(MOCK_LOGS);
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
@@ -174,17 +175,27 @@ export default function AuditLogPage() {
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
 
-  // Simula carregamento inicial
+  // ── Fetch from API ───────────────────────────────────
   useEffect(() => {
-    const t = setTimeout(() => {
-      try {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchAuditLogs()
+      .then((data: { logs: unknown[]; total: number }) => {
+        if (cancelled) return;
+        setLogs(data.logs as AuditLogEntry[]);
         setLoading(false);
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Erro ao carregar registros de auditoria');
         setLoading(false);
-      }
-    }, 800);
-    return () => clearTimeout(t);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Filtragem dos dados
@@ -247,7 +258,6 @@ export default function AuditLogPage() {
 
   // Export CSV – download real via Blob + URL.createObjectURL
   const handleExport = () => {
-    // Escapa valores CSV com vírgulas, aspas ou quebras de linha
     const escapeCSV = (val: string): string => {
       if (val.includes(',') || val.includes('"') || val.includes('\n')) {
         return `"${val.replace(/"/g, '""')}"`;
@@ -283,7 +293,6 @@ export default function AuditLogPage() {
 
     const csv = [headers.join(','), ...rows].join('\n');
 
-    // Download real
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -494,6 +503,26 @@ export default function AuditLogPage() {
             >
               <p className="font-semibold">Erro ao carregar registros de auditoria</p>
               <p className="text-sm mt-1 opacity-90">{error}</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  fetchAuditLogs()
+                    .then((data: { logs: unknown[]; total: number }) => {
+                      setLogs(data.logs as AuditLogEntry[]);
+                      setLoading(false);
+                    })
+                    .catch((err: unknown) => {
+                      setError(err instanceof Error ? err.message : 'Erro ao carregar registros de auditoria');
+                      setLoading(false);
+                    });
+                }}
+                className="mt-3 inline-flex items-center gap-2 text-sm underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                style={{ color: 'var(--feedback-error-text-dark)' }}
+              >
+                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                Tentar novamente
+              </button>
             </div>
           )}
 

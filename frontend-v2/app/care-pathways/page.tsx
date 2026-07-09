@@ -26,12 +26,7 @@ import type {
   PathwayPatient,
   PathwayProgress,
 } from '@/lib/pathway-types';
-import {
-  MOCK_PATIENTS,
-  MOCK_PATIENT_PATHWAYS,
-  MOCK_PROGRESS,
-  getStatusLabel,
-} from '@/lib/pathway-types';
+import { fetchBedGrid, fetchPatientPathways, fetchPathwayProgress } from '@/lib/api';
 
 // ─── Unit Options ──────────────────────────────────────────────────────────
 
@@ -200,52 +195,172 @@ function PatientListItem({
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 export default function CarePathwaysPage(): React.ReactElement {
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(
-    MOCK_PATIENTS[0]?.id ?? null,
-  );
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [selectedPathwayIdx, setSelectedPathwayIdx] = useState<number>(0);
   const [unit, setUnit] = useState<UnitOption>('uti-1');
   const [viewMode, setViewMode] = useState<'split' | 'list' | 'board'>('split');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [patients, setPatients] = useState<PathwayPatient[]>([]);
+  const [patientPathways, setPatientPathways] = useState<PatientPathway[]>([]);
+  const [currentProgress, setCurrentProgress] = useState<PathwayProgress | null>(null);
 
-  // Demonstra o skeleton split-screen no carregamento inicial (estado de loading)
+  // ─── Carregar lista de pacientes via API de leitos ───────────────────
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1000);
-    return () => clearTimeout(timer);
+    setLoading(true);
+    fetchBedGrid()
+      .then((data) => {
+        const occupied = data.beds.filter(
+          (b) => b.status === 'occupied' && b.current_patient_mpi_id && b.current_patient_name,
+        );
+        const mapped: PathwayPatient[] = occupied.map((b) => ({
+          id: b.current_patient_mpi_id!,
+          mpi_id: b.current_patient_mpi_id!,
+          name: b.current_patient_name!,
+          bed: b.bed_id,
+          age: 0,
+          admission_diagnosis: '',
+          pathway_count: 0,
+          has_overdue: false,
+        }));
+        setPatients(mapped);
+        setError(null);
+      })
+      .catch((err) => setError(err.message || 'Erro ao carregar pacientes'))
+      .finally(() => setLoading(false));
   }, []);
 
-  // Derive pathways for the selected patient
-  const selectedPatient = useMemo(
-    () => MOCK_PATIENTS.find((p) => p.id === selectedPatientId) ?? null,
-    [selectedPatientId],
-  );
-
-  const patientPathways = useMemo(() => {
-    if (!selectedPatient) return [];
-    return MOCK_PATIENT_PATHWAYS.filter(
-      (pp) => pp.mpi_id === selectedPatient.mpi_id,
-    );
-  }, [selectedPatient]);
-
-  const currentPathway = patientPathways[selectedPathwayIdx] ?? null;
-  const currentProgress: PathwayProgress | null = currentPathway
-    ? (MOCK_PROGRESS[currentPathway.id] ?? null)
-    : null;
-
-  // Filter patients by unit (mock: all in the dropdown but filter by bed prefix)
+  // ─── Filtrar pacientes por unidade ────────────────────────────────────
   const filteredPatients = useMemo(() => {
     const unitMap: Record<UnitOption, string> = {
       'uti-1': 'UTI-1',
       'uti-2': 'UTI-2',
       'uti-cardio': 'UTI Cardio',
     };
-    return MOCK_PATIENTS.filter((p) => p.bed.startsWith(unitMap[unit]));
-  }, [unit]);
+    return patients.filter((p) => p.bed.startsWith(unitMap[unit]));
+  }, [patients, unit]);
+
+  // ─── Auto-selecionar primeiro paciente quando lista carregar ──────────
+  useEffect(() => {
+    if (!selectedPatientId && filteredPatients.length > 0 && filteredPatients[0]) {
+      setSelectedPatientId(filteredPatients[0].id);
+    }
+  }, [filteredPatients, selectedPatientId]);
+
+  const selectedPatient = useMemo(
+    () => patients.find((p) => p.id === selectedPatientId) ?? null,
+    [patients, selectedPatientId],
+  );
+
+  // ─── Carregar pathways do paciente selecionado ───────────────────────
+  useEffect(() => {
+    if (!selectedPatient) {
+      setPatientPathways([]);
+      return;
+    }
+    fetchPatientPathways(selectedPatient.mpi_id)
+      .then((data) => {
+        const mapped: PatientPathway[] = data.pathways.map((apiPp) => ({
+          id: String(apiPp.id),
+          mpi_id: apiPp.mpi_id,
+          pathway: {
+            id: String(apiPp.pathway.id),
+            name: apiPp.pathway.name,
+            description: apiPp.pathway.description,
+            slug: apiPp.pathway.slug,
+            active: apiPp.pathway.active,
+            states: apiPp.pathway.states.map((s) => ({
+              id: s.id,
+              name: s.name,
+              order: s.order,
+              description: '',
+              is_terminal: s.is_terminal ?? false,
+            })),
+            criteria: apiPp.pathway.criteria.map((c) => ({
+              id: c.id,
+              name: c.name,
+              category: c.category,
+              description: '',
+              unit: c.unit,
+              normal_range: c.normal_range,
+              alert_threshold: c.alert_threshold,
+              met: apiPp.criteria.find((e) => e.criteria_id === c.id)?.met ?? false,
+              value: apiPp.criteria.find((e) => e.criteria_id === c.id)?.value,
+              evaluated_at: apiPp.criteria.find((e) => e.criteria_id === c.id)?.evaluated_at,
+            })),
+          },
+          current_state: (() => {
+            const found = apiPp.pathway.states.find((s) => s.id === apiPp.current_state_id);
+            return {
+              id: found?.id ?? apiPp.current_state_id,
+              name: found?.name ?? apiPp.current_state_id,
+              order: found?.order ?? 0,
+              description: '',
+              is_terminal: found?.is_terminal ?? false,
+            };
+          })(),
+          criteria: apiPp.pathway.criteria.map((c) => ({
+            id: c.id,
+            name: c.name,
+            category: c.category,
+            description: '',
+            unit: c.unit,
+            normal_range: c.normal_range,
+            alert_threshold: c.alert_threshold,
+            met: apiPp.criteria.find((e) => e.criteria_id === c.id)?.met ?? false,
+            value: apiPp.criteria.find((e) => e.criteria_id === c.id)?.value,
+            evaluated_at: apiPp.criteria.find((e) => e.criteria_id === c.id)?.evaluated_at,
+          })),
+          status: apiPp.status,
+          severity: apiPp.severity,
+          enrolled_at: apiPp.enrolled_at,
+          enrolled_by: '',
+          completed_at: apiPp.completed_at,
+          updated_at: apiPp.enrolled_at,
+        }));
+        setPatientPathways(mapped);
+        setError(null);
+      })
+      .catch((err) => setError(err.message || 'Erro ao carregar pathways'));
+  }, [selectedPatient]);
+
+  const currentPathway = patientPathways[selectedPathwayIdx] ?? null;
+
+  // ─── Carregar progresso do pathway selecionado ───────────────────────
+  useEffect(() => {
+    if (!currentPathway || !selectedPatient) {
+      setCurrentProgress(null);
+      return;
+    }
+    fetchPathwayProgress(selectedPatient.mpi_id, Number(currentPathway.id))
+      .then((progress) => {
+        setCurrentProgress({
+          patient_pathway_id: String(progress.patient_pathway_id),
+          mpi_id: progress.mpi_id,
+          pathway_name: progress.pathway_name,
+          current_state: progress.current_state,
+          criteria_summary: progress.criteria_summary,
+          criteria: currentPathway.criteria,
+          state_history: progress.state_history.map((entry) => ({
+            from_state: entry.from_state,
+            to_state: entry.to_state,
+            changed_at: entry.changed_at,
+            reason: entry.reason,
+          })),
+          trend: progress.trend as PathwayProgress['trend'],
+          recommendation: progress.recommendation,
+        });
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar progresso:', err);
+        setCurrentProgress(null);
+      });
+  }, [currentPathway, selectedPatient]);
 
   const handleSelectPatient = useCallback((patientId: string) => {
     setSelectedPatientId(patientId);
     setSelectedPathwayIdx(0);
+    setCurrentProgress(null);
     if (viewMode === 'list') {
       setViewMode('board');
     }
@@ -253,6 +368,7 @@ export default function CarePathwaysPage(): React.ReactElement {
 
   const handleSelectPathway = useCallback((idx: number) => {
     setSelectedPathwayIdx(idx);
+    setCurrentProgress(null);
   }, []);
 
   // ─── Mobile: view mode toggle ──────────────────────────────────────────
@@ -261,7 +377,7 @@ export default function CarePathwaysPage(): React.ReactElement {
   const showBoard = viewMode === 'split' || viewMode === 'board';
 
   // ─── Loading ────────────────────────────────────────────────────────────
-  const pageLoading = isLoading;
+  const pageLoading = loading;
 
   // ─── Error ──────────────────────────────────────────────────────────────
   const pageError = error;
@@ -449,9 +565,7 @@ export default function CarePathwaysPage(): React.ReactElement {
                       </div>
                     ) : (
                       filteredPatients.map((patient) => {
-                        const pathways = MOCK_PATIENT_PATHWAYS.filter(
-                          (pp) => pp.mpi_id === patient.mpi_id,
-                        );
+                        const pathways = patient.id === selectedPatientId ? patientPathways : [];
                         return (
                           <PatientListItem
                             key={patient.id}
@@ -488,7 +602,7 @@ export default function CarePathwaysPage(): React.ReactElement {
                       </span>
                       {patientPathways.map((pp, idx) => {
                         const isActive = idx === selectedPathwayIdx;
-                        const hasProgress = MOCK_PROGRESS[pp.id];
+                        const hasProgress = currentProgress !== null && currentProgress.patient_pathway_id === String(pp.id);
                         const isOverdue =
                           pp.severity === 'critical' ||
                           pp.severity === 'urgent';

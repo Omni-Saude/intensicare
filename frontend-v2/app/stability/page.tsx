@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Heart,
   Activity,
@@ -27,11 +27,9 @@ import {
   type StabilityTrend,
   type StabilityTrendPoint,
   type StabilityDirection,
+  type StabilityStatus,
   STABILITY_CATEGORIES,
   CATEGORY_LABELS,
-  MOCK_STATUS,
-  MOCK_TREND,
-  MOCK_CRITERIA,
   getCategoryLabel,
   getSeverityLabel,
   getSeveritySignalToken,
@@ -43,20 +41,15 @@ import {
   countAlteredCriteria,
   computeSeverity,
 } from '@/lib/stability-types';
+import { fetchStability, fetchStabilityTrend, fetchDashboard, type PatientBedSummary } from '@/lib/api';
 
-// ─── Mock Patients ──────────────────────────────────────────────────────────
+// ─── Patient Option ──────────────────────────────────────────────────────────
 
 interface PatientOption {
   mpiId: string;
   displayName: string;
   bedId: string;
 }
-
-const MOCK_PATIENTS: PatientOption[] = [
-  { mpiId: 'MPI-2026-0742', displayName: 'João Silva', bedId: 'UTI-1-03' },
-  { mpiId: 'MPI-2026-0815', displayName: 'Maria Santos', bedId: 'UTI-2-07' },
-  { mpiId: 'MPI-2026-0829', displayName: 'Carlos Oliveira', bedId: 'UTI-1-05' },
-];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -639,23 +632,64 @@ function AssessedAt({
 // ─── Page Component ─────────────────────────────────────────────────────────
 
 export default function StabilityPage(): React.ReactElement {
-  const [selectedMpiId, setSelectedMpiId] = useState<string>(MOCK_PATIENTS[0]!.mpiId);
-  const [isLoading, setIsLoading] = useState(false);
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [selectedMpiId, setSelectedMpiId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('');
 
+  // ── Data states ──────────────────────────────────────────────────────────
+  const [status, setStatus] = useState<StabilityStatus | null>(null);
+  const [trend, setTrend] = useState<StabilityTrend | null>(null);
+
+  // ── Fetch patients on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    fetchDashboard()
+      .then((dashboard) => {
+        const mapped: PatientOption[] = dashboard.patients.map((p) => ({
+          mpiId: p.mpi_id,
+          displayName: p.display_name,
+          bedId: p.bed_id ?? '—',
+        }));
+        setPatients(mapped);
+        if (mapped.length > 0 && !selectedMpiId) {
+          setSelectedMpiId(mapped[0]!.mpiId);
+        }
+      })
+      .catch((err) => {
+        setError(err.message || 'Erro ao carregar lista de pacientes');
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch stability data when selectedMpiId changes ────────────────────
+  useEffect(() => {
+    if (!selectedMpiId) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    Promise.all([
+      fetchStability(selectedMpiId),
+      fetchStabilityTrend(selectedMpiId),
+    ])
+      .then(([stabilityData, trendData]) => {
+        setStatus(stabilityData as StabilityStatus);
+        setTrend(trendData as StabilityTrend);
+      })
+      .catch((err) => {
+        setError(err.message || 'Erro ao carregar dados de estabilidade');
+        setStatus(null);
+        setTrend(null);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [selectedMpiId]);
+
   // ── Derived data ─────────────────────────────────────────────────────────
-  const selectedPatient = useMemo(
-    () => MOCK_PATIENTS.find((p) => p.mpiId === selectedMpiId) || MOCK_PATIENTS[0],
-    [selectedMpiId],
-  );
-
-  const status = MOCK_STATUS;
-  const trend = MOCK_TREND;
-
   const alteredCount = useMemo(
-    () => countAlteredCriteria(status.criteria),
-    [status.criteria],
+    () => (status ? countAlteredCriteria(status.criteria) : 0),
+    [status],
   );
 
   const severity = useMemo(
@@ -665,36 +699,49 @@ export default function StabilityPage(): React.ReactElement {
 
   // ── Filtered criteria ────────────────────────────────────────────────────
   const filteredCriteria = useMemo(() => {
+    if (!status) return [];
     if (!categoryFilter) return status.criteria;
     return status.criteria.filter((c) => c.category === categoryFilter);
-  }, [categoryFilter, status.criteria]);
+  }, [categoryFilter, status]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handlePatientChange = useCallback((mpiId: string) => {
     setSelectedMpiId(mpiId);
     setError(null);
-    // Simula loading
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 600);
   }, []);
 
   const handleRetry = useCallback(() => {
+    if (!selectedMpiId) return;
     setError(null);
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 600);
-  }, []);
+
+    Promise.all([
+      fetchStability(selectedMpiId),
+      fetchStabilityTrend(selectedMpiId),
+    ])
+      .then(([stabilityData, trendData]) => {
+        setStatus(stabilityData as StabilityStatus);
+        setTrend(trendData as StabilityTrend);
+      })
+      .catch((err) => {
+        setError(err.message || 'Erro ao carregar dados de estabilidade');
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [selectedMpiId]);
 
   const handleFilterCategory = useCallback((cat: string) => {
     setCategoryFilter((prev) => (prev === cat ? '' : cat));
   }, []);
 
-  // ── Loading state ────────────────────────────────────────────────────────
-  if (isLoading && !status) {
+  // ── Initial loading (no patients yet) ────────────────────────────────────
+  if (isLoading && !status && patients.length === 0) {
     return <PageSkeleton />;
   }
 
   // ── Error state ──────────────────────────────────────────────────────────
-  if (error) {
+  if (error && !status) {
     return (
       <Layout>
         <div className="max-w-5xl mx-auto">
@@ -704,8 +751,8 @@ export default function StabilityPage(): React.ReactElement {
     );
   }
 
-  // ── Empty state ──────────────────────────────────────────────────────────
-  if (!status || status.criteria.length === 0) {
+  // ── Empty state (no patients) ────────────────────────────────────────────
+  if (patients.length === 0 && !isLoading) {
     return (
       <Layout>
         <div className="max-w-5xl mx-auto">
@@ -749,12 +796,29 @@ export default function StabilityPage(): React.ReactElement {
           </div>
 
           {/* ── Patient Selector ────────────────────────────────────────── */}
-          <PatientSelector
-            patients={MOCK_PATIENTS}
-            selectedMpiId={selectedMpiId}
-            onSelect={handlePatientChange}
-            isLoading={isLoading}
-          />
+          {patients.length > 0 && (
+            <PatientSelector
+              patients={patients}
+              selectedMpiId={selectedMpiId}
+              onSelect={handlePatientChange}
+              isLoading={isLoading}
+            />
+          )}
+
+          {/* ── Error banner (non-blocking) ─────────────────────────────── */}
+          {error && status && (
+            <div
+              role="alert"
+              className="rounded-xl border p-3 text-sm"
+              style={{
+                borderColor: 'var(--clinical-severity-watch-signal)',
+                backgroundColor: 'var(--clinical-severity-watch-wash)',
+                color: 'var(--clinical-severity-watch-on-surface)',
+              }}
+            >
+              ⚠️ Erro ao atualizar: {error}
+            </div>
+          )}
 
           {/* ── Score Card ──────────────────────────────────────────────── */}
           <ScoreCard
@@ -763,7 +827,9 @@ export default function StabilityPage(): React.ReactElement {
             isLoading={isLoading}
           />
 
-          <AssessedAt iso={status.assessed_at} isLoading={isLoading} />
+          {status && (
+            <AssessedAt iso={status.assessed_at} isLoading={isLoading} />
+          )}
 
           {/* ── Category Filter Tabs ────────────────────────────────────── */}
           <div>
@@ -834,7 +900,7 @@ export default function StabilityPage(): React.ReactElement {
 
           {/* ── Recommendation ──────────────────────────────────────────── */}
           <RecommendationCard
-            recommendation={status.recommendation}
+            recommendation={status?.recommendation ?? 'Nenhuma recomendação disponível'}
             severity={severity}
             isLoading={isLoading}
           />

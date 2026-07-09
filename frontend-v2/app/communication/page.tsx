@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   MessageSquare,
   MessageCircle,
@@ -16,26 +16,40 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import HandoffMessageCard from '@/components/HandoffMessageCard';
 import DrawerBuilder from '@/components/DrawerBuilder';
 import {
-  MOCK_MESSAGES,
-  MOCK_SHIFTS,
-  type HandoffMessage,
-  type NewHandoffMessage,
-} from '@/lib/communication-types';
+  fetchHandoffMessages,
+  createHandoffMessage,
+  markHandoffMessageRead,
+  fetchShifts,
+  type HandoffMessageResponse,
+  type ShiftOption,
+} from '@/lib/api';
+
+// ─── New Message Form Type ──────────────────────────────────────────────────
+
+interface NewHandoffMessage {
+  to_shift: string;
+  sbar_s: string;
+  sbar_b: string;
+  sbar_a: string;
+  sbar_r: string;
+  urgent: boolean;
+}
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function CommunicationPage() {
-  const [messages, setMessages] = useState<HandoffMessage[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<HandoffMessageResponse[]>([]);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
   const [activeTab, setActiveTab] = useState<'messages' | 'new'>('messages');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Form state
   const [form, setForm] = useState<NewHandoffMessage>({
-    to_shift: MOCK_SHIFTS[0] ?? '',
+    to_shift: '',
     sbar_s: '',
     sbar_b: '',
     sbar_a: '',
@@ -43,15 +57,47 @@ export default function CommunicationPage() {
     urgent: false,
   });
 
+  // ── Initial fetch ───────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([fetchHandoffMessages(), fetchShifts()])
+      .then(([msgData, shiftData]) => {
+        if (cancelled) return;
+        setMessages(msgData.messages);
+        setShifts(shiftData.shifts);
+        if (shiftData.shifts.length > 0 && !form.to_shift) {
+          setForm((prev) => ({ ...prev, to_shift: shiftData.shifts[0]!.value }));
+        }
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Mark as read ───────────────────────────────────
   const handleMarkRead = useCallback((id: string) => {
     setMessages((prev) =>
       prev.map((m) => (m.id === id ? { ...m, read: true } : m)),
     );
+    // Fire-and-forget API call
+    markHandoffMessageRead(id).catch(() => {
+      // Silently ignore — UI already updated optimistically
+    });
   }, []);
 
-  // ── Submit new message (mock) ──────────────────────
-  const handleSubmit = (e: React.FormEvent) => {
+  // ── Submit new message ─────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!form.sbar_s.trim()) {
@@ -62,19 +108,8 @@ export default function CommunicationPage() {
     setSending(true);
     setError(null);
 
-    setTimeout(() => {
-      const newMessage: HandoffMessage = {
-        id: `msg-${Date.now()}`,
-        from_user: 'Enf. Usuário Atual',
-        to_shift: form.to_shift,
-        sbar_s: form.sbar_s,
-        sbar_b: form.sbar_b,
-        sbar_a: form.sbar_a,
-        sbar_r: form.sbar_r,
-        created_at: new Date().toISOString(),
-        read: false,
-        urgent: form.urgent,
-      };
+    try {
+      const newMessage = await createHandoffMessage(form);
 
       setMessages((prev) => [newMessage, ...prev]);
       setSending(false);
@@ -82,7 +117,7 @@ export default function CommunicationPage() {
 
       // Reset form
       setForm({
-        to_shift: MOCK_SHIFTS[0] ?? '',
+        to_shift: shifts[0]?.value ?? '',
         sbar_s: '',
         sbar_b: '',
         sbar_a: '',
@@ -94,15 +129,11 @@ export default function CommunicationPage() {
 
       // Clear toast after 3s
       setTimeout(() => setToast(null), 3000);
-    }, 800);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao enviar mensagem');
+      setSending(false);
+    }
   };
-
-  // ── Simulated initial load ─────────────────────────
-  React.useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(timer);
-  }, []);
 
   // ── Render ─────────────────────────────────────────
   return (
@@ -200,7 +231,18 @@ export default function CommunicationPage() {
               {[1, 2, 3].map((i) => (
                 <HandoffMessageCard
                   key={i}
-                  message={MOCK_MESSAGES[0]!}
+                  message={{
+                    id: `skeleton-${i}`,
+                    from_user: '',
+                    to_shift: '',
+                    sbar_s: '',
+                    sbar_b: '',
+                    sbar_a: '',
+                    sbar_r: '',
+                    created_at: '',
+                    read: false,
+                    urgent: false,
+                  }}
                   isLoading
                 />
               ))}
@@ -227,7 +269,16 @@ export default function CommunicationPage() {
                     onClick={() => {
                       setError(null);
                       setLoading(true);
-                      setTimeout(() => setLoading(false), 600);
+                      Promise.all([fetchHandoffMessages(), fetchShifts()])
+                        .then(([msgData, shiftData]) => {
+                          setMessages(msgData.messages);
+                          setShifts(shiftData.shifts);
+                          setLoading(false);
+                        })
+                        .catch((err: unknown) => {
+                          setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+                          setLoading(false);
+                        });
                     }}
                     className="mt-3 inline-flex items-center gap-2 text-sm underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                     style={{ color: 'var(--clinical-severity-critical-on-surface)' }}
@@ -353,9 +404,9 @@ export default function CommunicationPage() {
                     backgroundColor: 'var(--semantic-surface-canvas)',
                   }}
                 >
-                  {MOCK_SHIFTS.map((shift) => (
-                    <option key={shift} value={shift}>
-                      {shift}
+                  {shifts.map((shift) => (
+                    <option key={shift.value} value={shift.value}>
+                      {shift.label}
                     </option>
                   ))}
                 </select>

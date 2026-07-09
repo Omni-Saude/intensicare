@@ -4,6 +4,7 @@ import React, {
   useState,
   useMemo,
   useCallback,
+  useEffect,
 } from 'react';
 import {
   Brain,
@@ -32,10 +33,6 @@ import DrawerBuilder from '@/components/DrawerBuilder';
 import {
   type SedationAssessment,
   type SedationAssessmentCreate,
-  type MockSedationPatient,
-  MOCK_ASSESSMENT,
-  MOCK_HISTORY,
-  MOCK_PATIENTS,
   getRASSLabel,
   getRASSColor,
   getRASSBgColor,
@@ -46,6 +43,15 @@ import {
   getCAMICUIColor,
   formatSedationTimestamp,
 } from '@/lib/sedation-types';
+import { fetchSedation, fetchSedationHistory, fetchDashboard } from '@/lib/api';
+
+// ─── Patient option ──────────────────────────────────────────────────────────
+
+interface SedationPatientOption {
+  mpiId: string;
+  name: string;
+  bed: string;
+}
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -195,7 +201,7 @@ function MiniHistoryCard({ assessment, previousRASS }: MiniHistoryCardProps): Re
 // ─── Form de Nova Avaliação ──────────────────────────────────────────────────
 
 interface NewAssessmentFormProps {
-  selectedPatient: MockSedationPatient;
+  selectedPatient: SedationPatientOption;
   onSave: (data: SedationAssessmentCreate) => void;
   onCancel: () => void;
 }
@@ -226,8 +232,6 @@ function NewAssessmentForm({
         assessed_by: assessedBy || undefined,
         notes: notes || undefined,
       };
-      // Simula delay de salvamento
-      await new Promise((r) => setTimeout(r, 500));
       onSave(data);
     } finally {
       setSaving(false);
@@ -490,19 +494,64 @@ function NewAssessmentForm({
 
 export default function SedationPage(): React.ReactElement {
   // State
-  const [selectedPatientId, setSelectedPatientId] = useState<string>(MOCK_PATIENTS[0]?.mpiId ?? 'MPI-001');
-  const [isLoading, setIsLoading] = useState(false);
+  const [patients, setPatients] = useState<SedationPatientOption[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [currentAssessment, setCurrentAssessment] = useState<SedationAssessment>(MOCK_ASSESSMENT);
-  const [history, setHistory] = useState<SedationAssessment[]>(MOCK_HISTORY);
+  const [currentAssessment, setCurrentAssessment] = useState<SedationAssessment | null>(null);
+  const [history, setHistory] = useState<SedationAssessment[]>([]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // ── Fetch patients on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    fetchDashboard()
+      .then((dashboard) => {
+        const mapped: SedationPatientOption[] = dashboard.patients.map((p) => ({
+          mpiId: p.mpi_id,
+          name: p.display_name,
+          bed: p.bed_id ?? '—',
+        }));
+        setPatients(mapped);
+        if (mapped.length > 0 && !selectedPatientId) {
+          setSelectedPatientId(mapped[0]!.mpiId);
+        }
+      })
+      .catch((err) => {
+        setError(err.message || 'Erro ao carregar lista de pacientes');
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch sedation data when selectedPatientId changes ───────────────────
+  useEffect(() => {
+    if (!selectedPatientId) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    Promise.all([
+      fetchSedation(selectedPatientId),
+      fetchSedationHistory(selectedPatientId),
+    ])
+      .then(([assessmentData, historyData]) => {
+        setCurrentAssessment(assessmentData as SedationAssessment);
+        setHistory((historyData as SedationAssessment[]) ?? []);
+      })
+      .catch((err) => {
+        setError(err.message || 'Erro ao carregar dados de sedação');
+        setCurrentAssessment(null);
+        setHistory([]);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [selectedPatientId]);
+
   // Derived
   const selectedPatient = useMemo(
-    () => MOCK_PATIENTS.find((p) => p.mpiId === selectedPatientId) ?? MOCK_PATIENTS[0]!,
-    [selectedPatientId],
+    () => patients.find((p) => p.mpiId === selectedPatientId) ?? null,
+    [patients, selectedPatientId],
   );
 
   const recentHistory = useMemo(() => history.slice(0, 5), [history]);
@@ -517,12 +566,7 @@ export default function SedationPage(): React.ReactElement {
   // Handlers
   const handlePatientChange = useCallback((mpiId: string) => {
     setSelectedPatientId(mpiId);
-    setIsLoading(true);
     setError(null);
-    // Simula carregamento
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 600);
   }, []);
 
   const handleNewAssessment = useCallback((data: SedationAssessmentCreate) => {
@@ -544,8 +588,13 @@ export default function SedationPage(): React.ReactElement {
     setDrawerOpen(false);
   }, []);
 
+  // Initial loading state
+  if (isLoading && !currentAssessment) {
+    return <PageSkeleton />;
+  }
+
   // Error state
-  if (error && !isLoading) {
+  if (error && !currentAssessment && !isLoading) {
     return <PageError message={error} />;
   }
 
@@ -568,55 +617,73 @@ export default function SedationPage(): React.ReactElement {
           </div>
 
           {/* ── Patient Selector ────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-3">
-            <label
-              className="text-sm font-semibold flex items-center gap-1"
-              style={{ color: 'var(--semantic-text-secondary)' }}
-            >
-              <Search className="w-4 h-4" aria-hidden="true" />
-              Paciente:
-            </label>
-            <div className="relative">
-              <select
-                value={selectedPatientId}
-                onChange={(e) => handlePatientChange(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 rounded-lg border text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
-                style={{
-                  borderColor: 'var(--semantic-border-default)',
-                  backgroundColor: 'var(--semantic-surface-raised)',
-                  color: 'var(--semantic-text-primary)',
-                }}
-                aria-label="Selecionar paciente"
-              >
-                {MOCK_PATIENTS.map((p) => (
-                  <option key={p.mpiId} value={p.mpiId}>
-                    {p.name} — {p.bed}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
+          {patients.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label
+                className="text-sm font-semibold flex items-center gap-1"
                 style={{ color: 'var(--semantic-text-secondary)' }}
-                aria-hidden="true"
-              />
-            </div>
-            {selectedPatient && (
-              <span
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor: 'var(--semantic-surface-overlay)',
-                  color: 'var(--semantic-text-secondary)',
-                }}
               >
-                <User className="w-3 h-3" aria-hidden="true" />
-                {selectedPatient.name} · {selectedPatient.bed}
-              </span>
-            )}
-          </div>
+                <Search className="w-4 h-4" aria-hidden="true" />
+                Paciente:
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedPatientId}
+                  onChange={(e) => handlePatientChange(e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-2 rounded-lg border text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                  style={{
+                    borderColor: 'var(--semantic-border-default)',
+                    backgroundColor: 'var(--semantic-surface-raised)',
+                    color: 'var(--semantic-text-primary)',
+                  }}
+                  aria-label="Selecionar paciente"
+                >
+                  {patients.map((p) => (
+                    <option key={p.mpiId} value={p.mpiId}>
+                      {p.name} — {p.bed}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
+                  style={{ color: 'var(--semantic-text-secondary)' }}
+                  aria-hidden="true"
+                />
+              </div>
+              {selectedPatient && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor: 'var(--semantic-surface-overlay)',
+                    color: 'var(--semantic-text-secondary)',
+                  }}
+                >
+                  <User className="w-3 h-3" aria-hidden="true" />
+                  {selectedPatient.name} · {selectedPatient.bed}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── Non-blocking error banner ───────────────────────────────────── */}
+          {error && currentAssessment && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm border"
+              style={{
+                backgroundColor: 'var(--clinical-severity-watch-wash)',
+                color: 'var(--clinical-severity-watch-on-surface)',
+                borderColor: 'var(--clinical-severity-watch-signal)',
+              }}
+            >
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              <span>Erro ao atualizar: {error}</span>
+            </div>
+          )}
 
           {/* ── Sedation Assessment Card ────────────────────────────────────── */}
           <SedationAssessmentCard
-            assessment={currentAssessment}
+            assessment={currentAssessment ?? undefined}
             isLoading={isLoading}
             error={error}
           />
@@ -669,7 +736,7 @@ export default function SedationPage(): React.ReactElement {
                   events={timelineEvents}
                   domain="general"
                   isLoading={isLoading}
-                  error={error}
+                  error={null}
                 />
               </div>
             </section>
@@ -705,18 +772,20 @@ export default function SedationPage(): React.ReactElement {
           </div>
 
           {/* ── Drawer: Form de Nova Avaliação ──────────────────────────────── */}
-          <DrawerBuilder
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            title={`Nova Avaliação de Sedação — ${selectedPatient.name}`}
-            size="lg"
-          >
-            <NewAssessmentForm
-              selectedPatient={selectedPatient}
-              onSave={handleNewAssessment}
-              onCancel={() => setDrawerOpen(false)}
-            />
-          </DrawerBuilder>
+          {selectedPatient && (
+            <DrawerBuilder
+              open={drawerOpen}
+              onClose={() => setDrawerOpen(false)}
+              title={`Nova Avaliação de Sedação — ${selectedPatient.name}`}
+              size="lg"
+            >
+              <NewAssessmentForm
+                selectedPatient={selectedPatient}
+                onSave={handleNewAssessment}
+                onCancel={() => setDrawerOpen(false)}
+              />
+            </DrawerBuilder>
+          )}
         </div>
       </ErrorBoundary>
     </Layout>
