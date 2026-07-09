@@ -1,6 +1,6 @@
 'use client';
 
-import { getToken } from './auth';
+import { getApiToken } from './api';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -145,7 +145,7 @@ class RealtimeConnection {
   }
 
   private connectWs(): void {
-    const token = getToken();
+    const token = getApiToken();
     const url = `${getWsBaseUrl()}${WS_ENDPOINT}`;
     // Append token as query param (common auth pattern for WS)
     const finalUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
@@ -195,7 +195,7 @@ class RealtimeConnection {
   }
 
   private connectSse(): void {
-    const token = getToken();
+    const token = getApiToken();
     const baseUrl = typeof window !== 'undefined'
       ? `${window.location.protocol}//${window.location.hostname}:8000`
       : 'http://localhost:8000';

@@ -22,7 +22,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for auth token
+  // Check for auth token via HttpOnly cookie (F-SEC-005)
+  // The backend should set this cookie with Set-Cookie: access_token=...; HttpOnly; Secure; SameSite=Strict
+  // The frontend never reads/writes this cookie from JavaScript — it is managed entirely server-side.
+  // Until backend adoption, the cookie will be absent on page loads; users re-authenticate via the
+  // login page (in-memory token survives SPA navigation but not refresh).
   const token = request.cookies.get('access_token')?.value;
   if (!token) {
     const loginUrl = new URL('/login', request.url);

@@ -1,7 +1,5 @@
 'use client';
 
-import { getToken, clearToken } from './auth';
-
 const BASE_URL = ''; // Uses Next.js rewrites to proxy to localhost:8000
 
 export class ApiError extends Error {
@@ -16,19 +14,39 @@ export class ApiError extends Error {
   }
 }
 
+// ── In-memory API token store (F-SEC-005) ──
+// Token lives only in JS module scope — never persisted to sessionStorage,
+// localStorage, or document.cookie. Lost on page refresh (user must
+// re-authenticate). Survives SPA client-side navigations.
+//
+// The login page calls setApiToken() after successful authentication.
+// On 401 responses or explicit logout, clearApiToken() is called.
+
+let _apiToken: string | null = null;
+
+export function setApiToken(token: string): void {
+  _apiToken = token;
+}
+
+export function clearApiToken(): void {
+  _apiToken = null;
+}
+
+export function getApiToken(): string | null {
+  return _apiToken;
+}
+
 async function request<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getToken();
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (_apiToken) {
+    headers['Authorization'] = `Bearer ${_apiToken}`;
   }
 
   const response = await fetch(`${BASE_URL}${url}`, {
@@ -37,7 +55,7 @@ async function request<T>(
   });
 
   if (response.status === 401) {
-    clearToken();
+    clearApiToken();
     if (typeof window !== 'undefined') {
       window.location.href = '/login';
     }

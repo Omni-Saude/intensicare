@@ -1,8 +1,5 @@
 'use client';
 
-const TOKEN_KEY = 'access_token';
-const USER_KEY = 'intensicare_user';
-
 export interface UserInfo {
   id: number;
   username: string;
@@ -12,47 +9,45 @@ export interface UserInfo {
   is_active: boolean;
 }
 
+// ── In-memory stores (module-scoped) ──
+// SECURITY (F-SEC-005): Tokens and user data are NEVER persisted to
+// sessionStorage, localStorage, or document.cookie. They live only in
+// JavaScript module scope and are lost on page refresh.
+//
+// Page refresh → re-authentication is required.
+// Tab navigation (SPA client-side routing) preserves the session.
+// This is an acceptable trade-off for clinical application security:
+// no XSS exfiltration vector via browser storage APIs.
+
+let _token: string | null = null;
+let _user: UserInfo | null = null;
+
 // --- Token management ---
 
 export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(TOKEN_KEY);
+  return _token;
 }
 
 export function setToken(token: string): void {
-  if (typeof window === 'undefined') return;
-  sessionStorage.setItem(TOKEN_KEY, token);
-  // Also set as cookie for middleware
-  document.cookie = `access_token=${token}; path=/; max-age=86400; SameSite=Lax`;
+  _token = token;
 }
 
 export function clearToken(): void {
-  if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(TOKEN_KEY);
-  document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
+  _token = null;
 }
 
 // --- User info ---
 
 export function getUser(): UserInfo | null {
-  if (typeof window === 'undefined') return null;
-  const stored = sessionStorage.getItem(USER_KEY);
-  if (!stored) return null;
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return null;
-  }
+  return _user;
 }
 
 export function setUser(user: UserInfo): void {
-  if (typeof window === 'undefined') return;
-  sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+  _user = user;
 }
 
 export function clearUser(): void {
-  if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(USER_KEY);
+  _user = null;
 }
 
 // --- Auth helpers ---

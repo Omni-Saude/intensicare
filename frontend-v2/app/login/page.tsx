@@ -3,8 +3,8 @@
 import React, { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Eye, EyeOff } from 'lucide-react';
-import { loginApi, type LoginRequest } from '@/lib/api';
-import { setToken, setUser } from '@/lib/auth';
+import { loginApi, setApiToken, type LoginRequest } from '@/lib/api';
+import { setUser } from '@/lib/auth';
 
 function LoginForm() {
   const router = useRouter();
@@ -28,7 +28,7 @@ function LoginForm() {
       if (!accessToken) {
         throw new Error('No access token received');
       }
-      setToken(accessToken);
+      setApiToken(accessToken);
 
       // Decode JWT to extract user info
       try {

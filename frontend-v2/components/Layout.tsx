@@ -5,21 +5,29 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Activity,
+  ArrowRightLeft,
+  BarChart3,
   Bell,
-  UserCog,
-  Shield,
-  Sliders,
+  Brain,
+  Building2,
+  ClipboardCheck,
+  Droplets,
+  FileCheck,
+  FileText,
+  Gauge,
+  GitBranch,
+  Heart,
+  HelpCircle,
   LogOut,
   Menu,
-  X,
-  HelpCircle,
-  Heart,
-  Pill,
-  ClipboardCheck,
-  Scale,
-  Droplets,
   MessageSquare,
-  Building2,
+  Pill,
+  Scale,
+  Shield,
+  Sliders,
+  UserCog,
+  Wind,
+  X,
 } from 'lucide-react';
 import { logout, getUser, isAdmin } from '@/lib/auth';
 import { useState } from 'react';
@@ -66,6 +74,15 @@ export default function Layout({ children }: LayoutProps) {
     { href: '/nutrition', label: 'Nutrição', icon: Scale },
     { href: '/fluid-balance', label: 'Balanço Hídrico', icon: Droplets },
     { href: '/communication', label: 'Comunicação', icon: MessageSquare },
+    { href: '/care-pathways', label: 'Care Pathways', icon: GitBranch },
+    { href: '/ventilation', label: 'Ventilação', icon: Wind },
+    { href: '/stability', label: 'Estabilidade', icon: Heart },
+    { href: '/clinical-deterioration', label: 'Piora Clínica', icon: Activity },
+    { href: '/patient-movement', label: 'Movimentação', icon: ArrowRightLeft },
+    { href: '/prescription', label: 'Prescrições', icon: Pill },
+    { href: '/clinical-notes', label: 'Evoluções', icon: FileText },
+    { href: '/documentation', label: 'Documentação', icon: FileCheck },
+    { href: '/sedation', label: 'Sedação', icon: Brain },
   ];
 
   const adminItems = [
@@ -74,6 +91,9 @@ export default function Layout({ children }: LayoutProps) {
     { href: '/admin/thresholds', label: 'Limiares', icon: Sliders },
     { href: '/admin/tenancy', label: 'Organizações', icon: Building2 },
     { href: '/admin/audit-log', label: 'Auditoria', icon: Shield },
+    { href: '/admin/registry', label: 'Cadastros', icon: Building2 },
+    { href: '/indicators', label: 'Indicadores', icon: BarChart3 },
+    { href: '/efficiency', label: 'Eficiência', icon: Gauge },
   ];
 
   const isActive = (href: string) => {
