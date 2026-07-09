@@ -64,6 +64,24 @@ class TestRespiration:
         assert score_respiration(30, False) == (2, None)
         assert score_respiration(199, False) == (2, None)
 
+    def test_bool_passed_as_pao2_fio2_returns_invalid_type(self):
+        """F-CLIN-012: Passing a bool should return (0, 'invalid_type')."""
+        assert score_respiration(True, False) == (0, "invalid_type")
+        assert score_respiration(False, False) == (0, "invalid_type")
+
+    def test_fio2_percent_bug_raises_value_error(self):
+        """F-CLIN-002: PaO2/FiO2 < 20 likely means FiO2 was passed as percentage."""
+        with pytest.raises(ValueError, match="PaO2/FiO2 ratio"):
+            score_respiration(2.0, False)  # FiO2=40% instead of 0.4 → ratio ~2
+        with pytest.raises(ValueError, match="PaO2/FiO2 ratio"):
+            score_respiration(10.0, False)  # FiO2=30% instead of 0.3 → ratio ~10
+
+    def test_pf_ratio_at_boundary_20_passes(self):
+        """Borderline: exactly 20 should NOT raise (valid, just low)."""
+        score, status = score_respiration(20.0, False)
+        assert score == 2  # <200 without vent capped at 2
+        assert status is None
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Coagulation — Platelets

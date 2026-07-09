@@ -167,6 +167,19 @@ def score_respiration(
     if pao2_fio2 is None:
         return 0, "missing"
 
+    if isinstance(pao2_fio2, bool):
+        return 0, "invalid_type"
+
+    if pao2_fio2 < 20:
+        # FiO2 percent bug: P/F ratio should be ~200-500
+        # If value is < 20, FiO2 was likely passed as percentage (e.g., 40%)
+        # instead of fraction (0.4), causing ~100x error
+        raise ValueError(
+            f"PaO2/FiO2 ratio {pao2_fio2} appears to be invalid. "
+            f"Expected ratio 200-500. If FiO2 was passed as percentage (e.g., 40), "
+            f"divide by 100 to get fraction (0.4)."
+        )
+
     if pao2_fio2 >= SOFA_RESP_PF_NORMAL:
         score = 0
     elif pao2_fio2 >= SOFA_RESP_PF_MILD:
