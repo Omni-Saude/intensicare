@@ -1,53 +1,81 @@
-# PLANS.md — Pós-Auditoria V2 + Trilhas Engine Remediation
+# PLANS.md — Trilhas Engine M2+M3+M4
 
-> **Orquestrador:** Parreira | **Data:** 2026-07-08
-> **Fontes:** FORENSICS_FINAL_VERDICT_V2.md + PROMPT_TRILHAS_ENGINE.md
-> **Score Atual:** 80/100 | **Alvo:** >85 universal
+> **Orquestrador:** Parreira | **Data:** 2026-07-09
+> **Fontes:** PROMPT_TRILHAS_ENGINE.md + FORENSICS_FINAL_VERDICT_V2.md
+> **Pré-requisito:** M1 completo (schema + CI gates + ventilacao.yaml)
 
 ## Envelope
 
 | Campo | Valor |
 |-------|-------|
-| **Goal** | Resolver 4 condições short-term + Milestone 1 do Trilhas Engine |
+| **Goal** | Migrar Trilhas Engine para rule engine declarativo (ADR-0020), M2+M3+M4 |
 | **Risk** | L2 |
-| **Scope** | alerts.py, health.py, trilhas_*.py, _work/alerts/, scripts/ |
+| **Constraints** | Sem breaking changes API, AST parser seguro (sem eval), CI gates PASS |
+| **Scope** | trilhas_*.py, _work/alerts/pathways/*.yaml, pathways.py, domain_trilhas_engine.py |
 
-## Task Inventory
+## RECON Findings
 
-### Short-Term (GO Conditions — Wave 1, paralelo)
-| # | ID | Severity | File(s) | Effort |
-|---|-----|----------|---------|--------|
-| S1 | F-SEC-001b | HIGH | `alerts.py` (list_alerts + trace_alert) | 2h → agent |
-| S2 | F-INT-006 | MEDIUM | `health.py` (concurrent checks) | 3h → agent |
-| S3 | Tests | MEDIUM | `test_vitals.py` (auth tokens) | 4h → agent |
-| S4 | npm | LOW | `frontend-v2/` (audit fix) | 30min → agent |
+- PATHWAY_SEEDS: 4 pathways (Ventilação, Sepse, Desmame, Nutrição) como list[dict]
+- PathwayStore: state machine in-memory (791L) — será substituído
+- 6 API endpoints em pathways.py — devem manter contrato
+- ADR-0020 existe (20114 bytes)
+- M1 artifacts: schema, validate_alerts.py, CI workflow, 20 testes
 
-### Trilhas Engine (Milestone 1 — Wave 2)
-| # | ID | Severity | Scope | Effort |
-|---|-----|----------|-------|--------|
-| T1 | F-ARCH-001/002 | CRITICAL | Schema + CI Gates + Compiler | XL |
+## Wave 1 — M2: Compiler + YAML (paralelo)
 
-## Wave 1 — Parallel (no shared files)
+### Agent M2a: PredicateCompiler (3 arquivos)
+| # | File | Action |
+|---|------|--------|
+| 1 | `trilhas_compiler.py` | CREATE — PredicateCompiler com AST parser seguro |
+| 2 | `test_trilhas_compiler.py` | CREATE — testes do compilador |
+| 3 | `trilhas_definitions.py` | MODIFY — catalog functions → YAML loader |
 
-### Agent S1: F-SEC-001b — Auth on alert endpoints
-- File: `src/intensicare/api/v1/alerts.py`
-- Add `Depends(get_current_user)` to `list_alerts` (line 84) and `trace_alert` (line 238)
-- Keep existing auth on other endpoints intact
+### Agent M2b: YAML Migration (3 arquivos)
+| # | File | Action |
+|---|------|--------|
+| 1 | `_work/alerts/pathways/sepse.yaml` | CREATE — migrado de PATHWAY_SEEDS[1] |
+| 2 | `_work/alerts/pathways/desmame.yaml` | CREATE — migrado de PATHWAY_SEEDS[2] |
+| 3 | `_work/alerts/pathways/nutricao.yaml` | CREATE — migrado de PATHWAY_SEEDS[3] |
 
-### Agent S2: F-INT-006 — Concurrent health checks
-- File: `src/intensicare/api/v1/health.py`
-- Run DB, Redis, Athena checks concurrently via `asyncio.gather()`
+### Verificação Wave 1
+```bash
+python scripts/validate_alerts.py --gate A --defs _work/alerts/pathways/
+python scripts/validate_alerts.py --gate B --defs _work/alerts/pathways/
+pytest tests/test_trilhas_compiler.py -v
+```
 
-### Agent S4: npm audit fix
-- Dir: `frontend-v2/`
-- Run `npm audit fix` for LOW vulns
+## Wave 2 — M3: Evaluator + Engine (depende de Wave 1)
 
-## Wave 2 — Depends on Wave 1
+### Agent M3: Evaluator + Engine (3-4 arquivos)
+| # | File | Action |
+|---|------|--------|
+| 1 | `trilhas_evaluator.py` | CREATE — Stateless evaluator |
+| 2 | `trilhas_engine.py` | CREATE — NOVO TrilhasEngine (substitui domain_trilhas_engine.py) |
+| 3 | `test_trilhas_evaluator.py` | CREATE — testes do evaluator |
 
-### Agent T1: Trilhas Engine Milestone 1 — Schema + CI Gates
-- Files: schema, validate_alerts.py, CI workflow, pyproject.toml, test
+### Verificação Wave 2
+```bash
+python scripts/validate_alerts.py --gate C --defs _work/alerts/pathways/
+pytest tests/test_trilhas_evaluator.py -v
+```
 
-## Validation Gates
-- GATE-SEC: security-manager after S1
-- GATE-PROD: production-validator after all waves
-- pytest: all affected test files
+## Wave 3 — M4: API Adapter + Cleanup (depende de Wave 2)
+
+### Agent M4: Adapter + Cleanup (4-5 arquivos)
+| # | File | Action |
+|---|------|--------|
+| 1 | `pathways.py` | MODIFY — adapter para novo engine |
+| 2 | `trilhas_state.py` | MODIFY — isolar como deprecated |
+| 3 | `domain_trilhas_engine.py` | MODIFY — thin wrapper |
+| 4 | `test_domain_trilhas_engine.py` | MODIFY — atualizar contrato |
+| 5 | `docs/adr/0020-trilhas-engine-architecture.md` | MODIFY — status "implemented" |
+
+### Verificação Wave 3
+```bash
+pytest tests/test_domain_trilhas_engine.py -v
+pytest tests/ -k "pathway" -v
+```
+
+## Gates Finais
+- GATE-SEC: security scan
+- GATE-PROD: production readiness
