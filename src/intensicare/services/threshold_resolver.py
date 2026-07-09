@@ -13,6 +13,18 @@ from intensicare.models.audit_trail import AuditTrail
 from intensicare.models.threshold_config import ThresholdConfig
 
 
+# ---------------------------------------------------------------------------
+# Clinical guideline sources per score_type
+# ---------------------------------------------------------------------------
+
+GUIDELINE_SOURCES: dict[str, str] = {
+    "SOFA": "Vincent JL et al. Intensive Care Med 1996;22(7):707-10",
+    "NEWS2": "RCP. National Early Warning Score (NEWS) 2. 2017",
+    "MEWS": "Subbe CP et al. QJM 2001;94(10):521-6",
+    "qSOFA": "Singer M et al. JAMA 2016;315(8):801-10",
+}
+
+
 async def resolve_threshold(
     db: AsyncSession,
     tenant_id: str,

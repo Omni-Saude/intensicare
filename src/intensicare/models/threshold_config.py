@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
@@ -33,5 +33,8 @@ class ThresholdConfig(Base):
     critical_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
     rate_limit_per_hour: Mapped[int | None] = mapped_column(Integer)
     cooldown_minutes: Mapped[int | None] = mapped_column(Integer)
+    guideline_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    evidence_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_by: Mapped[str | None] = mapped_column(String(255))

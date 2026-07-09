@@ -440,42 +440,56 @@ DRUG_ALLERGY_GROUPS: dict[str, list[str]] = {
 # GFR thresholds in mL/min
 RENAL_ADJUSTMENTS: dict[str, Any] = {
     "meropenem": {
+        "gfr_normal": 1.0,   # GFR 90-119: normal renal function
+        "gfr_arc": 1.0,      # GFR >=120: ARC — standard dose (no increase)
         "gfr_50_90": 1.0,    # full dose
         "gfr_26_50": 1.0,    # full dose
         "gfr_10_25": 0.5,    # 50% dose
         "gfr_below_10": 0.25,  # 25% dose
     },
     "vancomicina": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.2,      # ARC: higher doses may be needed
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.5,
         "gfr_10_25": 0.25,
         "gfr_below_10": 0.15,
     },
     "piperacilina_tazobactam": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.2,      # ARC: higher doses may be needed
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.75,
         "gfr_10_25": 0.5,
         "gfr_below_10": 0.33,
     },
     "morfina": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.0,
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.75,
         "gfr_10_25": 0.5,
         "gfr_below_10": 0.5,
     },
     "insulina_regular": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.0,
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.75,
         "gfr_10_25": 0.5,
         "gfr_below_10": 0.25,
     },
     "enoxaparina": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.0,
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.75,
         "gfr_10_25": 0.5,
         "gfr_below_10": 0.5,
     },
     "cloreto_de_potassio": {
+        "gfr_normal": 1.0,
+        "gfr_arc": 1.0,
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.5,
         "gfr_10_25": 0.25,
@@ -960,7 +974,7 @@ def _validate_dose(
         return True, warnings
 
     # R27: Convert dose to mg equivalent for comparison
-    dose_mg = _to_mg(dose, unit)
+    dose_mg = _to_mg(dose, unit, weight_kg=weight_kg)
 
     # R28: Max single dose check
     max_single = safety.get("max_single_mg")
@@ -1057,25 +1071,119 @@ def _validate_dose(
     return valid, warnings
 
 
-def _to_mg(dose: float, unit: str) -> float:
-    """Convert dose to mg equivalent for comparison."""
+def _mass_to_mg(dose: float, unit: str) -> float:
+    """Convert a mass or volume dose to mg equivalent for comparison.
+
+    Handles mass/volume units only (mg, g, mcg, ng, mL, L, UI, mEq, mmol).
+    For rate or weight-based units, use ``_rate_to_mg()`` instead.
+
+    Parameters
+    ----------
+    dose:
+        The numeric dose value.
+    unit:
+        Unit string (e.g. "mg", "g", "mcg", "mL").
+
+    Returns
+    -------
+    float
+        Dose expressed in mg equivalent.
+    """
     conversion: dict[str, float] = {
         "mg": 1.0,
         "g": 1000.0,
         "mcg": 0.001,
         "ng": 1e-6,
-        "mL": 1.0,  # context-dependent, assume 1mg/mL
+        "mL": 1.0,   # context-dependent, assume 1 mg/mL
         "L": 1000.0,
-        "UI": 1.0,  # can't directly convert
-        "mEq": 1.0,
-        "mmol": 1.0,
-        "mg/kg": 1.0,
-        "mcg/kg": 0.001,
-        "mcg/kg/min": 0.001,
-        "mg/h": 1.0,
-        "mL/h": 1.0,
+        "UI": 1.0,   # cannot directly convert to mg
+        "mEq": 1.0,  # context-dependent
+        "mmol": 1.0,  # context-dependent
     }
     return dose * conversion.get(unit, 1.0)
+
+
+def _rate_to_mg(
+    rate: float,
+    unit: str,
+    weight_kg: float | None = None,
+    duration_h: float = 1.0,
+) -> float:
+    """Convert a rate or weight-based dose to total mg equivalent.
+
+    Unlike ``_mass_to_mg()``, this function correctly incorporates patient
+    weight and infusion duration for clinically meaningful dose comparisons.
+
+    Parameters
+    ----------
+    rate:
+        The numeric rate (or weight-adjusted dose) value.
+    unit:
+        Unit string — must be a rate or weight-based unit:
+        ``mg/kg``, ``mcg/kg``, ``mcg/kg/min``, ``mg/h``, ``mL/h``.
+    weight_kg:
+        Patient weight in kg. Required for ``mg/kg``, ``mcg/kg``,
+        and ``mcg/kg/min``.
+    duration_h:
+        Duration in hours for the administration (default 1.0).
+
+    Returns
+    -------
+    float
+        Total mg equivalent over the given duration.
+
+    Raises
+    ------
+    ValueError
+        If ``weight_kg`` is missing for weight-dependent units.
+    """
+    known_rate_units = {"mg/kg", "mcg/kg", "mcg/kg/min", "mg/h", "mL/h"}
+
+    if unit not in known_rate_units:
+        # Not a rate unit — fall back to mass conversion
+        return _mass_to_mg(rate, unit)
+
+    # Weight-based units require weight
+    weight_dependent = {"mg/kg", "mcg/kg", "mcg/kg/min"}
+    if unit in weight_dependent and (weight_kg is None or weight_kg <= 0):
+        raise ValueError(
+            f"Unit '{unit}' requires patient weight_kg (got {weight_kg!r}). "
+            "Cannot compute clinically meaningful mg equivalent without weight."
+        )
+
+    if unit == "mg/kg":
+        return rate * weight_kg  # type: ignore[operator]
+    elif unit == "mcg/kg":
+        return rate * weight_kg * 0.001  # type: ignore[operator]
+    elif unit == "mcg/kg/min":
+        return rate * weight_kg * duration_h * 60.0 * 0.001  # type: ignore[operator]
+    elif unit == "mg/h":
+        return rate * duration_h
+    elif unit == "mL/h":
+        # Assume 1 mg/mL concentration
+        return rate * duration_h
+
+    # Should not reach here; fallback
+    return rate
+
+
+def _to_mg(
+    dose: float,
+    unit: str,
+    weight_kg: float | None = None,
+    duration_h: float = 1.0,
+) -> float:
+    """Convert dose to mg equivalent, delegating to the correct converter.
+
+    Dispatches to :func:`_rate_to_mg` for rate/weight-based units
+    (mg/kg, mcg/kg, mcg/kg/min, mg/h, mL/h) and to :func:`_mass_to_mg`
+    for mass/volume units.
+    """
+    rate_units = {"mg/kg", "mcg/kg", "mcg/kg/min", "mg/h", "mL/h"}
+
+    if unit in rate_units:
+        return _rate_to_mg(dose, unit, weight_kg=weight_kg, duration_h=duration_h)
+    return _mass_to_mg(dose, unit)
 
 
 def _estimate_daily_doses(frequency: str) -> int:
@@ -1212,8 +1320,10 @@ def _calculate_dose_renal_adjusted(gfr: float, drug: str, base_dose: float) -> f
     if not adjustments:
         return base_dose
 
-    if gfr >= 90:
-        factor = adjustments.get("gfr_50_90", 1.0)
+    if gfr >= 120:
+        factor = adjustments.get("gfr_arc", adjustments.get("gfr_normal", 1.0))
+    elif gfr >= 90:
+        factor = adjustments.get("gfr_normal", 1.0)
     elif gfr >= 50:
         factor = adjustments.get("gfr_50_90", 1.0)
     elif gfr >= 26:
