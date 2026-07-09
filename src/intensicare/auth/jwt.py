@@ -48,6 +48,26 @@ async def is_token_blacklisted(token: str, redis_client: aioredis.Redis) -> bool
     return bool(await redis_client.exists(f"blacklist:{token_hash}") > 0)
 
 
+async def blacklist_token(token: str, redis_client: aioredis.Redis) -> None:
+    """Blacklist a token by storing its JTI in Redis with remaining TTL.
+
+    Extracts the JTI and exp claims from the token without verification,
+    then stores a blacklist entry in Redis that expires when the token
+    would have naturally expired.
+    """
+    claims: dict[str, Any] = jwt.get_unverified_claims(token)
+    jti: str = claims.get("jti", "")
+    exp: float | None = claims.get("exp")
+    if not jti:
+        return
+    now = datetime.now(timezone.utc).timestamp()
+    if exp and exp > now:
+        ttl = int(exp - now)
+    else:
+        ttl = 3600  # Default 1 hour for tokens without a valid exp
+    await redis_client.setex(f"blacklist:{jti}", ttl, "1")
+
+
 def verify_token(token: str) -> dict[str, Any] | None:
     """Verify a JWT token (alias for decode_token)."""
     return decode_token(token)

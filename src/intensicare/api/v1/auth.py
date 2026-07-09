@@ -3,14 +3,15 @@
 from datetime import datetime, timezone
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user, require_admin
-from intensicare.auth.jwt import create_access_token, create_refresh_token
+from intensicare.auth.jwt import blacklist_token, create_access_token, create_refresh_token
 from intensicare.core.database import get_db
+from intensicare.core.redis import get_redis
 from intensicare.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -70,10 +71,23 @@ def hash_password(password: str) -> str:
 
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    # --- Account lockout check (F-SEC-009) ---
+    redis_client = get_redis()
+    lockout_key = f"lockout:failed:{request.username}"
+    failed_attempts = await redis_client.get(lockout_key)
+    if failed_attempts and int(failed_attempts) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account temporarily locked due to too many failed attempts. Please try again in 15 minutes.",
+        )
+
     result = await db.execute(select(User).where(User.username == request.username))
     user = result.scalar_one_or_none()
 
     if user is None or not verify_password(request.password, user.hashed_password):
+        # Increment failed count with 15-minute expiry
+        await redis_client.incr(lockout_key)
+        await redis_client.expire(lockout_key, 900)  # 15 minutes
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
@@ -82,6 +96,9 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is deactivated"
         )
+
+    # Successful login — reset failed attempt counter
+    await redis_client.delete(lockout_key)
 
     token_data = {"sub": user.username, "user_id": user.id}
     return TokenResponse(
@@ -121,6 +138,13 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     current_user: User = Depends(get_current_user),  # noqa: ARG001  # auth enforced via dependency; identity unused
 ) -> dict[str, str]:
+    """Log out by blacklisting the current access token in Redis."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        redis_client = get_redis()
+        await blacklist_token(token, redis_client)
     return {"detail": "Logged out successfully"}

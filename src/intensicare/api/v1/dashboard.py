@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
+from intensicare.models.user import User
 from intensicare.schemas.dashboard import DashboardResponse, PatientDetailResponse
 from intensicare.services.dashboard import get_dashboard, get_patient_detail
 
@@ -21,6 +23,7 @@ router = APIRouter(prefix="/api/v1", tags=["dashboard"])
 async def dashboard(
     unit: str | None = Query(None, description="Filter by unit"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DashboardResponse:
     """Get the clinical dashboard bed grid data."""
     try:
@@ -43,6 +46,7 @@ async def dashboard(
 async def patient_detail(
     mpi_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> PatientDetailResponse:
     """Get detailed patient information for the detail view."""
     result = await get_patient_detail(db=db, mpi_id=mpi_id)

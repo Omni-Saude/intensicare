@@ -9,8 +9,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
 from intensicare.core.websocket import get_websocket_manager
+from intensicare.models.user import User
 from intensicare.schemas.vitals import VitalSignCreate, VitalSignResponse
 from intensicare.services.vitals import ingest_vitals
 
@@ -38,6 +40,7 @@ async def create_vitals(
     request: Request,  # noqa: ARG001  # injected for request context/tracing; not referenced directly
     response: Response,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     x_idempotency_key: str | None = Header(
         None,
         alias="X-Idempotency-Key",
