@@ -336,7 +336,9 @@ class TrilhasEngine:
     def _find_repo_root() -> str:
         """Auto-detect the repository root directory."""
         this_file = Path(__file__).resolve()
-        candidate = this_file.parent.parent.parent  # src/intensicare/services → repo root
+        # trilhas_engine.py is at <repo>/src/intensicare/services/
+        # → 4 levels up from the file = repo root
+        candidate = this_file.parent.parent.parent.parent
         for marker in (".git", "pyproject.toml", "setup.py", "setup.cfg"):
             if (candidate / marker).exists():
                 return str(candidate)

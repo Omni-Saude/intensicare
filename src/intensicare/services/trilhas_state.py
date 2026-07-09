@@ -4,6 +4,15 @@ Extracted from domain_trilhas_engine.py as part of F-CODE-013 component refactor
 
 Removes mutable global state — converted to factory functions.
 
+.. deprecated:: M4 (2026-07-09)
+    This module is **deprecated** in favor of the new stateless
+    :class:`intensicare.services.trilhas_engine.TrilhasEngine` (YAML-based,
+    declarative rule engine per ADR-0020).
+
+    The PathwayStore state machine is still used by enrollment, criteria
+    update, and progress endpoints — but all read endpoints now use the new
+    engine.  New code should use TrilhasEngine instead of PathwayStore.
+
 Contains:
 - PatientPathwayDict: typed enrollment record
 - PathwayStore: encapsulated in-memory store (factory via create_pathway_store)
@@ -14,12 +23,24 @@ Contains:
 from __future__ import annotations
 
 import logging
+import warnings
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from intensicare.services.trilhas_definitions import _PATHWAY_BY_ID, _ensure_lookups
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Deprecation warning (M4: 2026-07-09)
+# ---------------------------------------------------------------------------
+warnings.warn(
+    "trilhas_state.PathwayStore is deprecated. "
+    "Use TrilhasEngine (intensicare.services.trilhas_engine) for new code. "
+    "See ADR-0020 for migration plan.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 # ============================================================================
@@ -62,6 +83,12 @@ class PathwayStore:
     """
 
     def __init__(self) -> None:
+        warnings.warn(
+            "PathwayStore is deprecated. Use TrilhasEngine instead. "
+            "See ADR-0020.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # {mpi_id: {pathway_id: PatientPathwayDict}}
         self._patient_pathway_store: dict[str, dict[int, PatientPathwayDict]] = {}
         # {patient_pathway_id: list[transition dicts]}

@@ -696,3 +696,153 @@ class TestPathwayProgress:
         progress = get_pathway_progress("MPI-WRONG", patient_pathway_id=pp_id)
         assert progress.pathway_name == "Desconhecido"
         assert "não localizada" in progress.recommendation
+
+
+# =============================================================================
+# TrilhasEngine Integration (M4 — new stateless engine)
+# =============================================================================
+
+
+class TestTrilhasEngineIntegration:
+    """Tests for the new stateless TrilhasEngine (YAML-based).
+
+    Validates that the new engine:
+    - Loads YAML pathway definitions
+    - Provides get_pathways() / get_pathway() API
+    - Converts correctly to the flat dict format expected by the API
+    - Falls back gracefully when YAML dirs are missing
+    """
+
+    def test_engine_loads_pathways(self) -> None:
+        """TrilhasEngine loads at least 4 pathways from _work/alerts/pathways/."""
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+        pathways = engine.get_pathways()
+        assert len(pathways) >= 4, (
+            f"Expected at least 4 pathways loaded, got {len(pathways)}"
+        )
+        slugs = {p.slug for p in pathways}
+        assert slugs >= {"ventilacao", "sepse", "desmame", "nutricao"}
+
+    def test_engine_get_pathway_by_id(self) -> None:
+        """get_pathway returns correct PathwayDefinition for ID 1."""
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+        p = engine.get_pathway(1)
+        assert p is not None
+        assert p.name == "Ventilação Mecânica"
+        assert p.slug == "ventilacao"
+        assert len(p.states) >= 2
+        assert len(p.criteria) >= 2  # YAML-based: 2+ criteria
+
+    def test_engine_get_pathway_returns_none_for_invalid(self) -> None:
+        """get_pathway returns None for non-existent IDs."""
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+        assert engine.get_pathway(999) is None
+        assert engine.get_pathway(0) is None
+
+    def test_pathway_definition_to_flat_dict(self) -> None:
+        """_pathway_def_to_flat_dict produces a dict compatible with _to_pathway_schema."""
+        from intensicare.api.v1.pathways import _pathway_def_to_flat_dict
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+        pdef = engine.get_pathway(1)
+        assert pdef is not None
+
+        flat = _pathway_def_to_flat_dict(pdef)
+        assert isinstance(flat, dict)
+        assert flat["id"] == 1
+        assert flat["name"] == "Ventilação Mecânica"
+        assert flat["slug"] == "ventilacao"
+        assert flat["active"] is True
+        assert "states" in flat
+        assert "criteria" in flat
+        assert len(flat["states"]) >= 2
+        assert len(flat["criteria"]) >= 2  # YAML-based: 2+ criteria
+
+        # Verify flat criteria have expected fields
+        for c in flat["criteria"]:
+            assert "id" in c
+            assert "name" in c
+            assert "category" in c
+            assert "unit" in c  # extracted from predicate
+
+        # Verify flat states have expected fields
+        for s in flat["states"]:
+            assert "id" in s
+            assert "name" in s
+            assert "order" in s
+            assert "is_terminal" in s
+
+    def test_engine_patient_pathways_delegates_to_legacy(self) -> None:
+        """engine.get_patient_pathways delegates to legacy store and returns results."""
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+
+        # Enroll via legacy to prime the store
+        enroll_patient("MPI-ENG-001", pathway_id=1)
+
+        # Query via engine (should find the enrollment)
+        pathways = engine.get_patient_pathways("MPI-ENG-001")
+        assert len(pathways) == 1
+        assert pathways[0]["pathway_id"] == 1
+        assert pathways[0]["mpi_id"] == "MPI-ENG-001"
+
+    def test_engine_respects_patient_pathway_status(self) -> None:
+        """Completed pathways visible via engine.get_patient_pathways."""
+        from intensicare.services.trilhas_engine import TrilhasEngine
+
+        engine = TrilhasEngine()
+
+        pp_id = enroll_patient("MPI-ENG-002", pathway_id=4).patient_pathway_id
+        assert pp_id is not None
+
+        # Complete via legacy
+        updates = [
+            {"id": "crit-nut-triagem", "met": True, "value": 4},
+            {"id": "crit-nut-calorias", "met": True, "value": 85},
+            {"id": "crit-nut-proteinas", "met": True, "value": 1.4},
+            {"id": "crit-nut-residuo", "met": True, "value": 100},
+            {"id": "crit-nut-albumina", "met": True, "value": 3.2},
+            {"id": "crit-nut-diarreia", "met": True, "value": 0},
+        ]
+        evaluate_criteria("MPI-ENG-002", patient_pathway_id=pp_id, criteria_updates=updates)
+        evaluate_criteria("MPI-ENG-002", patient_pathway_id=pp_id, criteria_updates=[])
+        evaluate_criteria("MPI-ENG-002", patient_pathway_id=pp_id, criteria_updates=[])
+
+        pathways = engine.get_patient_pathways("MPI-ENG-002")
+        assert len(pathways) == 1
+        assert pathways[0]["status"] == "completed"
+
+    def test_domain_re_exports_engine(self) -> None:
+        """domain_trilhas_engine re-exports TrilhasEngine and PathwayDefinition."""
+        from intensicare.services.domain_trilhas_engine import (
+            PathwayDefinition,
+            TrilhasEngine,
+        )
+        # Just verify they import without error
+        assert TrilhasEngine is not None
+        assert PathwayDefinition is not None
+
+    def test_domain_re_exports_legacy(self) -> None:
+        """domain_trilhas_engine still re-exports legacy PathwayStore types."""
+        from intensicare.services.domain_trilhas_engine import (
+            PATHWAY_SEEDS,
+            PathwayStore,
+            PatientPathwayDict,
+            create_pathway_store,
+            get_pathway_by_id,
+            get_pathway_catalog,
+        )
+        assert PATHWAY_SEEDS is not None
+        assert PathwayStore is not None
+        assert PatientPathwayDict is not None
+        assert create_pathway_store is not None
+        assert get_pathway_by_id is not None
+        assert get_pathway_catalog is not None

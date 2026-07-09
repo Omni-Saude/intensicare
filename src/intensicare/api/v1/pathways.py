@@ -1,7 +1,14 @@
-"""Care Pathways API Router — 6 endpoints for Trilhas Engine."""
+"""Care Pathways API Router — 6 endpoints for Trilhas Engine.
+
+M4 (2026-07-09): Wired new stateless TrilhasEngine (YAML-based) for read
+endpoints (catalog, detail, patient listing). Legacy PathwayStore still
+used for enrollment, criteria update, and progress endpoints.
+"""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -21,13 +28,94 @@ from intensicare.schemas.pathways import (
 from intensicare.services.domain_trilhas_engine import (
     enroll_patient,
     evaluate_criteria,
-    get_pathway_by_id,
+    get_pathway_by_id as _legacy_get_pathway_by_id,
     get_pathway_catalog,
     get_patient_pathways,
     get_pathway_progress,
 )
+from intensicare.services.trilhas_engine import TrilhasEngine
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["pathways"])
+
+# ---------------------------------------------------------------------------
+# New stateless engine (primary for reads); falls back to legacy
+# ---------------------------------------------------------------------------
+_engine: TrilhasEngine | None = None
+
+def _get_engine() -> TrilhasEngine | None:
+    """Lazily initialize the TrilhasEngine. Returns None if YAML not found."""
+    global _engine
+    if _engine is None:
+        try:
+            # Resolve the repo root for YAML definitions (4 levels up from
+            # this file: pathways.py → v1 → api → intensicare → src → repo)
+            repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+            yaml_dir = str(repo_root / "_work" / "alerts" / "pathways")
+            _engine = TrilhasEngine(definitions_path=yaml_dir)
+            if not _engine.get_pathways():
+                logger.warning("TrilhasEngine loaded 0 pathways; will fall back to legacy catalog")
+        except Exception as exc:
+            logger.warning("TrilhasEngine init failed (%s); using legacy catalog", exc)
+            _engine = None
+    return _engine
+
+def _pathway_def_to_flat_dict(pdef) -> dict:
+    """Convert a PathwayDefinition (YAML-based) to the flat dict format
+    expected by _to_pathway_schema.
+
+    The YAML format nests id/name/slug under ``pathway``, whereas the legacy
+    PATHWAY_SEEDS format is flat.  This helper bridges the two.
+    """
+    raw = pdef.to_raw() if hasattr(pdef, "to_raw") else pdef
+
+    # Top-level keys from raw YAML
+    pathway_meta = raw.get("pathway", {}) if isinstance(raw, dict) else {}
+    flat_id = pathway_meta.get("id", getattr(pdef, "id", 0))
+    flat_name = pathway_meta.get("name", getattr(pdef, "name", ""))
+    flat_slug = pathway_meta.get("slug", getattr(pdef, "slug", ""))
+    flat_desc = pathway_meta.get("description", getattr(pdef, "description", ""))
+    flat_active = pathway_meta.get("active", getattr(pdef, "active", True))
+    flat_version = pathway_meta.get("version", getattr(pdef, "version", ""))
+
+    # Flatten criteria: YAML nests unit inside predicate
+    raw_criteria: list[dict] = raw.get("criteria", []) if isinstance(raw, dict) else []
+    flat_criteria: list[dict] = []
+    for c in raw_criteria:
+        pred = c.get("predicate", {})
+        flat_criteria.append({
+            "id": c.get("id", ""),
+            "name": c.get("name", ""),
+            "category": c.get("category", ""),
+            "description": c.get("description", pred.get("rationale", "")),
+            "unit": pred.get("unit"),
+            "normal_range": c.get("normal_range"),
+            "alert_threshold": c.get("alert_threshold"),
+        })
+
+    # Flatten states: YAML states have id/name/order/is_terminal
+    raw_states: list[dict] = raw.get("states", []) if isinstance(raw, dict) else []
+    flat_states: list[dict] = []
+    for s in raw_states:
+        flat_states.append({
+            "id": s.get("id", ""),
+            "name": s.get("name", ""),
+            "order": s.get("order", 0),
+            "description": s.get("description", ""),
+            "is_terminal": s.get("is_terminal", False),
+        })
+
+    return {
+        "id": flat_id,
+        "name": flat_name,
+        "description": flat_desc,
+        "slug": flat_slug,
+        "active": flat_active,
+        "version": flat_version,
+        "states": flat_states,
+        "criteria": flat_criteria,
+    }
 
 
 # ===========================================================================
@@ -82,7 +170,7 @@ def _merge_criteria(
 
 def _to_patient_pathway_schema(pp: dict) -> PatientPathwaySchema:
     """Convert a patient pathway dict from the domain service to a schema."""
-    pathway = get_pathway_by_id(pp["pathway_id"])
+    pathway = _legacy_get_pathway_by_id(pp["pathway_id"])
     if pathway is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -163,9 +251,21 @@ async def list_pathways(
     Retorna o catálogo de pathways clínicos configurados no sistema.
     Cada pathway define um conjunto de critérios e estados que guiam
     o acompanhamento do paciente.
+
+    M4: Primary source is the new YAML-based TrilhasEngine.
+    Falls back to legacy PATHWAY_SEEDS if the engine is unavailable.
     """
-    catalog = get_pathway_catalog(active_only=active_only)
-    items = [_to_pathway_schema(p) for p in catalog]
+    engine = _get_engine()
+    if engine is not None and engine.get_pathways():
+        # Use new engine (YAML-driven)
+        all_defs = engine.get_pathways()
+        if active_only:
+            all_defs = [p for p in all_defs if p.active]
+        items = [_to_pathway_schema(_pathway_def_to_flat_dict(p)) for p in all_defs]
+    else:
+        # Fallback to legacy catalog
+        catalog = get_pathway_catalog(active_only=active_only)
+        items = [_to_pathway_schema(p) for p in catalog]
     return PathwayListResponse(items=items, total=len(items))
 
 
@@ -182,8 +282,18 @@ async def get_pathway(
 
     Retorna o pathway completo incluindo a definição de estados
     possíveis e os critérios de avaliação associados.
+
+    M4: Uses new TrilhasEngine with legacy fallback.
     """
-    pathway = get_pathway_by_id(pathway_id)
+    engine = _get_engine()
+    pathway: dict | None = None
+    if engine is not None:
+        pdef = engine.get_pathway(pathway_id)
+        if pdef is not None:
+            pathway = _pathway_def_to_flat_dict(pdef)
+    if pathway is None:
+        # Fallback to legacy
+        pathway = _legacy_get_pathway_by_id(pathway_id)
     if pathway is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -211,8 +321,17 @@ async def list_patient_pathways(
 
     Retorna todos os pathways do paciente incluindo estado atual
     e último progresso registrado.
+
+    M4: Uses TrilhasEngine.get_patient_pathways (delegates to legacy store).
     """
-    all_pathways = get_patient_pathways(mpi_id, status_filter=status_filter)
+    engine = _get_engine()
+    if engine is not None:
+        all_pathways = engine.get_patient_pathways(mpi_id)
+        # Apply status filter (engine returns all by default)
+        if status_filter != "all":
+            all_pathways = [p for p in all_pathways if p.get("status") == status_filter]
+    else:
+        all_pathways = get_patient_pathways(mpi_id, status_filter=status_filter)
     total = len(all_pathways)
     paginated = all_pathways[offset : offset + limit]
     items = [_to_patient_pathway_schema(pp) for pp in paginated]
@@ -387,7 +506,7 @@ def _resolve_current_state(
     """Look up state definition from the pathway the patient is enrolled in."""
     enrollment = _find_enrollment(mpi_id, patient_pathway_id)
     if enrollment:
-        pathway = get_pathway_by_id(enrollment["pathway_id"])
+        pathway = _legacy_get_pathway_by_id(enrollment["pathway_id"])
         if pathway:
             for s in pathway.get("states", []):
                 if s["id"] == current_state_id:
@@ -408,7 +527,7 @@ def _resolve_progress_criteria(
     enrollment = _find_enrollment(mpi_id, patient_pathway_id)
     criteria_defs: list[dict] = []
     if enrollment:
-        pathway = get_pathway_by_id(enrollment["pathway_id"])
+        pathway = _legacy_get_pathway_by_id(enrollment["pathway_id"])
         if pathway:
             criteria_defs = pathway.get("criteria", [])
 

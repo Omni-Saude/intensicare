@@ -1,6 +1,15 @@
 # 0020. trilhas-engine architecture: state machine vs declarative rule engine
 
-Status: proposed
+**Status: IMPLEMENTED** (2026-07-09)
+
+Delivered across 4 milestones:
+
+- **M1: Schema + CI Gates** — ``pathway.schema.json``, Gates A/B/C in ``validate_alerts.py``
+- **M2: PredicateCompiler + YAML migration** — 4 pathway YAML definitions under ``_work/alerts/pathways/`` (ventilacao, sepse, desmame, nutricao)
+- **M3: Stateless TrilhasEngine + Evaluator** — ``trilhas_engine.py``, ``trilhas_evaluator.py``, ``trilhas_compiler.py``
+- **M4: API adapter + legacy deprecation** — ``pathways.py`` wired to new engine, ``trilhas_state.py`` deprecated, ``domain_trilhas_engine.py`` re-exports both
+
+---
 Date: 2026-07-07
 Depends on: ADR-001 (AMH Data Platform consumer), ADR 0017 (realtime consolidation)
 Audit source: trilhas-engine cluster — 18 legacy rules extracted, catalogued, and dispositioned (2026-07-03)

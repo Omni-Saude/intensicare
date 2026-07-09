@@ -7,6 +7,15 @@ Implements 18 clinical business rules across 4 pathway catalogs:
   - Desmame (desmame)
   - Nutrição Enteral (nutricao)
 
+.. note:: M4 (2026-07-09)
+
+    This module now re-exports the new stateless :class:`TrilhasEngine`
+    and :class:`PathwayDefinition` from ``trilhas_engine.py`` alongside
+    the legacy PathwayStore types for backward compatibility.
+
+    The legacy PathwayStore state machine is **deprecated** — new code
+    should use TrilhasEngine directly.  See ADR-0020 for the migration plan.
+
 Architecture:
   - In-memory patient enrollment store (bridge to DB later via API router)
   - Dataclass return types matching OpenAPI contract (docs/contracts/pathways-openapi.yaml)
@@ -42,14 +51,20 @@ __version__ = "3.0.0"
 from dataclasses import dataclass, field
 from typing import Any
 
-# Import definitions (PATHWAY_SEEDS, catalog functions)
+# ── Re-exports from new stateless engine (M4) ───────────────────────────
+from intensicare.services.trilhas_engine import (  # noqa: F401
+    PathwayDefinition,
+    TrilhasEngine,
+)
+
+# ── Import definitions (PATHWAY_SEEDS, catalog functions) ──────────────
 from intensicare.services.trilhas_definitions import (  # noqa: F401
     PATHWAY_SEEDS,
     get_pathway_by_id,
     get_pathway_catalog,
 )
 
-# Import state management (PathwayStore, factory, transition functions)
+# ── Import state management (PathwayStore, factory, transition functions) ──
 from intensicare.services.trilhas_state import (  # noqa: F401
     PatientPathwayDict,
     PathwayStore,
@@ -394,4 +409,7 @@ __all__ = [
     "evaluate_criteria",
     "get_patient_pathways",
     "get_pathway_progress",
+    # New engine (M4)
+    "TrilhasEngine",
+    "PathwayDefinition",
 ]
