@@ -84,6 +84,9 @@ class Prescricao(Base):
     agenda: Mapped[list["AgendaPrescricao"]] = relationship(
         back_populates="prescricao", cascade="all, delete-orphan"
     )
+    state_logs: Mapped[list["PrescriptionStateLog"]] = relationship(
+        back_populates="prescricao", cascade="all, delete-orphan"
+    )
 
 
 class InteracaoAlerta(Base):
@@ -201,3 +204,47 @@ class AgendaPrescricao(Base):
 
     # Relationships
     prescricao: Mapped["Prescricao"] = relationship(back_populates="agenda")
+
+
+class PrescriptionStateLog(Base):
+    """Append-only audit log for prescription state transitions.
+
+    Records every state change with who performed it, when, and why.
+    Never updated or deleted — strictly append-only per INV-1 requirements.
+    Tracks the state machine version active at the time of transition.
+    """
+
+    __tablename__ = "prescription_state_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    prescription_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("prescricoes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    from_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, comment="Previous state before transition"
+    )
+    to_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, comment="New state after transition"
+    )
+    transitioned_by: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="Clinician or system that performed the transition"
+    )
+    transition_reason: Mapped[str | None] = mapped_column(
+        String(1024), nullable=True, comment="Clinical justification for the transition"
+    )
+    state_machine_version: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="1.0.0",
+        comment="Version of the state machine active at transition time",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    prescricao: Mapped["Prescricao"] = relationship(back_populates="state_logs")

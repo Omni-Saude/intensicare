@@ -23,10 +23,13 @@ from intensicare.schemas.prescricao import (
     PrescriptionUpdate,
 )
 from intensicare.services.domain_prescricao import (
+    ConcurrencyError,
     InteractionAlert,
     PrescriptionRecord,
+    PrescriptionStateMachine,
     create_prescription,
     get_prescription,
+    get_state_machine,
     list_prescriptions,
     update_prescription,
 )
@@ -273,6 +276,11 @@ async def update_single_prescription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prescription {prescription_id} not found",
         )
+    except ConcurrencyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -280,3 +288,24 @@ async def update_single_prescription(
         )
 
     return _to_prescription_response(rx)
+
+
+# ---------------------------------------------------------------------------
+# GET /prescriptions/state-machine — State machine definition
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/prescriptions/state-machine",
+    response_model=dict,
+)
+async def get_state_machine_definition(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the prescription state machine definition (ADR-027).
+
+    Exposes all valid states, allowed transitions, required clinical
+    justifications, and terminal states for the prescription lifecycle.
+    """
+    sm = get_state_machine()
+    return sm.to_dict()

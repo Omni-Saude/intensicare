@@ -27,6 +27,7 @@ from intensicare.models.prescricao import (
     AuditoriaPrescricao,
     InteracaoAlerta,
     Prescricao,
+    PrescriptionStateLog,
 )
 from intensicare.models.prophylaxis import ProphylaxisAssessment
 from intensicare.models.ratification_event import RatificationEvent
@@ -69,6 +70,7 @@ __all__ = [
     "PatientMovement",
     "PatientPathway",
     "Prescricao",
+    "PrescriptionStateLog",
     "ProphylaxisAssessment",
     "RatificationEvent",
     "SedationAssessment",
