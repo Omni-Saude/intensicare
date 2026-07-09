@@ -15,6 +15,8 @@ use mcg/kg/min; mL/h is EDGE-ONLY and must pass through conversion service.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from dataclasses import dataclass, field
 from typing import Any
 

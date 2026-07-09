@@ -22,6 +22,8 @@ Design decisions ratified 2026-07-04:
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone

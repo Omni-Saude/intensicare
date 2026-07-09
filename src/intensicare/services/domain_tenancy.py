@@ -18,6 +18,8 @@ Provenance: ahlabs-trilhas @ 8166c07eaef97ad4f9b2a0e51235f3fc3d0feb7f.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from datetime import datetime, timezone
 from math import floor
 

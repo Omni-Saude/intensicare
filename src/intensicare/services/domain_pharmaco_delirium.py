@@ -12,6 +12,8 @@ Design:
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 import pathlib
 from typing import Any
 

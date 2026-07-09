@@ -25,6 +25,8 @@ CAM-ICU Algorithm (per Ely et al., 2001; PADIS 2018):
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

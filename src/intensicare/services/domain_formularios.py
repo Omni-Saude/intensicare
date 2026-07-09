@@ -8,7 +8,10 @@ Implements the full clinical forms API:
 SOFA: 0-24 (6 organ systems), RASS: -5 to +4, CAM-ICU: binary,
 Glasgow: 3-15, BPS: 3-12, NRS: 0-10.
 """
+
 from __future__ import annotations
+
+__version__ = "3.0.0"
 
 import math
 from dataclasses import dataclass, field

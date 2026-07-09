@@ -19,6 +19,8 @@ consistent with the drafter recommendation to fix the bug rather than port it.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from collections.abc import Callable
 from itertools import groupby
 from typing import Any

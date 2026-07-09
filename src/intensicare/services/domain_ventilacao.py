@@ -6,7 +6,10 @@ Provides:
   - compute_ventilation_trend: 24h trend with min/max/avg/direction/change_pct
   - evaluate_ventilation: unified entry point (current params + trend)
 """
+
 from __future__ import annotations
+
+__version__ = "3.0.0"
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone

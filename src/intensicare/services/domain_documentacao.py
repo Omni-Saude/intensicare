@@ -1,5 +1,8 @@
 """Documentation/Billing domain service — Glosa Zero engine, 16 criteria."""
+
 from __future__ import annotations
+
+__version__ = "3.0.0"
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

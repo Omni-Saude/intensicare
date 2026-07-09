@@ -12,6 +12,8 @@ Boundary: Cr=1.5× inclusive (>=); UO <0.5 strict.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from dataclasses import dataclass, field
 from typing import Any
 

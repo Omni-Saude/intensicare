@@ -12,6 +12,8 @@ SpO2/FiO2 bands per Berlin Definition (ARDS Task Force, JAMA 2012).
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from dataclasses import dataclass, field
 from typing import Any
 

@@ -14,6 +14,8 @@ Status: complete (100%), partial (>0% <100%), pending (0%), na (all na).
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from dataclasses import dataclass, field
 from typing import Any
 

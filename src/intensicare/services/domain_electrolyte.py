@@ -10,6 +10,8 @@ never downgrades or auto-clears due to data staleness.
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from dataclasses import dataclass, field
 from typing import Any
 

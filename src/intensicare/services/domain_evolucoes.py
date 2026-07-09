@@ -1,5 +1,8 @@
 """Clinical Notes / Evolution domain service — SBAR templates, immutable notes, 14 role templates."""
+
 from __future__ import annotations
+
+__version__ = "3.0.0"
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

@@ -19,6 +19,8 @@ CLINICAL RATIFICATION: rat-piora-clinica-01 through rat-piora-clinica-13 (P0 RAT
 
 from __future__ import annotations
 
+__version__ = "3.0.0"
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
