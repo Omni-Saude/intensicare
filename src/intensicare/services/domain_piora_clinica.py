@@ -14,12 +14,26 @@ Scoring logic:
     3+: 3+ domains affected, improving trend
     3-: 3+ domains affected, worsening/no trend
 
+Dependencies:
+- intensicare.services.domain_respiratory (evaluate_all) — respiratory domain evaluation
+- intensicare.services.domain_hemo (evaluate_all) — hemodynamic domain evaluation
+- intensicare.services.domain_sepsis (SepsisDomainService) — sepsis domain evaluation
+
 CLINICAL RATIFICATION: rat-piora-clinica-01 through rat-piora-clinica-13 (P0 RATIFY).
 """
 
 from __future__ import annotations
 
 __version__ = "3.0.0"
+
+__all__ = [
+    "DeteriorationCriteriaResult",
+    "DeteriorationEvaluationResult",
+    "DOMAIN_CRITERIA",
+    "evaluate_deterioration",
+    "evaluate_deterioration_from_history",
+    "classify_deterioration",
+]
 
 from collections.abc import Callable
 from dataclasses import dataclass, field

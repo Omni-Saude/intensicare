@@ -1231,3 +1231,101 @@ def get_evolution_chain(evolution_id: int) -> list[EvolutionRecord]:
     # Reverse to chronological order (oldest first)
     chain.reverse()
     return chain
+
+
+def prefill_background(
+    mpi_id: str,
+    vitals: dict[str, Any] | None = None,
+    scores: dict[str, Any] | None = None,
+) -> str:
+    """Pre-populate the Background section with the patient's most recent vitals and scores.
+
+    Generates a formatted PT-BR clinical summary string suitable for insertion
+    into the 'Antecedentes' (Background) section of an SBAR evolution note.
+
+    Args:
+        mpi_id: Master Patient Index identifier.
+        vitals: Dict with most recent vital signs. Expected keys:
+            - heart_rate / frequencia_cardiaca (bpm)
+            - systolic_bp / pressao_arterial_sistolica (mmHg)
+            - diastolic_bp / pressao_arterial_diastolica (mmHg)
+            - spo2 / saturacao_o2 (%)
+            - respiratory_rate / frequencia_respiratoria (rpm)
+            - temperature / temperatura (°C)
+            - avpu (A/V/P/U)
+            - gcs / glasgow (3-15)
+        scores: Dict with most recent clinical scores. Expected keys:
+            - mews (int)
+            - news2 (int)
+            - sofia (int)
+            - qsofa (int)
+
+    Returns:
+        Formatted PT-BR string with vitals and scores summary.
+        Returns empty string if no data provided.
+    """
+    if not vitals and not scores:
+        return ""
+
+    lines: list[str] = []
+    lines.append("=== Sinais Vitais e Scores Recentes ===")
+
+    # ── Vital signs ────────────────────────────────────────────────────
+    if vitals:
+        lines.append("")
+        lines.append("**Sinais Vitais:**")
+
+        hr = vitals.get("heart_rate") or vitals.get("frequencia_cardiaca")
+        if hr is not None:
+            lines.append(f"- Frequência Cardíaca (FC): {hr} bpm")
+
+        sbp = vitals.get("systolic_bp") or vitals.get("pressao_arterial_sistolica")
+        dbp = vitals.get("diastolic_bp") or vitals.get("pressao_arterial_diastolica")
+        if sbp is not None or dbp is not None:
+            sbp_str = str(sbp) if sbp is not None else "?"
+            dbp_str = str(dbp) if dbp is not None else "?"
+            lines.append(f"- Pressão Arterial (PA): {sbp_str}/{dbp_str} mmHg")
+
+        spo2 = vitals.get("spo2") or vitals.get("saturacao_o2")
+        if spo2 is not None:
+            lines.append(f"- SpO₂: {spo2}%")
+
+        rr = vitals.get("respiratory_rate") or vitals.get("frequencia_respiratoria")
+        if rr is not None:
+            lines.append(f"- Frequência Respiratória (FR): {rr} rpm")
+
+        temp = vitals.get("temperature") or vitals.get("temperatura")
+        if temp is not None:
+            lines.append(f"- Temperatura: {temp}°C")
+
+        avpu = vitals.get("avpu")
+        if avpu is not None:
+            lines.append(f"- Nível de Consciência (AVPU): {avpu}")
+
+        gcs = vitals.get("gcs") or vitals.get("glasgow")
+        if gcs is not None:
+            lines.append(f"- Escala de Coma de Glasgow (GCS): {gcs}")
+
+    # ── Clinical scores ────────────────────────────────────────────────
+    if scores:
+        lines.append("")
+        lines.append("**Scores Clínicos:**")
+
+        mews = scores.get("mews")
+        if mews is not None:
+            lines.append(f"- MEWS: {mews}")
+
+        news2 = scores.get("news2")
+        if news2 is not None:
+            lines.append(f"- NEWS2: {news2}")
+
+        sofa = scores.get("sofa")
+        if sofa is not None:
+            lines.append(f"- SOFA: {sofa}")
+
+        qsofa = scores.get("qsofa")
+        if qsofa is not None:
+            lines.append(f"- qSOFA: {qsofa}")
+
+    lines.append("")
+    return "\n".join(lines)
