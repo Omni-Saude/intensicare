@@ -25,13 +25,21 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from intensicare.services.alert_compiler import (
     AlertCompiler,
     AlertDefinition,
     compile_alert_registry,
 )
+from intensicare.services.news2 import (
+    score_heart_rate,
+    score_respiratory_rate,
+    score_spo2,
+    score_systolic_bp,
+    score_temperature,
+)
+from intensicare.services.qsofa import calculate_qsofa
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +67,64 @@ SEPSIS_DEFINITION_VERSION: str = "3.0.0"
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
+
+
+class SepsisClinicalInputs(TypedDict, total=False):
+    """All 32 clinical input fields used by sepsis alert evaluation.
+
+    Fields are typed according to their clinical semantics.
+    total=False means all fields are optional — partial data is accepted.
+    """
+
+    # Vital signs
+    temperatura: float
+    frequencia_cardiaca: float
+    frequencia_respiratoria: float
+    pressao_arterial_sistolica: float
+    pressao_arterial_media: float
+    saturacao_o2: float
+    nivel_consciencia: str
+    glasgow: float
+
+    # Lab values
+    leucocitos: float
+    bastonetes: float
+    paco2_arterial: float
+    lactato_arterial: float
+    lactato_arterial_anterior: float
+    lactate_delta_hours: float
+    procalcitonina: float
+    procalcitonina_anterior: float
+    pico_pct: float
+
+    # Infection / treatment flags
+    cultura_positiva: bool
+    atb_iniciado_ultimas_24h: bool
+    suspeita_infeccao_documentada: bool
+    atb_ativa_horas: float
+
+    # qSOFA
+    qsofa: float
+
+    # Shock / hemodynamic
+    dose_vasopressor: float
+    fluid_bolus_given: bool
+
+    # Bundle compliance
+    protocol_active: bool
+    item_checked: bool
+    item_pacote: str
+    minutes_since_accept: float
+
+    # PCT de-escalation
+    patient_unstable: bool
+
+    # Pain scales
+    escala_dor_numerica: float
+    escala_dor_comportamental: float
+
+    # COPD flag
+    dpoc_diagnosticado: bool
 
 
 @dataclass
@@ -117,7 +183,7 @@ def _bool(v: Any) -> bool:
     return bool(v)
 
 
-def _infection_present(inputs: dict[str, Any]) -> bool:
+def _infection_present(inputs: SepsisClinicalInputs) -> bool:
     """Derive infection_present from infection evidence flags."""
     return (
         _bool(inputs.get("cultura_positiva"))
@@ -126,7 +192,7 @@ def _infection_present(inputs: dict[str, Any]) -> bool:
     )
 
 
-def _compute_sirs_count(inputs: dict[str, Any]) -> int:
+def _compute_sirs_count(inputs: SepsisClinicalInputs) -> int:
     """Compute SIRS count (0-4) from clinical inputs.
 
     Criteria:
@@ -167,13 +233,12 @@ def _compute_sirs_count(inputs: dict[str, Any]) -> int:
     return count
 
 
-def _compute_qsofa_points(inputs: dict[str, Any]) -> int:
+def _compute_qsofa_points(inputs: SepsisClinicalInputs) -> int:
     """Compute qSOFA points (0-3) from clinical inputs.
 
-    Criteria:
-    - RR >= 22/min = 1 point
-    - SBP <= 100 mmHg = 1 point
-    - GCS < 15 = 1 point
+    Delegates to the canonical ``calculate_qsofa()`` engine in qsofa.py.
+    Portuguese field names are mapped to the English names the canonical
+    engine expects via the adapter below.
 
     Note: if "qsofa" is directly provided as a pre-computed score, use it.
     """
@@ -182,18 +247,16 @@ def _compute_qsofa_points(inputs: dict[str, Any]) -> int:
     if qs is not None:
         return int(qs)
 
-    # Otherwise compute from raw vitals
-    points = 0
+    # Map Portuguese field names → canonical English field names
     rr = _num(inputs.get("frequencia_respiratoria"))
-    if rr is not None and rr >= 22:
-        points += 1
     sbp = _num(inputs.get("pressao_arterial_sistolica"))
-    if sbp is not None and sbp <= 100:
-        points += 1
     gcs = _num(inputs.get("glasgow"))
-    if gcs is not None and gcs < 15:
-        points += 1
-    return points
+    result = calculate_qsofa(
+        respiratory_rate=int(rr) if rr is not None else None,
+        systolic_bp=int(sbp) if sbp is not None else None,
+        gcs=int(gcs) if gcs is not None else None,
+    )
+    return result.total_score
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +264,7 @@ def _compute_qsofa_points(inputs: dict[str, Any]) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _eval_screen_01(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_screen_01(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-SCREEN-01: SSC-2021 qSOFA/SIRS screening with infection gate.
 
     SSC-2021 RATIFIED (RAT-SEPSE-01/02): infection_present AND
@@ -223,7 +286,7 @@ def _eval_screen_01(inputs: dict[str, Any]) -> tuple[bool, str]:
     return False, f"qSOFA={qsofa} < 2 and SIRS={sirs} < 2"
 
 
-def _eval_organ_02(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_organ_02(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-ORGAN-02 (v3.0.0): qSOFA >=2 + elevated/rising lactate.
 
     Logic: qsofa >= 2 AND (lactato_arterial > 2 OR delta_lactato > 0.5/h over 6h)
@@ -261,7 +324,7 @@ def _eval_organ_02(inputs: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _eval_shock_03(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_shock_03(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-SHOCK-03 (v3.0.0): Septic shock — lactate >=4 or refractory MAP<65.
 
     Logic: lactato_arterial >= 4
@@ -288,7 +351,7 @@ def _eval_shock_03(inputs: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _eval_bundle_overdue_04(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_bundle_overdue_04(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-BUNDLE-OVERDUE-04 (v3.0.0): Hour-1 bundle compliance timer.
 
     Logic: protocol_active AND NOT item_checked AND now > due_at
@@ -333,7 +396,7 @@ def _eval_bundle_overdue_04(inputs: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _eval_pct_rising_05(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_pct_rising_05(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-PCT-RISING-05 (v3.0.0): PCT rising — treatment failure.
 
     Logic: procalcitonina > procalcitonina_anterior
@@ -365,7 +428,7 @@ def _eval_pct_rising_05(inputs: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _eval_pct_deesc_06(inputs: dict[str, Any]) -> tuple[bool, str]:
+def _eval_pct_deesc_06(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     """ALERT-SEPSIS-PCT-DEESC-06 (v3.0.0): PCT-guided de-escalation.
 
     Logic: (PCT < 0.25 OR >80% drop from peak) AND ATB >= 48h AND NOT patient_unstable
@@ -461,7 +524,7 @@ class SepsisDomainService:
     def evaluate(
         self,
         patient_id: str,
-        inputs: dict[str, Any],
+        inputs: SepsisClinicalInputs,
         *,
         mode: str = "hybrid",
         alert_ids: list[str] | None = None,
@@ -497,7 +560,7 @@ class SepsisDomainService:
             try:
                 result = self._evaluate_single(alert_id, inputs)
                 results.append(result)
-            except Exception as exc:
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
                 errors.append(f"{alert_id}: {exc}")
                 results.append(SepsisAlertResult(
                     alert_id=alert_id,
@@ -520,19 +583,19 @@ class SepsisDomainService:
         )
 
     def evaluate_screening_only(
-        self, patient_id: str, inputs: dict[str, Any],
+        self, patient_id: str, inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """NRT screening evaluation — only SCREEN-01."""
         return self._evaluate_single("ALERT-SEPSIS-SCREEN-01", inputs)
 
     def evaluate_organ_only(
-        self, patient_id: str, inputs: dict[str, Any],
+        self, patient_id: str, inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Organ dysfunction evaluation — only ORGAN-02."""
         return self._evaluate_single("ALERT-SEPSIS-ORGAN-02", inputs)
 
     def evaluate_shock_only(
-        self, patient_id: str, inputs: dict[str, Any],
+        self, patient_id: str, inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Shock evaluation — only SHOCK-03."""
         return self._evaluate_single("ALERT-SEPSIS-SHOCK-03", inputs)
@@ -542,7 +605,7 @@ class SepsisDomainService:
     # ------------------------------------------------------------------
 
     def _evaluate_single(
-        self, alert_id: str, inputs: dict[str, Any],
+        self, alert_id: str, inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Evaluate a single alert definition against provided inputs.
 
@@ -579,7 +642,8 @@ class SepsisDomainService:
             )
 
         # Fallback to compiler evaluation
-        fired = self._compiler.evaluate_alert_definition(alert_id, inputs)
+        assert self._compiler is not None  # ensured by _ensure_loaded() above
+        fired = self._compiler.evaluate_alert_definition(alert_id, inputs)  # type: ignore[arg-type]
         reason = f"Fired: {ad.name}" if fired else "Not fired. Criteria not met."
         return SepsisAlertResult(
             alert_id=alert_id,
@@ -597,7 +661,7 @@ class SepsisDomainService:
 
 def evaluate_sepsis(
     patient_id: str,
-    inputs: dict[str, Any],
+    inputs: SepsisClinicalInputs,
     *,
     mode: str = "hybrid",
 ) -> SepsisEvaluationResult:
@@ -627,7 +691,7 @@ def evaluate_sepsis_nrt(
         inputs["glasgow"] = gcs
 
     service = SepsisDomainService()
-    result = service.evaluate(patient_id, inputs, mode="nrt")
+    result = service.evaluate(patient_id, inputs, mode="nrt")  # type: ignore[arg-type]
     for severity in ("critical", "urgent", "watch", "normal"):
         for ar in result.alerts:
             if ar.fired and ar.severity == severity:
@@ -646,7 +710,7 @@ def evaluate_sepsis_nrt(
 
 def evaluate_sepsis_micro_batch(
     patient_id: str,
-    inputs: dict[str, Any],
+    inputs: SepsisClinicalInputs,
 ) -> SepsisEvaluationResult:
     """Micro-batch lab confirmation — organ, bundle, PCT alerts."""
     service = SepsisDomainService()
@@ -666,70 +730,79 @@ def evaluate_sepsis_micro_batch(
 def _piora_score_respiratoria(fr: float | None) -> tuple[int, str]:
     """criterio_1: Frequência respiratória graded sub-score.
 
-    NEWS2 Scale: RR <= 8 = 3, 9-11 = 1, 12-20 = 0, 21-24 = 2, >= 25 = 3.
+    Delegates to canonical NEWS2 ``score_respiratory_rate``.
     Returns (score, label).
     """
     if fr is None:
         return (0, "sem dados")
-    if fr <= 8:
-        return (3, "bradipneia grave")
-    if fr <= 11:
-        return (1, "bradipneia leve")
-    if fr <= 20:
-        return (0, "normal")
-    if fr <= 24:
-        return (2, "taquipneia moderada")
-    return (3, "taquipneia grave")
+    score = score_respiratory_rate(int(fr))
+    if score == 3:
+        label = "bradipneia grave" if fr <= 8 else "taquipneia grave"
+    elif score == 2:
+        label = "taquipneia moderada"
+    elif score == 1:
+        label = "bradipneia leve"
+    else:
+        label = "normal"
+    return (score, label)
 
 
 def _piora_score_temperatura(t: float | None) -> tuple[int, str]:
-    """criterio_2: Temperatura axilar sub-score (ADOPT-CORRECTED P2)."""
+    """criterio_2: Temperatura axilar sub-score.
+
+    Aligned to canonical NEWS2 ``score_temperature``.
+    """
     if t is None:
         return (0, "sem dados")
-    if t < 35.0:
-        return (3, "hipotermia grave")
-    if t <= 36.0:
-        return (1, "hipotermia leve")
-    if t <= 38.0:
-        return (0, "normal")
-    if t <= 39.0:
-        return (1, "febre leve")
-    return (2, "febre alta")
+    score = score_temperature(t)
+    if score == 3:
+        label = "hipotermia grave"
+    elif score == 2:
+        label = "febre alta"
+    elif score == 1:
+        # Could be hypothermia mild (35.1-36.0) or fever mild (38.1-39.0)
+        label = "hipotermia leve" if t <= 36.0 else "febre leve"
+    else:
+        label = "normal"
+    return (score, label)
 
 
 def _piora_score_pas(pas: float | None) -> tuple[int, str]:
     """criterio_3: Pressão arterial sistólica graded sub-score.
 
-    NEWS2: PAS <= 90 = 3, 91-100 = 2, 101-110 = 1, 111-219 = 0, >= 220 = 3.
+    Delegates to canonical NEWS2 ``score_systolic_bp``.
     """
     if pas is None:
         return (0, "sem dados")
-    if pas <= 90:
-        return (3, "hipotensão grave")
-    if pas <= 100:
-        return (2, "hipotensão moderada")
-    if pas <= 110:
-        return (1, "hipotensão leve")
-    if pas <= 219:
-        return (0, "normal")
-    return (3, "hipertensão grave")
+    score = score_systolic_bp(int(pas))
+    if score == 3:
+        label = "hipotensão grave" if pas <= 90 else "hipertensão grave"
+    elif score == 2:
+        label = "hipotensão moderada"
+    elif score == 1:
+        label = "hipotensão leve"
+    else:
+        label = "normal"
+    return (score, label)
 
 
 def _piora_score_fc(fc: float | None) -> tuple[int, str]:
-    """criterio_4: Frequência cardíaca graded sub-score."""
+    """criterio_4: Frequência cardíaca graded sub-score.
+
+    Delegates to canonical NEWS2 ``score_heart_rate``.
+    """
     if fc is None:
         return (0, "sem dados")
-    if fc <= 40:
-        return (3, "bradicardia grave")
-    if fc <= 50:
-        return (1, "bradicardia leve")
-    if fc <= 90:
-        return (0, "normal")
-    if fc <= 110:
-        return (1, "taquicardia leve")
-    if fc <= 130:
-        return (2, "taquicardia moderada")
-    return (3, "taquicardia grave")
+    score = score_heart_rate(int(fc))
+    if score == 3:
+        label = "bradicardia grave" if fc <= 40 else "taquicardia grave"
+    elif score == 2:
+        label = "taquicardia moderada"
+    elif score == 1:
+        label = "bradicardia leve" if fc <= 50 else "taquicardia leve"
+    else:
+        label = "normal"
+    return (score, label)
 
 
 def _piora_score_consciencia(nivel: str | None) -> tuple[int, str]:
@@ -800,21 +873,20 @@ def _piora_score_dor_bps(sinais: float | None) -> tuple[int, str]:
 def _piora_score_sato2_regular(spo2: float | None) -> tuple[int, str]:
     """criterio_8: SatO2 (paciente regular / não-DPOC) graded sub-score.
 
-    RATIFIED per rat-piora-clinica-06 (P1, recommended default A):
-    NEWS2 Scale 1: penalize only LOW SpO2. Normal/high saturation scores 0.
-
-    Scale 1: <= 91 = 3, 92-93 = 2, 94-95 = 1, >= 96 = 0.
+    Delegates to canonical NEWS2 ``score_spo2`` (Scale 1, non-hypercapnic).
     """
     if spo2 is None:
         return (0, "sem dados")
-    if spo2 <= 91:
-        return (3, "hipoxemia grave")
-    if spo2 <= 93:
-        return (2, "hipoxemia moderada")
-    if spo2 <= 95:
-        return (1, "hipoxemia leve")
-    # >= 96 = 0 (normal); removed the legacy hiperoxia 2+ penalty
-    return (0, "normal")
+    score = score_spo2(int(spo2), hypercapnic=False)
+    if score == 3:
+        label = "hipoxemia grave"
+    elif score == 2:
+        label = "hipoxemia moderada"
+    elif score == 1:
+        label = "hipoxemia leve"
+    else:
+        label = "normal"
+    return (score, label)
 
 
 def _piora_score_sato2_dpoc(spo2: float | None) -> tuple[int, str]:
@@ -860,7 +932,7 @@ class PioraClinicaResult:
     recommendation: str
 
 
-def evaluate_clinical_worsening(inputs: dict[str, Any]) -> PioraClinicaResult:
+def evaluate_clinical_worsening(inputs: SepsisClinicalInputs) -> PioraClinicaResult:
     """Evaluate clinical worsening (PIORA) aggregate track-and-trigger.
 
     RATIFIED per rat-piora-clinica-08 (P0, recommended default B):

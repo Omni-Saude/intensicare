@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,30 @@ logger = logging.getLogger(__name__)
 # In-memory stores (bridge to DB later)
 # ============================================================================
 
+
+class PatientPathwayDict(TypedDict):
+    """Typed representation of a patient pathway enrollment record.
+
+    Mirrors the in-memory store structure used throughout the trilhas engine.
+    """
+
+    id: int
+    mpi_id: str
+    pathway_id: int
+    pathway_name: str
+    pathway_slug: str
+    current_state: str
+    criteria_data: list[dict[str, Any]]
+    status: str
+    severity: str
+    enrolled_at: str
+    enrolled_by: str
+    completed_at: str | None
+    updated_at: str
+
+
 # {mpi_id: {pathway_id: PatientPathway-like dict}}
-_patient_pathway_store: dict[str, dict[int, dict[str, Any]]] = {}
+_patient_pathway_store: dict[str, dict[int, PatientPathwayDict]] = {}
 
 # {patient_pathway_id: list[transition dicts]}
 _transition_store: dict[int, list[dict[str, Any]]] = {}
@@ -836,7 +858,7 @@ def enroll_patient(
     pp_id = _next_pp_id
     _next_pp_id += 1
 
-    enrollment: dict[str, Any] = {
+    enrollment: PatientPathwayDict = {
         "id": pp_id,
         "mpi_id": mpi_id,
         "pathway_id": pathway_id,
@@ -894,7 +916,7 @@ def evaluate_criteria(
         CriteriaEvaluationResult with updated criteria, possible state change, and severity.
     """
     # Find the enrollment
-    enrollment: dict[str, Any] | None = None
+    enrollment: PatientPathwayDict | None = None
     for pid, pathways in _patient_pathway_store.items():
         for pw_id, pp in pathways.items():
             if pp["id"] == patient_pathway_id:
@@ -1081,7 +1103,7 @@ def get_pathway_progress(
         PathwayProgressResult with criteria summary, state history, trend, and recommendation.
     """
     # Find the enrollment
-    enrollment: dict[str, Any] | None = None
+    enrollment: PatientPathwayDict | None = None
     pathway: dict[str, Any] | None = None
     for pid, pathways in _patient_pathway_store.items():
         for pw_id, pp in pathways.items():

@@ -22,7 +22,7 @@ import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,25 @@ INFUSION_ROUTES: set[str] = {"IV", "SC"}
 TERMINAL_STATES: set[str] = {"completed", "discontinued"}
 
 # =============================================================================
+# Exceptions
+# =============================================================================
+
+
+class ConcurrencyError(Exception):
+    """Raised when optimistic locking detects a concurrent modification."""
+
+    def __init__(self, prescription_id: int, expected_version: int, actual_version: int):
+        self.prescription_id = prescription_id
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        super().__init__(
+            f"Concurrency conflict on prescription {prescription_id}: "
+            f"expected version {expected_version}, but current version is {actual_version}. "
+            "The record was modified by another process. Reload and retry."
+        )
+
+
+# =============================================================================
 # State machine transition map (ADR-027)
 # =============================================================================
 
@@ -77,13 +96,260 @@ TRANSITIONS_REQUIRING_REASON: set[tuple[str, str]] = {
 # Transitions that auto-set end_time
 TRANSITIONS_SETTING_END_TIME: set[str] = {"completed", "discontinued"}
 
+# State machine version for audit trail
+STATE_MACHINE_VERSION: str = "1.0.0"
+
+
+# =============================================================================
+# PrescriptionStateMachine — encapsulated state transition engine (ADR-027)
+# =============================================================================
+
+
+class PrescriptionStateMachine:
+    """Encapsulates the prescription lifecycle state machine (ADR-027).
+
+    Validates transitions, enforces guards (e.g., reason required),
+    and provides metadata about the state machine definition.
+
+    States: draft, active, completed, discontinued, suspended.
+    Terminal states: completed, discontinued.
+    """
+
+    # State machine version for audit trail
+    VERSION: str = STATE_MACHINE_VERSION
+
+    def __init__(self) -> None:
+        self._transitions: dict[str, set[str]] = {
+            "draft":       {"active", "draft"},
+            "active":      {"completed", "discontinued", "suspended", "active"},
+            "suspended":   {"active", "discontinued"},
+            "completed":   set(),
+            "discontinued": set(),
+        }
+        self._reasons_required: set[tuple[str, str]] = {
+            ("active", "discontinued"),
+            ("active", "suspended"),
+            ("suspended", "discontinued"),
+        }
+        self._end_time_transitions: set[str] = {"completed", "discontinued"}
+        self._terminal_states: set[str] = {"completed", "discontinued"}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    @property
+    def transitions(self) -> dict[str, set[str]]:
+        """Return a copy of the transition map."""
+        return {k: set(v) for k, v in self._transitions.items()}
+
+    @property
+    def valid_statuses(self) -> list[str]:
+        """All known statuses."""
+        return list(self._transitions.keys())
+
+    @property
+    def terminal_states(self) -> set[str]:
+        """States that allow no further transitions."""
+        return set(self._terminal_states)
+
+    @property
+    def reasons_required(self) -> set[tuple[str, str]]:
+        """Transitions that require a clinical reason."""
+        return set(self._reasons_required)
+
+    @property
+    def end_time_transitions(self) -> set[str]:
+        """Target states that auto-set end_time."""
+        return set(self._end_time_transitions)
+
+    def is_terminal(self, status: str) -> bool:
+        """Check if a status is terminal (no further transitions)."""
+        return status in self._terminal_states
+
+    def is_valid_status(self, status: str) -> bool:
+        """Check if a status string is a known state."""
+        return status in self._transitions
+
+    def allowed_transitions(self, from_status: str) -> set[str]:
+        """Return the set of statuses reachable from *from_status*."""
+        return set(self._transitions.get(from_status, set()))
+
+    def reason_required(self, from_status: str, to_status: str) -> bool:
+        """Check whether the transition requires a clinical reason."""
+        return (from_status, to_status) in self._reasons_required
+
+    def auto_end_time(self, to_status: str) -> bool:
+        """Check whether *to_status* should trigger end_time auto-set."""
+        return to_status in self._end_time_transitions
+
+    def can_transition(self, from_status: str, to_status: str) -> bool:
+        """Return True if the transition is syntactically valid."""
+        return to_status in self._transitions.get(from_status, set())
+
+    def transition(
+        self,
+        from_status: str,
+        to_status: str,
+        reason: str | None = None,
+        changed_by: str = "system",
+    ) -> dict[str, Any]:
+        """Validate and execute a state transition.
+
+        Parameters
+        ----------
+        from_status:
+            Current prescription status.
+        to_status:
+            Desired target status.
+        reason:
+            Clinical justification (required for sensitive transitions).
+        changed_by:
+            Identifier of the clinician or system performing the transition.
+
+        Returns
+        -------
+        dict
+            Metadata about the transition with keys:
+            - ``new_status`` (str)
+            - ``old_status`` (str)
+            - ``auto_end_time`` (bool)
+            - ``reason`` (str | None)
+            - ``changed_by`` (str)
+
+        Raises
+        ------
+        ValueError
+            If *to_status* is not a known state, the prescription is in a
+            terminal state, the transition is not allowed, or a required
+            reason is missing.
+        """
+        # Validate target status is known
+        if not self.is_valid_status(to_status):
+            raise ValueError(
+                f"R36: Status '{to_status}' inválido. "
+                f"Status válidos: {', '.join(self.valid_statuses)}."
+            )
+
+        # Terminal states cannot transition
+        if self.is_terminal(from_status):
+            raise ValueError(
+                f"R37: Prescrição em estado terminal "
+                f"('{from_status}') e não pode ser modificada."
+            )
+
+        # Validate transition is allowed
+        if not self.can_transition(from_status, to_status):
+            allowed = sorted(self.allowed_transitions(from_status))
+            raise ValueError(
+                f"R38: Transição '{from_status} → {to_status}' não é permitida. "
+                f"Transições válidas de '{from_status}': {allowed}."
+            )
+
+        # Some transitions require clinical reason
+        if self.reason_required(from_status, to_status):
+            if not reason or not reason.strip():
+                raise ValueError(
+                    f"R39: Transição '{from_status} → {to_status}' requer "
+                    "justificativa clínica (reason)."
+                )
+
+        return {
+            "new_status": to_status,
+            "old_status": from_status,
+            "auto_end_time": self.auto_end_time(to_status),
+            "reason": reason,
+            "changed_by": changed_by,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the full state machine definition for API exposure."""
+        return {
+            "version": self.VERSION,
+            "states": self.valid_statuses,
+            "terminal_states": sorted(self._terminal_states),
+            "transitions": {
+                from_state: sorted(to_states)
+                for from_state, to_states in self._transitions.items()
+            },
+            "reasons_required": [
+                {"from": f, "to": t} for f, t in sorted(self._reasons_required)
+            ],
+            "end_time_transitions": sorted(self._end_time_transitions),
+        }
+
+
+# Singleton instance for module-level use
+_prescription_state_machine = PrescriptionStateMachine()
+
+
+def get_state_machine() -> PrescriptionStateMachine:
+    """Return the module-level state machine singleton."""
+    return _prescription_state_machine
+
 # =============================================================================
 # Drug safety ranges (dose, unit, route) — Rule base for dose validation
 # =============================================================================
 
+
+class DrugSafetyEntry(TypedDict, total=False):
+    """Typed representation of a drug safety range entry.
+
+    Fields are optional (total=False) because each drug defines only a subset
+    of dose fields depending on its unit system (mg, mcg, UI, mEq, mL, or
+    weight-rate-based units like mcg/kg/min).
+    """
+
+    # Generic
+    unit: str
+    renal_adjust: bool
+    weight_based: bool
+    typical_routes: list[str]
+    continuous_only: bool
+
+    # Milligrams
+    min_single_mg: float
+    max_single_mg: float
+    max_daily_mg: float
+    weight_dose_mg_per_kg: float
+    infusion_rate_max_mg_h: float
+
+    # Micrograms
+    min_single_mcg: float
+    max_single_mcg: float
+    max_daily_mcg: float
+    weight_dose_mcg_per_kg: float
+    continuous_mcg_kg_h_max: float
+    continuous_mg_kg_h_max: float
+
+    # International units
+    min_single_ui: float
+    max_single_ui: float
+    weight_dose_ui_per_kg: float
+    max_infusion_ui_h: float
+
+    # Milliequivalents
+    min_single_mEq: float
+    max_single_mEq: float
+    max_daily_mEq: float
+    infusion_rate_max_mEq_h: float
+
+    # Millilitres
+    min_single_mL: float
+    max_single_mL: float
+    infusion_rate_max_mL_h: float
+
+    # Micrograms per kg per minute
+    min_single_mcg_kg_min: float
+    max_single_mcg_kg_min: float
+
+    # Elderly adjustment
+    elderly_reduce_pct: float
+
+
 # Format: (min_single_dose, max_single_dose, unit, max_daily_dose, max_infusion_rate)
 # Doses in the drug's native unit
-DRUG_SAFETY: dict[str, dict[str, Any]] = {
+DRUG_SAFETY: dict[str, DrugSafetyEntry] = {
     "meropenem": {
         "min_single_mg": 500,
         "max_single_mg": 2000,
@@ -642,7 +908,7 @@ def _validate_input(
     if safety and route not in safety.get("typical_routes", [route]):
         errors.append(
             f"R07: Via '{route}' não é típica para {drug}. "
-            f"Vias esperadas: {', '.join(safety['typical_routes'])}."
+            f"Vias esperadas: {', '.join(safety.get('typical_routes', []))}."
         )
 
     # R08: continuous-only drugs must use infusion routes
@@ -1029,7 +1295,7 @@ def _validate_dose(
 
     # R32: Elderly dose reduction alert
     if age_years and age_years >= 65 and safety.get("elderly_reduce_pct"):
-        reduce_pct = safety["elderly_reduce_pct"]
+        reduce_pct: float = safety.get("elderly_reduce_pct", 0)
         recommended = dose_mg * (1 - reduce_pct / 100)
         warnings.append(
             f"R32: Paciente idoso ({age_years:.0f} anos). Considerar redução de "
@@ -1235,41 +1501,23 @@ def _transition_state(
     """R36-R40: State machine transition with validation.
 
     Returns updated PrescriptionRecord. Raises ValueError on invalid transition.
+
+    Delegates to :class:`PrescriptionStateMachine` for validation logic
+    while keeping backward-compatible PrescriptionRecord mutation.
     """
     old_status = prescription.status
+    sm = get_state_machine()
 
-    # R36: Validate new_status is a known state
-    if new_status not in VALID_STATUSES:
-        raise ValueError(
-            f"R36: Status '{new_status}' inválido. Status válidos: "
-            f"{', '.join(VALID_STATUSES)}."
-        )
-
-    # R37: Terminal states cannot transition
-    if old_status in TERMINAL_STATES:
-        raise ValueError(
-            f"R37: Prescrição {prescription.id} está em estado terminal "
-            f"('{old_status}') e não pode ser modificada."
-        )
-
-    # R38: Validate transition is allowed
-    allowed = STATE_TRANSITIONS.get(old_status, set())
-    if new_status not in allowed and new_status != old_status:
-        raise ValueError(
-            f"R38: Transição '{old_status} → {new_status}' não é permitida. "
-            f"Transições válidas de '{old_status}': {sorted(allowed)}."
-        )
-
-    # R39: Some transitions require clinical reason
-    if (old_status, new_status) in TRANSITIONS_REQUIRING_REASON:
-        if not reason or not reason.strip():
-            raise ValueError(
-                f"R39: Transição '{old_status} → {new_status}' requer "
-                "justificativa clínica (reason)."
-            )
+    # Validate via state machine (raises ValueError on invalid transition)
+    sm.transition(
+        from_status=old_status,
+        to_status=new_status,
+        reason=reason,
+        changed_by=changed_by,
+    )
 
     # R40: Auto-set end_time for terminal transitions
-    if new_status in TRANSITIONS_SETTING_END_TIME:
+    if sm.auto_end_time(new_status):
         prescription.end_time = _now_iso()
 
     # Apply transition
@@ -1530,9 +1778,10 @@ def update_prescription(
     # Optimistic locking check
     expected_version = updates.pop("version", None)
     if expected_version is not None and expected_version != record.version:
-        raise ValueError(
-            f"Conflito de versão: esperado={expected_version}, atual={record.version}. "
-            "A prescrição foi modificada por outro usuário. Recarregue e tente novamente."
+        raise ConcurrencyError(
+            prescription_id=prescription_id,
+            expected_version=expected_version,
+            actual_version=record.version,
         )
 
     # Extract state transition parameters
@@ -1598,11 +1847,19 @@ def resolve_alert(
 # =============================================================================
 
 __all__ = [
+    # Exceptions
+    "ConcurrencyError",
     # Dataclasses
     "PrescriptionRecord",
     "InteractionAlert",
     "PrescriptionResult",
     "PrescriptionListResult",
+    # TypedDicts
+    "DrugSafetyEntry",
+    # State machine
+    "PrescriptionStateMachine",
+    "get_state_machine",
+    "STATE_MACHINE_VERSION",
     # Constants
     "VALID_ROUTES",
     "VALID_STATUSES",
