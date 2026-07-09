@@ -35,6 +35,7 @@ import ClinicalTimeline, {
 import AlertCard from '@/components/AlertCard';
 import SeverityBadge, { ScoreDisplay, TrendBadge } from '@/components/SeverityBadge';
 import DrawerBuilder from '@/components/DrawerBuilder';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import {
   fetchAlerts,
   fetchPatientDetail,
@@ -1016,6 +1017,7 @@ export default function SepseDashboardPage() {
 
   // ─── Render: main ──────────────────────────────────────────────────────────
   return (
+    <ErrorBoundary>
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 px-1">
@@ -1340,5 +1342,6 @@ export default function SepseDashboardPage() {
         <div className="pt-4">{renderDetailPanel()}</div>
       </DrawerBuilder>
     </div>
+    </ErrorBoundary>
   );
 }
