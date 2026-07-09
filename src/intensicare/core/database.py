@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -55,6 +56,24 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+# ── F-CODE-001: In dev mode, raise on lazy loads to detect N+1 issues early ──
+if settings.environment == "development":
+    from sqlalchemy.orm import Session, raiseload
+
+    @event.listens_for(Session, "do_orm_execute")
+    def _dev_raiseload(orm_execute_state):  # noqa: E306
+        """Apply raiseload('*') to every ORM query in development.
+
+        This catches accidental lazy loads at the point they occur,
+        forcing developers to add explicit selectinload/joinedload options.
+        """
+        if orm_execute_state.execution_options.get("_raiseload_applied"):
+            return
+        orm_execute_state.statement = orm_execute_state.statement.options(
+            raiseload("*")
+        )
+        orm_execute_state.update_execution_options(_raiseload_applied=True)
 
 
 async def dispose_engine() -> None:

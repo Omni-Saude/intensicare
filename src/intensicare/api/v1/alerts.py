@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
@@ -89,7 +90,7 @@ async def list_alerts(
     db: AsyncSession = Depends(get_db),
 ) -> AlertListResponse:
     """List alerts with optional filters. Returns {alerts, total} (AUDIT-007)."""
-    base_query = select(Alert)
+    base_query = select(Alert).options(joinedload(Alert.patient))
 
     if status_filter:
         base_query = base_query.where(Alert.status == status_filter)
@@ -120,7 +121,7 @@ async def acknowledge_alert(
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Acknowledge an alert (authenticated)."""
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    result = await db.execute(select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
 
     if alert is None:
@@ -153,7 +154,7 @@ async def resolve_alert(
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Resolve an alert — records the clinical outcome (authenticated)."""
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    result = await db.execute(select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
 
     if alert is None:
@@ -202,7 +203,7 @@ async def escalate_alert(
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Escalate an alert to the next response tier (authenticated)."""
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    result = await db.execute(select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
 
     if alert is None:
@@ -239,7 +240,7 @@ async def trace_alert(
     db: AsyncSession = Depends(get_db),
 ) -> AlertResponse:
     """Get detailed trace of a specific alert."""
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    result = await db.execute(select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
 
     if alert is None:
