@@ -38,9 +38,9 @@ VALID_VITALS_PAYLOAD = {
 
 
 @pytest.mark.asyncio
-async def test_create_vitals_normal(client: AsyncClient):
+async def test_create_vitals_normal(client: AsyncClient, user_headers: dict[str, str]):
     """POST /api/v1/vitals deve criar sinais vitais e retornar MEWS + NEWS2."""
-    response = await client.post("/api/v1/vitals", json=VALID_VITALS_PAYLOAD)
+    response = await client.post("/api/v1/vitals", json=VALID_VITALS_PAYLOAD, headers=user_headers)
 
     assert response.status_code == 201
     data = response.json()
@@ -60,13 +60,13 @@ async def test_create_vitals_normal(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_vitals_minimal_payload(client: AsyncClient):
+async def test_create_vitals_minimal_payload(client: AsyncClient, user_headers: dict[str, str]):
     """POST /api/v1/vitals com payload mínimo (apenas mpi_id e recorded_at)."""
     minimal = {
         "mpi_id": "MPI-00099999",
         "recorded_at": "2026-06-26T12:00:00Z",
     }
-    response = await client.post("/api/v1/vitals", json=minimal)
+    response = await client.post("/api/v1/vitals", json=minimal, headers=user_headers)
 
     assert response.status_code == 201
     data = response.json()
@@ -76,7 +76,7 @@ async def test_create_vitals_minimal_payload(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_vitals_septic_patient(client: AsyncClient):
+async def test_create_vitals_septic_patient(client: AsyncClient, user_headers: dict[str, str]):
     """POST /api/v1/vitals com dados de paciente séptico deve retornar MEWS elevado."""
     payload = {
         "mpi_id": "MPI-SEPSIS01",
@@ -91,7 +91,7 @@ async def test_create_vitals_septic_patient(client: AsyncClient):
         "supplemental_o2": True,
     }
 
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
 
     assert response.status_code == 201
     data = response.json()
@@ -103,7 +103,7 @@ async def test_create_vitals_septic_patient(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_vitals_critical_patient(client: AsyncClient):
+async def test_create_vitals_critical_patient(client: AsyncClient, user_headers: dict[str, str]):
     """POST /api/v1/vitals com paciente crítico deve retornar MEWS máximo."""
     payload = {
         "mpi_id": "MPI-CRITICAL01",
@@ -115,7 +115,7 @@ async def test_create_vitals_critical_patient(client: AsyncClient):
         "avpu": "U",
     }
 
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
     assert response.json()["mews_score"] == 15
     # NEWS2: rr=6(3) + spo2=None(0) + o2=None(0) + sbp=65(3)
@@ -130,10 +130,10 @@ async def test_create_vitals_critical_patient(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_duplicate_request(client: AsyncClient):
+async def test_idempotency_duplicate_request(client: AsyncClient, user_headers: dict[str, str]):
     """Requisições idênticas com mesma chave de idempotência devem retornar
     o mesmo resultado sem criar novo registro."""
-    headers = {"X-Idempotency-Key": "test-key-001"}
+    headers = {**user_headers, "X-Idempotency-Key": "test-key-001"}
 
     resp1 = await client.post(
         "/api/v1/vitals",
@@ -161,7 +161,7 @@ async def test_idempotency_duplicate_request(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_different_keys(client: AsyncClient):
+async def test_idempotency_different_keys(client: AsyncClient, user_headers: dict[str, str]):
     """Chaves de idempotência diferentes devem criar registros distintos."""
     payload1 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:00:00Z"}
     payload2 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:01:00Z"}
@@ -169,12 +169,12 @@ async def test_idempotency_different_keys(client: AsyncClient):
     resp1 = await client.post(
         "/api/v1/vitals",
         json=payload1,
-        headers={"X-Idempotency-Key": "key-alpha"},
+        headers={**user_headers, "X-Idempotency-Key": "key-alpha"},
     )
     resp2 = await client.post(
         "/api/v1/vitals",
         json=payload2,
-        headers={"X-Idempotency-Key": "key-beta"},
+        headers={**user_headers, "X-Idempotency-Key": "key-beta"},
     )
 
     assert resp1.status_code == 201
@@ -183,12 +183,12 @@ async def test_idempotency_different_keys(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_without_key(client: AsyncClient):
+async def test_idempotency_without_key(client: AsyncClient, user_headers: dict[str, str]):
     """Sem chave de idempotência, cada requisição deve criar novo registro."""
     payload = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-NOKEY-01"}
 
-    resp1 = await client.post("/api/v1/vitals", json=payload)
-    resp2 = await client.post("/api/v1/vitals", json=payload)
+    resp1 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
+    resp2 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
 
     assert resp1.status_code == 201
     assert resp2.status_code == 201
@@ -202,12 +202,13 @@ async def test_idempotency_without_key(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_validation_missing_required_fields(client: AsyncClient):
+async def test_validation_missing_required_fields(client: AsyncClient, user_headers: dict[str, str]):
     """Campos obrigatórios (mpi_id, recorded_at) devem ser validados."""
     # Sem mpi_id
     resp = await client.post(
         "/api/v1/vitals",
         json={"recorded_at": "2026-06-26T10:00:00Z"},
+        headers=user_headers,
     )
     assert resp.status_code == 422
 
@@ -215,39 +216,40 @@ async def test_validation_missing_required_fields(client: AsyncClient):
     resp = await client.post(
         "/api/v1/vitals",
         json={"mpi_id": "MPI-001"},
+        headers=user_headers,
     )
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_validation_invalid_avpu(client: AsyncClient):
+async def test_validation_invalid_avpu(client: AsyncClient, user_headers: dict[str, str]):
     """AVPU deve ser um de A/V/P/U."""
     payload = {**VALID_VITALS_PAYLOAD, "avpu": "X"}
-    resp = await client.post("/api/v1/vitals", json=payload)
+    resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_validation_avpu_case_insensitive(client: AsyncClient):
+async def test_validation_avpu_case_insensitive(client: AsyncClient, user_headers: dict[str, str]):
     """AVPU deve aceitar lowercase e retornar uppercase."""
     payload = {**VALID_VITALS_PAYLOAD, "avpu": "v"}
-    resp = await client.post("/api/v1/vitals", json=payload)
+    resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp.status_code == 201
 
 
 @pytest.mark.asyncio
-async def test_validation_out_of_range_heart_rate(client: AsyncClient):
+async def test_validation_out_of_range_heart_rate(client: AsyncClient, user_headers: dict[str, str]):
     """Heart rate > 300 deve ser rejeitado."""
     payload = {**VALID_VITALS_PAYLOAD, "heart_rate": 350}
-    resp = await client.post("/api/v1/vitals", json=payload)
+    resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_validation_negative_values(client: AsyncClient):
+async def test_validation_negative_values(client: AsyncClient, user_headers: dict[str, str]):
     """Valores negativos devem ser rejeitados."""
     payload = {**VALID_VITALS_PAYLOAD, "heart_rate": -1}
-    resp = await client.post("/api/v1/vitals", json=payload)
+    resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp.status_code == 422
 
 
@@ -272,13 +274,13 @@ async def test_patient_status_no_data(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_patient_status_after_ingestion(client: AsyncClient):
+async def test_patient_status_after_ingestion(client: AsyncClient, user_headers: dict[str, str]):
     """Após ingerir sinais vitais, status deve refletir os dados."""
     mpi_id = "MPI-STATUS-01"
 
     # Ingere sinais vitais
     payload = {**VALID_VITALS_PAYLOAD, "mpi_id": mpi_id}
-    resp = await client.post("/api/v1/vitals", json=payload)
+    resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp.status_code == 201
 
     # Consulta status
@@ -299,10 +301,9 @@ async def test_patient_status_after_ingestion(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_patient_status_trend_multiple_scores(client: AsyncClient):
+async def test_patient_status_trend_multiple_scores(client: AsyncClient, user_headers: dict[str, str]):
     """Após múltiplas ingestões, tendência deve refletir os últimos 5 scores."""
     mpi_id = "MPI-TREND-01"
-    headers = {}
 
     # Ingere 7 sinais vitais com valores progressivamente piores
     scores = []
@@ -318,7 +319,7 @@ async def test_patient_status_trend_multiple_scores(client: AsyncClient):
             "respiratory_rate": rr,
             "avpu": "A",
         }
-        headers = {"X-Idempotency-Key": f"trend-key-{i}"}
+        headers = {**user_headers, "X-Idempotency-Key": f"trend-key-{i}"}
         resp = await client.post("/api/v1/vitals", json=payload, headers=headers)
         assert resp.status_code == 201
         scores.append(resp.json()["mews_score"])
@@ -344,7 +345,7 @@ async def test_patient_status_trend_multiple_scores(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_patient_status_trend_improving(client: AsyncClient):
+async def test_patient_status_trend_improving(client: AsyncClient, user_headers: dict[str, str]):
     """Paciente em melhora deve mostrar tendência 'decreasing'."""
     mpi_id = "MPI-IMPROVE-01"
 
@@ -360,7 +361,7 @@ async def test_patient_status_trend_improving(client: AsyncClient):
             "respiratory_rate": 30,
             "avpu": "P",
         },
-        headers={"X-Idempotency-Key": "improve-1"},
+        headers={**user_headers, "X-Idempotency-Key": "improve-1"},
     )
     assert resp.status_code == 201
 
@@ -376,7 +377,7 @@ async def test_patient_status_trend_improving(client: AsyncClient):
             "respiratory_rate": 16,
             "avpu": "A",
         },
-        headers={"X-Idempotency-Key": "improve-2"},
+        headers={**user_headers, "X-Idempotency-Key": "improve-2"},
     )
     assert resp.status_code == 201
 
@@ -393,9 +394,9 @@ async def test_patient_status_trend_improving(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_news2_normal_vitals_low_risk(client: AsyncClient):
+async def test_news2_normal_vitals_low_risk(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2 com todos os parâmetros normais deve retornar score 0 e risk low."""
-    response = await client.post("/api/v1/vitals", json=VALID_VITALS_PAYLOAD)
+    response = await client.post("/api/v1/vitals", json=VALID_VITALS_PAYLOAD, headers=user_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["news2_score"] == 0
@@ -403,7 +404,7 @@ async def test_news2_normal_vitals_low_risk(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_news2_medium_risk(client: AsyncClient):
+async def test_news2_medium_risk(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2 com score 5-6 deve retornar risk_category medium."""
     payload = {
         "mpi_id": "MPI-NEWS2-MEDIUM",
@@ -417,7 +418,7 @@ async def test_news2_medium_risk(client: AsyncClient):
         "supplemental_o2": False,  # NEWS2: 0
     }
     # Total = 2+2+1+0+0+0+0 = 5 → medium
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["news2_score"] == 5
@@ -425,7 +426,7 @@ async def test_news2_medium_risk(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_news2_high_risk(client: AsyncClient):
+async def test_news2_high_risk(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2 com score >= 7 deve retornar risk_category high."""
     payload = {
         "mpi_id": "MPI-NEWS2-HIGH",
@@ -439,7 +440,7 @@ async def test_news2_high_risk(client: AsyncClient):
         "supplemental_o2": True,  # NEWS2: 2
     }
     # Total = 3+3+3+3+3+3+2 = 20 → high
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["news2_score"] == 20
@@ -447,7 +448,7 @@ async def test_news2_high_risk(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient):
+async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2: uso de O2 suplementar deve adicionar 2 pontos."""
     # Sem O2
     payload_no_o2 = {
@@ -464,7 +465,7 @@ async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient):
     resp1 = await client.post(
         "/api/v1/vitals",
         json=payload_no_o2,
-        headers={"X-Idempotency-Key": "o2-test-1"},
+        headers={**user_headers, "X-Idempotency-Key": "o2-test-1"},
     )
     assert resp1.json()["news2_score"] == 0
 
@@ -473,13 +474,13 @@ async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient):
     resp2 = await client.post(
         "/api/v1/vitals",
         json=payload_o2,
-        headers={"X-Idempotency-Key": "o2-test-2"},
+        headers={**user_headers, "X-Idempotency-Key": "o2-test-2"},
     )
     assert resp2.json()["news2_score"] == 2
 
 
 @pytest.mark.asyncio
-async def test_news2_default_hypercapnic_false(client: AsyncClient):
+async def test_news2_default_hypercapnic_false(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2 usa Scale 1 (non-hypercapnic) por padrão."""
     # SpO2=88 na Scale 1 = 3 pontos (≤91), na Scale 2 seria 1 (88-92)
     payload = {
@@ -493,14 +494,14 @@ async def test_news2_default_hypercapnic_false(client: AsyncClient):
         "avpu": "A",
         "supplemental_o2": False,
     }
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
     # SpO2=88 on Scale 1 should score 3
     assert response.json()["news2_score"] == 3
 
 
 @pytest.mark.asyncio
-async def test_news2_avpu_scores_three_for_altered(client: AsyncClient):
+async def test_news2_avpu_scores_three_for_altered(client: AsyncClient, user_headers: dict[str, str]):
     """NEWS2: qualquer estado alterado de consciência (C/V/P/U) = 3 pontos."""
     for avpu_val in ("C", "V", "P", "U"):
         payload = {
@@ -517,13 +518,13 @@ async def test_news2_avpu_scores_three_for_altered(client: AsyncClient):
         resp = await client.post(
             "/api/v1/vitals",
             json=payload,
-            headers={"X-Idempotency-Key": f"avpu-news2-{avpu_val}"},
+            headers={**user_headers, "X-Idempotency-Key": f"avpu-news2-{avpu_val}"},
         )
         assert resp.json()["news2_score"] == 3, f"AVPU={avpu_val} should score 3"
 
 
 @pytest.mark.asyncio
-async def test_dual_scoring_both_scores_present(client: AsyncClient):
+async def test_dual_scoring_both_scores_present(client: AsyncClient, user_headers: dict[str, str]):
     """Cada ingestão deve produzir ambos MEWS e NEWS2 como ClinicalScore separados."""
     payload = {
         "mpi_id": "MPI-DUAL-01",
@@ -536,7 +537,7 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient):
         "avpu": "V",
         "supplemental_o2": True,
     }
-    response = await client.post("/api/v1/vitals", json=payload)
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
     data = response.json()
 
@@ -555,7 +556,7 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_dual_scoring_idempotent_replay_returns_both_scores(client: AsyncClient):
+async def test_dual_scoring_idempotent_replay_returns_both_scores(client: AsyncClient, user_headers: dict[str, str]):
     """Replay idempotente deve retornar ambos MEWS e NEWS2."""
     payload = {
         "mpi_id": "MPI-DUAL-IDEM",
@@ -568,7 +569,7 @@ async def test_dual_scoring_idempotent_replay_returns_both_scores(client: AsyncC
         "avpu": "V",
         "supplemental_o2": True,
     }
-    headers = {"X-Idempotency-Key": "dual-idem-key"}
+    headers = {**user_headers, "X-Idempotency-Key": "dual-idem-key"}
 
     resp1 = await client.post("/api/v1/vitals", json=payload, headers=headers)
     assert resp1.status_code == 201
