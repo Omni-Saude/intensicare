@@ -124,6 +124,91 @@ class TestSpO2Scale2:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# SpO2 — Scale 2 (hypercapnic, ON O2) — F-CLIN-001
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestSpO2Scale2OnO2:
+    """Hypercapnic patients ON supplemental O2: targeting 88-92%.
+    Bands: ≥97=3, 95-96=2, 93-94=1, ≤92=0."""
+
+    def test_overshoot_severe(self):
+        """SpO2 97 → 3 (significant overshoot above 88-92% target)"""
+        assert score_spo2(97, hypercapnic=True, on_o2=True) == 3
+        assert score_spo2(99, hypercapnic=True, on_o2=True) == 3
+        assert score_spo2(100, hypercapnic=True, on_o2=True) == 3
+
+    def test_overshoot_moderate(self):
+        """SpO2 95-96 → 2"""
+        assert score_spo2(95, hypercapnic=True, on_o2=True) == 2
+        assert score_spo2(96, hypercapnic=True, on_o2=True) == 2
+
+    def test_overshoot_mild(self):
+        """SpO2 93-94 → 1"""
+        assert score_spo2(93, hypercapnic=True, on_o2=True) == 1
+        assert score_spo2(94, hypercapnic=True, on_o2=True) == 1
+
+    def test_on_target(self):
+        """SpO2 ≤92 → 0 (within or below 88-92% target)"""
+        assert score_spo2(92, hypercapnic=True, on_o2=True) == 0
+        assert score_spo2(90, hypercapnic=True, on_o2=True) == 0
+        assert score_spo2(88, hypercapnic=True, on_o2=True) == 0
+
+    def test_none_returns_zero(self):
+        assert score_spo2(None, hypercapnic=True, on_o2=True) == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SpO2 — Scale 2 (hypercapnic, OFF O2) — F-CLIN-001 verification
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestSpO2Scale2OffO2:
+    """Hypercapnic patients OFF O2: standard Scale 2 bands.
+    Bands: ≥93=0, 88-92=1, 86-87=2, 84-85=3, ≤83=3."""
+
+    def test_normal_on_air(self):
+        """SpO2 93 → 0 on air"""
+        assert score_spo2(93, hypercapnic=True, on_o2=False) == 0
+
+    def test_mild_hypoxia_on_air(self):
+        """SpO2 88 → 1 on air"""
+        assert score_spo2(88, hypercapnic=True, on_o2=False) == 1
+
+    def test_severe_hypoxia_on_air(self):
+        """SpO2 84 → 3 on air"""
+        assert score_spo2(84, hypercapnic=True, on_o2=False) == 3
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SpO2 — Non-hypercapnic ON O2 still uses Scale 1 (F-CLIN-007)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestSpO2NonHypercapnicOnO2:
+    """Non-hypercapnic patients on O2 MUST use Scale 1, NOT Scale 2.
+    The on_o2 parameter is only relevant when hypercapnic=True."""
+
+    def test_spo2_93_on_o2_not_hypercapnic(self):
+        """SpO2=93 on Scale 1 = 2 (would be 0 on Scale 2 — dangerous under-score)"""
+        assert score_spo2(93, hypercapnic=False, on_o2=True) == 2
+
+    def test_spo2_88_on_o2_not_hypercapnic(self):
+        """SpO2=88 on Scale 1 = 3 (would be 1 on Scale 2)"""
+        assert score_spo2(88, hypercapnic=False, on_o2=True) == 3
+
+    def test_spo2_96_on_o2_not_hypercapnic(self):
+        """SpO2=96 on Scale 1 = 0"""
+        assert score_spo2(96, hypercapnic=False, on_o2=True) == 0
+
+    def test_on_o2_ignored_when_not_hypercapnic(self):
+        """on_o2=True is ignored when hypercapnic=False — Scale 1 always used."""
+        # Same score regardless of on_o2 flag when not hypercapnic
+        assert score_spo2(88, hypercapnic=False, on_o2=True) == 3
+        assert score_spo2(88, hypercapnic=False, on_o2=False) == 3
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Supplemental Oxygen
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -319,7 +404,7 @@ class TestCalculateNEWS2:
         """A patient with multiple deranged parameters."""
         result = calculate_news2(
             respiratory_rate=30,  # 3
-            spo2=88,  # 1 (Scale 2 — auto via supplemental_o2=True)
+            spo2=88,  # 3 (Scale 1 — hypercapnic=False, even with O2)
             hypercapnic=False,
             supplemental_o2=True,  # 2
             systolic_bp=85,  # 3
@@ -327,7 +412,7 @@ class TestCalculateNEWS2:
             avpu="V",  # 3
             temperature=34.0,  # 3
         )
-        assert result.total_score == 18  # 3+1+2+3+3+3+3 = 18
+        assert result.total_score == 20  # 3+3+2+3+3+3+3 = 20
         assert result.risk_category == "high"
 
     def test_hypercapnic_spo2_scale(self):
@@ -345,28 +430,29 @@ class TestCalculateNEWS2:
         assert result.total_score == 1
         assert result.components.spo2 == 1
 
-    def test_auto_scale2_via_supplemental_o2(self):
-        """AUDIT-002: supplemental_o2=True forces Scale 2 for SpO₂ scoring,
-        even without explicit hypercapnic=True."""
-        # SpO₂=88 on Scale 1 = 3, but on Scale 2 = 1
+    def test_supplemental_o2_does_not_trigger_scale2(self):
+        """CORRECTED (AUDIT-002): supplemental_o2=True does NOT force Scale 2.
+        Only hypercapnic=True triggers Scale 2. A non-hypercapnic patient on O2
+        uses Scale 1, where SpO2=88 scores 3 (not 1 as it would on Scale 2)."""
+        # SpO₂=88 on Scale 1 = 3 (correct), not 1 (which would under-score)
         result = calculate_news2(
             respiratory_rate=16,  # 0
-            spo2=88,  # 1 on Scale 2 (auto)
+            spo2=88,  # 3 on Scale 1
             hypercapnic=False,
-            supplemental_o2=True,  # 2 + forces Scale 2
+            supplemental_o2=True,  # 2
             systolic_bp=120,  # 0
             heart_rate=75,  # 0
             avpu="A",  # 0
             temperature=37.0,  # 0
         )
-        assert result.total_score == 3  # 0+1+2+0+0+0+0 = 3
-        assert result.components.spo2 == 1
+        assert result.total_score == 5  # 0+3+2+0+0+0+0 = 5
+        assert result.components.spo2 == 3  # Scale 1, NOT Scale 2
         assert result.components.supplemental_o2 == 2
 
-        # SpO₂=84 on Scale 2 = 3 (corrected per RCP 2017), on Scale 1 = 3
+        # SpO₂=84 on Scale 1 = 3 (correct), not 3 on Scale 2 (same but for different reason)
         result2 = calculate_news2(
             respiratory_rate=16,  # 0
-            spo2=84,  # 3 on Scale 2 (corrected)
+            spo2=84,  # 3 on Scale 1
             hypercapnic=False,
             supplemental_o2=True,  # 2
             systolic_bp=120,  # 0
@@ -375,7 +461,7 @@ class TestCalculateNEWS2:
             temperature=37.0,  # 0
         )
         assert result2.total_score == 5  # 0+3+2+0+0+0+0 = 5
-        assert result2.components.spo2 == 3
+        assert result2.components.spo2 == 3  # Scale 1
 
     def test_missing_values_default_to_zero(self):
         """None values should be scored as 0."""
@@ -489,7 +575,7 @@ class TestCalculateNEWS2:
         assert (
             calculate_news2(
                 respiratory_rate=25,  # 3
-                spo2=86,  # 2 on Scale 2 (auto via supplemental_o2=True)
+                spo2=86,  # 3 on Scale 1 (hypercapnic=False, even on O2)
                 hypercapnic=False,
                 supplemental_o2=True,  # 2
                 systolic_bp=120,  # 0
@@ -498,7 +584,7 @@ class TestCalculateNEWS2:
                 temperature=37.0,  # 0
             ).risk_category
             == "high"
-        )  # 3+2+2+0+0+0+0 = 7
+        )  # 3+3+2+0+0+0+0 = 8
 
     def test_result_dataclass(self):
         """NEWS2Result dataclass properties."""
@@ -523,14 +609,14 @@ class TestCalculateNEWS2:
             RR=16 (0), SpO2=97 (0), O2=No (0), SBP=125 (0), HR=72 (0), AVPU=A (0), Temp=36.8 (0)
             Total: 0
 
-        Example 2: Moderate deterioration
-            RR=23 (2), SpO2=93 [Scale2 auto via O2=Yes] (0), O2=Yes (2), SBP=100 (2), HR=115 (2), AVPU=V (3), Temp=35.5 (1)
-            Total: 12
+        Example 2: Moderate deterioration (non-hypercapnic on O2, uses Scale 1)
+            RR=23 (2), SpO2=93 [Scale 1: 92-93=2] (2), O2=Yes (2), SBP=100 (2), HR=115 (2), AVPU=V (3), Temp=35.5 (1)
+            Total: 14
 
-        Example 3: Severe COPD with hypercapnia
-            RR=28 (3), SpO2=87 [Scale2:86-87=2] (2), O2=Yes (2), SBP=108 (1),
+        Example 3: Severe COPD with hypercapnia on O2 (uses Scale 2 ON O2 bands)
+            RR=28 (3), SpO2=87 [Scale2 ON O2: ≤92=0] (0), O2=Yes (2), SBP=108 (1),
             HR=95 (1), AVPU=A (0), Temp=38.2 (1)
-            Total: 10
+            Total: 8
         """
         # Example 1
         result = calculate_news2(
@@ -556,11 +642,11 @@ class TestCalculateNEWS2:
             avpu="V",
             temperature=35.5,
         )
-        assert result.total_score == 12, f"Expected 12, got {result.total_score}"
+        assert result.total_score == 14, f"Expected 14, got {result.total_score}"
 
-        # Example 3: Severe COPD with hypercapnia
-        # RR=28(3) + SpO2=87[Scale2:86-87=2] + O2(2) + SBP=108(1)
-        # + HR=95(1) + AVPU=A(0) + Temp=38.2(1) = 10
+        # Example 3: Severe COPD with hypercapnia on O2
+        # RR=28(3) + SpO2=87[Scale2 ON O2: ≤92=0] + O2(2) + SBP=108(1)
+        # + HR=95(1) + AVPU=A(0) + Temp=38.2(1) = 8
         result = calculate_news2(
             respiratory_rate=28,
             spo2=87,
@@ -571,7 +657,7 @@ class TestCalculateNEWS2:
             avpu="A",
             temperature=38.2,
         )
-        assert result.total_score == 10, f"Expected 10, got {result.total_score}"
+        assert result.total_score == 8, f"Expected 8, got {result.total_score}"
 
 
 class TestNEWS2Components:

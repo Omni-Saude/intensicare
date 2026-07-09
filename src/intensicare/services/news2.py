@@ -102,17 +102,38 @@ def score_respiratory_rate(rr: int | None) -> int:
     )
 
 
-# CLINICALLY RATIFIED per RAT-NEWS2-SCALE-2 (AUDIT-002)
-def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
+# CLINICALLY RATIFIED per RAT-NEWS2-SCALE-2 (AUDIT-002) — CORRECTED per RCP 2017.
+# Scale 2 is ONLY for confirmed hypercapnic patients (target SpO₂ 88–92%).
+# Being on supplemental O₂ alone does NOT trigger Scale 2 — using Scale 2 on
+# non-hypercapnic patients would under-score deterioration (e.g. SpO₂ 93% = score 0
+# on Scale 2, but score 2 on Scale 1, masking clinical decline).
+def score_spo2(spo2: int | None, hypercapnic: bool = False, on_o2: bool = False) -> int:
     """Score SpO2 per NEWS2 (RCP 2017, corrected Scale-2 bands per AUDIT-002).
 
     Scale 1 (non-hypercapnic): ≥96=0, 94-95=1, 92-93=2, ≤91=3
-    Scale 2 (hypercapnic):     ≥93=0, 88-92=1, 86-87=2, 84-85=3, ≤83=3
+
+    Scale 2 (hypercapnic, ON O2 — targeting 88-92%):
+        ≥97=3, 95-96=2, 93-94=1, ≤92=0
+
+    Scale 2 (hypercapnic, OFF O2):
+        ≥93=0, 88-92=1, 86-87=2, 84-85=3, ≤83=3
     """
     if spo2 is None:
         return 0
 
     if hypercapnic:
+        if on_o2:
+            # Hypercapnic ON O2: aiming for 88-92%, higher SpO2 = overshoot risk
+            return _score_numeric(
+                spo2,
+                [
+                    (97, None, 3),
+                    (95, 96, 2),
+                    (93, 94, 1),
+                    (None, 92, 0),
+                ],
+            )
+        # Hypercapnic OFF O2: standard Scale 2 bands
         return _score_numeric(
             spo2,
             [
@@ -124,6 +145,7 @@ def score_spo2(spo2: int | None, hypercapnic: bool = False) -> int:
             ],
         )
 
+    # Scale 1 (non-hypercapnic)
     return _score_numeric(
         spo2,
         [
@@ -221,11 +243,14 @@ def calculate_news2(
     Args:
         respiratory_rate: Breaths per minute.
         spo2: Oxygen saturation (%).
-        hypercapnic: Whether the patient has hypercapnic respiratory failure
-                     (changes SpO2 scale from Scale 1 to Scale 2).
+        hypercapnic: Whether the patient has confirmed hypercapnic respiratory
+                     failure. Scale 2 (target SpO₂ 88–92%) is used ONLY when
+                     this is True. Being on supplemental O₂ alone does NOT
+                     trigger Scale 2 (CORRECTED per RCP 2017, AUDIT-002).
         supplemental_o2: Whether the patient is on supplemental oxygen.
-                         If True, Scale 2 is used automatically for SpO₂
-                         (AUDIT-002 integration, CLINICALLY RATIFIED per RAT-NEWS2-SCALE-2).
+                         Adds +2 to the score. Also modifies Scale 2 SpO₂
+                         bands when the patient is hypercapnic (on_o2=True
+                         changes thresholds to target 88-92%).
         systolic_bp: Systolic blood pressure (mmHg).
         heart_rate: Heart rate (bpm).
         avpu: Consciousness level (A=Alert, C/V/P/U=altered).
@@ -234,12 +259,16 @@ def calculate_news2(
     Returns:
         NEWS2Result with total score and component breakdown.
     """
-    # AUDIT-002 (CLINICALLY RATIFIED): if patient is on supplemental O₂, use Scale 2 automatically
-    use_scale2 = hypercapnic or bool(supplemental_o2)
+    # AUDIT-002 (CORRECTED per RCP 2017): Scale 2 is ONLY for confirmed
+    # hypercapnic respiratory failure (target SpO₂ 88–92%). Being on
+    # supplemental O₂ alone does NOT trigger Scale 2 — using Scale 2 on
+    # non-hypercapnic patients would under-score deterioration (e.g. SpO₂ 93%
+    # = score 0 on Scale 2, but score 2 on Scale 1, masking clinical decline).
+    use_scale2 = hypercapnic
 
     components = NEWS2Components(
         respiratory_rate=score_respiratory_rate(respiratory_rate),
-        spo2=score_spo2(spo2, hypercapnic=use_scale2),
+        spo2=score_spo2(spo2, hypercapnic=use_scale2, on_o2=bool(supplemental_o2)),
         supplemental_o2=score_supplemental_o2(supplemental_o2),
         systolic_bp=score_systolic_bp(systolic_bp),
         heart_rate=score_heart_rate(heart_rate),
