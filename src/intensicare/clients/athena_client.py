@@ -124,18 +124,15 @@ class AthenaClient:
             AthenaThrottledError: Quando throttling persiste após retries.
             AthenaQueryTimeoutError: Quando a query excede o timeout.
         """
-        # Prepara a query com parâmetros (substituição simples de ?)
-        final_query = query
-        if parameters:
-            for param in parameters:
-                final_query = final_query.replace("?", f"'{param}'", 1)
-
+        # Passa a query com placeholders ? diretamente para o Athena;
+        # os ExecutionParameters são enviados como parâmetros posicionais
+        # (não fazemos substituição client-side — F-INT-001).
         db = database or self.database
         wg = workgroup or self.workgroup
 
         # Inicia a execução com retry em throttling
         query_execution_id = await self._start_query_execution(
-            final_query, db, wg
+            query, db, wg, parameters
         )
 
         # Aguarda conclusão com timeout
@@ -172,7 +169,8 @@ class AthenaClient:
     # ------------------------------------------------------------------
 
     async def _start_query_execution(
-        self, query: str, database: str, workgroup: str
+        self, query: str, database: str, workgroup: str,
+        parameters: list[str] | None = None,
     ) -> str:
         """Inicia a execução de uma query com retry em throttling."""
         last_exception: Exception | None = None
@@ -185,6 +183,8 @@ class AthenaClient:
                     "QueryExecutionContext": {"Database": database},
                     "WorkGroup": workgroup,
                 }
+                if parameters:
+                    kwargs["ExecutionParameters"] = parameters
                 if self.output_location:
                     kwargs["ResultConfiguration"] = {
                         "OutputLocation": self.output_location

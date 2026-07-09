@@ -136,22 +136,43 @@ class TestDomainColumns:
 
 class TestBuildIncrementalQuery:
     def test_full_load_when_no_watermark(self):
-        query = build_incremental_query("sepsis", "tenant-1", None)
-        assert "WHERE tenant_id = 'tenant-1'" in query
-        assert "LIMIT 10000" in query
-        # No watermark filter on full load
-        assert ">" not in query.split("WHERE")[-1] if ">" in query.split("WHERE")[-1] else True
+        query, params = build_incremental_query("sepsis", "tenant-1", None)
+        assert "WHERE tenant_id = ?" in query
+        assert "LIMIT ?" in query
+        assert params == ["tenant-1", "10000"]
 
     def test_incremental_with_watermark(self):
-        query = build_incremental_query(
+        query, params = build_incremental_query(
             "sepsis", "tenant-1", "2026-01-01T00:00:00",
         )
-        assert "ingested_at > TIMESTAMP '2026-01-01T00:00:00'" in query
-        assert "tenant_id = 'tenant-1'" in query
+        assert "ingested_at > TIMESTAMP ?" in query
+        assert "tenant_id = ?" in query
+        assert params == ["tenant-1", "2026-01-01T00:00:00", "10000"]
 
     def test_custom_limit(self):
-        query = build_incremental_query("aki", "t1", None, limit=500)
-        assert "LIMIT 500" in query
+        query, params = build_incremental_query("aki", "t1", None, limit=500)
+        assert "LIMIT ?" in query
+        assert params == ["t1", "500"]
+
+    def test_sql_injection_is_neutralized(self):
+        """F-INT-001: tenant_id malicioso é tratado como literal, não executado."""
+        malicious_tenant = "'; DROP TABLE gold_vital_sign; --"
+        query, params = build_incremental_query("sepsis", malicious_tenant, None)
+        # O tenant_id NÃO deve aparecer no SQL — deve ser um placeholder ?
+        assert malicious_tenant not in query
+        assert "WHERE tenant_id = ?" in query
+        # O tenant_id malicioso está nos parâmetros como valor literal
+        assert params[0] == malicious_tenant
+
+    def test_invalid_table_raises_error(self):
+        """F-INT-001: Nomes de tabela devem ser validados contra allowlist."""
+        with pytest.raises(ValueError, match="not in allowlist"):
+            build_incremental_query("sepsis", "t1", None, table="malicious_table")
+
+    def test_invalid_watermark_column_raises_error(self):
+        """F-INT-001: Colunas de watermark devem ser validadas contra allowlist."""
+        with pytest.raises(ValueError, match="not in allowlist"):
+            build_incremental_query("sepsis", "t1", None, watermark_column="1; DROP TABLE")
 
 
 # ---------------------------------------------------------------------------
@@ -161,15 +182,18 @@ class TestBuildIncrementalQuery:
 
 class TestBuildDomainQuery:
     def test_selects_domain_columns(self):
-        query = build_domain_query("sepsis", "tenant-1", None)
+        query, params = build_domain_query("sepsis", "tenant-1", None)
         assert "SELECT" in query
         assert "patient_id" in query
+        assert "tenant_id = ?" in query
+        assert params == ["tenant-1", "10000"]
 
     def test_includes_watermark_filter(self):
-        query = build_domain_query(
+        query, params = build_domain_query(
             "hemodynamics", "t1", "2026-06-01T00:00:00",
         )
-        assert "ingested_at > TIMESTAMP" in query
+        assert "ingested_at > TIMESTAMP ?" in query
+        assert params == ["t1", "2026-06-01T00:00:00", "10000"]
 
 
 # ---------------------------------------------------------------------------

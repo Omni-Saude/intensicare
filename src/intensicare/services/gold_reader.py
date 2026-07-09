@@ -218,15 +218,15 @@ class AthenaPoller:
             domain, tenant_id, last_watermark or "(full load)",
         )
 
-        # 3. Query Athena
-        query = build_domain_query(
+        # 3. Query Athena (parametrizada — F-INT-001)
+        query, params = build_domain_query(
             domain, tenant_id, last_watermark, limit=limit
         )
-        logger.debug("Athena query: %s", query)
+        logger.debug("Athena query: %s | params: %s", query, params)
 
         try:
             result: AthenaQueryResult = await self._athena.execute_query(
-                query, workgroup=f"{tenant_id}-{domain}"
+                query, parameters=params, workgroup=f"{tenant_id}-{domain}"
             )
         except Exception as exc:
             logger.error("Athena query falhou: domain=%s tenant=%s error=%s",

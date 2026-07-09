@@ -37,6 +37,42 @@ DOMAIN_WATERMARK_COLUMN: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
+# Allowlists para defesa em profundidade (F-INT-001)
+# ---------------------------------------------------------------------------
+
+_ALLOWED_TABLES: frozenset[str] = frozenset({
+    "gold_vital_sign",
+    "gold_lab_result",
+    "gold_medication",
+})
+
+_ALLOWED_WATERMARK_COLUMNS: frozenset[str] = frozenset({
+    "ingested_at",
+    "administered_at",
+})
+
+
+def _validate_table(table_name: str) -> str:
+    """Valida que o nome da tabela está na allowlist (defesa em profundidade)."""
+    if table_name not in _ALLOWED_TABLES:
+        raise ValueError(
+            f"Table name '{table_name}' not in allowlist. "
+            f"Allowed: {sorted(_ALLOWED_TABLES)}"
+        )
+    return table_name
+
+
+def _validate_watermark_column(column_name: str) -> str:
+    """Valida que a coluna de watermark está na allowlist."""
+    if column_name not in _ALLOWED_WATERMARK_COLUMNS:
+        raise ValueError(
+            f"Watermark column '{column_name}' not in allowlist. "
+            f"Allowed: {sorted(_ALLOWED_WATERMARK_COLUMNS)}"
+        )
+    return column_name
+
+
+# ---------------------------------------------------------------------------
 # Definição de schemas das tabelas Gold
 # ---------------------------------------------------------------------------
 
@@ -130,8 +166,8 @@ def build_incremental_query(
     table: str | None = None,
     watermark_column: str | None = None,
     limit: int = 10_000,
-) -> str:
-    """Constrói uma query SQL incremental para um domínio.
+) -> tuple[str, list[str]]:
+    """Constrói uma query SQL incremental parametrizada para um domínio.
 
     Args:
         domain: Domínio clínico (ex: ``"sepsis"``, ``"aki"``).
@@ -143,27 +179,33 @@ def build_incremental_query(
         limit: Número máximo de linhas por poll.
 
     Returns:
-        String SQL pronta para execução no Athena.
+        Tuple ``(query, parameters)`` onde ``query`` é a string SQL com
+        placeholders ``?`` e ``parameters`` é a lista de valores para
+        ``ExecutionParameters`` do Athena.
     """
-    tbl = table or _domain_to_table(domain)
-    wm_col = watermark_column or DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at")
+    tbl = _validate_table(table or _domain_to_table(domain))
+    wm_col = _validate_watermark_column(
+        watermark_column or DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at")
+    )
+
+    params: list[str] = [tenant_id]
 
     if last_watermark:
-        where_clause = (
-            f"WHERE tenant_id = '{tenant_id}' "
-            f"AND {wm_col} > TIMESTAMP '{last_watermark}'"
-        )
+        where_clause = f"WHERE tenant_id = ? AND {wm_col} > TIMESTAMP ?"
+        params.append(last_watermark)
     else:
-        where_clause = f"WHERE tenant_id = '{tenant_id}'"
+        where_clause = "WHERE tenant_id = ?"
+
+    params.append(str(limit))
 
     query = f"""
         SELECT *
         FROM {tbl}
         {where_clause}
         ORDER BY {wm_col} ASC
-        LIMIT {limit}
+        LIMIT ?
     """
-    return query.strip()
+    return query.strip(), params
 
 
 def build_domain_query(
@@ -172,32 +214,36 @@ def build_domain_query(
     last_watermark: str | None,
     *,
     limit: int = 10_000,
-) -> str:
-    """Constrói query específica do domínio com os parâmetros relevantes.
+) -> tuple[str, list[str]]:
+    """Constrói query parametrizada específica do domínio com os parâmetros relevantes.
 
     Cada domínio seleciona apenas as colunas e parâmetros relevantes para
     os algoritmos clínicos daquele domínio, reduzindo tráfego.
     """
-    tbl = _domain_to_table(domain)
+    tbl = _validate_table(_domain_to_table(domain))
     columns = _domain_columns(domain)
-    wm_col = DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at")
+    wm_col = _validate_watermark_column(
+        DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at")
+    )
+
+    params: list[str] = [tenant_id]
 
     if last_watermark:
-        where_clause = (
-            f"WHERE tenant_id = '{tenant_id}' "
-            f"AND {wm_col} > TIMESTAMP '{last_watermark}'"
-        )
+        where_clause = f"WHERE tenant_id = ? AND {wm_col} > TIMESTAMP ?"
+        params.append(last_watermark)
     else:
-        where_clause = f"WHERE tenant_id = '{tenant_id}'"
+        where_clause = "WHERE tenant_id = ?"
+
+    params.append(str(limit))
 
     query = f"""
         SELECT {', '.join(columns)}
         FROM {tbl}
         {where_clause}
         ORDER BY {wm_col} ASC
-        LIMIT {limit}
+        LIMIT ?
     """
-    return query.strip()
+    return query.strip(), params
 
 
 # ---------------------------------------------------------------------------
