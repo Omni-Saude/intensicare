@@ -5,8 +5,8 @@ with definition_version + content_hash stamping per ADR-0020/ADR-021.
 
 Pipeline:  YAML definitions -> Compiler -> Predicate AST -> Evaluator -> Firing decisions
 
-Includes in-memory suppression tracking (cooldown, rate limit) as a stopgap
-until Redis integration (M4).
+Suppression tracking (cooldown, rate limit) is Redis-backed with an in-memory
+fallback when Redis is unavailable.
 
 Reference: _work/alerts/schema/pathway.schema.json
 """
@@ -19,6 +19,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+import redis.asyncio as aioredis
 
 from intensicare.services.trilhas_compiler import (
     CompiledPredicate,
@@ -76,26 +78,59 @@ class AlertFiring:
 
 
 # ---------------------------------------------------------------------------
-# Suppression Tracker (in-memory — Redis replacement in M4)
+# Suppression Tracker (Redis-backed with in-memory fallback)
 # ---------------------------------------------------------------------------
 
 
 class SuppressionTracker:
-    """Thread-safe in-memory cooldown and rate-limit tracker.
+    """Redis-backed cooldown and rate-limit tracker with in-memory fallback.
 
     Tracks per (mpi_id, pathway_id, criterion_id):
-      - cooldown: last fire timestamp
-      - rate limit: fire timestamps in the last hour
+      - cooldown: Redis key with TTL (or in-memory timestamp)
+      - rate limit: Redis counter with 1h TTL (or in-memory timestamp list)
+
+    When Redis is available, operations are atomic and shared across workers.
+    Falls back to thread-safe in-memory dicts when Redis is unreachable.
     """
 
+    COOLDOWN_PREFIX = "suppress:cooldown"
+    RATE_PREFIX = "suppress:rate"
+    RATE_TTL_SECONDS = 3600  # 1 hour
+
     def __init__(self) -> None:
+        # Redis client — lazily initialised
+        self._redis: aioredis.Redis | None = None
+        self._redis_attempted: bool = False
+        # In-memory fallback
         self._lock = threading.Lock()
-        # {(mpi_id, pathway_id, criterion_id): datetime of last fire}
         self._last_fired: dict[tuple[str, int, str], datetime] = {}
-        # {(mpi_id, pathway_id): list[datetime] of fires in last hour}
         self._hourly_fires: dict[tuple[str, int], list[datetime]] = defaultdict(list)
 
-    def check_and_record(
+    def _get_redis(self) -> aioredis.Redis | None:
+        """Lazily get Redis client. Returns None if unavailable."""
+        if self._redis_attempted:
+            return self._redis
+        self._redis_attempted = True
+        try:
+            from intensicare.core.redis import get_redis
+
+            self._redis = get_redis()
+            logger.debug("SuppressionTracker: using Redis backend")
+        except Exception:
+            logger.warning(
+                "SuppressionTracker: Redis unavailable, falling back to in-memory"
+            )
+        return self._redis
+
+    @staticmethod
+    def _cooldown_key(mpi_id: str, pathway_id: int, criterion_id: str) -> str:
+        return f"{SuppressionTracker.COOLDOWN_PREFIX}:{mpi_id}:{pathway_id}:{criterion_id}"
+
+    @staticmethod
+    def _rate_key(mpi_id: str, pathway_id: int, criterion_id: str) -> str:
+        return f"{SuppressionTracker.RATE_PREFIX}:{mpi_id}:{pathway_id}:{criterion_id}"
+
+    async def check_and_record(
         self,
         mpi_id: str,
         pathway_id: int,
@@ -115,6 +150,70 @@ class SuppressionTracker:
         Returns:
             Tuple of (allowed: bool, reason: str).
         """
+        r = self._get_redis()
+
+        if r is not None:
+            return await self._check_and_record_redis(
+                mpi_id, pathway_id, criterion_id,
+                cooldown_minutes, rate_limit_per_hour,
+                r,
+            )
+        return self._check_and_record_memory(
+            mpi_id, pathway_id, criterion_id,
+            cooldown_minutes, rate_limit_per_hour,
+        )
+
+    async def _check_and_record_redis(
+        self,
+        mpi_id: str,
+        pathway_id: int,
+        criterion_id: str,
+        cooldown_minutes: int,
+        rate_limit_per_hour: int,
+        r: aioredis.Redis,
+    ) -> tuple[bool, str]:
+        """Redis-backed suppression check."""
+        cooldown_key = self._cooldown_key(mpi_id, pathway_id, criterion_id)
+        rate_key = self._rate_key(mpi_id, pathway_id, criterion_id)
+
+        # ── Cooldown check ──
+        if cooldown_minutes > 0:
+            exists: int = await r.exists(cooldown_key)
+            if exists:
+                ttl: int = await r.ttl(cooldown_key)
+                remaining = ttl if ttl > 0 else 0
+                return False, (
+                    f"Cooldown: {cooldown_minutes}min not elapsed "
+                    f"({remaining}s remaining)"
+                )
+
+        # ── Rate limit check ──
+        if rate_limit_per_hour > 0:
+            count: int = await r.incr(rate_key)
+            if count == 1:
+                await r.expire(rate_key, self.RATE_TTL_SECONDS)
+            if count > rate_limit_per_hour:
+                return False, (
+                    f"Rate limit: {rate_limit_per_hour}/hour exceeded "
+                    f"({count - 1} fires in last hour)"
+                )
+
+        # ── Record cooldown ──
+        if cooldown_minutes > 0:
+            cooldown_seconds = cooldown_minutes * 60
+            await r.setex(cooldown_key, cooldown_seconds, "1")
+
+        return True, ""
+
+    def _check_and_record_memory(
+        self,
+        mpi_id: str,
+        pathway_id: int,
+        criterion_id: str,
+        cooldown_minutes: int,
+        rate_limit_per_hour: int,
+    ) -> tuple[bool, str]:
+        """In-memory fallback suppression check (thread-safe)."""
         now = datetime.now(timezone.utc)
 
         with self._lock:
@@ -123,7 +222,9 @@ class SuppressionTracker:
             if cooldown_minutes > 0 and key in self._last_fired:
                 elapsed = now - self._last_fired[key]
                 if elapsed < timedelta(minutes=cooldown_minutes):
-                    remaining = int((timedelta(minutes=cooldown_minutes) - elapsed).total_seconds())
+                    remaining = int(
+                        (timedelta(minutes=cooldown_minutes) - elapsed).total_seconds()
+                    )
                     return False, (
                         f"Cooldown: {cooldown_minutes}min not elapsed "
                         f"({remaining}s remaining)"
@@ -151,11 +252,34 @@ class SuppressionTracker:
 
             return True, ""
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """Reset all tracking state (useful for tests)."""
-        with self._lock:
-            self._last_fired.clear()
-            self._hourly_fires.clear()
+        r = self._get_redis()
+        if r is not None:
+            # Delete all keys with our prefixes
+            # Use SCAN to avoid blocking Redis with KEYS in production
+            cursor = 0
+            while True:
+                cursor, keys = await r.scan(
+                    cursor, match=f"{self.COOLDOWN_PREFIX}:*", count=100,
+                )
+                if keys:
+                    await r.delete(*keys)
+                if cursor == 0:
+                    break
+            cursor = 0
+            while True:
+                cursor, keys = await r.scan(
+                    cursor, match=f"{self.RATE_PREFIX}:*", count=100,
+                )
+                if keys:
+                    await r.delete(*keys)
+                if cursor == 0:
+                    break
+        else:
+            with self._lock:
+                self._last_fired.clear()
+                self._hourly_fires.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +304,7 @@ class TrilhasEvaluator:
     Usage::
 
         evaluator = TrilhasEvaluator()
-        firings = evaluator.evaluate_pathway(pathway_def, mpi_id, patient_data)
+        firings = await evaluator.evaluate_pathway(pathway_def, mpi_id, patient_data)
         alert = evaluator.build_alert(mpi_id, pathway_def, firings)
     """
 
@@ -195,7 +319,7 @@ class TrilhasEvaluator:
 
     # ── Public API ───────────────────────────────────────────────────────
 
-    def evaluate_pathway(
+    async def evaluate_pathway(
         self,
         pathway_def: dict[str, Any],
         mpi_id: str,
@@ -284,7 +408,7 @@ class TrilhasEvaluator:
 
             # Apply suppression
             if apply_suppression:
-                allowed, reason = self._suppression.check_and_record(
+                allowed, reason = await self._suppression.check_and_record(
                     mpi_id=mpi_id,
                     pathway_id=pathway_id,
                     criterion_id=criterion_id,
@@ -362,7 +486,7 @@ class TrilhasEvaluator:
             suppressed_count=suppressed_count,
         )
 
-    def evaluate_and_build(
+    async def evaluate_and_build(
         self,
         pathway_def: dict[str, Any],
         mpi_id: str,
@@ -381,11 +505,11 @@ class TrilhasEvaluator:
         Returns:
             AlertFiring with all firings and aggregated metadata.
         """
-        firings = self.evaluate_pathway(
+        firings = await self.evaluate_pathway(
             pathway_def, mpi_id, patient_data, apply_suppression=apply_suppression,
         )
         return self.build_alert(mpi_id, pathway_def, firings)
 
-    def reset_suppression(self) -> None:
-        """Reset in-memory suppression state (useful for tests)."""
-        self._suppression.reset()
+    async def reset_suppression(self) -> None:
+        """Reset suppression state (useful for tests)."""
+        await self._suppression.reset()
