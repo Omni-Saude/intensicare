@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,8 +26,8 @@ class VitalSignCreate(BaseModel):
         examples=["MPI-00012345"],
     )
     recorded_at: datetime = Field(
-        ...,
-        description="Momento da coleta do sinal vital (ISO 8601 com timezone)",
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Momento da coleta do sinal vital (ISO 8601 com timezone; defaults to now)",
     )
     heart_rate: int | None = Field(None, ge=0, le=300, description="Frequência cardíaca (bpm)")
     systolic_bp: int | None = Field(None, ge=0, le=350, description="Pressão sistólica (mmHg)")

@@ -93,22 +93,22 @@ def _build_bundle_response(
     response_model=ProphylaxisBundlesListResponse,
 )
 async def list_prophylaxis_bundles(
-    mpi_id: str = Query(..., description="Patient MPI ID"),
+    mpi_id: str | None = Query(None, description="Patient MPI ID (optional; returns all bundles when omitted)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ProphylaxisBundlesListResponse:
-    """List all 5 prophylaxis bundle assessments for a patient.
+    """List all 5 prophylaxis bundle assessments.
 
-    Returns existing assessments from the database, falling back to
-    computed defaults (all pending, score 0) for bundles that have not
-    been assessed yet.
+    When mpi_id is provided, returns assessments for a specific patient.
+    When omitted, returns all assessments across all patients.
+    Falls back to computed defaults (all pending, score 0) for bundles
+    that have not been assessed yet.
     """
-    # Query existing assessments for this patient
-    result = await db.execute(
-        select(ProphylaxisAssessment).where(
-            ProphylaxisAssessment.mpi_id == mpi_id,
-        ),
-    )
+    # Query existing assessments — scoped to patient if mpi_id provided
+    query = select(ProphylaxisAssessment)
+    if mpi_id is not None:
+        query = query.where(ProphylaxisAssessment.mpi_id == mpi_id)
+    result = await db.execute(query)
     existing: dict[str, ProphylaxisAssessment] = {
         row.bundle_id: row for row in result.scalars().all()
     }

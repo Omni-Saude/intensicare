@@ -96,6 +96,38 @@ class VentilationHistoryResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 _SAMPLE_PATIENTS: dict[str, dict[str, Any]] = {
+    "MPI-001": {
+        "id": 3,
+        "mpi_id": "MPI-001",
+        "modo_ventilatorio": "PCV",
+        "fio2": 0.35,
+        "peep": 8.0,
+        "volume_corrente": 450.0,
+        "frequencia_respiratoria": 16,
+        "pplat": 20.0,
+        "pao2": 85.0,
+        "saturacao_o2": 96,
+        "vc_por_kg_pbw": 6.5,
+        "fr_espontanea": 2,
+        "collected_at": "2026-07-07T10:00:00+00:00",
+        "source": "prontuario",
+    },
+    "LEITO-01": {
+        "id": 4,
+        "mpi_id": "LEITO-01",
+        "modo_ventilatorio": "VCV",
+        "fio2": 0.45,
+        "peep": 10.0,
+        "volume_corrente": 400.0,
+        "frequencia_respiratoria": 20,
+        "pplat": 24.0,
+        "pao2": 70.0,
+        "saturacao_o2": 92,
+        "vc_por_kg_pbw": 6.0,
+        "fr_espontanea": 3,
+        "collected_at": "2026-07-07T09:45:00+00:00",
+        "source": "prontuario",
+    },
     "PAT-0042": {
         "id": 1,
         "mpi_id": "PAT-0042",

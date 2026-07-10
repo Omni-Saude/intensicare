@@ -208,6 +208,27 @@ async def create_patient_prescription(
 
 
 # ---------------------------------------------------------------------------
+# GET /prescriptions/state-machine — State machine definition
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/prescriptions/state-machine",
+    response_model=dict,
+)
+async def get_state_machine_definition(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the prescription state machine definition (ADR-027).
+
+    Exposes all valid states, allowed transitions, required clinical
+    justifications, and terminal states for the prescription lifecycle.
+    """
+    sm = get_state_machine()
+    return sm.to_dict()
+
+
+# ---------------------------------------------------------------------------
 # GET /prescriptions/{prescription_id} — Get a single prescription
 # ---------------------------------------------------------------------------
 
@@ -384,24 +405,3 @@ async def transition_prescription_state(
         )
 
     return _to_prescription_response(persisted_rx)
-
-
-# ---------------------------------------------------------------------------
-# GET /prescriptions/state-machine — State machine definition
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/prescriptions/state-machine",
-    response_model=dict,
-)
-async def get_state_machine_definition(
-    current_user: User = Depends(get_current_user),
-) -> dict:
-    """Return the prescription state machine definition (ADR-027).
-
-    Exposes all valid states, allowed transitions, required clinical
-    justifications, and terminal states for the prescription lifecycle.
-    """
-    sm = get_state_machine()
-    return sm.to_dict()

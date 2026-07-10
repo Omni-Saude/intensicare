@@ -56,3 +56,27 @@ async def patient_detail(
             detail=f"Patient not found: {mpi_id}",
         )
     return result
+
+
+@router.get(
+    "/patients/{mpi_id}",
+    response_model=PatientDetailResponse,
+    summary="Patient detail (alias without /detail suffix)",
+    description=(
+        "Alias for /patients/{mpi_id}/detail. "
+        "Returns detailed patient data with vitals history (24h), score history, and active alerts."
+    ),
+)
+async def patient_detail_alias(
+    mpi_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PatientDetailResponse:
+    """Get detailed patient information — alias for frontend compatibility."""
+    result = await get_patient_detail(db=db, mpi_id=mpi_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Patient not found: {mpi_id}",
+        )
+    return result
