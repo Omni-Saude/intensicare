@@ -9,6 +9,7 @@ from .alert_routing import router as alert_routing_router
 from .alerts import router as alerts_router
 from .antimicrobial import router as antimicrobial_router
 from .auth import router as auth_router
+from .auth import api_v1_auth_router
 from .dashboard import router as dashboard_router
 from .deterioration import router as deterioration_router
 from .documentacao import router as documentacao_router
@@ -34,6 +35,7 @@ __all__ = [
     "alerts_router",
     "antimicrobial_router",
     "auth_router",
+    "api_v1_auth_router",
     "dashboard_router",
     "deterioration_router",
     "documentacao_router",

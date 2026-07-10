@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +51,8 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"  # noqa: S105  # OAuth2 token-type label, not a credential
+    token_type: str = "bearer"
+    user: UserResponse
 
 
 class UserResponse(BaseModel):
@@ -69,9 +72,55 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
+def _user_to_response(user: User) -> UserResponse:
+    """Convert a User model instance to a UserResponse."""
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        display_name=user.display_name,
+        is_admin=user.is_admin,
+        is_active=user.is_active,
+    )
+
+
+def _build_login_response(
+    user: User, access_token: str, refresh_token: str
+) -> JSONResponse:
+    """Build a JSONResponse with tokens, user info, and dual cookies."""
+    user_resp = _user_to_response(user)
+    response = JSONResponse(
+        content=TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=user_resp,
+        ).model_dump(),
+    )
+    # Cookie for HttpOnly access (legacy name)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=1800,
+        path="/",
+    )
+    # Cookie for frontend middleware (expects 'token')
+    response.set_cookie(
+        key="token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=1800,
+        path="/",
+    )
+    return response
+
+
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
-    # --- Account lockout check (F-SEC-009) ---
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     redis_client = get_redis()
     lockout_key = f"lockout:failed:{request.username}"
     failed_attempts = await redis_client.get(lockout_key)
@@ -85,9 +134,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     user = result.scalar_one_or_none()
 
     if user is None or not verify_password(request.password, user.hashed_password):
-        # Increment failed count with 15-minute expiry
         await redis_client.incr(lockout_key)
-        await redis_client.expire(lockout_key, 900)  # 15 minutes
+        await redis_client.expire(lockout_key, 900)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
@@ -97,13 +145,73 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is deactivated"
         )
 
-    # Successful login — reset failed attempt counter
     await redis_client.delete(lockout_key)
 
-    token_data = {"sub": user.username, "user_id": user.id}
-    return TokenResponse(
-        access_token=create_access_token(token_data), refresh_token=create_refresh_token(token_data)
-    )
+    token_data = {
+        "sub": user.username,
+        "user_id": user.id,
+        "is_admin": user.is_admin,
+        "role": user.role,
+        "name": user.display_name or user.username,
+        "email": user.email,
+    }
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    return _build_login_response(user, access_token, refresh_token)
+
+
+# ---------------------------------------------------------------------------
+# Compat router: /api/v1/auth/login accepting form-urlencoded
+# (frontend-v3 sends Content-Type: application/x-www-form-urlencoded)
+# ---------------------------------------------------------------------------
+api_v1_auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+@api_v1_auth_router.post("/login", response_model=TokenResponse)
+async def login_form(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    """Login via form-urlencoded (compatibilidade com frontend-v3)."""
+    redis_client = get_redis()
+    lockout_key = f"lockout:failed:{form_data.username}"
+    failed_attempts = await redis_client.get(lockout_key)
+    if failed_attempts and int(failed_attempts) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account temporarily locked due to too many failed attempts. Please try again in 15 minutes.",
+        )
+
+    result = await db.execute(select(User).where(User.username == form_data.username))
+    user = result.scalar_one_or_none()
+
+    if user is None or not verify_password(form_data.password, user.hashed_password):
+        await redis_client.incr(lockout_key)
+        await redis_client.expire(lockout_key, 900)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is deactivated"
+        )
+
+    await redis_client.delete(lockout_key)
+
+    token_data = {
+        "sub": user.username,
+        "user_id": user.id,
+        "is_admin": user.is_admin,
+        "role": user.role,
+        "name": user.display_name or user.username,
+        "email": user.email,
+    }
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    return _build_login_response(user, access_token, refresh_token)
 
 
 @router.post(
@@ -139,7 +247,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 @router.post("/logout")
 async def logout(
     request: Request,
-    current_user: User = Depends(get_current_user),  # noqa: ARG001  # auth enforced via dependency; identity unused
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     """Log out by blacklisting the current access token in Redis."""
     auth_header = request.headers.get("Authorization", "")

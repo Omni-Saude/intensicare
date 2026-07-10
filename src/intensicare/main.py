@@ -20,6 +20,7 @@ from intensicare.api.v1 import (
     alerts_router,
     antimicrobial_router,
     auth_router,
+    api_v1_auth_router,
     dashboard_router,
     deterioration_router,
     documentacao_router,
@@ -123,7 +124,8 @@ def create_app() -> FastAPI:
     # New domain routers (antimicrobial, prophylaxis, alert-routing, events)
     # carry their own prefix internally.
     app.include_router(auth_router)
-    app.include_router(admin_router)
+    app.include_router(api_v1_auth_router)
+    app.include_router(admin_router, prefix="/api/v1")
     app.include_router(alerts_router)
     app.include_router(antimicrobial_router)
     app.include_router(dashboard_router)
