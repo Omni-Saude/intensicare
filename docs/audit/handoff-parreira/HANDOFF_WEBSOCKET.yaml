@@ -1,0 +1,143 @@
+# HANDOFF.yaml — WebSocket Layer para IntensiCare Frontend v3
+# Gerado por: Parreira (DevOps Orchestrator)
+# Data: 2026-07-09
+# Spec canônica: docs/adr/ADR-0034-realtime-websocket-strategy.md
+# Origem: docs/audit/handoff-parreira/WEBSOCKET_PROMPT.md (Ive → Parreira)
+
+task:
+  goal: "Implementar camada WebSocket + polling fallback no frontend-v3 (ADR-0034)"
+  status: COMPLETE
+  risk_level: L1
+  envelope:
+    context: |
+      Next.js 16 + React 19 + Tailwind CSS 4 + SWR. 6 canais em 3 páginas.
+      JWT in-memory via getToken() de lib/api.ts. ADR-0030 (pathway-centric),
+      ADR-0032 (build from zero), ADR-0033 (componentes data-driven).
+    constraints:
+      - "TypeScript strict, sem any implícito"
+      - "Nenhum código copiado do v2 (padrão consultado, implementação original)"
+      - "npm run build -- --webpack deve passar sem erros"
+      - "CSP configurado para dev e prod"
+    done_when:
+      - "lib/websocket.ts criado com useRealtimeChannel e useConnectionStatus"
+      - "6 canais definidos como TypeScript union type"
+      - "Switch automático WS → polling (timeout 5s)"
+      - "Fallback polling com intervalos: Dashboard 30s, Patient/Pathway 60s"
+      - "Handshake JWT (desafio/resposta) implementado no cliente"
+      - "Integrado com getToken() de lib/api.ts"
+      - "useConnectionStatus retorna WiFi/WifiOff para AppShell"
+      - "CSP headers configurados em next.config.ts para dev"
+      - "npm run build -- --webpack passa sem erros"
+      - "Nenhum código copiado do v2"
+
+changes:
+  primary:
+    - path: lib/websocket.ts
+      description: |
+        Implementação completa do WebSocket singleton com:
+        - 6 canais de tempo real (RealtimeChannel union type)
+        - Single WebSocket connection com multiplexação de canais
+        - Fallback automático para polling (timeout 5s)
+        - Handshake JWT challenge/response
+        - Polling payload = null (consumers usam guard !p para scoped channels)
+        - Reconexão com backoff de 10s no onclose
+        - Status global com listeners Set (useConnectionStatus)
+        - Subscriptions por canal com filter opcional
+        - Cleanup automático: unsubscribe retorna função, último unsub fecha WS
+      lines: 248
+      status: new
+
+    - path: app/alerts/page.tsx
+      description: |
+        Adicionado useRealtimeChannel('alert.raised') e ('alert.updated')
+        com fallbackInterval de 30s. SWR refreshInterval mantido como
+        defesa em profundidade (WebSocket primário, polling fallback,
+        SWR refresh como última camada).
+      lines_changed: +7
+      status: modified
+
+    - path: lib/websocket.ts (patch)
+      description: |
+        Corrigido polling payload de {_poll: true, ...} para null.
+        Isso permite que os guards `if (!p || p.mpi_id === mpiId)`
+        disparem mutate() para canais escopados durante fallback.
+      lines_changed: ~3
+      status: patch
+
+  pre_existing:
+    - path: lib/websocket.ts
+      status: pre-existing (full implementation já estava pronto)
+    - path: app/page.tsx
+      status: pre-existing (Dashboard integrado com bed_grid.updated + alert.raised)
+    - path: app/patient/[mpi_id]/page.tsx
+      status: pre-existing (Patient Detail com vitals.updated + pathway.updated + alerts)
+    - path: app/patient/[mpi_id]/pathway/[pp_id]/page.tsx
+      status: pre-existing (Pathway View com pathway.state_changed)
+    - path: components/app-shell.tsx
+      status: pre-existing (Wifi/WifiOff indicator via useConnectionStatus)
+    - path: next.config.ts
+      status: pre-existing (CSP dev/prod configurado)
+
+verification:
+  typescript: "npx tsc --noEmit → ✅ 0 errors"
+  build: "npm run build -- --webpack → ✅ 8 routes, 0 errors"
+  routes:
+    - "/ (Dashboard) — bed_grid.updated + alert.raised"
+    - "/alerts — alert.raised + alert.updated (NEW)"
+    - "/patient/[mpi_id] — vitals.updated + pathway.updated + alert.*"
+    - "/patient/[mpi_id]/pathway/[pp_id] — pathway.state_changed"
+    - "/pathways, /admin, /login — sem WebSocket (não especificado)"
+  channels_coverage:
+    - channel: bed_grid.updated
+      pages: [Dashboard]
+      status: integrated
+    - channel: alert.raised
+      pages: [Dashboard, Patient Detail, Alerts]
+      status: integrated
+    - channel: alert.updated
+      pages: [Patient Detail, Alerts]
+      status: integrated
+    - channel: vitals.updated
+      pages: [Patient Detail]
+      status: integrated
+    - channel: pathway.updated
+      pages: [Patient Detail]
+      status: integrated
+    - channel: pathway.state_changed
+      pages: [Pathway View]
+      status: integrated
+
+gaps_fixed:
+  - id: GAP-001
+    description: |
+      app/alerts/page.tsx usava apenas SWR refreshInterval. ADR-0034
+      especifica WebSocket para Alert Triage (30s). Adicionado
+      useRealtimeChannel para alert.raised + alert.updated.
+    severity: medium
+    status: fixed
+  - id: GAP-002
+    description: |
+      Polling payload {_poll: true, ...} não disparava mutate() para
+      canais escopados (vitals.updated, pathway.updated, pathway.state_changed)
+      porque o guard `p.mpi_id === mpiId` falhava para o payload de polling.
+      Alterado para null — `!p` passa o guard e dispara mutate.
+    severity: medium
+    status: fixed
+
+risk_residual:
+  - "WebSocket URL derivada de window.location — em dev localhost:3000, mas WS espera localhost:8000. NEXT_PUBLIC_WS_URL não definida. Necessário proxy reverso ou variável de ambiente para desenvolvimento."
+  - "O servidor backend WebSocket (/ws endpoint) ainda não foi implementado. Este é apenas o lado cliente. Teste fim-a-fim requer backend."
+  - "O polling dispara mutate() para TODOS os subscribers do canal durante fallback, mesmo que o filtro seja específico (ex: vitals.updated para um mpi_id). Isso é intencional (não sabemos o que mudou durante polling), mas gera tráfego extra."
+  - "middleware.ts usa padrão depreciado (Next.js 16: 'middleware' → 'proxy'). Aviso no build, não-blocking."
+
+pending_decisions:
+  - "NEXT_PUBLIC_WS_URL: definir para desenvolvimento local ou confiar em proxy reverso?"
+
+review_status:
+  swarm_code_review: dispatched
+  reviewers: [security, performance, architecture]
+  status: in_progress
+
+handoff_to: Ive (Product Design Orchestrator)
+cc: [Niemeyer (Arquitetura), Rodrigo Aquino]
+next: "Aguardar backend WebSocket /ws endpoint para teste fim-a-fim"

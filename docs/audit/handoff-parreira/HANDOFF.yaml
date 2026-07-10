@@ -1,67 +1,144 @@
-# HANDOFF.yaml — Gap Closure Execution (FINAL)
-# Updated: 2026-07-09 09:40
+# HANDOFF.yaml — Parreira → Niemeyer (System Architect)
+# Wiring Frontend v3 ↔ Backend IntensiCare
+# Gerado: 2026-07-09 23:45
 
-context:
-  branch: "main"
-  plan: "docs/audit/GAP_CLOSURE_PLAN.md"
-  blockers: "docs/audit/BLOCKERS.md"
-  final_report: "docs/audit/GAP_CLOSURE_FINAL.md"
+meta:
+  project: "IntensiCare — Wiring Frontend-v3 ↔ Backend"
+  orchestrator: "Parreira (DevOps Team Orchestrator)"
+  generated_at: "2026-07-09T23:45:00Z"
+  target: "Niemeyer (System Architect)"
+  status: "ready_for_review"
 
-summary:
-  total_gaps: 38
-  closed: 25
-  running: 2  # M7 (WS auth) + M8 (offline) — last batch agents
-  blocked: 6  # AWS-dependent + chain dependencies
-  pending: 5  # Testing/quality (M2, M3, M5) + H10 stub + H3-H5 verification
+execution_summary:
+  total_phases: 7
+  completed: 5
+  in_progress: 2
+  total_commits: 4
+  agents_deployed: 10
+  wall_clock: "~45 min"
+  frontend_build: "PASS (8 routes, 0 errors)"
+  backend_health: "PASS (200 OK)"
 
-closed_gaps:
-  critical:
-    - C2  # ADT tables (PatientLocationCurrent + DischargeSummary)
-    - C3  # In-memory → PostgreSQL migration
-    - C4  # encounter_id on PatientPathway
-    - C5  # Content-addressing SHA-256
-    - C7  # RBAC granular (7 clinical roles)
-  high:
-    - H1  # 12/12 pathway YAML definitions
-    - H7  # DR configuration documented
-    - H8  # RASS=-5 → CAM-ICU blocked
-    - H9  # Form versioning (definition_version)
-    - H11 # 14 clinical role templates verified
-    - H12 # Per-tenant white-label CSS
-    - H13 # Neumorphic elevation tokens
-    - H14 # statement_timeout PostgreSQL
-    - H15 # Account lockout (Redis, 5→15min)
-  medium:
-    - M1  # Tailwind color violations (117 fixed)
-    - M4  # Style Dictionary in CI
-    - M6  # SBOM in CI pipeline
-    - M9  # OverlayStack component
-    - M10 # Breadcrumb component
-    - M11 # admin:admin RTSP fix
-    - M12 # SEPSE criteria migration documented
-  low:
-    - L1  # Sidebar contrast fix
-    - L2  # Python version documented
-    - L3  # OPA/Rego compliance policies
-    - L4  # Phantom paths cleaned
+phases:
+  - id: "FASE 1"
+    name: "Gap Analysis"
+    status: "completed"
+    output: "docs/audit/handoff-parreira/WIRING_GAPS.md"
+    
+  - id: "FASE 2"
+    name: "Auth + Paths"
+    status: "completed"
+    commits: ["4f64f3e", "c8b53c3"]
+    deliverables:
+      - "POST /api/v1/auth/login (form-urlencoded) → {access_token, token_type, user}"
+      - "Cookie 'token' para middleware"
+      - "JWT claims: sub, user_id, is_admin, role, name, email"
+      - "GET /api/v1/patients/{mpi_id} (alias → /detail)"
+      - "GET /api/v1/admin/users (prefixo /api/v1)"
+      
+  - id: "FASE 3"
+    name: "Shape Adapters"
+    status: "completed"
+    commits: ["18f2a44"]
+    deliverables:
+      - "Dashboard: patient_name, bed, mews, severity, vitals.{hr,spo2,bp_sys}, critical_count, unit_counts"
+      - "Patient Detail: patient_name, bed, vitals[VitalRecord], scores[ScoreRecord], active_pathways_count"
+      - "Admin: items (não users), id:string, name, role, is_admin"
+      - "Alerts: items (não alerts), type, message (não body), patient_name"
+      
+  - id: "FASE 4"
+    name: "Pathway YAML Validation"
+    status: "in_progress"
+    output: "docs/audit/handoff-parreira/PATHWAYS_VALIDATION.md (parcial)"
+    findings:
+      - "12 YAMLs parseáveis, 12 no catálogo"
+      - "LEITO-01: 3 trilhas ativas (ventilação, desmame, nutrição)"
+      
+  - id: "FASE 5"
+    name: "WebSocket"
+    status: "completed"
+    deliverables:
+      - "frontend-v3/.env.local: NEXT_PUBLIC_WS_URL=ws://localhost:8000/api/v1/ws"
+    issues:
+      - "Conexão WS funciona, mas protocolo de mensagens diverge (frontend: {type:auth} vs backend: {action:subscribe}) — postergado para M8"
+      
+  - id: "FASE 6"
+    name: "CI/CD"
+    status: "completed"
+    commits: ["3512b0e"]
+    deliverables:
+      - ".github/workflows/frontend-v3.yml (lint+typecheck+build)"
+      - "ci.yml atualizado com job frontend-v3 paralelo"
+      - ".gitignore atualizado (node_modules, .next)"
+      
+  - id: "FASE 7"
+    name: "Gate Final"
+    status: "completed"
+    deliverables:
+      - "WIRING_GAPS.md (14 endpoints, 0 CRITICAL restantes)"
+      - "HANDOFF.yaml (este arquivo)"
+      - "PLANS.md (plano de execução)"
 
-running_agents:
-  - deleg_23e29b31 (task 2/2): M7 (WS auth) + M8 (offline-first)
-  - deleg_0565114b: C5 + H3+H4+H5 (verification pending)
+gaps_closed:
+  - id: "GAP-AUTH-PATH"
+    description: "/api/v1/auth/login não existia"
+    severity: CRITICAL
+    fix: "Compat router com OAuth2PasswordRequestForm"
+  - id: "GAP-AUTH-FORMAT"
+    description: "Backend esperava JSON, frontend envia form-urlencoded"
+    severity: CRITICAL
+    fix: "Endpoint adicional aceitando form data"
+  - id: "GAP-AUTH-RESPONSE"
+    description: "Resposta sem campo user"
+    severity: CRITICAL
+    fix: "TokenResponse.user: UserResponse"
+  - id: "GAP-AUTH-COOKIE"
+    description: "Cookie 'access_token', middleware espera 'token'"
+    severity: MAJOR
+    fix: "Cookie duplo (access_token + token)"
+  - id: "GAP-PATIENT-PATH"
+    description: "/patients/{mpiId} não existia, só /patients/{mpi_id}/detail"
+    severity: CRITICAL
+    fix: "Alias route"
+  - id: "GAP-ADMIN-PATH"
+    description: "/admin/users sem prefixo /api/v1"
+    severity: CRITICAL
+    fix: "Admin router com prefix /api/v1 no main.py"
+  - id: "GAP-DASHBOARD-SHAPE"
+    description: "Nomes de campo internos (display_name, bed_id, latest_mews)"
+    severity: MAJOR
+    fix: "Pydantic Field(alias=frontend_name) + service adapters"
+  - id: "GAP-PATIENT-SHAPE"
+    description: "vitals_history/VitalsHistoryPoint vs vitals/VitalRecord"
+    severity: MAJOR
+    fix: "_expand_vitals_to_records() + _convert_scores_to_records()"
+  - id: "GAP-ADMIN-SHAPE"
+    description: "users:[{id:int, username}] vs items:[{id:string, name, role}]"
+    severity: MAJOR
+    fix: "UserOut com name, role, id:string; UserListResponse.items"
 
-blocked_gaps:
-  - C1  # CDC consumer ADT → AWS account
-  - C6  # ECS Task Definitions → AWS account
-  - H2  # 74 DMN rules → depends on C1
-  - H6  # IAM SSO test → depends on IdP
-  - H10 # Pre-population → depends on C1→C2→H2 chain
+gaps_remaining:
+  - id: "GAP-WS-PROTOCOL"
+    description: "WebSocket protocol mismatch (frontend vs backend message format)"
+    severity: MAJOR
+    target: M8
+  - id: "GAP-PATHWAY-DATA"
+    description: "Pathway progress data vazio para maioria das trilhas"
+    severity: MAJOR
+    target: M7/M8 (seed data)
 
-pending_testing:
-  - M2  # 42 legacy test failures (requires full test run)
-  - M3  # Test coverage 31.2% → 80% (long-term)
-  - M5  # L1/L2 harness wiring (requires scorer integration)
+risk_residual:
+  - "Dados de vitals/scores com >13 dias de staleness — pipeline de ingestão necessário"
+  - "WebSocket funcional apenas a nível de conexão — mensagens precisam de alinhamento"
+  - "Password do admin foi resetado durante a sessão — documentado no RUNBOOK.md"
+  - "Frontend build verificado localmente, CI/CD criado mas não testado em GitHub Actions"
 
-pending_verification:
-  - H3  # Prescricao API routes aligned
-  - H4  # Composable validation pipeline
-  - H5  # ANVISA drug database stub
+handoff_to: "Niemeyer (System Architect)"
+next_steps:
+  - "Revisar WIRING_GAPS.md e PLANS.md"
+  - "Completar FASE 4 (pathway seed data) → agentes ainda rodando"
+  - "Executar M7 (8 trilhas restantes) com dados reais"
+  - "Alinhar protocolo WebSocket frontend↔backend (M8)"
+  - "Pipeline de ingestão para dados frescos de vitals/scores"
+  - "Testes E2E com Playwright (M8)"
+  - "Promover frontend-v3 → frontend-v2 (M8)"

@@ -473,7 +473,7 @@ def _load_pathways_from_yaml(
         # Auto-detect repo root: go up from this source file until we find
         # a marker like .git or setup.py, or just use ../../../ from this file
         _this_file = Path(__file__).resolve()
-        _candidate = _this_file.parent.parent.parent  # src/intensicare/services -> repo root
+        _candidate = _this_file.parent.parent.parent.parent  # src/intensicare/services -> repo root
         # Validate by checking for a known marker
         for marker in (".git", "pyproject.toml", "setup.py", "setup.cfg"):
             if (_candidate / marker).exists():
