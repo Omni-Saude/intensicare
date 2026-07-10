@@ -1,0 +1,91 @@
+# =============================================================================
+# Intensicare — Frontend v3 CI (Next.js 16)
+# GitHub Actions: lint → typecheck → build
+# =============================================================================
+
+name: Frontend v3
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - frontend-v3/**
+      - .github/workflows/frontend-v3.yml
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - frontend-v3/**
+      - .github/workflows/frontend-v3.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Job — Lint, Type Check & Build
+  # ═══════════════════════════════════════════════════════════════════════════
+  lint-typecheck-build:
+    name: Lint → TypeCheck → Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend-v3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend-v3/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || '' }}
+          NEXT_PUBLIC_WS_URL: ${{ vars.NEXT_PUBLIC_WS_URL || '' }}
+        run: npm run build
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Post-M8 Cleanup Script (executar manualmente após promover v3 → v2):
+#
+#   # 1. Arquivar frontend v2 antigo
+#   mv frontend-v2 frontend-v2-archive
+#
+#   # 2. Promover frontend-v3 para o lugar do v2
+#   mv frontend-v3 frontend-v2
+#
+#   # 3. Atualizar CI/CD para apontar para frontend-v2/
+#   #    (que agora contém o código do antigo v3)
+#   #    - Remover este workflow (frontend-v3.yml)
+#   #    - O job 'frontend' em ci.yml já aponta para frontend-v2/
+#   #    - Remover o job 'frontend-v3' de ci.yml
+#   #    - Ajustar o job 'a11y' para usar frontend-v2/ (já está)
+#
+#   # 4. Commit e push
+#   git add -A
+#   git commit -m "M8: promote frontend-v3 → frontend-v2, archive old v2"
+#   git push
+# ═══════════════════════════════════════════════════════════════════════════
