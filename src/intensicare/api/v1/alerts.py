@@ -18,28 +18,29 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
 class AlertResponse(BaseModel):
-    """Alert response schema."""
+    """Alert response schema — shape matches frontend AlertInfo (api.ts:91-105)."""
 
     id: int
-    mpi_id: str
-    score_id: int | None
+    type: str = "clinical"
     severity: str
-    status: str
     title: str
-    body: str | None
+    message: str | None
+    mpi_id: str | None = None
+    patient_name: str | None = None
+    pathway_name: str | None = None
     created_at: str
-    acknowledged_at: str | None
-    acknowledged_by: str | None
-    resolved_at: str | None
-    resolution: str | None
+    acknowledged_at: str | None = None
+    resolved_at: str | None = None
+    resolved_by: str | None = None
+    resolution: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class AlertListResponse(BaseModel):
-    """Wrapped list response (AUDIT-007)."""
+    """Wrapped list response — frontend expects {items, total} (AUDIT-007)."""
 
-    alerts: list[AlertResponse]
+    items: list[AlertResponse]
     total: int
 
 
@@ -64,18 +65,33 @@ class EscalateRequest(BaseModel):
 
 def _to_alert_response(alert: Alert) -> AlertResponse:
     """Build an AlertResponse from an Alert ORM instance."""
+    # Derive type from definition_version_id or default
+    alert_type = "clinical"
+    if alert.definition_version_id:
+        # e.g. "MEWS-v1.0.0" → "MEWS"
+        alert_type = alert.definition_version_id.split("-")[0].lower()
+
+    # Extract patient_name from eager-loaded relationship
+    patient_name: str | None = None
+    if alert.patient and alert.patient.display_name:
+        try:
+            patient_name = alert.patient.display_name.decode("utf-8") if isinstance(alert.patient.display_name, bytes) else str(alert.patient.display_name)
+        except (UnicodeDecodeError, AttributeError):
+            patient_name = None
+
     return AlertResponse(
         id=alert.id,
-        mpi_id=alert.mpi_id,
-        score_id=alert.score_id,
+        type=alert_type,
         severity=alert.severity,
-        status=alert.status,
         title=alert.title,
-        body=alert.body,
+        message=alert.body,
+        mpi_id=alert.mpi_id,
+        patient_name=patient_name,
+        pathway_name=None,  # Not available on Alert model yet
         created_at=alert.created_at.isoformat(),
         acknowledged_at=alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
-        acknowledged_by=alert.acknowledged_by,
         resolved_at=alert.resolved_at.isoformat() if alert.resolved_at else None,
+        resolved_by=None,  # Not tracked on Alert model yet
         resolution=alert.resolution,
     )
 
@@ -109,7 +125,7 @@ async def list_alerts(
     alerts = result.scalars().all()
 
     return AlertListResponse(
-        alerts=[_to_alert_response(a) for a in alerts],
+        items=[_to_alert_response(a) for a in alerts],
         total=total,
     )
 

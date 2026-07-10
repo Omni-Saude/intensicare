@@ -40,23 +40,26 @@ PASSWORD_MIN_LENGTH = 8
 
 
 class UserOut(BaseModel):
-    """Public-safe user representation."""
+    """Public-safe user representation — shape matches frontend UserInfo."""
 
-    id: int
-    username: str
+    id: str
+    name: str
     email: str
-    display_name: str | None
+    role: str
     is_admin: bool
-    is_active: bool
+    # Campos extras (mantidos para compatibilidade interna)
+    username: str
+    display_name: str | None = None
+    is_active: bool = True
     created_at: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class UserListResponse(BaseModel):
-    """Wrapped list response for users."""
+    """Wrapped list response for users — frontend expects 'items'."""
 
-    users: list[UserOut]
+    items: list[UserOut]
     total: int
 
 
@@ -107,11 +110,14 @@ def _hash_password(password: str) -> str:
 def _user_to_out(user: User) -> UserOut:
     """Convert a User ORM instance to a UserOut schema."""
     return UserOut(
-        id=user.id,
-        username=user.username,
+        id=str(user.id),
+        name=user.display_name or user.username,
         email=user.email,
-        display_name=user.display_name,
+        role=user.role,
         is_admin=user.is_admin,
+        # Campos extras
+        username=user.username,
+        display_name=user.display_name,
         is_active=user.is_active,
         created_at=user.created_at.isoformat() if user.created_at else None,
     )
@@ -183,7 +189,7 @@ async def list_users(
     result = await session.execute(select(User).order_by(User.id))
     users = result.scalars().all()
     return UserListResponse(
-        users=[_user_to_out(u) for u in users],
+        items=[_user_to_out(u) for u in users],
         total=len(users),
     )
 

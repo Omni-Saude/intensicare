@@ -18,7 +18,9 @@ from intensicare.schemas.dashboard import (
     PatientBedSummary,
     PatientDetailResponse,
     ScoreHistoryPoint,
+    ScoreRecord,
     TripleEncodingMeta,
+    VitalRecord,
     VitalsHistoryPoint,
 )
 from intensicare.schemas.severity import TripleEncoder, max_severity
@@ -39,11 +41,17 @@ async def get_dashboard(
         unit: Optional unit filter.
     """
     # Get all active patients with eager-loaded relationships (F-CODE-001)
-    patient_query = select(PatientCache).options(
-        selectinload(PatientCache.scores),
-        selectinload(PatientCache.alerts),
-        selectinload(PatientCache.pathways),
-    ).where(PatientCache.is_active.is_(True))
+    patient_query = (
+        select(PatientCache)
+        .options(
+            selectinload(PatientCache.scores),
+            selectinload(PatientCache.alerts),
+            selectinload(PatientCache.pathways).selectinload(
+                PatientCache.pathways.property.mapper.attrs["pathway"]
+            ),
+        )
+        .where(PatientCache.is_active.is_(True))
+    )
     if unit:
         patient_query = patient_query.where(PatientCache.unit == unit)
     patient_query = patient_query.order_by(PatientCache.bed_id)
@@ -51,12 +59,12 @@ async def get_dashboard(
     patients = result.scalars().all()
 
     if not patients:
-        return DashboardResponse(patients=[], total=0, active_alerts_total=0)
+        return DashboardResponse(
+            patients=[], total=0, critical_count=0, unit_counts={}
+        )
 
     mpi_ids = [p.mpi_id for p in patients]
 
-    # Get latest MEWS for each patient — use a single query with DISTINCT ON
-    # or iterate. For simplicity, do a subquery approach.
     # Get all alert counts grouped by mpi_id
     # P0-10: highest-severity-wins — collect ALL severities and take MAX
     alert_counts: dict[str, int] = {}
@@ -87,9 +95,6 @@ async def get_dashboard(
         alert_severities[mpi] = max_severity(*severities)
 
     total_alerts = sum(alert_counts.values())
-
-    # Get latest MEWS and NEWS2 scores per patient
-    # Use a raw approach: get all latest scores in subquery
 
     # Latest MEWS per patient
     mews_subq = (
@@ -183,9 +188,9 @@ async def get_dashboard(
     vitals_result = await db.execute(vitals_query)
     vitals_map = {
         row[0]: LatestVitals(
-            heart_rate=row[1],
-            systolic_bp=row[2],
-            diastolic_bp=row[3],
+            hr=row[1],
+            bp_sys=row[2],
+            bp_dia=row[3],
             spo2=row[4],
             respiratory_rate=row[5],
             temperature=float(row[6]) if row[6] is not None else None,
@@ -196,6 +201,8 @@ async def get_dashboard(
 
     # Build response
     bed_summaries = []
+    unit_counts: dict[str, int] = {}
+
     for p in patients:
         mews_data = mews_map.get(p.mpi_id)
         news2_data = news2_map.get(p.mpi_id)
@@ -225,30 +232,105 @@ async def get_dashboard(
                 description=enc["description"],
             )
 
+        # Extract active pathways (slug + severity)
+        active_pathways = []
+        if p.pathways:
+            for pp in p.pathways:
+                if pp.status == "active" and pp.pathway:
+                    active_pathways.append({
+                        "slug": pp.pathway.slug,
+                        "severity": pp.severity or "normal",
+                    })
+
+        # Count per unit
+        if p.unit:
+            unit_counts[p.unit] = unit_counts.get(p.unit, 0) + 1
+
         bed_summaries.append(
             PatientBedSummary(
                 mpi_id=p.mpi_id,
-                bed_id=p.bed_id,
-                display_name=p.display_name,
+                bed=p.bed_id,
+                patient_name=p.display_name,
                 unit=p.unit,
-                latest_mews=mews_data[0] if mews_data else None,
-                latest_news2=news2_score,
+                mews=mews_data[0] if mews_data else None,
+                news2=news2_score,
                 news2_risk=news2_risk,
                 mews_trend=mews_data[1] if mews_data else None,
                 news2_trend=news2_data[1] if news2_data else None,
                 active_alerts_count=alert_counts.get(p.mpi_id, 0),
-                highest_alert_severity=alert_severities.get(p.mpi_id),
+                severity=alert_severities.get(p.mpi_id),
                 highest_alert_encoding=highest_encoding,
-                latest_vitals=vitals_map.get(p.mpi_id),
-                last_updated=p.synced_at.isoformat() if p.synced_at else None,
+                vitals=vitals_map.get(p.mpi_id),
+                last_vital_at=p.synced_at.isoformat() if p.synced_at else None,
+                active_pathways=active_pathways,
             )
         )
 
     return DashboardResponse(
         patients=bed_summaries,
         total=len(bed_summaries),
-        active_alerts_total=total_alerts,
+        critical_count=total_alerts,
+        unit_counts=unit_counts,
     )
+
+
+def _expand_vitals_to_records(
+    vitals_points: list[VitalsHistoryPoint],
+) -> list[VitalRecord]:
+    """Expand VitalsHistoryPoint list into individual VitalRecord entries.
+
+    Each VitalsHistoryPoint can contain multiple vital signs; this flattens
+    them into individual records for the frontend chart.
+    """
+    records: list[VitalRecord] = []
+    for vp in vitals_points:
+        recorded_at = vp.recorded_at
+        if vp.heart_rate is not None:
+            records.append(VitalRecord(
+                name="FC", value=vp.heart_rate, unit="bpm",
+                measured_at=recorded_at,
+            ))
+        if vp.spo2 is not None:
+            records.append(VitalRecord(
+                name="SpO2", value=vp.spo2, unit="%",
+                measured_at=recorded_at,
+            ))
+        if vp.systolic_bp is not None:
+            records.append(VitalRecord(
+                name="PA Sistólica", value=vp.systolic_bp, unit="mmHg",
+                measured_at=recorded_at,
+            ))
+        if vp.diastolic_bp is not None:
+            records.append(VitalRecord(
+                name="PA Diastólica", value=vp.diastolic_bp, unit="mmHg",
+                measured_at=recorded_at,
+            ))
+        if vp.respiratory_rate is not None:
+            records.append(VitalRecord(
+                name="FR", value=vp.respiratory_rate, unit="rpm",
+                measured_at=recorded_at,
+            ))
+        if vp.temperature is not None:
+            records.append(VitalRecord(
+                name="Temp", value=vp.temperature, unit="°C",
+                measured_at=recorded_at,
+            ))
+    return records
+
+
+def _convert_scores_to_records(
+    scores: list[ScoreHistoryPoint],
+) -> list[ScoreRecord]:
+    """Convert ScoreHistoryPoint list to ScoreRecord list."""
+    return [
+        ScoreRecord(
+            name=s.score_type,
+            value=s.score_value,
+            measured_at=s.calculated_at,
+            trend=s.trend,
+        )
+        for s in scores
+    ]
 
 
 async def get_patient_detail(
@@ -267,13 +349,20 @@ async def get_patient_detail(
         .options(
             selectinload(PatientCache.scores),
             selectinload(PatientCache.alerts),
-            selectinload(PatientCache.pathways),
+            selectinload(PatientCache.pathways).selectinload(
+                PatientCache.pathways.property.mapper.attrs["pathway"]
+            ),
         )
         .where(PatientCache.mpi_id == mpi_id)
     )
     patient = patient_result.scalar_one_or_none()
     if not patient:
         return None
+
+    # Count active pathways
+    active_pathways_count = sum(
+        1 for pp in (patient.pathways or []) if pp.status == "active"
+    )
 
     # Get vitals history (last 24h)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -300,6 +389,9 @@ async def get_patient_detail(
         )
         for v in vitals
     ]
+
+    # Expand vitals history into frontend VitalRecord format
+    vitals_records = _expand_vitals_to_records(vitals_history)
 
     # Get MEWS history
     mews_query = (
@@ -345,6 +437,13 @@ async def get_patient_detail(
         for s in news2_result.scalars().all()
     ]
 
+    # Merge MEWS + NEWS2 history into frontend ScoreRecord format
+    all_scores = _convert_scores_to_records(mews_history) + _convert_scores_to_records(
+        news2_history
+    )
+    # Sort by measured_at for chronological display
+    all_scores.sort(key=lambda s: s.measured_at)
+
     # Get active alerts
     alerts_query = (
         select(Alert)
@@ -374,11 +473,14 @@ async def get_patient_detail(
 
     return PatientDetailResponse(
         mpi_id=patient.mpi_id,
-        bed_id=patient.bed_id,
-        display_name=patient.display_name,
+        bed=patient.bed_id,
+        patient_name=patient.display_name,
         unit=patient.unit,
         vitals_history=vitals_history,
         mews_history=mews_history,
         news2_history=news2_history,
         active_alerts=alerts_list,
+        vitals=vitals_records,
+        scores=all_scores,
+        active_pathways_count=active_pathways_count,
     )
