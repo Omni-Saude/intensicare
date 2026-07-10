@@ -1,0 +1,260 @@
+# DESIGN_BRIEF.yaml — IntensiCare Frontend v3
+# Gerado por Niemeyer (System Architect) — 2026-07-09
+# Versão 2.0.0 — UX-First, Zero Reaproveitamento
+# Schema: agentic-development-handoff-loop v2.0
+
+meta:
+  project: "IntensiCare Frontend v3"
+  version: "2.0.0"
+  generated_by: "Niemeyer (System Architect)"
+  generated_at: "2026-07-09"
+  target: "Product-Design-Orchestrator"
+  stack: "Next.js 15 + Tailwind CSS + shadcn/ui + Recharts"
+  principle: "UX precede design. Jornada do intensivista é o fator organizador. Zero reaproveitamento do v2."
+  sources_of_truth:
+    - "docs/contracts/pathways-openapi.yaml"
+    - "_work/alerts/pathways/*.yaml"
+    - "FRONTEND_REBUILD_PLAN.md § 1 (Jornada do Intensivista)"
+
+design_system:
+  principle: "Derivado do sistema de severidade dos YAMLs das trilhas. Construído do zero no M0."
+  mode: "dark-first (UTI 24h)"
+  severity:
+    normal:   { color: "#2DD269", css_var: "--severity-normal",   action: "nenhuma",     time: "—" }
+    watch:    { color: "#F2B90D", css_var: "--severity-watch",    action: "avaliação",   time: "< 2h" }
+    urgent:   { color: "#F96F06", css_var: "--severity-urgent",   action: "intervenção", time: "< 30min" }
+    critical: { color: "#FF3B4A", css_var: "--severity-critical", action: "imediata",    time: "< 5min" }
+  tokens_strategy: "CSS custom properties no :root[data-theme='dark']. Sem dependência de JSON externo."
+
+domains:
+  - id: "dashboard"
+    name: "Dashboard"
+    route: "/"
+    question: "Quantos pacientes? Algum crítico?"
+    components:
+      - name: "BedGrid"
+        type: "container"
+        children: ["BedCard"]
+        props: ["patients: PatientBedSummary[]", "onSelect: (mpiId) => void"]
+      - name: "BedCard"
+        type: "composite"
+        children: ["SeverityDot", "PatientIdentity", "ScorePair", "PathwayBadges", "VitalsInline"]
+        props: ["patient: PatientBedSummary", "onClick"]
+        a11y: "role=button, aria-label='Paciente {name}, Leito {bed}, {unit}'"
+      - name: "SeverityDot"
+        type: "atomic"
+        props: ["severity: SeverityLevel"]
+        behavior: "pulsante se 'critical', sólido caso contrário"
+      - name: "ScorePair"
+        type: "atomic"
+        props: ["mews: number | null", "news2: number | null", "mewsTrend: string | null", "news2Trend: string | null"]
+      - name: "PathwayBadges"
+        type: "atomic"
+        props: ["pathways: {slug: string, severity: SeverityLevel}[]"]
+        description: "3-4 mini círculos coloridos. Ex: S(⚠️) R(✅) V(✅)"
+      - name: "VitalsInline"
+        type: "atomic"
+        props: ["vitals: LatestVitals"]
+        description: "HR, SpO₂, BP, RR, Temp em uma linha compacta"
+      - name: "UnitFilter"
+        type: "atomic"
+        props: ["units: string[]", "selected: string | null", "onChange"]
+      - name: "StatsBar"
+        type: "composite"
+        props: ["totalPatients", "activeAlerts", "criticalCount", "mewsHighCount"]
+    data_contract:
+      api: "GET /api/v1/dashboard"
+      response_schema: "DashboardResponse"
+
+  - id: "patient-detail"
+    name: "Patient Detail"
+    route: "/patient/[mpi_id]"
+    question: "Quais riscos este paciente apresenta?"
+    components:
+      - name: "PatientHeader"
+        type: "composite"
+        props: ["displayName", "mpiId", "bedId", "unit", "mews", "news2", "wsStatus"]
+      - name: "VitalsPanel"
+        type: "container"
+        children: ["VitalReadout"]
+        props: ["vitals: LatestVitals"]
+      - name: "VitalReadout"
+        type: "atomic"
+        props: ["label", "value", "unit", "severity: SeverityLevel", "icon"]
+        description: "Card com valor grande, label pequeno, cor de severidade"
+      - name: "ScoreTimeline"
+        type: "composite"
+        children: ["ScorePoint"]
+        props: ["scores: ScoreHistoryPoint[]", "scoreType: 'MEWS' | 'NEWS2'"]
+      - name: "ActivePathways"
+        type: "container"
+        children: ["PathwayCard"]
+        props: ["pathways: PatientPathway[]", "mpiId"]
+        description: "CORAÇÃO DO PATIENT DETAIL — grid de cards das trilhas ativas"
+      - name: "PathwayCard"
+        type: "composite"
+        children: ["SeverityGlow", "StateLabel", "MiniProgress"]
+        props: ["pathway: PatientPathway", "mpiId"]
+        a11y: "role=button, aria-label='Trilha {name}, {severity}, estado {state}'"
+      - name: "SeverityGlow"
+        type: "atomic"
+        props: ["severity: SeverityLevel"]
+        description: "Borda colorida com glow. Pulsante se critical."
+      - name: "StateLabel"
+        type: "atomic"
+        props: ["state: string"]
+      - name: "MiniProgress"
+        type: "atomic"
+        props: ["met: number", "total: number"]
+        description: "Barra fina: 4/7 verde, 3/7 cinza"
+      - name: "AlertsPanel"
+        type: "container"
+        children: ["AlertItem"]
+        props: ["alerts: AlertInfo[]"]
+      - name: "AlertItem"
+        type: "composite"
+        props: ["alert: AlertInfo", "onAcknowledge"]
+    data_contract:
+      apis:
+        - "GET /api/v1/patients/{mpi_id}/detail → PatientDetailResponse"
+        - "GET /api/v1/patients/{mpi_id}/pathways → { items: PatientPathway[], total: int }"
+
+  - id: "pathway-view"
+    name: "Pathway View"
+    route: "/patient/[mpi_id]/pathway/[pp_id]"
+    question: "Qual estado? Quais critérios violados? O que fazer?"
+    is_generic: true
+    mvp_benchmark: "sepse (7 critérios, 5 estados, SSC-2021)"
+    components:
+      - name: "PathwayHeader"
+        type: "composite"
+        props: ["pathwayName", "patientName", "currentState", "severity"]
+      - name: "StateFlow"
+        type: "composite"
+        complexity: "high"
+        children: ["StatePill"]
+        props: ["states: PathwayState[]", "currentStateId", "transitionHistory: StateTransition[]"]
+        description: "Pills horizontais conectados. Atual = preenchido + glow. Passado = checked. Futuro = dimmed."
+      - name: "StatePill"
+        type: "atomic"
+        props: ["state: PathwayState", "status: 'past' | 'current' | 'future'", "transitionReason"]
+      - name: "CriteriaList"
+        type: "container"
+        children: ["CriteriaRow"]
+        props: ["criteria: EvaluatedCriterion[]"]
+      - name: "CriteriaRow"
+        type: "composite"
+        children: ["SeverityIcon", "CriteriaValue", "ThresholdMarker", "CriteriaEvidence"]
+        props: ["criterion: EvaluatedCriterion"]
+        description: "Expansível. Mostra valor, threshold, severidade. Expansão mostra evidência."
+      - name: "SeverityIcon"
+        type: "atomic"
+        props: ["severity: SeverityLevel | null", "met: boolean | null"]
+        description: "🔴 critical / ⚠️ watch/urgent / ✅ met / ❌ not met"
+      - name: "CriteriaValue"
+        type: "atomic"
+        props: ["value: string | null", "unit: string"]
+      - name: "ThresholdMarker"
+        type: "atomic"
+        props: ["threshold: string", "normalRange: string"]
+      - name: "CriteriaEvidence"
+        type: "atomic"
+        props: ["criterion: EvaluatedCriterion"]
+        description: "Expandido: guideline, valor histórico, banda de severidade"
+      - name: "RecommendationsPanel"
+        type: "container"
+        children: ["RecommendationCard"]
+        props: ["recommendations: string[]"]
+      - name: "RecommendationCard"
+        type: "atomic"
+        props: ["text: string", "index: number"]
+      - name: "TransitionHistory"
+        type: "container"
+        children: ["TransitionRow"]
+        props: ["history: StateTransition[]"]
+      - name: "TransitionRow"
+        type: "atomic"
+        props: ["from", "to", "timestamp", "reason"]
+    data_contract:
+      apis:
+        - "GET /api/v1/patients/{mpi_id}/pathways/{pp_id}/progress → PathwayProgress"
+        - "GET /api/v1/pathways/{pathway_id} → Pathway (cache)"
+
+  - id: "alert-triage"
+    name: "Alert Triage"
+    route: "/alerts"
+    question: "Quais alertas ativos? De onde vieram?"
+    components:
+      - name: "FilterBar"
+        type: "composite"
+        props: ["severity", "unit", "pathway", "status", "dateRange", "onChange"]
+      - name: "AlertTable"
+        type: "container"
+        children: ["AlertRow"]
+        props: ["alerts: AlertInfo[]", "onAction"]
+      - name: "AlertRow"
+        type: "composite"
+        children: ["SeverityBadge", "PatientLink", "PathwayLink", "QuickActions"]
+        props: ["alert: AlertInfo", "onAcknowledge", "onEscalate", "onResolve"]
+      - name: "QuickActions"
+        type: "atomic"
+        props: ["alertId", "status", "onAcknowledge", "onEscalate", "onResolve"]
+      - name: "AlertTrace"
+        type: "composite"
+        props: ["alert: AlertInfo"]
+        description: "Rastreabilidade: alerta ← threshold ← score ← critério"
+    data_contract:
+      apis:
+        - "GET /api/v1/alerts → AlertListResponse"
+        - "POST /api/v1/alerts/{id}/acknowledge → AlertInfo"
+        - "POST /api/v1/alerts/{id}/escalate → AlertInfo"
+        - "POST /api/v1/alerts/{id}/resolve → AlertInfo"
+
+  - id: "pathway-catalog"
+    name: "Pathway Catalog"
+    route: "/pathways"
+    question: "Quais trilhas existem? Como são definidas?"
+    components:
+      - name: "PathwayGrid"
+        type: "container"
+        children: ["PathwayDefCard"]
+        props: ["pathways: Pathway[]"]
+      - name: "PathwayDefCard"
+        type: "composite"
+        props: ["pathway: Pathway"]
+      - name: "YamlViewer"
+        type: "atomic"
+        props: ["yaml: string"]
+        description: "Syntax highlighting com react-syntax-highlighter"
+      - name: "PathwayTester"
+        type: "composite"
+        props: ["pathwayId", "onTest"]
+    data_contract:
+      apis:
+        - "GET /api/v1/pathways → { items: Pathway[], total: int }"
+        - "GET /api/v1/pathways/{id} → Pathway"
+
+  - id: "admin"
+    name: "Admin"
+    route: "/admin"
+    components:
+      - name: "UserManager"
+      - name: "ThresholdEditor"
+      - name: "TenantConfig"
+      - name: "AuditLog"
+
+accessibility:
+  standard: "WCAG 2.1 AA"
+  requirements:
+    - "Contraste ≥ 4.5:1 texto, ≥ 3:1 não-texto"
+    - "Navegação completa por teclado"
+    - "aria-label em todo elemento interativo"
+    - "focus-visible ring visível"
+    - "prefers-reduced-motion respeitado"
+    - "SVGs com role='img' + aria-label"
+
+security:
+  auth: "JWT in-memory (nunca em localStorage/sessionStorage/cookie JS)"
+  middleware: "Protege todas as rotas exceto /login, /register, /health"
+  admin_guard: "JWT claim is_admin ou role=admin"
+  csp: "connect-src 'self' wss://intensicare.api"
