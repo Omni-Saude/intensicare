@@ -163,7 +163,9 @@ Cada ClinicalScore registrado inclui `algorithm_version` para rastreabilidade co
 ## 🧬 Inteligência Clínica — Motor de Regras
 
 > **188 regras clínicas** extraídas do sistema legado (463 arquivos TypeScript + 153
-> LESS), organizadas em **25 domínios clínicos** e **12 trilhas declarativas** (YAML
+> LESS), organizadas em **25 clusters de regras legadas** (taxonomia da extração — ver
+> tabela abaixo; distinta dos **24 serviços de domínio** em `services/domain_*.py`) e
+> **12 trilhas declarativas** (YAML
 > content-addressed em `_work/alerts/pathways/`, executadas pelo `TrilhasEngine` e
 > espelhadas em Postgres a cada boot via `pathway_definitions_sync.py`).
 >
