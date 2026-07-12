@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from intensicare.api.clinical_forms import router as clinical_forms_router
@@ -141,6 +141,18 @@ def create_app() -> FastAPI:
     from intensicare.core.rate_limit import RateLimitMiddleware
 
     app.add_middleware(RateLimitMiddleware)
+
+    # ABAC access-denied handler — turns an unhandled ABACAccessDenied
+    # (which would otherwise propagate as a 500) into a clean 403 with a
+    # safe, informative JSON body. The exception message is already
+    # internals-free (role/action/resource only), so it is returned as-is.
+    from intensicare.auth.abac import ABACAccessDenied
+
+    @app.exception_handler(ABACAccessDenied)
+    async def abac_access_denied_handler(
+        request: Request, exc: ABACAccessDenied
+    ) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     # Health check — redirect /health to /api/v1/health for backward compat
     from fastapi.responses import RedirectResponse

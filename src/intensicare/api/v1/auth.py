@@ -58,12 +58,21 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
+    # NOTE: `id` stays `int` here (matches the DB PK). frontend-v3's TS type
+    # declares `id: string`, but a JSON number is assignable at runtime; the
+    # type-side fix belongs in the frontend, not here (would be a breaking
+    # wire-format change for other consumers of this endpoint).
     id: int
     username: str
     email: str
     display_name: str | None
     is_admin: bool
     is_active: bool
+    # Added for AUTH-1: frontend-v3 (lib/api.ts LoginResponse.user) expects
+    # `name` and `role`. Additive only — existing fields kept for backward
+    # compatibility with other consumers.
+    name: str
+    role: str
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -83,6 +92,8 @@ def _user_to_response(user: User) -> UserResponse:
         display_name=user.display_name,
         is_admin=user.is_admin,
         is_active=user.is_active,
+        name=user.display_name or user.username,
+        role=user.role,
     )
 
 
@@ -214,13 +225,27 @@ async def login_form(
     return _build_login_response(user, access_token, refresh_token)
 
 
+@api_v1_auth_router.post("/logout")
+async def logout_v1(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Log out by blacklisting the current access token in Redis (API v1 compat)."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        redis_client = get_redis()
+        await blacklist_token(token, redis_client)
+    return {"detail": "Logged out successfully"}
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_admin)],
 )
-async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)) -> User:
+async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)) -> UserResponse:
     result = await db.execute(select(User).where(User.username == request.username))
     if result.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
@@ -241,7 +266,10 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    return user
+    # Build the response explicitly (rather than returning the ORM object and
+    # relying on FastAPI's from_attributes auto-serialization): UserResponse.name
+    # has no 1:1 attribute on the User model (it derives from display_name/username).
+    return _user_to_response(user)
 
 
 @router.post("/logout")

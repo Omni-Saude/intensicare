@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from intensicare.schemas.severity import SeverityLevel
+
 
 class TripleEncodingMeta(BaseModel):
     """Triple-encoded severity metadata for frontend rendering."""
@@ -79,8 +81,15 @@ class PatientBedSummary(BaseModel):
     mews_trend: str | None = None  # increasing, decreasing, stable
     news2_trend: str | None = None
     active_alerts_count: int = 0
-    # AUDIT-008 resolved: canonical severity model (normal/watch/urgent/critical)
-    highest_alert_severity: str | None = Field(default=None, alias="severity")
+    # AUDIT-008 resolved: canonical severity model (normal/watch/urgent/critical).
+    # Derived bed severity — max(active-alert severity, active-pathway severity,
+    # MEWS/NEWS2 threshold band). ALWAYS present, floor is "normal" (never null).
+    # This is what the frontend renders as the bed's color/status.
+    severity: SeverityLevel = SeverityLevel.NORMAL
+    # Raw highest severity among the patient's currently-active alerts only
+    # (None when there is no active alert). Distinct from `severity` above —
+    # kept for tooltip/"this came from an alert" semantics.
+    highest_alert_severity: str | None = None
     highest_alert_encoding: TripleEncodingMeta | None = None
     latest_vitals: LatestVitals | None = Field(default=None, alias="vitals")
     last_updated: str | None = Field(default=None, alias="last_vital_at")
