@@ -17,7 +17,6 @@ from typing import Any
 
 from intensicare.schemas.severity import SeverityLevel
 
-
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
@@ -32,7 +31,7 @@ class ElectrolyteAlertResult:
     fired: bool
     severity: SeverityLevel | None = None
     direction: str | None = None  # "hyper", "hypo", or None
-    band: str | None = None       # "critical", "urgent", "watch"
+    band: str | None = None  # "critical", "urgent", "watch"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -97,19 +96,25 @@ def evaluate_potassium(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
         hyper_band = "critical"
     elif potassio > 6.0:
         hyper_band = "urgent"
-    elif potassio > 5.5:
-        if (delta_k_24h is not None and delta_k_24h > 0.5
-                and (ckd_moderada_grave or medicamento_hipercalemiante_ativo or digoxina_ativa)):
-            hyper_band = "watch"
+    elif potassio > 5.5 and (
+        delta_k_24h is not None
+        and delta_k_24h > 0.5
+        and (ckd_moderada_grave or medicamento_hipercalemiante_ativo or digoxina_ativa)
+    ):
+        hyper_band = "watch"
 
     # --- HYPO axis ---
     if potassio < 2.5:
         hypo_band = "critical"
     elif potassio < 3.0:
         hypo_band = "urgent"
-    elif potassio < 3.5:
-        if (qtc is not None and qtc > 500) or furosemida_dose_alta or digoxina_ativa or (magnesio is not None and magnesio < 0.7):
-            hypo_band = "watch"
+    elif potassio < 3.5 and (
+        (qtc is not None and qtc > 500)
+        or furosemida_dose_alta
+        or digoxina_ativa
+        or (magnesio is not None and magnesio < 0.7)
+    ):
+        hypo_band = "watch"
 
     # Determine direction and worst band
     if hyper_band and hypo_band:
@@ -306,7 +311,7 @@ def evaluate_calcium(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
     calcio_ionizado = inputs.get("calcio_ionizado")
     calcio_total = inputs.get("calcio_total")
     albumina = inputs.get("albumina")
-    qtc = inputs.get("qtc")
+    inputs.get("qtc")
 
     # Compute corrected total calcium for fallback
     calcio_total_corrigido = None
@@ -335,9 +340,8 @@ def evaluate_calcium(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
             hyper_band = "critical"
         elif calcio_ionizado > 1.45:
             hyper_band = "urgent"
-    elif calcio_total_corrigido is not None:
-        if calcio_total_corrigido > 14.0:
-            hyper_band = "critical"
+    elif calcio_total_corrigido is not None and calcio_total_corrigido > 14.0:
+        hyper_band = "critical"
 
     # Determine direction and worst band
     if hyper_band and hypo_band:
@@ -452,15 +456,15 @@ def evaluate_phosphate(inputs: dict[str, Any]) -> ElectrolyteAlertResult:
 
     # --- HYPO axis ---
     if fosfato < 0.3:
-        hypo_band = "urgent"      # severe hypophosphatemia
+        hypo_band = "urgent"  # severe hypophosphatemia
     elif fosfato < 0.8:
-        hypo_band = "watch"       # moderate hypophosphatemia
+        hypo_band = "watch"  # moderate hypophosphatemia
 
     # --- HYPER axis ---
     if fosfato > 2.5:
-        hyper_band = "critical"   # severe hyperphosphatemia
+        hyper_band = "critical"  # severe hyperphosphatemia
     elif fosfato > 1.5:
-        hyper_band = "watch"      # moderate hyperphosphatemia
+        hyper_band = "watch"  # moderate hyperphosphatemia
 
     # Determine direction and worst band
     if hyper_band and hypo_band:

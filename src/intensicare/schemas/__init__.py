@@ -50,13 +50,6 @@ from intensicare.schemas.movimentacao import (
     PatientMovementSchema,
     RegisterMovementRequest,
 )
-from intensicare.schemas.patients import (
-    FHIREnrichment,
-    PatientStatusResponse,
-    ScoreSummary,
-    TrendSummary,
-    VitalSignSummary,
-)
 from intensicare.schemas.pathways import (
     EnrollPatientRequest,
     PathwayListResponse,
@@ -66,10 +59,12 @@ from intensicare.schemas.pathways import (
     PatientPathwaySchema,
     UpdateCriteriaRequest,
 )
-from intensicare.schemas.sedacao import (
-    CAMICUFeaturesSchema,
-    SedationAssessmentListResponse,
-    SedationAssessmentSchema,
+from intensicare.schemas.patients import (
+    FHIREnrichment,
+    PatientStatusResponse,
+    ScoreSummary,
+    TrendSummary,
+    VitalSignSummary,
 )
 from intensicare.schemas.prescricao import (
     InteracaoAlertaSchema,
@@ -85,6 +80,11 @@ from intensicare.schemas.prophylaxis import (
     ProphylaxisBundleResponse,
     ProphylaxisBundlesListResponse,
     ProphylaxisBundleUpdateRequest,
+)
+from intensicare.schemas.sedacao import (
+    CAMICUFeaturesSchema,
+    SedationAssessmentListResponse,
+    SedationAssessmentSchema,
 )
 from intensicare.schemas.severity import (
     CANONICAL_SEVERITIES,
@@ -111,11 +111,12 @@ from intensicare.schemas.vitals import (
 )
 
 __all__ = [
+    "CANONICAL_SEVERITIES",
     "AdmissionEpisodeSchema",
     "AlertRoutingRuleCreate",
     "AlertRoutingRuleResponse",
-    "AlertRoutingRulesListResponse",
     "AlertRoutingRuleUpdate",
+    "AlertRoutingRulesListResponse",
     "AntimicrobialAssessmentListResponse",
     "AntimicrobialAssessmentResponse",
     "AntimicrobialCriteriaCatalogResponse",
@@ -125,7 +126,6 @@ __all__ = [
     "BundleCatalogResponse",
     "BundleCriterionSchema",
     "CAMICUFeaturesSchema",
-    "CANONICAL_SEVERITIES",
     "ClinicalFormResponse",
     "ClinicalFormSubmission",
     "CreateAntimicrobialAssessmentSchema",
@@ -145,6 +145,9 @@ __all__ = [
     "FHIREnrichment",
     "GlosaStatusUpdate",
     "InteracaoAlertaSchema",
+    "PathwayListResponse",
+    "PathwayProgressSchema",
+    "PathwaySchema",
     "PatientBedSummary",
     "PatientDetailResponse",
     "PatientMovementListResponse",
@@ -152,22 +155,19 @@ __all__ = [
     "PatientPathwayListResponse",
     "PatientPathwaySchema",
     "PatientStatusResponse",
-    "PathwayListResponse",
-    "PathwayProgressSchema",
-    "PathwaySchema",
     "PrescriptionCreate",
     "PrescriptionListResponse",
     "PrescriptionSchema",
     "PrescriptionStateTransition",
     "PrescriptionUpdate",
     "ProphylaxisBundleResponse",
-    "ProphylaxisBundlesListResponse",
     "ProphylaxisBundleUpdateRequest",
+    "ProphylaxisBundlesListResponse",
     "RegisterMovementRequest",
-    "SedationAssessmentListResponse",
-    "SedationAssessmentSchema",
     "ScoreHistoryPoint",
     "ScoreSummary",
+    "SedationAssessmentListResponse",
+    "SedationAssessmentSchema",
     "SeverityLevel",
     "StabilityCriterionSchema",
     "StabilityStatusSchema",
@@ -179,6 +179,7 @@ __all__ = [
     "ThresholdConfigUpdate",
     "TrendSummary",
     "TripleEncoder",
+    "UpdateCriteriaRequest",
     "VitalSignCreate",
     "VitalSignResponse",
     "VitalSignSummary",

@@ -14,7 +14,7 @@ RATIFIED rules tested:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 import pytz
@@ -22,8 +22,8 @@ import pytz
 from intensicare.services.domain_fluid_balance import (
     FluidBalanceResult,
     NursingDayWindow,
-    compute_24h_fluid_balance,
     compute_2h_buckets,
+    compute_24h_fluid_balance,
     compute_diureses,
     compute_ganhos,
     compute_max_temperature,
@@ -142,8 +142,9 @@ class TestTempoCriacao:
 class TestFluidBalance:
     """Tests for 24h fluid balance — RAT-BALANCO-HIDRICO-03."""
 
-    def _make_entry(self, quantidade: float, horas: int, minutos: int = 0,
-                    tipo: str | None = None, dia: int = 6) -> dict:
+    def _make_entry(
+        self, quantidade: float, horas: int, minutos: int = 0, tipo: str | None = None, dia: int = 6
+    ) -> dict:
         """Helper to create an entry dict within the 2026-07-06 SP timezone."""
         dt = SP_TZ.localize(datetime(2026, 7, dia, horas, minutos, 0))
         entry = {"quantidade": quantidade, "data_hora": dt}
@@ -315,9 +316,21 @@ class TestDiureses:
             nursing_date="2026-07-06",
         )
         saidas = [
-            {"quantidade": 400, "tipo": "diurese_sonda", "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 10, 0, 0))},
-            {"quantidade": 300, "tipo": "diurese_espontanea", "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 14, 0, 0))},
-            {"quantidade": 200, "tipo": "evacuacao", "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 16, 0, 0))},
+            {
+                "quantidade": 400,
+                "tipo": "diurese_sonda",
+                "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 10, 0, 0)),
+            },
+            {
+                "quantidade": 300,
+                "tipo": "diurese_espontanea",
+                "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 14, 0, 0)),
+            },
+            {
+                "quantidade": 200,
+                "tipo": "evacuacao",
+                "data_hora": SP_TZ.localize(datetime(2026, 7, 6, 16, 0, 0)),
+            },
         ]
         total = compute_diureses(saidas, window)
         assert total == 700.0
@@ -441,9 +454,18 @@ class Test2HBuckets:
         ref = SP_TZ.localize(datetime(2026, 7, 6, 15, 0, 0))
         buckets = compute_2h_buckets([], [], ref)
         expected_labels = [
-            "08:00-10:00", "10:00-12:00", "12:00-14:00", "14:00-16:00",
-            "16:00-18:00", "18:00-20:00", "20:00-22:00", "22:00-00:00",
-            "00:00-02:00", "02:00-04:00", "04:00-06:00", "06:00-08:00",
+            "08:00-10:00",
+            "10:00-12:00",
+            "12:00-14:00",
+            "14:00-16:00",
+            "16:00-18:00",
+            "18:00-20:00",
+            "20:00-22:00",
+            "22:00-00:00",
+            "00:00-02:00",
+            "02:00-04:00",
+            "04:00-06:00",
+            "06:00-08:00",
         ]
         for label in expected_labels:
             assert label in buckets
@@ -461,7 +483,6 @@ class TestFluidBalanceResult:
 
     def test_result_creation(self):
         """Should create a valid FluidBalanceResult."""
-        from intensicare.services.domain_fluid_balance import FluidBalanceResult
 
         result = FluidBalanceResult(
             total_intake_ml=1000.0,
@@ -477,7 +498,6 @@ class TestFluidBalanceResult:
 
     def test_result_with_none_temperature(self):
         """Temperature can be None when no readings."""
-        from intensicare.services.domain_fluid_balance import FluidBalanceResult
 
         result = FluidBalanceResult(
             total_intake_ml=0.0,
@@ -493,8 +513,9 @@ class TestNursingDayWindowModel:
     """Tests for NursingDayWindow dataclass."""
 
     def test_window_creation(self):
-        from intensicare.services.domain_fluid_balance import NursingDayWindow
         from datetime import datetime, timezone
+
+        from intensicare.services.domain_fluid_balance import NursingDayWindow
 
         w = NursingDayWindow(
             start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
@@ -512,7 +533,10 @@ class TestFluidBalanceEmptyEntries:
         """No entries at all should return zero balance."""
         from datetime import datetime, timezone
 
-        from intensicare.services.domain_fluid_balance import NursingDayWindow, compute_24h_fluid_balance
+        from intensicare.services.domain_fluid_balance import (
+            NursingDayWindow,
+            compute_24h_fluid_balance,
+        )
 
         window = NursingDayWindow(
             start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
@@ -529,7 +553,10 @@ class TestFluidBalanceEmptyEntries:
         """Negative quantities should be summed (correction entries)."""
         from datetime import datetime, timezone
 
-        from intensicare.services.domain_fluid_balance import NursingDayWindow, compute_24h_fluid_balance
+        from intensicare.services.domain_fluid_balance import (
+            NursingDayWindow,
+            compute_24h_fluid_balance,
+        )
 
         window = NursingDayWindow(
             start=datetime(2026, 7, 6, 7, 0, 0, tzinfo=timezone.utc),
@@ -612,8 +639,16 @@ class TestFluidBalanceComputeFunctions:
             nursing_date="2026-07-06",
         )
         saidas = [
-            {"quantidade": 300, "data_hora": datetime(2026, 7, 6, 10, 0, 0, tzinfo=timezone.utc), "tipo": "diurese_sonda"},
-            {"quantidade": 200, "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc), "tipo": "evacuacao"},
+            {
+                "quantidade": 300,
+                "data_hora": datetime(2026, 7, 6, 10, 0, 0, tzinfo=timezone.utc),
+                "tipo": "diurese_sonda",
+            },
+            {
+                "quantidade": 200,
+                "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc),
+                "tipo": "evacuacao",
+            },
         ]
         result = compute_diureses(saidas, window)
         assert result == 300.0

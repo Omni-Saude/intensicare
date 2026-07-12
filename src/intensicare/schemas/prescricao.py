@@ -10,7 +10,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Prescription core schemas
 # ---------------------------------------------------------------------------
@@ -51,9 +50,7 @@ class PrescriptionCreate(BaseModel):
 
     mpi_id: str = Field(..., min_length=1, max_length=64)
     medication: str = Field(..., min_length=1, max_length=255)
-    dosage: str = Field(
-        ..., min_length=1, max_length=64, description="ex: '500mg', '1g'"
-    )
+    dosage: str = Field(..., min_length=1, max_length=64, description="ex: '500mg', '1g'")
     route: str = Field(
         ...,
         min_length=1,
@@ -94,9 +91,7 @@ class PrescriptionUpdate(BaseModel):
         description="Target state: active, completed, discontinued, suspended",
     )
     notes: str | None = Field(None, max_length=1024)
-    version: int | None = Field(
-        None, description="Optimistic locking — must match current version"
-    )
+    version: int | None = Field(None, description="Optimistic locking — must match current version")
 
 
 # ---------------------------------------------------------------------------

@@ -35,9 +35,9 @@ Uso típico::
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 import os
-from contextlib import contextmanager
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -50,15 +50,17 @@ _OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "http://localhost:4318",  # default OTLP HTTP local collector
 )
-_OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv(
-    "OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"
-)
+_OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 _OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "intensicare")
 _OTEL_TRACES_ENABLED = os.getenv("OTEL_TRACES_ENABLED", "true").lower() in (
-    "1", "true", "yes",
+    "1",
+    "true",
+    "yes",
 )
 _OTEL_METRICS_ENABLED = os.getenv("OTEL_METRICS_ENABLED", "true").lower() in (
-    "1", "true", "yes",
+    "1",
+    "true",
+    "yes",
 )
 
 # ---------------------------------------------------------------------------
@@ -117,15 +119,17 @@ def init_telemetry(
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter,
         )
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+        from opentelemetry.sdk.resources import SERVICE_NAME, Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
         # Recursos identificadores do serviço
-        resource = Resource.create({
-            SERVICE_NAME: service_name,
-        })
+        resource = Resource.create(
+            {
+                SERVICE_NAME: service_name,
+            }
+        )
 
         # Provider + exporter
         if traces_enabled:
@@ -154,8 +158,7 @@ def init_telemetry(
 
         _telemetry_state.initialized = True
         logger.info(
-            "Telemetria OTEL inicializada: service=%s, endpoint=%s, "
-            "traces=%s, metrics=%s",
+            "Telemetria OTEL inicializada: service=%s, endpoint=%s, traces=%s, metrics=%s",
             service_name,
             otlp_endpoint,
             traces_enabled,
@@ -172,8 +175,7 @@ def init_telemetry(
         _telemetry_state.initialized = True  # não tenta de novo
     except Exception as exc:
         logger.error(
-            "Falha ao inicializar telemetria OTEL: %s. "
-            "A aplicação continua sem tracing.",
+            "Falha ao inicializar telemetria OTEL: %s. A aplicação continua sem tracing.",
             exc,
         )
         _telemetry_state.initialized = True
@@ -359,10 +361,10 @@ def trace_stage(
 class _NoOpSpan:
     """Span fictício que não faz nada."""
 
-    def set_attribute(self, key: str, value: Any) -> None:  # noqa: ARG002
+    def set_attribute(self, key: str, value: Any) -> None:
         pass
 
-    def set_status(self, status: Any, description: str = "") -> None:  # noqa: ARG002
+    def set_status(self, status: Any, description: str = "") -> None:
         pass
 
     def record_exception(self) -> None:
@@ -380,8 +382,8 @@ class _NoOpTracer:
 
     def start_as_current_span(
         self,
-        name: str,  # noqa: ARG002
-        attributes: dict[str, Any] | None = None,  # noqa: ARG002
+        name: str,
+        attributes: dict[str, Any] | None = None,
     ) -> _NoOpSpan:
         return _NoOpSpan()
 

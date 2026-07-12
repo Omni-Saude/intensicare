@@ -26,7 +26,7 @@ from intensicare.services.mpi_resolver import (
     resolve_patient,
     sync_patient_cache,
 )
-from intensicare.services.patient_encryption import decrypt_phi, encrypt_phi
+from intensicare.services.patient_encryption import decrypt_phi
 
 # ── Test constants ────────────────────────────────────────────────────
 MPI_ID_HIT = "MPI-CACHED-001"
@@ -95,16 +95,12 @@ async def test_cache_hit_avoids_mpi_call(crypto_session: AsyncSession) -> None:
     """A cached patient is returned immediately without querying MPI."""
     # Pre-populate the cache
     mpi_patient = _make_mpi_patient(MPI_ID_HIT, display_name="Cache Hit Patient")
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)):
         synced = await sync_patient_cache(crypto_session, MPI_ID_HIT)
     assert synced is not None
 
     # Now resolve — should hit cache, not MPI
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock()
-    ) as mock_mpi:
+    with patch.object(MPIClient, "get_patient", AsyncMock()) as mock_mpi:
         result = await resolve_patient(crypto_session, MPI_ID_HIT)
         mock_mpi.assert_not_called()
 
@@ -123,9 +119,7 @@ async def test_cache_miss_queries_mpi_and_caches(crypto_session: AsyncSession) -
     mpi_patient = _make_mpi_patient(MPI_ID_MISS, display_name="Maria Cache Miss")
 
     # Mock the MPI client to return our synthetic patient
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ) as mock_mpi:
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)) as mock_mpi:
         result = await resolve_patient(crypto_session, MPI_ID_MISS)
         mock_mpi.assert_called_once_with(MPI_ID_MISS)
 
@@ -159,9 +153,7 @@ async def test_demographics_never_leak_plaintext(crypto_session: AsyncSession) -
     """Resolve returns encrypted PHI — scorers never see plaintext."""
     mpi_patient = _make_mpi_patient("MPI-SECRET-001", display_name="João Secreto")
 
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)):
         result = await resolve_patient(crypto_session, "MPI-SECRET-001")
 
     assert result is not None
@@ -245,9 +237,7 @@ async def test_flush_discharged_patients_removes_old(crypto_session: AsyncSessio
         display_name="Old Discharged",
         discharged=True,
     )
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)):
         result = await sync_patient_cache(crypto_session, MPI_ID_FLUSH)
 
     assert result is not None
@@ -280,9 +270,7 @@ async def test_flush_discharged_patients_removes_old(crypto_session: AsyncSessio
 async def test_flush_does_not_remove_active_patients(crypto_session: AsyncSession) -> None:
     """Active patients are never removed by flush, regardless of age."""
     mpi_patient = _make_mpi_patient(MPI_ID_ACTIVE, display_name="Still Active")
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)):
         result = await sync_patient_cache(crypto_session, MPI_ID_ACTIVE)
 
     assert result is not None
@@ -293,7 +281,7 @@ async def test_flush_does_not_remove_active_patients(crypto_session: AsyncSessio
     await crypto_session.flush()
 
     # Flush
-    deleted = await flush_discharged_patients(crypto_session)
+    await flush_discharged_patients(crypto_session)
 
     # Active patients should not be counted
     from sqlalchemy import select
@@ -310,22 +298,18 @@ async def test_flush_recent_discharge_not_removed(crypto_session: AsyncSession) 
     mpi_id = "MPI-RECENT-DC-001"
     mpi_patient = _make_mpi_patient(mpi_id, display_name="Recent DC", discharged=True)
 
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient)):
         result = await sync_patient_cache(crypto_session, mpi_id)
 
     assert result is not None
     assert result.is_active is False
 
     # synced_at is recent (just now), so should NOT be flushed
-    deleted = await flush_discharged_patients(crypto_session)
+    await flush_discharged_patients(crypto_session)
 
     from sqlalchemy import select
 
-    after = await crypto_session.execute(
-        select(PatientCache).where(PatientCache.mpi_id == mpi_id)
-    )
+    after = await crypto_session.execute(select(PatientCache).where(PatientCache.mpi_id == mpi_id))
     assert after.scalar_one_or_none() is not None
 
 
@@ -337,21 +321,13 @@ async def test_force_sync_bypasses_cache(crypto_session: AsyncSession) -> None:
     """force_sync=True always queries MPI even when cache exists."""
     # Pre-populate cache
     mpi_patient_v1 = _make_mpi_patient("MPI-FORCE-001", display_name="V1")
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient_v1)
-    ):
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient_v1)):
         await sync_patient_cache(crypto_session, "MPI-FORCE-001")
 
     # Now force_sync with updated data
-    mpi_patient_v2 = _make_mpi_patient(
-        "MPI-FORCE-001", display_name="V2 Updated", unit="ICU-2"
-    )
-    with patch.object(
-        MPIClient, "get_patient", AsyncMock(return_value=mpi_patient_v2)
-    ) as mock_mpi:
-        result = await resolve_patient(
-            crypto_session, "MPI-FORCE-001", force_sync=True
-        )
+    mpi_patient_v2 = _make_mpi_patient("MPI-FORCE-001", display_name="V2 Updated", unit="ICU-2")
+    with patch.object(MPIClient, "get_patient", AsyncMock(return_value=mpi_patient_v2)) as mock_mpi:
+        result = await resolve_patient(crypto_session, "MPI-FORCE-001", force_sync=True)
         mock_mpi.assert_called_once_with("MPI-FORCE-001")
 
     assert result is not None

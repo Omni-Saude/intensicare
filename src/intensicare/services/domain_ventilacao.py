@@ -13,14 +13,14 @@ __version__ = "3.0.0"
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
-import logging
-
 from intensicare.services.domain_respiratory import (
-    _ensure_fio2_fraction,
-    _compute_sf_ratio,
     _compute_pf_ratio,
+    _ensure_fio2_fraction,
+)
+from intensicare.services.domain_respiratory import (
     evaluate_all as evaluate_respiratory,
 )
 
@@ -196,7 +196,7 @@ def _determine_direction(values: list[float], threshold_pct: float = 5.0) -> str
         # Avoid division by zero; use absolute difference
         if last > 0:
             return "rising"
-        elif last < 0:
+        if last < 0:
             return "falling"
         return "stable"
 
@@ -204,7 +204,7 @@ def _determine_direction(values: list[float], threshold_pct: float = 5.0) -> str
 
     if change_pct >= threshold_pct:
         return "rising"
-    elif change_pct <= -threshold_pct:
+    if change_pct <= -threshold_pct:
         return "falling"
     return "stable"
 
@@ -318,14 +318,14 @@ def compute_ventilation_trend(
             window_entries.append(entry)
 
     if not window_entries:
-        logger.debug(
-            "compute_ventilation_trend: no entries in window for mpi_id=%s", mpi_id
-        )
+        logger.debug("compute_ventilation_trend: no entries in window for mpi_id=%s", mpi_id)
         return trend
 
     # Sort oldest → newest
     window_entries.sort(
-        key=lambda e: _parse_iso_datetime(e.get("collected_at")) or datetime.min.replace(tzinfo=timezone.utc)
+        key=lambda e: (
+            _parse_iso_datetime(e.get("collected_at")) or datetime.min.replace(tzinfo=timezone.utc)
+        )
     )
 
     # Update actual window bounds from data
@@ -408,13 +408,11 @@ def evaluate_ventilation(
         trend_hours=trend_hours,
     )
 
-    result = VentilationResult(
+    return VentilationResult(
         parameters=params,
         trend=trend,
         collected_at=params.collected_at,
     )
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -422,12 +420,12 @@ def evaluate_ventilation(
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    "VentilationParameters",
     "ParameterTrend",
-    "VentilationTrend",
+    "VentilationParameters",
     "VentilationResult",
-    "extract_ventilation_params",
+    "VentilationTrend",
     "compute_ventilation_trend",
-    "evaluate_ventilation",
     "evaluate_respiratory",
+    "evaluate_ventilation",
+    "extract_ventilation_params",
 ]

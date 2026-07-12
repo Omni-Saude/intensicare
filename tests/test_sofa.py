@@ -638,8 +638,7 @@ class TestClassifySOFAMortalityRisk:
             live_risk = result.sepsis_mortality_risk
             replay_risk = classify_sofa_mortality_risk(score)
             assert live_risk == replay_risk, (
-                f"Parity failure at score={score}: "
-                f"live='{live_risk}' vs replay='{replay_risk}'"
+                f"Parity failure at score={score}: live='{live_risk}' vs replay='{replay_risk}'"
             )
 
 
@@ -699,9 +698,7 @@ class TestVasopressorRateComment:
         import inspect
 
         source = inspect.getsource(score_cardiovascular)
-        assert "mcg/kg/min" in source, (
-            "score_cardiovascular source must mention mcg/kg/min"
-        )
+        assert "mcg/kg/min" in source, "score_cardiovascular source must mention mcg/kg/min"
         assert "RAT-CLINICAL-SCORING-03" in source, (
             "score_cardiovascular source must reference RAT-CLINICAL-SCORING-03"
         )
@@ -719,12 +716,16 @@ class TestSOFAVersion:
     """Verify the algorithm version is SOFA-v2.0.0 (CLINICALLY RATIFIED)."""
 
     def test_version_is_v2_0_0(self):
-        assert SOFA_VERSION == "SOFA-v2.0.0", (
-            f"Expected SOFA-v2.0.0, got {SOFA_VERSION}"
-        )
+        assert SOFA_VERSION == "SOFA-v2.0.0", f"Expected SOFA-v2.0.0, got {SOFA_VERSION}"
 
     def test_result_uses_current_version(self):
-        result = calculate_sofa(pao2_fio2=450, platelets=200, bilirubin=0.5,
-                                map_value=80, gcs=15, creatinine=1.0,
-                                urine_output_ml_day=1000)
+        result = calculate_sofa(
+            pao2_fio2=450,
+            platelets=200,
+            bilirubin=0.5,
+            map_value=80,
+            gcs=15,
+            creatinine=1.0,
+            urine_output_ml_day=1000,
+        )
         assert result.algorithm_version == "SOFA-v2.0.0"

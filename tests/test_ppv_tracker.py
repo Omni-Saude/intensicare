@@ -18,12 +18,10 @@ import asyncio
 import pytest
 
 from intensicare.services.ppv_tracker import (
-    PPV_TARGET,
-    FATIGUE_TARGET,
     PPVTracker,
+    get_ppv_status,
     ppv_tracker,
     record_alert_resolution,
-    get_ppv_status,
 )
 
 

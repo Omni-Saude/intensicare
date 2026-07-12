@@ -18,7 +18,6 @@ import pytest
 from intensicare.core.telemetry import (
     _NoOpSpan,
     _NoOpTracer,
-    _TelemetryState,
     _telemetry_state,
     format_trace_id,
     get_current_trace_id,
@@ -27,7 +26,6 @@ from intensicare.core.telemetry import (
     is_telemetry_available,
     trace_stage,
 )
-
 
 # ─── Fixture to guard global state ───────────────────────────────────────────
 
@@ -52,10 +50,12 @@ class TestGetTracer:
 
     def test_returns_noop_when_otel_not_installed(self):
         """When opentelemetry is not importable, get_tracer returns NoOpTracer."""
-        with patch("intensicare.core.telemetry.trace", None):
-            # The module allows optional import; set the import to fail
-            with patch("intensicare.core.telemetry.trace", create=True):
-                pass
+        # The module allows optional import; set the import to fail
+        with (
+            patch("intensicare.core.telemetry.trace", None),
+            patch("intensicare.core.telemetry.trace", create=True),
+        ):
+            pass
         # With the import failing inside get_tracer, should return _NoOpTracer
         with patch(
             "builtins.__import__",
@@ -123,9 +123,7 @@ class TestGetCurrentTraceID:
         mock_trace = MagicMock()
         mock_trace.get_current_span.return_value = mock_span
 
-        with patch(
-            "intensicare.core.telemetry.trace", mock_trace
-        ):
+        with patch("intensicare.core.telemetry.trace", mock_trace):
             trace_id = get_current_trace_id()
             assert trace_id is not None
             assert len(trace_id) == 32
@@ -169,19 +167,25 @@ class TestInitTelemetry:
         _telemetry_state.initialized = False
 
         # Simulate success path
-        with patch(
-            "intensicare.core.telemetry.TracerProvider",
-            MagicMock(),
-        ), patch(
-            "intensicare.core.telemetry.OTLPSpanExporter",
-            MagicMock(),
-        ), patch(
-            "intensicare.core.telemetry.BatchSpanProcessor",
-            MagicMock(),
-        ), patch(
-            "intensicare.core.telemetry._auto_instrument",
-        ), patch(
-            "intensicare.core.telemetry.trace",
+        with (
+            patch(
+                "intensicare.core.telemetry.TracerProvider",
+                MagicMock(),
+            ),
+            patch(
+                "intensicare.core.telemetry.OTLPSpanExporter",
+                MagicMock(),
+            ),
+            patch(
+                "intensicare.core.telemetry.BatchSpanProcessor",
+                MagicMock(),
+            ),
+            patch(
+                "intensicare.core.telemetry._auto_instrument",
+            ),
+            patch(
+                "intensicare.core.telemetry.trace",
+            ),
         ):
             init_telemetry(traces_enabled=True, metrics_enabled=False)
             assert _telemetry_state.initialized is True
@@ -190,17 +194,16 @@ class TestInitTelemetry:
         """When OTEL SDK is not installed, init_telemetry logs a warning."""
         _telemetry_state.initialized = False
 
-        with patch("intensicare.core.telemetry.logger") as mock_logger:
-            # Simulate ImportError at the top of init_telemetry try block
-            with patch(
-                "builtins.__import__",
-                side_effect=ImportError("No OTEL SDK"),
-            ):
-                init_telemetry()
-                # Even on failure, initialized is set to True to avoid retry
-                assert _telemetry_state.initialized is True
-                # Should have logged a warning
-                mock_logger.warning.assert_called()
+        # Simulate ImportError at the top of init_telemetry try block
+        with (
+            patch("intensicare.core.telemetry.logger") as mock_logger,
+            patch("builtins.__import__", side_effect=ImportError("No OTEL SDK")),
+        ):
+            init_telemetry()
+            # Even on failure, initialized is set to True to avoid retry
+            assert _telemetry_state.initialized is True
+            # Should have logged a warning
+            mock_logger.warning.assert_called()
 
 
 # ─── trace_stage context manager ─────────────────────────────────────────────
@@ -211,39 +214,45 @@ class TestTraceStage:
 
     def test_successful_stage(self):
         """A successful stage should yield the span without errors."""
-        with patch(
-            "intensicare.core.telemetry.get_tracer",
-            return_value=_NoOpTracer(),
+        with (
+            patch(
+                "intensicare.core.telemetry.get_tracer",
+                return_value=_NoOpTracer(),
+            ),
+            trace_stage("poll_nrt", unit_id="ICU-1", tenant_id="t01"),
         ):
-            with trace_stage("poll_nrt", unit_id="ICU-1", tenant_id="t01"):
-                # Just verify it doesn't crash
-                pass
+            # Just verify it doesn't crash
+            pass
 
     def test_exception_in_stage_is_re_raised(self):
         """An exception inside the stage should be re-raised."""
-        with patch(
-            "intensicare.core.telemetry.get_tracer",
-            return_value=_NoOpTracer(),
+        with (
+            patch(
+                "intensicare.core.telemetry.get_tracer",
+                return_value=_NoOpTracer(),
+            ),
+            pytest.raises(ValueError, match="test error"),
+            trace_stage("evaluate"),
         ):
-            with pytest.raises(ValueError, match="test error"):
-                with trace_stage("evaluate"):
-                    raise ValueError("test error")
+            raise ValueError("test error")
 
     def test_stage_with_all_attributes(self):
         """All optional attributes should be handled."""
-        with patch(
-            "intensicare.core.telemetry.get_tracer",
-            return_value=_NoOpTracer(),
-        ):
-            with trace_stage(
+        with (
+            patch(
+                "intensicare.core.telemetry.get_tracer",
+                return_value=_NoOpTracer(),
+            ),
+            trace_stage(
                 "deliver",
                 attributes={"custom": "value"},
                 evaluation_mode="micro_batch",
                 tenant_id="t02",
                 unit_id="ICU-2",
                 alert_definition_id="alert-001",
-            ):
-                pass
+            ),
+        ):
+            pass
 
 
 # ─── is_telemetry_available tests ────────────────────────────────────────────

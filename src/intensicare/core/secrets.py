@@ -15,10 +15,8 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +30,7 @@ _boto3_available: bool | None = None
 
 def _has_boto3() -> bool:
     """Check whether boto3 is installed without raising."""
-    global _boto3_available  # noqa: PLW0603
+    global _boto3_available
     if _boto3_available is None:
         try:
             import boto3  # noqa: F401
@@ -47,7 +45,7 @@ def _get_secrets_manager_client():
     """Return a boto3 Secrets Manager client (lazy, cached via lru_cache)."""
     if not _has_boto3():
         return None
-    import boto3  # noqa: F811
+    import boto3
 
     return boto3.client(
         "secretsmanager",
@@ -157,8 +155,7 @@ def get_secret_sync(secret_name: str) -> str | None:
     # We're inside an event loop.  This is not the intended use-case, but
     # we provide a best-effort fallback by scheduling on the existing loop.
     logger.warning(
-        "get_secret_sync called inside a running event loop for %s — "
-        "use the async version instead",
+        "get_secret_sync called inside a running event loop for %s — use the async version instead",
         secret_name,
     )
     import concurrent.futures

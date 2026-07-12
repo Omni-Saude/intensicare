@@ -12,17 +12,18 @@ Sprint 1 patient-safety demo data. Proves:
     this is the exact "stale cutoff" bug the audit flagged: demo vitals
     must never look like old/expired readings.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from scripts.dev.seed_demo import DEMO_MPI_PREFIX, SEPSE_PATHWAY_ID, seed
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.pathway import PatientPathway
 from intensicare.models.vital_sign import VitalSign
-from scripts.dev.seed_demo import DEMO_MPI_PREFIX, SEPSE_PATHWAY_ID, seed
 
 EXPECTED_MPI_IDS = [f"{DEMO_MPI_PREFIX}00{i}" for i in range(1, 6)]
 
@@ -61,19 +62,25 @@ class TestSeedDemoIdempotency:
         # Row-count assertions directly against the DB: no duplicates left
         # behind by the first call once the second call's wipe+reinsert ran.
         vitals = (
-            await db_session.execute(
-                select(VitalSign).where(VitalSign.mpi_id.like(f"{DEMO_MPI_PREFIX}%"))
+            (
+                await db_session.execute(
+                    select(VitalSign).where(VitalSign.mpi_id.like(f"{DEMO_MPI_PREFIX}%"))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(vitals) == second.vitals_ingested
 
         enrollments = (
-            await db_session.execute(
-                select(PatientPathway).where(
-                    PatientPathway.mpi_id.like(f"{DEMO_MPI_PREFIX}%")
+            (
+                await db_session.execute(
+                    select(PatientPathway).where(PatientPathway.mpi_id.like(f"{DEMO_MPI_PREFIX}%"))
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(enrollments) == len(second.enrollments)
 
 
@@ -88,13 +95,17 @@ class TestSeedDemoClinicalContent:
     ) -> None:
         mpi_id = f"{DEMO_MPI_PREFIX}001"
         scores = (
-            await db_session.execute(
-                select(ClinicalScore).where(
-                    ClinicalScore.mpi_id == mpi_id,
-                    ClinicalScore.score_type == "MEWS",
+            (
+                await db_session.execute(
+                    select(ClinicalScore).where(
+                        ClinicalScore.mpi_id == mpi_id,
+                        ClinicalScore.score_type == "MEWS",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert scores, "DEMO-001 deve ter pelo menos um score MEWS calculado"
         max_score = max(s.score_value for s in scores)
         # DEMO-001's worst reading (HR118/SBP75/RR24/T38.9/AVPU=V) scores 9/15
@@ -105,14 +116,10 @@ class TestSeedDemoClinicalContent:
             f"max observado={max_score} scores={[s.score_value for s in scores]}"
         )
 
-    async def test_demo_001_enrolled_in_sepse_with_pam_critical_band(
-        self, demo_patients
-    ) -> None:
+    async def test_demo_001_enrolled_in_sepse_with_pam_critical_band(self, demo_patients) -> None:
         report = demo_patients
         mpi_id = f"{DEMO_MPI_PREFIX}001"
-        enrollment = next(
-            (e for e in report.enrollments if e["mpi_id"] == mpi_id), None
-        )
+        enrollment = next((e for e in report.enrollments if e["mpi_id"] == mpi_id), None)
         assert enrollment is not None, f"{mpi_id} deveria estar inscrito em um pathway"
         assert not enrollment.get("error"), enrollment
         assert enrollment["pathway_id"] == SEPSE_PATHWAY_ID

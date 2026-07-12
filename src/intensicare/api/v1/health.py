@@ -13,9 +13,8 @@ can gracefully report "degraded" instead of returning 500 when the database is d
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import datetime, timezone
-from typing import Any
+import logging
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -43,8 +42,12 @@ class ComponentCheck(BaseModel):
 class StalenessEntry(BaseModel):
     """Per-domain staleness for a single unit."""
 
-    last_score_at: str | None = Field(default=None, description="ISO-8601 timestamp of most recent score")
-    minutes_stale: float | None = Field(default=None, description="Minutes since last score (null if never scored)")
+    last_score_at: str | None = Field(
+        default=None, description="ISO-8601 timestamp of most recent score"
+    )
+    minutes_stale: float | None = Field(
+        default=None, description="Minutes since last score (null if never scored)"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -145,7 +148,7 @@ async def _check_athena() -> ComponentCheck:
         return ComponentCheck(status="skipped", detail="Athena not configured")
     t0 = datetime.now(timezone.utc)
     try:
-        from intensicare.clients.athena_client import AthenaClient  # noqa: PLC0415
+        from intensicare.clients.athena_client import AthenaClient
 
         client = AthenaClient(query_timeout=5)
         result = await client.execute_query("SELECT 1")
@@ -300,9 +303,7 @@ async def health_check() -> HealthResponse:
     staleness = await _compute_staleness_matrix()
 
     # Determine aggregate status.
-    error_checks = [
-        name for name, c in checks.items() if c.status == "error"
-    ]
+    error_checks = [name for name, c in checks.items() if c.status == "error"]
     if "postgresql" in error_checks and "redis" in error_checks:
         overall = "unhealthy"
     elif error_checks:
@@ -313,7 +314,10 @@ async def health_check() -> HealthResponse:
     # Check staleness alert threshold.
     for unit_name, domains in staleness.items():
         for domain_name, entry in domains.items():
-            if entry.minutes_stale is not None and entry.minutes_stale > settings.staleness_alert_minutes:
+            if (
+                entry.minutes_stale is not None
+                and entry.minutes_stale > settings.staleness_alert_minutes
+            ):
                 logger.warning(
                     "Staleness threshold exceeded: unit=%s domain=%s stale=%s min",
                     unit_name,

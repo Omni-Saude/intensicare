@@ -17,10 +17,8 @@ Integration note:
   assertion and remove ``pass``.
 """
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
-
 
 # ---------------------------------------------------------------------------
 # Strategies

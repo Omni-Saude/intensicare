@@ -26,9 +26,9 @@ Load-failure policy (fail-fast, hybrid — see ADR-0020 addendum):
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,6 @@ import yaml
 from intensicare.services.trilhas_compiler import PredicateCompiler, compute_content_hash
 from intensicare.services.trilhas_evaluator import (
     AlertFiring,
-    CriterionFiring,
     TrilhasEvaluator,
 )
 
@@ -146,9 +145,7 @@ class TrilhasEngine:
 
     # ── Public API ───────────────────────────────────────────────────────
 
-    async def evaluate(
-        self, mpi_id: str, patient_data: dict[str, Any]
-    ) -> list[AlertFiring]:
+    async def evaluate(self, mpi_id: str, patient_data: dict[str, Any]) -> list[AlertFiring]:
         """Evaluate all pathway definitions for a patient. Stateless.
 
         NOTE: async — ``TrilhasEvaluator.evaluate_and_build`` is a coroutine
@@ -172,7 +169,9 @@ class TrilhasEngine:
                 continue
 
             alert = await self._evaluator.evaluate_and_build(
-                pdef.to_raw(), mpi_id, patient_data,
+                pdef.to_raw(),
+                mpi_id,
+                patient_data,
             )
 
             # Only include pathways that actually fired
@@ -228,16 +227,15 @@ class TrilhasEngine:
             from intensicare.services.domain_trilhas_engine import (
                 get_patient_pathways as legacy_get,
             )
+
             return legacy_get(mpi_id, status_filter="all")
         except ImportError:
-            logger.warning(
-                "Legacy domain_trilhas_engine not available for get_patient_pathways"
-            )
+            logger.warning("Legacy domain_trilhas_engine not available for get_patient_pathways")
             return []
 
-    def reset_suppression(self) -> None:
+    async def reset_suppression(self) -> None:
         """Reset in-memory suppression state (useful for tests)."""
-        self._evaluator.reset_suppression()
+        await self._evaluator.reset_suppression()
 
     # ── Internal: YAML loading ──────────────────────────────────────────
 
@@ -268,7 +266,8 @@ class TrilhasEngine:
 
         logger.info(
             "TrilhasEngine loaded %d pathway definitions from %s",
-            len(self._definitions), full_path,
+            len(self._definitions),
+            full_path,
         )
 
     def _load_file(self, filepath: str) -> None:
@@ -337,7 +336,10 @@ class TrilhasEngine:
                     "Failed to compile predicate for criterion %s in pathway "
                     "%s (%s): %s — deactivating pathway (fail-fast, no partial "
                     "evaluation of a clinical pathway)",
-                    criterion_id, slug or name, filepath, exc,
+                    criterion_id,
+                    slug or name,
+                    filepath,
+                    exc,
                 )
                 self.load_failures.append(
                     {
@@ -373,7 +375,10 @@ class TrilhasEngine:
 
         logger.debug(
             "Loaded pathway '%s' (id=%d, %d/%d criteria compiled)",
-            name, pathway_id, compiled_count, len(criteria),
+            name,
+            pathway_id,
+            compiled_count,
+            len(criteria),
         )
 
     def _load_from_default_dirs(self) -> None:
@@ -388,9 +393,7 @@ class TrilhasEngine:
                 loaded_any = True
 
         if not loaded_any:
-            logger.warning(
-                "No YAML pathway directories found. Engine has zero definitions."
-            )
+            logger.warning("No YAML pathway directories found. Engine has zero definitions.")
 
     @staticmethod
     def _find_repo_root() -> str:

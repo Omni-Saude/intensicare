@@ -12,8 +12,8 @@ Oferece:
 
 from __future__ import annotations
 
-import logging
 from datetime import date
+import logging
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,9 +32,7 @@ _ENCRYPTION_KEY_GUC = "app.encryption_key"
 async def _pgp_sym_encrypt_raw(db: AsyncSession, plaintext: str) -> bytes:
     """Executa pgp_sym_encrypt no banco e retorna o BYTEA resultante."""
     result = await db.execute(
-        text(
-            "SELECT pgp_sym_encrypt(:plaintext, current_setting(:guc)) AS enc"
-        ),
+        text("SELECT pgp_sym_encrypt(:plaintext, current_setting(:guc)) AS enc"),
         {"plaintext": plaintext, "guc": _ENCRYPTION_KEY_GUC},
     )
     row = result.one()
@@ -51,34 +49,26 @@ async def _pgp_sym_decrypt_raw(db: AsyncSession, ciphertext: bytes) -> str:
 
     try:
         result = await db.execute(
-            text(
-                "SELECT pgp_sym_decrypt(:ciphertext, current_setting(:guc)) AS dec"
-            ),
+            text("SELECT pgp_sym_decrypt(:ciphertext, current_setting(:guc)) AS dec"),
             {"ciphertext": ciphertext, "guc": _ENCRYPTION_KEY_GUC},
         )
     except DBAPIError as exc:
         # pgcrypto raises "Wrong key or corrupt data" as a PostgreSQL error,
         # which SQLAlchemy wraps in DBAPIError (orig = asyncpg ExternalRoutineInvocationError).
-        raise ValueError(
-            "Decryption failed — wrong key or corrupt ciphertext"
-        ) from exc
+        raise ValueError("Decryption failed — wrong key or corrupt ciphertext") from exc
 
     row = result.one()
     # pgp_sym_decrypt returns TEXT (or NULL if it couldn't decode).
     decrypted = row.dec
     if decrypted is None:
-        raise ValueError(
-            "Decryption returned NULL — possible wrong key or corrupted ciphertext"
-        )
+        raise ValueError("Decryption returned NULL — possible wrong key or corrupted ciphertext")
     return decrypted
 
 
 async def _hmac_raw(db: AsyncSession, data: str) -> bytes:
     """Calcula HMAC-SHA256 do dado usando a chave GUC."""
     result = await db.execute(
-        text(
-            "SELECT hmac(:data, current_setting(:guc), 'sha256') AS idx"
-        ),
+        text("SELECT hmac(:data, current_setting(:guc), 'sha256') AS idx"),
         {"data": data, "guc": _ENCRYPTION_KEY_GUC},
     )
     row = result.one()
@@ -159,9 +149,4 @@ async def age_derivation(db: AsyncSession, birth_date_encrypted: bytes) -> int |
         return None
 
     today = date.today()
-    age = (
-        today.year
-        - birth.year
-        - ((today.month, today.day) < (birth.month, birth.day))
-    )
-    return age
+    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))

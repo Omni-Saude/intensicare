@@ -15,10 +15,10 @@ from intensicare.services.domain_profilaxia import (
     get_bundle_catalog,
 )
 
-
 # ════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ════════════════════════════════════════════════════════════════════════════
+
 
 def _c(id_: str, met: bool = False, na: bool = False) -> CriterionResult:
     """Shorthand to build a CriterionResult."""
@@ -83,10 +83,10 @@ class TestComputeScoreAndStatus:
     def test_mixed_na_and_met(self):
         """Mixed na + met: na are excluded, score based on applicable only."""
         criteria = [
-            _c("a", met=True),       # applicable, met
-            _c("b", na=True),          # excluded
-            _c("c", met=False),        # applicable, not met
-            _c("d", na=True),          # excluded
+            _c("a", met=True),  # applicable, met
+            _c("b", na=True),  # excluded
+            _c("c", met=False),  # applicable, not met
+            _c("d", na=True),  # excluded
         ]
         # applicable = a + c (2); met = a (1) → 1/2 = 50%
         score, status = compute_score_and_status(criteria)
@@ -184,7 +184,7 @@ class TestComputeOverall:
         """Partial scores including some at 0 and some at 100 → partial."""
         bundles = [
             _br("a", "complete", 100),
-            _br("b", "na", 0),         # na bundles score 0
+            _br("b", "na", 0),  # na bundles score 0
             _br("c", "partial", 50),
         ]
         overall_status, overall_score = compute_overall(bundles)
@@ -297,7 +297,7 @@ class TestEvaluateBundle:
         """Override na flag on criteria."""
         inputs = [
             {"id": "lamgd-vm", "met": True, "na": False},
-            {"id": "lamgd-coag", "na": True},       # mark as N/A
+            {"id": "lamgd-coag", "na": True},  # mark as N/A
             {"id": "lamgd-choque", "met": True},
             {"id": "lamgd-cortico", "met": False},
         ]
@@ -408,8 +408,7 @@ class TestEvaluateAllBundles:
         bundle_inputs = {}
         for bid, bdef in BUNDLE_CATALOG.items():
             bundle_inputs[bid] = [
-                {"id": c["id"], "met": True, "na": False}
-                for c in bdef["criteria"]
+                {"id": c["id"], "met": True, "na": False} for c in bdef["criteria"]
             ]
         result = evaluate_all_bundles(bundle_inputs=bundle_inputs)
         assert result.overall_status == "all_complete"
@@ -477,7 +476,7 @@ class TestBundleCatalogConstant:
         assert len(BUNDLE_CATALOG) == 5
 
     def test_all_bundles_have_name_and_criteria(self):
-        for bid, bdef in BUNDLE_CATALOG.items():
+        for _bid, bdef in BUNDLE_CATALOG.items():
             assert "name" in bdef
             assert "criteria" in bdef
             assert isinstance(bdef["criteria"], list)

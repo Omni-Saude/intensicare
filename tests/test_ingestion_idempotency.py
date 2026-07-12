@@ -17,7 +17,6 @@ from __future__ import annotations
 from httpx import AsyncClient
 import pytest
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 GOLD_POLL_PAYLOAD = {
@@ -159,7 +158,7 @@ async def test_drill_duplicate_replay_msh10_only_one_row_in_db(client: AsyncClie
 @pytest.mark.asyncio
 async def test_drill_duplicate_replay_gold_poll_natural_key(client: AsyncClient):
     """DRILL-DUPLICATE-REPLAY via chave natural Gold-poll.
-    
+
     Sem X-Idempotency-Key, o DB UNIQUE (mpi_id, recorded_at, source_system)
     impede duplicação e retorna o registro existente.
     """
@@ -236,7 +235,7 @@ async def test_gold_poll_natural_key_null_source_system(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_idempotency_store_and_db_unique_together(client: AsyncClient):
     """IdempotencyStore (MSH-10) atua primeiro; DB UNIQUE é safety net.
-    
+
     Com X-Idempotency-Key, o IdempotencyStore captura antes do DB.
     A mensagem de replay vem da camada de aplicação.
     """

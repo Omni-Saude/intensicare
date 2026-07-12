@@ -21,21 +21,55 @@ from typing import Any, TypedDict
 
 VALID_ROUTES: list[str] = ["IV", "IM", "SC", "PO", "SN", "IT", "TOP", "INAL"]
 VALID_STATUSES: list[str] = [
-    "draft", "active", "completed", "discontinued", "suspended",
+    "draft",
+    "active",
+    "completed",
+    "discontinued",
+    "suspended",
 ]
 VALID_FREQUENCIES: list[str] = [
-    "QID", "TID", "BID", "QD", "QOD", "PRN", "continuous",
-    "8/8h", "6/6h", "12/12h", "24/24h", "4/4h", "1/1h", "48/48h",
+    "QID",
+    "TID",
+    "BID",
+    "QD",
+    "QOD",
+    "PRN",
+    "continuous",
+    "8/8h",
+    "6/6h",
+    "12/12h",
+    "24/24h",
+    "4/4h",
+    "1/1h",
+    "48/48h",
 ]
 VALID_UNITS: list[str] = [
-    "mg", "g", "mcg", "ng", "mL", "L", "UI", "mEq", "mmol",
-    "mg/kg", "mcg/kg", "mcg/kg/min", "mg/h", "mL/h",
+    "mg",
+    "g",
+    "mcg",
+    "ng",
+    "mL",
+    "L",
+    "UI",
+    "mEq",
+    "mmol",
+    "mg/kg",
+    "mcg/kg",
+    "mcg/kg/min",
+    "mg/h",
+    "mL/h",
 ]
 VALID_SEVERITIES: list[str] = [
-    "contraindicated", "severe", "moderate", "minor",
+    "contraindicated",
+    "severe",
+    "moderate",
+    "minor",
 ]
 VALID_INTERACTION_TYPES: list[str] = [
-    "drug-drug", "drug-allergy", "drug-food", "duplicate",
+    "drug-drug",
+    "drug-allergy",
+    "drug-food",
+    "duplicate",
 ]
 
 # Routes that support continuous infusion
@@ -48,6 +82,7 @@ TERMINAL_STATES: set[str] = {"completed", "discontinued"}
 # =============================================================================
 # DrugSafetyEntry TypedDict
 # =============================================================================
+
 
 class DrugSafetyEntry(TypedDict, total=False):
     """Typed representation of a drug safety range entry.
@@ -310,16 +345,16 @@ DRUG_SAFETY: dict[str, DrugSafetyEntry] = {
 # GFR thresholds in mL/min
 RENAL_ADJUSTMENTS: dict[str, Any] = {
     "meropenem": {
-        "gfr_normal": 1.0,   # GFR 90-119: normal renal function
-        "gfr_arc": 1.0,      # GFR >=120: ARC — standard dose (no increase)
-        "gfr_50_90": 1.0,    # full dose
-        "gfr_26_50": 1.0,    # full dose
-        "gfr_10_25": 0.5,    # 50% dose
+        "gfr_normal": 1.0,  # GFR 90-119: normal renal function
+        "gfr_arc": 1.0,  # GFR >=120: ARC — standard dose (no increase)
+        "gfr_50_90": 1.0,  # full dose
+        "gfr_26_50": 1.0,  # full dose
+        "gfr_10_25": 0.5,  # 50% dose
         "gfr_below_10": 0.25,  # 25% dose
     },
     "vancomicina": {
         "gfr_normal": 1.0,
-        "gfr_arc": 1.2,      # ARC: higher doses may be needed
+        "gfr_arc": 1.2,  # ARC: higher doses may be needed
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.5,
         "gfr_10_25": 0.25,
@@ -327,7 +362,7 @@ RENAL_ADJUSTMENTS: dict[str, Any] = {
     },
     "piperacilina_tazobactam": {
         "gfr_normal": 1.0,
-        "gfr_arc": 1.2,      # ARC: higher doses may be needed
+        "gfr_arc": 1.2,  # ARC: higher doses may be needed
         "gfr_50_90": 1.0,
         "gfr_26_50": 0.75,
         "gfr_10_25": 0.5,
@@ -373,10 +408,10 @@ RENAL_ADJUSTMENTS: dict[str, Any] = {
 
 # Pediatric dose adjustment by age brackets (multiplier of adult dose)
 PEDIATRIC_ADJUSTMENTS: dict[str, float] = {
-    "neonate": 0.05,     # 0-28 days
-    "infant": 0.15,      # 1-12 months
-    "toddler": 0.25,     # 1-3 years
-    "child": 0.5,        # 4-12 years
+    "neonate": 0.05,  # 0-28 days
+    "infant": 0.15,  # 1-12 months
+    "toddler": 0.25,  # 1-3 years
+    "child": 0.5,  # 4-12 years
     "adolescent": 0.75,  # 13-17 years
 }
 
@@ -384,6 +419,7 @@ PEDIATRIC_ADJUSTMENTS: dict[str, float] = {
 # =============================================================================
 # Dose conversion utilities
 # =============================================================================
+
 
 def _mass_to_mg(dose: float, unit: str) -> float:
     """Convert a mass or volume dose to mg equivalent for comparison.
@@ -408,9 +444,9 @@ def _mass_to_mg(dose: float, unit: str) -> float:
         "g": 1000.0,
         "mcg": 0.001,
         "ng": 1e-6,
-        "mL": 1.0,   # context-dependent, assume 1 mg/mL
+        "mL": 1.0,  # context-dependent, assume 1 mg/mL
         "L": 1000.0,
-        "UI": 1.0,   # cannot directly convert to mg
+        "UI": 1.0,  # cannot directly convert to mg
         "mEq": 1.0,  # context-dependent
         "mmol": 1.0,  # context-dependent
     }
@@ -467,13 +503,13 @@ def _rate_to_mg(
 
     if unit == "mg/kg":
         return rate * weight_kg  # type: ignore[operator]
-    elif unit == "mcg/kg":
+    if unit == "mcg/kg":
         return rate * weight_kg * 0.001  # type: ignore[operator]
-    elif unit == "mcg/kg/min":
+    if unit == "mcg/kg/min":
         return rate * weight_kg * duration_h * 60.0 * 0.001  # type: ignore[operator]
-    elif unit == "mg/h":
+    if unit == "mg/h":
         return rate * duration_h
-    elif unit == "mL/h":
+    if unit == "mL/h":
         # Assume 1 mg/mL concentration
         return rate * duration_h
 
@@ -538,6 +574,7 @@ def _pediatric_age_bracket(age_years: float) -> str:
 # =============================================================================
 # Dose validation (R27-R35)
 # =============================================================================
+
 
 def _validate_dose(
     drug: str,

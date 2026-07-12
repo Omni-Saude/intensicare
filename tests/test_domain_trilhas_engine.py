@@ -15,18 +15,14 @@ import pytest
 
 from intensicare.services.domain_trilhas_engine import (
     PATHWAY_SEEDS,
-    CriteriaEvaluationResult,
-    PathwayEligibilityResult,
-    PathwayEnrollmentResult,
-    PathwayProgressResult,
     _reset_stores,
     check_pathway_eligibility,
     enroll_patient,
     evaluate_criteria,
     get_pathway_by_id,
     get_pathway_catalog,
-    get_patient_pathways,
     get_pathway_progress,
+    get_patient_pathways,
 )
 
 
@@ -732,9 +728,7 @@ class TestTrilhasEngineIntegration:
 
         engine = TrilhasEngine()
         pathways = engine.get_pathways()
-        assert len(pathways) >= 4, (
-            f"Expected at least 4 pathways loaded, got {len(pathways)}"
-        )
+        assert len(pathways) >= 4, f"Expected at least 4 pathways loaded, got {len(pathways)}"
         slugs = {p.slug for p in pathways}
         assert slugs >= {"ventilacao", "sepse", "desmame", "nutricao"}
 
@@ -839,6 +833,7 @@ class TestTrilhasEngineIntegration:
             PathwayDefinition,
             TrilhasEngine,
         )
+
         # Just verify they import without error
         assert TrilhasEngine is not None
         assert PathwayDefinition is not None
@@ -853,6 +848,7 @@ class TestTrilhasEngineIntegration:
             get_pathway_by_id,
             get_pathway_catalog,
         )
+
         assert PATHWAY_SEEDS is not None
         assert PathwayStore is not None
         assert PatientPathwayDict is not None

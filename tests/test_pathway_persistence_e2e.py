@@ -19,6 +19,7 @@ This module proves the fix actually holds:
      touched anywhere in the enroll → update-criteria → list → progress
      flow.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -123,11 +124,7 @@ async def test_enrollment_survives_new_engine_and_resync(
     # transition; confirms transitions persist across the "restart" too.
     update_resp = await client.put(
         f"/api/v1/patients/{mpi_id}/pathways/{pp_id}/criteria",
-        json={
-            "criteria": [
-                {"id": c["id"], "met": True, "value": "1"} for c in pathway_criteria
-            ]
-        },
+        json={"criteria": [{"id": c["id"], "met": True, "value": "1"} for c in pathway_criteria]},
         headers=admin_headers,
     )
     assert update_resp.status_code == 200, update_resp.text
@@ -186,9 +183,7 @@ async def test_pathway_flow_never_touches_legacy_pathway_store(
     assert enroll_resp.status_code == 201, enroll_resp.text
     pp_id = enroll_resp.json()["id"]
 
-    list_resp = await client.get(
-        f"/api/v1/patients/{mpi_id}/pathways", headers=admin_headers
-    )
+    list_resp = await client.get(f"/api/v1/patients/{mpi_id}/pathways", headers=admin_headers)
     assert list_resp.status_code == 200
 
     update_resp = await client.put(

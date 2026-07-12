@@ -10,15 +10,13 @@ Cobre:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.abac import (
     ABACAccessDenied,
-    ABACPolicy,
     Action,
     ClinicalRole,
     ResourceType,
@@ -28,19 +26,16 @@ from intensicare.auth.abac import (
 )
 from intensicare.auth.iam import (
     IAMDisabledError,
-    IAMIdentity,
     IAMTokenError,
     _identity_from_claims,
-    _extract_claims,
     validate_iam_token,
 )
-from intensicare.config import Settings, get_settings, settings
+from intensicare.config import settings
+from intensicare.models.audit_trail import AuditTrail
 from intensicare.services.kms_keys import (
     KMSEngine,
-    KMSKeyError,
     KMSNotConfiguredError,
     TenantDEK,
-    get_kms_engine,
     set_session_encryption_key,
 )
 from intensicare.services.patient_encryption import (
@@ -48,8 +43,6 @@ from intensicare.services.patient_encryption import (
     decrypt_phi,
     encrypt_phi,
 )
-from intensicare.models.audit_trail import AuditTrail
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # WO-037: IAM Identity Center — testes
@@ -98,23 +91,25 @@ class TestIAMTokenValidation:
     @pytest.mark.asyncio
     async def test_iam_disabled_raises(self):
         """Deve levantar IAMDisabledError se iam_enabled=False."""
-        with patch.object(settings, "iam_enabled", False):
-            with pytest.raises(IAMDisabledError, match="not enabled"):
-                await validate_iam_token("fake-token")
+        with (
+            patch.object(settings, "iam_enabled", False),
+            pytest.raises(IAMDisabledError, match="not enabled"),
+        ):
+            await validate_iam_token("fake-token")
 
     @pytest.mark.asyncio
     async def test_iam_enabled_with_jwks(self):
         """Deve validar token com JWKS mockado (integração simulada)."""
+        # Precisamos mockar a chamada HTTP e a validação JWT
+        # Este é um teste de integração mockada — em CI real usaria LocalStack
+        # Por ora, verificamos que o fluxo tenta buscar JWKS
         with (
             patch.object(settings, "iam_enabled", True),
             patch.object(settings, "iam_oidc_issuer", "https://idc.amazonaws.com/xxx"),
             patch.object(settings, "iam_client_id", "client-123"),
+            pytest.raises(IAMTokenError),  # vai falhar ao buscar JWKS real
         ):
-            # Precisamos mockar a chamada HTTP e a validação JWT
-            # Este é um teste de integração mockada — em CI real usaria LocalStack
-            # Por ora, verificamos que o fluxo tenta buscar JWKS
-            with pytest.raises(IAMTokenError):  # vai falhar ao buscar JWKS real
-                await validate_iam_token("fake-token")
+            await validate_iam_token("fake-token")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -287,15 +282,23 @@ class TestABACAdminFullAccess:
     """Admin deve ter acesso completo."""
 
     @pytest.mark.parametrize("resource", list(ResourceType))
-    @pytest.mark.parametrize("action", [
-        Action.READ, Action.WRITE, Action.DELETE,
-    ])
+    @pytest.mark.parametrize(
+        "action",
+        [
+            Action.READ,
+            Action.WRITE,
+            Action.DELETE,
+        ],
+    )
     def test_admin_full_access(self, resource: ResourceType, action: Action):
         """Admin deve poder qualquer ação em qualquer recurso."""
         # Alguns recursos não têm DELETE na política — isso é esperado
         result = evaluate_abac(
-            "admin", resource, action,
-            tenant_id="hosp-a", resource_tenant="hosp-b",
+            "admin",
+            resource,
+            action,
+            tenant_id="hosp-a",
+            resource_tenant="hosp-b",
         )
         # Admin sempre tem acesso se a ação existe para admin naquele recurso
         # Verificamos que não levanta exceção inesperada
@@ -374,9 +377,7 @@ class TestKMSLocalDerivation:
         with patch.object(settings, "kms_cmk_arn", ""):
             engine = KMSEngine()
             dek_original = await engine.get_or_create_dek("tenant-test")
-            plaintext = await engine.unwrap_dek(
-                dek_original.ciphertext, "tenant-test"
-            )
+            plaintext = await engine.unwrap_dek(dek_original.ciphertext, "tenant-test")
             assert plaintext == dek_original.plaintext
 
     @pytest.mark.asyncio
@@ -388,9 +389,7 @@ class TestKMSLocalDerivation:
             await set_session_encryption_key(db_session, "tenant-guc-test")
 
             # Verifica que a GUC foi setada
-            result = await db_session.execute(
-                text("SELECT current_setting('app.encryption_key')")
-            )
+            result = await db_session.execute(text("SELECT current_setting('app.encryption_key')"))
             value = result.scalar_one()
             assert value is not None
             assert len(value) == 64  # 32 bytes em hex = 64 caracteres
@@ -429,9 +428,13 @@ class TestDRDrillPlan:
     def test_dr_plan_exists(self):
         """Arquivo dr_drill_plan.md deve existir."""
         import os
-        plan_path = os.path.join(
+
+        os.path.join(
             os.path.dirname(__file__),
-            "..", "infrastructure", "dr", "dr_drill_plan.md",
+            "..",
+            "infrastructure",
+            "dr",
+            "dr_drill_plan.md",
         )
         # Em alguns ambientes de teste o path relativo pode variar
         # Verificamos de forma flexível
@@ -442,6 +445,7 @@ class TestDRDrillPlan:
     def test_dr_plan_contains_rpo_rto(self):
         """Plano de DR deve documentar RPO e RTO."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         plan_path = os.path.join(repo_root, "infrastructure", "dr", "dr_drill_plan.md")
         if os.path.exists(plan_path):
@@ -454,6 +458,7 @@ class TestDRDrillPlan:
     def test_dr_drill_script_exists(self):
         """Script dr_drill.py deve existir e ser executável."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         script_path = os.path.join(repo_root, "infrastructure", "dr", "dr_drill.py")
         assert os.path.exists(script_path), f"DR drill script not found at {script_path}"
@@ -462,6 +467,7 @@ class TestDRDrillPlan:
         """Script dr_drill.py deve ser importável sem erro de sintaxe."""
         import importlib.util
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         script_path = os.path.join(repo_root, "infrastructure", "dr", "dr_drill.py")
         if os.path.exists(script_path):
@@ -480,6 +486,7 @@ class TestRegulatoryDocs:
     def test_anvisa_doc_exists(self):
         """Documento ANVISA cadastro deve existir."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         doc_path = os.path.join(repo_root, "docs", "regulatory", "anvisa_cadastro.md")
         assert os.path.exists(doc_path), f"ANVISA doc not found at {doc_path}"
@@ -487,6 +494,7 @@ class TestRegulatoryDocs:
     def test_lgpd_ripd_doc_exists(self):
         """Documento LGPD RIPD deve existir."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         doc_path = os.path.join(repo_root, "docs", "regulatory", "lgpd_ripd.md")
         assert os.path.exists(doc_path), f"LGPD RIPD doc not found at {doc_path}"
@@ -494,6 +502,7 @@ class TestRegulatoryDocs:
     def test_anvisa_doc_contains_classification(self):
         """Documento ANVISA deve conter classificação SaMD."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         doc_path = os.path.join(repo_root, "docs", "regulatory", "anvisa_cadastro.md")
         if os.path.exists(doc_path):
@@ -505,6 +514,7 @@ class TestRegulatoryDocs:
     def test_lgpd_ripd_contains_encryption_evidence(self):
         """RIPD deve referenciar evidências de criptografia."""
         import os
+
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         doc_path = os.path.join(repo_root, "docs", "regulatory", "lgpd_ripd.md")
         if os.path.exists(doc_path):
@@ -541,11 +551,12 @@ class TestPatientEncryptionEvidence:
     def test_encrypt_decrypt_functions_exist(self):
         """Funções encrypt_phi e decrypt_phi devem ser importáveis."""
         from intensicare.services.patient_encryption import (
-            encrypt_phi,
-            decrypt_phi,
-            compute_mrn_bidx,
             age_derivation,
+            compute_mrn_bidx,
+            decrypt_phi,
+            encrypt_phi,
         )
+
         assert callable(encrypt_phi)
         assert callable(decrypt_phi)
         assert callable(compute_mrn_bidx)

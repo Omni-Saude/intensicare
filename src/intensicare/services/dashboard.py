@@ -59,9 +59,7 @@ async def get_dashboard(
     patients = result.scalars().all()
 
     if not patients:
-        return DashboardResponse(
-            patients=[], total=0, critical_count=0, unit_counts={}
-        )
+        return DashboardResponse(patients=[], total=0, critical_count=0, unit_counts={})
 
     mpi_ids = [p.mpi_id for p in patients]
 
@@ -237,10 +235,12 @@ async def get_dashboard(
         if p.pathways:
             for pp in p.pathways:
                 if pp.status == "active" and pp.pathway:
-                    active_pathways.append({
-                        "slug": pp.pathway.slug,
-                        "severity": pp.severity or "normal",
-                    })
+                    active_pathways.append(
+                        {
+                            "slug": pp.pathway.slug,
+                            "severity": pp.severity or "normal",
+                        }
+                    )
 
         # Count per unit
         if p.unit:
@@ -286,35 +286,59 @@ def _expand_vitals_to_records(
     for vp in vitals_points:
         recorded_at = vp.recorded_at
         if vp.heart_rate is not None:
-            records.append(VitalRecord(
-                name="FC", value=vp.heart_rate, unit="bpm",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="FC",
+                    value=vp.heart_rate,
+                    unit="bpm",
+                    measured_at=recorded_at,
+                )
+            )
         if vp.spo2 is not None:
-            records.append(VitalRecord(
-                name="SpO2", value=vp.spo2, unit="%",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="SpO2",
+                    value=vp.spo2,
+                    unit="%",
+                    measured_at=recorded_at,
+                )
+            )
         if vp.systolic_bp is not None:
-            records.append(VitalRecord(
-                name="PA Sistólica", value=vp.systolic_bp, unit="mmHg",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="PA Sistólica",
+                    value=vp.systolic_bp,
+                    unit="mmHg",
+                    measured_at=recorded_at,
+                )
+            )
         if vp.diastolic_bp is not None:
-            records.append(VitalRecord(
-                name="PA Diastólica", value=vp.diastolic_bp, unit="mmHg",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="PA Diastólica",
+                    value=vp.diastolic_bp,
+                    unit="mmHg",
+                    measured_at=recorded_at,
+                )
+            )
         if vp.respiratory_rate is not None:
-            records.append(VitalRecord(
-                name="FR", value=vp.respiratory_rate, unit="rpm",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="FR",
+                    value=vp.respiratory_rate,
+                    unit="rpm",
+                    measured_at=recorded_at,
+                )
+            )
         if vp.temperature is not None:
-            records.append(VitalRecord(
-                name="Temp", value=vp.temperature, unit="°C",
-                measured_at=recorded_at,
-            ))
+            records.append(
+                VitalRecord(
+                    name="Temp",
+                    value=vp.temperature,
+                    unit="°C",
+                    measured_at=recorded_at,
+                )
+            )
     return records
 
 
@@ -360,9 +384,7 @@ async def get_patient_detail(
         return None
 
     # Count active pathways
-    active_pathways_count = sum(
-        1 for pp in (patient.pathways or []) if pp.status == "active"
-    )
+    active_pathways_count = sum(1 for pp in (patient.pathways or []) if pp.status == "active")
 
     # Get vitals history (last 24h)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)

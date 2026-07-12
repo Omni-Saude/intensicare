@@ -16,28 +16,23 @@ from __future__ import annotations
 
 import pytest
 
+# Access in-memory stores for cleanup between tests
+import intensicare.services.domain_prescricao as dp
 from intensicare.services.domain_prescricao import (
+    DRUG_SAFETY,
+    STATE_TRANSITIONS,
+    TERMINAL_STATES,
+    VALID_STATUSES,
     PrescriptionRecord,
     PrescriptionResult,
-    PrescriptionListResult,
-    InteractionAlert,
+    _check_interactions,
+    _transition_state,
+    _validate_dose,
     create_prescription,
     get_prescription,
     list_prescriptions,
     update_prescription,
-    count_active_prescriptions,
-    get_alerts_for_prescription,
-    _validate_dose,
-    _check_interactions,
-    _transition_state,
-    DRUG_SAFETY,
-    STATE_TRANSITIONS,
-    VALID_STATUSES,
-    TERMINAL_STATES,
 )
-
-# Access in-memory stores for cleanup between tests
-import intensicare.services.domain_prescricao as dp
 
 
 @pytest.fixture(autouse=True)
@@ -144,9 +139,7 @@ class TestCreatePrescription:
         create_prescription("MPI-006", "enoxaparina", 40, "mg", "SC", "QD")
         # Trying to add heparin should fail (contraindicated)
         with pytest.raises(ValueError, match="CONTRAINDICADA"):
-            create_prescription(
-                "MPI-006", "heparina_nao_fracionada", 5000, "UI", "SC", "8/8h"
-            )
+            create_prescription("MPI-006", "heparina_nao_fracionada", 5000, "UI", "SC", "8/8h")
 
 
 # ===========================================================================
@@ -175,21 +168,21 @@ class TestValidateDose:
 
     def test_dose_below_min_single_dose(self):
         """100mg meropenem below 500mg min → R28 warning."""
-        valid, warnings = _validate_dose(
+        _valid, warnings = _validate_dose(
             drug="meropenem", dose=100, unit="mg", route="IV", frequency="8/8h"
         )
         assert any("R28" in w and "abaixo" in w for w in warnings)
 
     def test_daily_dose_exceeds_max(self):
         """1000mg QID = 4000mg/day > 240mg max daily midazolam → R29."""
-        valid, warnings = _validate_dose(
+        _valid, warnings = _validate_dose(
             drug="midazolam", dose=1000, unit="mg", route="IV", frequency="QID"
         )
         assert any("R29" in w for w in warnings)
 
     def test_renal_adjustment_warning(self):
         """Low GFR triggers R31 renal adjustment warning for meropenem."""
-        valid, warnings = _validate_dose(
+        _valid, warnings = _validate_dose(
             drug="meropenem",
             dose=1000,
             unit="mg",
@@ -201,7 +194,7 @@ class TestValidateDose:
 
     def test_elderly_dose_reduction_warning(self):
         """Age >= 65 with elderly_reduce_pct triggers R32."""
-        valid, warnings = _validate_dose(
+        _valid, warnings = _validate_dose(
             drug="midazolam",
             dose=10,
             unit="mg",
@@ -274,18 +267,32 @@ class TestTransitionState:
 
     def test_draft_to_active(self):
         """draft → active is valid."""
-        rx = PrescriptionRecord(id=1, mpi_id="MPI-T01", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="draft")
+        rx = PrescriptionRecord(
+            id=1,
+            mpi_id="MPI-T01",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="draft",
+        )
         result = _transition_state(rx, "active")
         assert result.status == "active"
         assert result.version == 2
 
     def test_active_to_completed_sets_end_time(self):
         """active → completed sets end_time automatically."""
-        rx = PrescriptionRecord(id=2, mpi_id="MPI-T02", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=2,
+            mpi_id="MPI-T02",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         result = _transition_state(rx, "completed")
         assert result.status == "completed"
         assert result.end_time is not None
@@ -293,82 +300,152 @@ class TestTransitionState:
 
     def test_active_to_discontinued_requires_reason(self):
         """active → discontinued without reason → ValueError."""
-        rx = PrescriptionRecord(id=3, mpi_id="MPI-T03", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=3,
+            mpi_id="MPI-T03",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         with pytest.raises(ValueError, match="R39"):
             _transition_state(rx, "discontinued")
 
     def test_active_to_discontinued_with_reason_succeeds(self):
         """active → discontinued with reason works."""
-        rx = PrescriptionRecord(id=4, mpi_id="MPI-T04", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=4,
+            mpi_id="MPI-T04",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         result = _transition_state(rx, "discontinued", reason="Reação adversa")
         assert result.status == "discontinued"
         assert result.end_time is not None
 
     def test_active_to_suspended_requires_reason(self):
         """active → suspended without reason → ValueError."""
-        rx = PrescriptionRecord(id=5, mpi_id="MPI-T05", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=5,
+            mpi_id="MPI-T05",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         with pytest.raises(ValueError, match="R39"):
             _transition_state(rx, "suspended")
 
     def test_active_to_suspended_with_reason_succeeds(self):
         """active → suspended with reason works."""
-        rx = PrescriptionRecord(id=6, mpi_id="MPI-T06", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=6,
+            mpi_id="MPI-T06",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         result = _transition_state(rx, "suspended", reason="Pausa cirúrgica")
         assert result.status == "suspended"
 
     def test_suspended_to_active_resume(self):
         """suspended → active (resume) is valid."""
-        rx = PrescriptionRecord(id=7, mpi_id="MPI-T07", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="suspended")
+        rx = PrescriptionRecord(
+            id=7,
+            mpi_id="MPI-T07",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="suspended",
+        )
         result = _transition_state(rx, "active")
         assert result.status == "active"
 
     def test_suspended_to_discontinued_requires_reason(self):
         """suspended → discontinued without reason → ValueError."""
-        rx = PrescriptionRecord(id=8, mpi_id="MPI-T08", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="suspended")
+        rx = PrescriptionRecord(
+            id=8,
+            mpi_id="MPI-T08",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="suspended",
+        )
         with pytest.raises(ValueError, match="R39"):
             _transition_state(rx, "discontinued")
 
     def test_cannot_modify_completed(self):
         """Completed state is terminal → no transitions allowed."""
-        rx = PrescriptionRecord(id=9, mpi_id="MPI-T09", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="completed")
+        rx = PrescriptionRecord(
+            id=9,
+            mpi_id="MPI-T09",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="completed",
+        )
         with pytest.raises(ValueError, match="R37"):
             _transition_state(rx, "active")
 
     def test_cannot_modify_discontinued(self):
         """Discontinued state is terminal → no transitions allowed."""
-        rx = PrescriptionRecord(id=10, mpi_id="MPI-T10", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="discontinued")
+        rx = PrescriptionRecord(
+            id=10,
+            mpi_id="MPI-T10",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="discontinued",
+        )
         with pytest.raises(ValueError, match="R37"):
             _transition_state(rx, "active")
 
     def test_invalid_status_rejected(self):
         """Unknown status raises R36."""
-        rx = PrescriptionRecord(id=11, mpi_id="MPI-T11", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="draft")
+        rx = PrescriptionRecord(
+            id=11,
+            mpi_id="MPI-T11",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="draft",
+        )
         with pytest.raises(ValueError, match="R36"):
             _transition_state(rx, "nonexistent")
 
     def test_invalid_transition_rejected(self):
         """active → draft is not allowed."""
-        rx = PrescriptionRecord(id=12, mpi_id="MPI-T12", drug="meropenem",
-                                dose=1000, unit="mg", route="IV",
-                                frequency="8/8h", status="active")
+        rx = PrescriptionRecord(
+            id=12,
+            mpi_id="MPI-T12",
+            drug="meropenem",
+            dose=1000,
+            unit="mg",
+            route="IV",
+            frequency="8/8h",
+            status="active",
+        )
         with pytest.raises(ValueError, match="R38"):
             _transition_state(rx, "draft")
 
@@ -417,8 +494,14 @@ class TestListPrescriptions:
     def test_list_pagination(self):
         """Offset and limit pagination works."""
         for i in range(5):
-            create_prescription(f"MPI-L04", f"drug_{i}" if i > 0 else "meropenem",
-                               float(100 + i * 10), "mg", "IV", "8/8h")
+            create_prescription(
+                "MPI-L04",
+                f"drug_{i}" if i > 0 else "meropenem",
+                float(100 + i * 10),
+                "mg",
+                "IV",
+                "8/8h",
+            )
         result = list_prescriptions("MPI-L04", limit=2, offset=1)
         assert len(result.prescriptions) <= 2
         assert result.total == 5
@@ -492,13 +575,21 @@ class TestConstants:
 
     def test_drug_safety_has_known_drugs(self):
         """DRUG_SAFETY contains expected ICU drugs."""
-        expected = {"meropenem", "vancomicina", "noradrenalina", "midazolam",
-                    "fentanil", "propofol", "morfina", "enoxaparina"}
+        expected = {
+            "meropenem",
+            "vancomicina",
+            "noradrenalina",
+            "midazolam",
+            "fentanil",
+            "propofol",
+            "morfina",
+            "enoxaparina",
+        }
         assert expected.issubset(set(DRUG_SAFETY.keys()))
 
     def test_terminal_states_correct(self):
         """TERMINAL_STATES are completed and discontinued."""
-        assert TERMINAL_STATES == {"completed", "discontinued"}
+        assert {"completed", "discontinued"} == TERMINAL_STATES
 
     def test_state_transitions_map_known_states(self):
         """STATE_TRANSITIONS covers all valid statuses."""

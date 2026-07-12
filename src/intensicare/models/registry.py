@@ -28,9 +28,7 @@ class Empresa(Base):
 
     __tablename__ = "empresas"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     razao_social: Mapped[str] = mapped_column(String(200), nullable=False)
     nome_fantasia: Mapped[str] = mapped_column(String(150), nullable=False)
     cnpj: Mapped[str] = mapped_column(
@@ -55,9 +53,7 @@ class Estabelecimento(Base):
 
     __tablename__ = "estabelecimentos"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     empresa_id: Mapped[str] = mapped_column(
         String(36), nullable=False, index=True, comment="FK → empresas.id"
     )
@@ -91,9 +87,7 @@ class Setor(Base):
 
     __tablename__ = "setores"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     estabelecimento_id: Mapped[str] = mapped_column(
         String(36), nullable=False, index=True, comment="FK → estabelecimentos.id"
     )

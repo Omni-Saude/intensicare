@@ -37,7 +37,7 @@ router = APIRouter()
 )
 async def create_vitals(
     body: VitalSignCreate,
-    request: Request,  # noqa: ARG001  # injected for request context/tracing; not referenced directly
+    request: Request,  # injected for request context/tracing; not referenced directly
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

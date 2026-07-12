@@ -22,8 +22,8 @@ ANVISA Integration (H5):
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -65,116 +65,144 @@ class InteractionAlert:
 DRUG_INTERACTIONS: dict[tuple[str, str], tuple[str, str, str]] = {
     # Drug-Drug interactions
     ("vancomicina", "amiodarona"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Risco aumentado de prolongamento QT e Torsades de Pointes com vancomicina + amiodarona.",
     ),
     ("amiodarona", "vancomicina"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Risco aumentado de prolongamento QT e Torsades de Pointes com vancomicina + amiodarona.",
     ),
     ("midazolam", "fentanil"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Depressão respiratória aditiva — risco de apneia com midazolam + fentanil. Monitorar SpO2 continuamente.",
     ),
     ("fentanil", "midazolam"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Depressão respiratória aditiva — risco de apneia com midazolam + fentanil. Monitorar SpO2 continuamente.",
     ),
     ("propofol", "midazolam"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Sedação profunda excessiva com propofol + midazolam. Risco de hipotensão e bradicardia.",
     ),
     ("midazolam", "propofol"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Sedação profunda excessiva com propofol + midazolam. Risco de hipotensão e bradicardia.",
     ),
     ("heparina_nao_fracionada", "enoxaparina"): (
-        "contraindicated", "drug-drug",
+        "contraindicated",
+        "drug-drug",
         "Contraindicação absoluta: heparina não fracionada + enoxaparina — risco de sangramento grave.",
     ),
     ("enoxaparina", "heparina_nao_fracionada"): (
-        "contraindicated", "drug-drug",
+        "contraindicated",
+        "drug-drug",
         "Contraindicação absoluta: heparina não fracionada + enoxaparina — risco de sangramento grave.",
     ),
     ("morfina", "midazolam"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Depressão respiratória e sedação excessiva com morfina + midazolam. Risco de PCR.",
     ),
     ("midazolam", "morfina"): (
-        "severe", "drug-drug",
+        "severe",
+        "drug-drug",
         "Depressão respiratória e sedação excessiva com morfina + midazolam. Risco de PCR.",
     ),
     ("morfina", "fentanil"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Efeito opioide aditivo — considerar redução de dose de ambos. Aumenta risco de íleo paralítico.",
     ),
     ("fentanil", "morfina"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Efeito opioide aditivo — considerar redução de dose de ambos. Aumenta risco de íleo paralítico.",
     ),
     ("noradrenalina", "dobutamina"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Incompatibilidade física na mesma via — usar acessos venosos distintos. Risco de cristalização.",
     ),
     ("dobutamina", "noradrenalina"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Incompatibilidade física na mesma via — usar acessos venosos distintos. Risco de cristalização.",
     ),
     ("amiodarona", "heparina_nao_fracionada"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Amiodarona potencializa efeito anticoagulante da heparina. Monitorar PTTa/TAP a cada 6h.",
     ),
     ("heparina_nao_fracionada", "amiodarona"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Amiodarona potencializa efeito anticoagulante da heparina. Monitorar PTTa/TAP a cada 6h.",
     ),
     ("meropenem", "vancomicina"): (
-        "minor", "drug-drug",
+        "minor",
+        "drug-drug",
         "Sinergismo antimicrobiano esperado para cobertura ampla de gram-positivos e gram-negativos.",
     ),
     ("vancomicina", "meropenem"): (
-        "minor", "drug-drug",
+        "minor",
+        "drug-drug",
         "Sinergismo antimicrobiano esperado para cobertura ampla de gram-positivos e gram-negativos.",
     ),
     ("cloreto_de_potassio", "insulina_regular"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Insulina + K+ IV: risco de hipocalemia rebote se infusão rápida. Monitorar K+ sérico antes e após.",
     ),
     ("insulina_regular", "cloreto_de_potassio"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Insulina + K+ IV: risco de hipocalemia rebote se infusão rápida. Monitorar K+ sérico antes e após.",
     ),
     ("ceftriaxona", "cloreto_de_sodio_3%"): (
-        "contraindicated", "drug-drug",
+        "contraindicated",
+        "drug-drug",
         "Ceftriaxona + soluções contendo cálcio (incluindo NaCl 3%) — risco de precipitação e embolia pulmonar.",
     ),
     ("cloreto_de_sodio_3%", "ceftriaxona"): (
-        "contraindicated", "drug-drug",
+        "contraindicated",
+        "drug-drug",
         "Ceftriaxona + soluções contendo cálcio (incluindo NaCl 3%) — risco de precipitação e embolia pulmonar.",
     ),
     ("propofol", "fentanil"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Potencialização de sedação e hipotensão. Reduzir dose de propofol em 20-30% se coadministrado com fentanil.",
     ),
     ("fentanil", "propofol"): (
-        "moderate", "drug-drug",
+        "moderate",
+        "drug-drug",
         "Potencialização de sedação e hipotensão. Reduzir dose de propofol em 20-30% se coadministrado com fentanil.",
     ),
     # Duplicate class interactions
     ("piperacilina_tazobactam", "meropenem"): (
-        "moderate", "duplicate",
+        "moderate",
+        "duplicate",
         "Duplicação de cobertura beta-lactâmica (ambos carbapenêmicos/ureidopenicilinas). Reavaliar necessidade.",
     ),
     ("meropenem", "piperacilina_tazobactam"): (
-        "moderate", "duplicate",
+        "moderate",
+        "duplicate",
         "Duplicação de cobertura beta-lactâmica (ambos carbapenêmicos/ureidopenicilinas). Reavaliar necessidade.",
     ),
     ("ceftriaxona", "meropenem"): (
-        "moderate", "duplicate",
+        "moderate",
+        "duplicate",
         "Duplicação de cobertura beta-lactâmica de amplo espectro. Restringir a um agente se cultura dirigida disponível.",
     ),
     ("meropenem", "ceftriaxona"): (
-        "moderate", "duplicate",
+        "moderate",
+        "duplicate",
         "Duplicação de cobertura beta-lactâmica de amplo espectro. Restringir a um agente se cultura dirigida disponível.",
     ),
 }
@@ -242,11 +270,7 @@ def _check_interactions(
     drug_key = drug.lower().replace(" ", "_")
 
     # Filter to active prescriptions for this patient
-    active_rx = [
-        rx
-        for rx in active_prescriptions
-        if rx.mpi_id == mpi_id and rx.status == "active"
-    ]
+    active_rx = [rx for rx in active_prescriptions if rx.mpi_id == mpi_id and rx.status == "active"]
 
     seen_drugs: set[str] = {drug_key}
 
@@ -312,10 +336,7 @@ def _check_interactions(
         seen_drugs.add(other_key)
 
     # R21: Opioid stacking risk
-    opioid_count = sum(
-        1 for d in seen_drugs
-        if DRUG_CLASSES.get(d) == "opioide"
-    )
+    opioid_count = sum(1 for d in seen_drugs if DRUG_CLASSES.get(d) == "opioide")
     if opioid_count >= 2:
         alerts.append(
             InteractionAlert(
@@ -330,10 +351,7 @@ def _check_interactions(
 
     # R22: Sedative stacking risk (benzo + opioid + anesthetic)
     sedative_classes = {"benzodiazepinico", "opioide", "anestesico_geral"}
-    sedative_count = sum(
-        1 for d in seen_drugs
-        if DRUG_CLASSES.get(d) in sedative_classes
-    )
+    sedative_count = sum(1 for d in seen_drugs if DRUG_CLASSES.get(d) in sedative_classes)
     if sedative_count >= 3:
         alerts.append(
             InteractionAlert(
@@ -348,8 +366,7 @@ def _check_interactions(
 
     # R23: Anticoagulant stacking
     anticoag_count = sum(
-        1 for d in seen_drugs
-        if DRUG_CLASSES.get(d) in ("anticoagulante", "anticoagulante_hbpm")
+        1 for d in seen_drugs if DRUG_CLASSES.get(d) in ("anticoagulante", "anticoagulante_hbpm")
     )
     if anticoag_count >= 2:
         alerts.append(
@@ -477,6 +494,7 @@ async def _check_interactions_via_anvisa(
     logger.info(
         "ANVISA API not available — falling back to local interaction database "
         "for drug=%s patient=%s",
-        drug, mpi_id,
+        drug,
+        mpi_id,
     )
     return _check_interactions(drug, mpi_id, active_prescriptions)

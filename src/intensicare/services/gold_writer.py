@@ -58,8 +58,7 @@ def _assert_phi_absent(payload: dict[str, object]) -> None:
     found = PHI_DENYLIST & set(payload.keys())
     if found:
         raise ValueError(
-            f"PHI fields found in write-back payload: {sorted(found)}. "
-            f"REQ-INV-4-S3 violation."
+            f"PHI fields found in write-back payload: {sorted(found)}. REQ-INV-4-S3 violation."
         )
 
 

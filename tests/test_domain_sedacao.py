@@ -1,6 +1,7 @@
 """Tests for Sedation domain service — RASS labels, CAM-ICU algorithm,
 deep sedation gate, BPS/NRS validators.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,7 +18,6 @@ from intensicare.services.domain_sedacao import (
     assess_sedation_sync,
     evaluate_cam_icu_batch,
 )
-
 
 # ============================================================================
 # _calculate_rass_label
@@ -63,12 +63,14 @@ class TestEvaluateCamICU:
 
     def test_positive_all_features_true(self):
         """CAM-ICU positive when all features are True."""
-        is_pos, features = _evaluate_cam_icu({
-            "inicio_agudo": True,
-            "desatencao": True,
-            "pensamento_desorganizado": True,
-            "nivel_consciencia_alterado": True,
-        })
+        is_pos, features = _evaluate_cam_icu(
+            {
+                "inicio_agudo": True,
+                "desatencao": True,
+                "pensamento_desorganizado": True,
+                "nivel_consciencia_alterado": True,
+            }
+        )
 
         assert is_pos is True
         assert isinstance(features, CAMICUFeatures)
@@ -77,57 +79,67 @@ class TestEvaluateCamICU:
 
     def test_positive_via_feature_3_altered_loc(self):
         """CAM-ICU positive with feature 1+2+3 (no feature 4)."""
-        is_pos, _ = _evaluate_cam_icu({
-            "inicio_agudo": True,
-            "desatencao": True,
-            "pensamento_desorganizado": False,
-            "nivel_consciencia_alterado": True,
-        })
+        is_pos, _ = _evaluate_cam_icu(
+            {
+                "inicio_agudo": True,
+                "desatencao": True,
+                "pensamento_desorganizado": False,
+                "nivel_consciencia_alterado": True,
+            }
+        )
 
         assert is_pos is True
 
     def test_positive_via_feature_4_disorganized(self):
         """CAM-ICU positive with feature 1+2+4 (no feature 3)."""
-        is_pos, _ = _evaluate_cam_icu({
-            "inicio_agudo": True,
-            "desatencao": True,
-            "pensamento_desorganizado": True,
-            "nivel_consciencia_alterado": False,
-        })
+        is_pos, _ = _evaluate_cam_icu(
+            {
+                "inicio_agudo": True,
+                "desatencao": True,
+                "pensamento_desorganizado": True,
+                "nivel_consciencia_alterado": False,
+            }
+        )
 
         assert is_pos is True
 
     def test_negative_missing_feature_1(self):
         """CAM-ICU negative when feature 1 (inicio_agudo) is False."""
-        is_pos, _ = _evaluate_cam_icu({
-            "inicio_agudo": False,
-            "desatencao": True,
-            "pensamento_desorganizado": True,
-            "nivel_consciencia_alterado": True,
-        })
+        is_pos, _ = _evaluate_cam_icu(
+            {
+                "inicio_agudo": False,
+                "desatencao": True,
+                "pensamento_desorganizado": True,
+                "nivel_consciencia_alterado": True,
+            }
+        )
 
         assert is_pos is False
 
     def test_negative_missing_feature_2(self):
         """CAM-ICU negative when feature 2 (desatencao) is False."""
-        is_pos, _ = _evaluate_cam_icu({
-            "inicio_agudo": True,
-            "desatencao": False,
-            "pensamento_desorganizado": True,
-            "nivel_consciencia_alterado": True,
-        })
+        is_pos, _ = _evaluate_cam_icu(
+            {
+                "inicio_agudo": True,
+                "desatencao": False,
+                "pensamento_desorganizado": True,
+                "nivel_consciencia_alterado": True,
+            }
+        )
 
         assert is_pos is False
 
     def test_negative_missing_features_3_and_4(self):
         """CAM-ICU negative when both feature 3 and 4 are False
         (required: at least one of 3 or 4 must be True)."""
-        is_pos, _ = _evaluate_cam_icu({
-            "inicio_agudo": True,
-            "desatencao": True,
-            "pensamento_desorganizado": False,
-            "nivel_consciencia_alterado": False,
-        })
+        is_pos, _ = _evaluate_cam_icu(
+            {
+                "inicio_agudo": True,
+                "desatencao": True,
+                "pensamento_desorganizado": False,
+                "nivel_consciencia_alterado": False,
+            }
+        )
 
         assert is_pos is False
 

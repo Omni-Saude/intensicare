@@ -14,7 +14,6 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.alert import Alert
@@ -106,7 +105,7 @@ async def find_previous_mews_score(
     return row.score_value, row.id
 
 
-async def ingest_vitals(  # noqa: PLR0915 -- linear ingestion pipeline; splitting would obscure flush ordering
+async def ingest_vitals(
     db: AsyncSession,
     data: VitalSignCreate,
     idempotency_key: str | None = None,

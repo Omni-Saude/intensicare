@@ -90,9 +90,7 @@ async def list_assessments(
     if mpi_id:
         base_query = base_query.where(AntimicrobialAssessment.mpi_id == mpi_id)
     if status_filter:
-        base_query = base_query.where(
-            AntimicrobialAssessment.severity == status_filter
-        )
+        base_query = base_query.where(AntimicrobialAssessment.severity == status_filter)
 
     # Count query — same filters, no pagination
     count_query = select(func.count()).select_from(base_query.subquery())
@@ -101,9 +99,7 @@ async def list_assessments(
 
     # Data query with pagination
     data_query = (
-        base_query.order_by(AntimicrobialAssessment.assessed_at.desc())
-        .offset(offset)
-        .limit(limit)
+        base_query.order_by(AntimicrobialAssessment.assessed_at.desc()).offset(offset).limit(limit)
     )
     result = await db.execute(data_query)
     assessments = result.scalars().all()
@@ -189,9 +185,7 @@ async def get_assessment(
     Returns 404 if not found.
     """
     result = await db.execute(
-        select(AntimicrobialAssessment).where(
-            AntimicrobialAssessment.id == assessment_id
-        )
+        select(AntimicrobialAssessment).where(AntimicrobialAssessment.id == assessment_id)
     )
     assessment = result.scalar_one_or_none()
 

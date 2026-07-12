@@ -1,4 +1,5 @@
 """Modelos SQLAlchemy — tabelas do banco de dados."""
+
 from intensicare.models.alert import Alert
 from intensicare.models.alert_definition_version import AlertDefinitionVersion
 from intensicare.models.alert_routing import AlertRoutingRule
@@ -13,15 +14,20 @@ from intensicare.models.documentacao import Documentacao
 from intensicare.models.evolucao import Evolucao, EvolucaoSection, EvolucaoTemplate
 from intensicare.models.lab_result import LabResult
 from intensicare.models.medication import MedicationAdministration, MedicationOrder
-from intensicare.models.movimentacao import AdmissionEpisode, Bed, DischargeSummary, PatientLocationCurrent, PatientMovement
-from intensicare.models.patient_cache import PatientCache
-from intensicare.models.registry import Empresa, Estabelecimento, Setor
+from intensicare.models.movimentacao import (
+    AdmissionEpisode,
+    Bed,
+    DischargeSummary,
+    PatientLocationCurrent,
+    PatientMovement,
+)
 from intensicare.models.pathway import (
     Pathway,
     PathwayCriteria,
     PathwayStateTransition,
     PatientPathway,
 )
+from intensicare.models.patient_cache import PatientCache
 from intensicare.models.prescricao import (
     AgendaPrescricao,
     AuditoriaPrescricao,
@@ -31,6 +37,7 @@ from intensicare.models.prescricao import (
 )
 from intensicare.models.prophylaxis import ProphylaxisAssessment
 from intensicare.models.ratification_event import RatificationEvent
+from intensicare.models.registry import Empresa, Estabelecimento, Setor
 from intensicare.models.sedacao import SedationAssessment
 from intensicare.models.stability import StabilityAssessment
 from intensicare.models.threshold_config import ThresholdConfig
@@ -41,8 +48,6 @@ __all__ = [
     "AdmissionEpisode",
     "AgendaPrescricao",
     "Alert",
-    "Empresa",
-    "Estabelecimento",
     "AlertDefinitionVersion",
     "AlertRoutingRule",
     "AlgorithmRegistry",
@@ -50,12 +55,14 @@ __all__ = [
     "AuditTrail",
     "AuditoriaPrescricao",
     "Bed",
-    "ClinicalScore",
     "ClinicalFormSubmission",
+    "ClinicalScore",
     "CorrelationEvent",
     "DeteriorationAssessment",
     "DischargeSummary",
     "Documentacao",
+    "Empresa",
+    "Estabelecimento",
     "Evolucao",
     "EvolucaoSection",
     "EvolucaoTemplate",
@@ -68,9 +75,9 @@ __all__ = [
     "PathwayCriteria",
     "PathwayStateTransition",
     "PatientCache",
+    "PatientLocationCurrent",
     "PatientMovement",
     "PatientPathway",
-    "PatientLocationCurrent",
     "Prescricao",
     "PrescriptionStateLog",
     "ProphylaxisAssessment",

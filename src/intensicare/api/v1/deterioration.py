@@ -6,7 +6,7 @@ GET /patients/{mpi_id}/deterioration/history — histórico paginado
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -105,9 +105,7 @@ def _to_score_schema(asmnt: DeteriorationAssessment) -> DeteriorationScoreSchema
     )
 
 
-def _result_to_score_schema(
-    result, mpi_id: str
-) -> DeteriorationScoreSchema:
+def _result_to_score_schema(result, mpi_id: str) -> DeteriorationScoreSchema:
     """Map a DeteriorationEvaluationResult (domain service) → DeteriorationScoreSchema."""
     criteria_schemas = [
         DeteriorationCriteriaSchema(
@@ -210,10 +208,7 @@ async def get_patient_deterioration_history(
     Ordenado por data de avaliação (mais recente primeiro).
     """
     # Check patient has at least one assessment
-    base_stmt = (
-        select(DeteriorationAssessment)
-        .where(DeteriorationAssessment.mpi_id == mpi_id)
-    )
+    base_stmt = select(DeteriorationAssessment).where(DeteriorationAssessment.mpi_id == mpi_id)
 
     # Count
     count_stmt = select(func.count()).select_from(base_stmt.subquery())
@@ -228,10 +223,7 @@ async def get_patient_deterioration_history(
 
     # Fetch page
     data_stmt = (
-        base_stmt
-        .order_by(DeteriorationAssessment.assessed_at.desc())
-        .offset(offset)
-        .limit(limit)
+        base_stmt.order_by(DeteriorationAssessment.assessed_at.desc()).offset(offset).limit(limit)
     )
     data_result = await db.execute(data_stmt)
     assessments = data_result.scalars().all()

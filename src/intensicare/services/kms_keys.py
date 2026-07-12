@@ -16,9 +16,9 @@ Fluxo:
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import hashlib
 import logging
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 from intensicare.config import settings
@@ -36,9 +36,9 @@ class TenantDEK:
     """Chave de criptografia de dados (DEK) de um tenant."""
 
     tenant_id: str
-    plaintext: bytes          # DEK em texto plano (uso imediato, nunca logado)
-    ciphertext: bytes         # DEK criptografada pela CMK (armazenada)
-    key_id: str               # ARN da CMK usada para gerar esta DEK
+    plaintext: bytes  # DEK em texto plano (uso imediato, nunca logado)
+    ciphertext: bytes  # DEK criptografada pela CMK (armazenada)
+    key_id: str  # ARN da CMK usada para gerar esta DEK
 
 
 class KMSClient(Protocol):
@@ -84,24 +84,20 @@ class KMSEngine:
         if settings.kms_cmk_arn:
             try:
                 import boto3  # type: ignore[import-untyped]
+
                 self._kms_client = boto3.client(
                     "kms",
                     region_name=settings.kms_region,
                 )
-                logger.info(
-                    "KMS client initialized (CMK: %s)", settings.kms_cmk_arn
-                )
+                logger.info("KMS client initialized (CMK: %s)", settings.kms_cmk_arn)
             except Exception as exc:
                 logger.warning(
-                    "Failed to initialize KMS client: %s. "
-                    "Falling back to local key derivation.",
+                    "Failed to initialize KMS client: %s. Falling back to local key derivation.",
                     exc,
                 )
                 self._kms_client = None
         else:
-            logger.info(
-                "KMS CMK not configured — using local key derivation for dev/test"
-            )
+            logger.info("KMS CMK not configured — using local key derivation for dev/test")
         self._initialized = True
 
     # ------------------------------------------------------------------
@@ -154,9 +150,7 @@ class KMSEngine:
             KMSKeyError: se a chamada KMS falhar.
         """
         if self._kms_client is None:
-            raise KMSNotConfiguredError(
-                "KMS client is not available — cannot generate DEK"
-            )
+            raise KMSNotConfiguredError("KMS client is not available — cannot generate DEK")
 
         try:
             response = await self._kms_client.generate_data_key(
@@ -193,9 +187,7 @@ class KMSEngine:
             KMSKeyError: se a descriptografia falhar.
         """
         if self._kms_client is None:
-            raise KMSNotConfiguredError(
-                "KMS client is not available — cannot decrypt DEK"
-            )
+            raise KMSNotConfiguredError("KMS client is not available — cannot decrypt DEK")
 
         try:
             response = await self._kms_client.decrypt(
@@ -204,9 +196,7 @@ class KMSEngine:
             plaintext_b64 = response.get("Plaintext", "")
             return base64.b64decode(plaintext_b64)
         except Exception as exc:
-            raise KMSKeyError(
-                f"KMS Decrypt failed for tenant {tenant_id!r}: {exc}"
-            ) from exc
+            raise KMSKeyError(f"KMS Decrypt failed for tenant {tenant_id!r}: {exc}") from exc
 
     # ------------------------------------------------------------------
     # API pública
@@ -234,14 +224,10 @@ class KMSEngine:
             return await self._generate_dek_kms(tenant_id)
 
         # Fallback local (dev/test)
-        logger.debug(
-            "Deriving DEK locally for tenant %r (dev/test mode)", tenant_id
-        )
+        logger.debug("Deriving DEK locally for tenant %r (dev/test mode)", tenant_id)
         return self._derive_dek_local(tenant_id)
 
-    async def unwrap_dek(
-        self, encrypted_dek: bytes, tenant_id: str
-    ) -> bytes:
+    async def unwrap_dek(self, encrypted_dek: bytes, tenant_id: str) -> bytes:
         """Descriptografa uma DEK armazenada (ciphertext) de volta para plaintext.
 
         Em produção: chama KMS Decrypt.
@@ -261,9 +247,7 @@ class KMSEngine:
             return await self._decrypt_dek_kms(encrypted_dek, tenant_id)
 
         # No modo local, a "ciphertext" é o HMAC — rederivamos do zero
-        logger.debug(
-            "Unwrapping DEK locally for tenant %r (dev/test mode)", tenant_id
-        )
+        logger.debug("Unwrapping DEK locally for tenant %r (dev/test mode)", tenant_id)
         dek = self._derive_dek_local(tenant_id)
         return dek.plaintext
 
@@ -308,9 +292,7 @@ async def set_session_encryption_key(
         text("SELECT set_config('app.encryption_key', :key, false)"),
         {"key": dek_hex},
     )
-    logger.debug(
-        "Encryption key set for tenant %r (key_id=%r)", tenant_id, dek.key_id
-    )
+    logger.debug("Encryption key set for tenant %r (key_id=%r)", tenant_id, dek.key_id)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +303,7 @@ async def set_session_encryption_key(
 def _hmac_sha256(key: bytes, msg: bytes) -> bytes:
     """HMAC-SHA256 usando hashlib."""
     import hmac as _hmac_mod
+
     return _hmac_mod.new(key, msg, hashlib.sha256).digest()
 
 

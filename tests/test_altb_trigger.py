@@ -14,8 +14,6 @@ Cobre os cenários da tabela de decisão system-architecture.md §6.1 T1:
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from intensicare.services.altb_trigger import (
     AltBDecision,
     AltBTrigger,
@@ -23,7 +21,6 @@ from intensicare.services.altb_trigger import (
     LatencyObservation,
     fetch_p95_from_otel,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LatencyObservation

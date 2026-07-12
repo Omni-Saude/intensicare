@@ -29,6 +29,7 @@ class TestTempoPermanencia:
 
     def test_tempo_permanencia_3_days_ago(self) -> None:
         from datetime import timedelta
+
         three_days = datetime.now(timezone.utc) - timedelta(days=3)
         result = tempo_permanencia(three_days)
         assert result >= 3  # >=3 because whole-day truncation
@@ -38,6 +39,7 @@ class TestTempoPermanencia:
 
     def test_buscar_dias_internacao_value(self) -> None:
         from datetime import timedelta
+
         one_day = datetime.now(timezone.utc) - timedelta(days=1)
         result = buscar_dias_internacao(one_day)
         assert result >= 1
@@ -47,24 +49,19 @@ class TestMicroIndicatorsPayload:
     """RULE-MOVIMENTACAO-ADT-002."""
 
     def test_basic(self) -> None:
-        payload = build_micro_indicators_payload(
-            vm=True, noradrenalina=False, tempo_internacao=5
-        )
+        payload = build_micro_indicators_payload(vm=True, noradrenalina=False, tempo_internacao=5)
         assert payload["vm"] is True
         assert payload["noradrenalina"] is False
         assert payload["tempo_internacao"] == 5
         assert "mortalidade_esperada" not in payload
 
     def test_with_mortality(self) -> None:
-        payload = build_micro_indicators_payload(
-            mortalidade_esperada=0.15
-        )
+        payload = build_micro_indicators_payload(mortalidade_esperada=0.15)
         assert payload["mortalidade_esperada"] == 0.15
 
     def test_all_false_defaults(self) -> None:
         payload = build_micro_indicators_payload()
-        for key in ["vm", "noradrenalina", "dialise", "sedacao",
-                     "droga_vasoativa", "antibiotico"]:
+        for key in ["vm", "noradrenalina", "dialise", "sedacao", "droga_vasoativa", "antibiotico"]:
             assert payload[key] is False
         assert payload["tempo_internacao"] == 0
 
@@ -155,10 +152,7 @@ class TestBuildCameraRtspUrl:
 
     def test_default(self) -> None:
         url = build_camera_rtsp_url("192.168.1.100")
-        assert url == (
-            "rtsp://admin:admin@192.168.1.100"
-            "/cam/realmonitor?channel=1&subtype=0"
-        )
+        assert url == ("rtsp://admin:admin@192.168.1.100/cam/realmonitor?channel=1&subtype=0")
 
     def test_custom_creds(self) -> None:
         url = build_camera_rtsp_url("10.0.0.1", "user", "pass", 2, 1)

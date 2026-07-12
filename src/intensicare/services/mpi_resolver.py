@@ -14,8 +14,8 @@ decryption service (patient_encryption) with proper authorization.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta, timezone
+import logging
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,31 +109,13 @@ async def sync_patient_cache(
         if mpi_patient.display_name
         else await encrypt_phi(db, "")
     )
-    enc_mrn = (
-        await encrypt_phi(db, mpi_patient.mrn)
-        if mpi_patient.mrn
-        else None
-    )
+    enc_mrn = await encrypt_phi(db, mpi_patient.mrn) if mpi_patient.mrn else None
     enc_birth_date = (
-        await encrypt_phi(db, mpi_patient.birth_date)
-        if mpi_patient.birth_date
-        else None
+        await encrypt_phi(db, mpi_patient.birth_date) if mpi_patient.birth_date else None
     )
-    enc_cpf = (
-        await encrypt_phi(db, mpi_patient.cpf)
-        if mpi_patient.cpf
-        else None
-    )
-    enc_cns = (
-        await encrypt_phi(db, mpi_patient.cns)
-        if mpi_patient.cns
-        else None
-    )
-    mrn_bidx = (
-        await compute_mrn_bidx(db, mpi_patient.mrn)
-        if mpi_patient.mrn
-        else None
-    )
+    enc_cpf = await encrypt_phi(db, mpi_patient.cpf) if mpi_patient.cpf else None
+    enc_cns = await encrypt_phi(db, mpi_patient.cns) if mpi_patient.cns else None
+    mrn_bidx = await compute_mrn_bidx(db, mpi_patient.mrn) if mpi_patient.mrn else None
 
     # ── Parse datetimes ────────────────────────────────────────────
     admission_dt = _parse_iso(mpi_patient.admission_dt)
@@ -201,13 +183,10 @@ async def flush_discharged_patients(db: AsyncSession) -> int:
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=DISCHARGE_FLUSH_DAYS)
 
-    stmt = (
-        delete(PatientCache)
-        .where(
-            PatientCache.is_active.is_(False),
-            PatientCache.synced_at.is_not(None),
-            PatientCache.synced_at < cutoff,
-        )
+    stmt = delete(PatientCache).where(
+        PatientCache.is_active.is_(False),
+        PatientCache.synced_at.is_not(None),
+        PatientCache.synced_at < cutoff,
     )
     result = await db.execute(stmt)
     deleted = result.rowcount
@@ -225,9 +204,7 @@ async def flush_discharged_patients(db: AsyncSession) -> int:
 
 async def _get_cached(db: AsyncSession, mpi_id: str) -> PatientCache | None:
     """Return the cached PatientCache row, or None."""
-    result = await db.execute(
-        select(PatientCache).where(PatientCache.mpi_id == mpi_id)
-    )
+    result = await db.execute(select(PatientCache).where(PatientCache.mpi_id == mpi_id))
     return result.scalar_one_or_none()
 
 

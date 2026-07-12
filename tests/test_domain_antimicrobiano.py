@@ -11,19 +11,15 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.services.domain_antimicrobiano import (
     ANTIMICROBIAL_CRITERIA,
     AntimicrobialAssessmentResult,
-    AntimicrobialCriterionResult,
     evaluate_assessment,
     evaluate_criterion,
     get_categories,
     get_criteria_by_category,
     get_criteria_catalog,
 )
-
 
 # ===========================================================================
 # evaluate_assessment — scoring and severity bands

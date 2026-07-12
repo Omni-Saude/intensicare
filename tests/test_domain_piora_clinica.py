@@ -13,8 +13,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.services.domain_piora_clinica import (
     DOMAIN_CRITERIA,
     DeteriorationCriteriaResult,
@@ -23,10 +21,10 @@ from intensicare.services.domain_piora_clinica import (
     evaluate_deterioration,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test helpers: clinical_data builders
 # ---------------------------------------------------------------------------
+
 
 def _empty_clinical_data() -> dict:
     return {}
@@ -122,18 +120,14 @@ class TestEvaluateDeteriorationScore:
 
     def test_one_domain_affected_improving_trend_1plus(self):
         """1 domain affected, previous_score='3-' → improving → score '1+'."""
-        result = evaluate_deterioration(
-            "MPI-003", _data_respiratory_alert(), previous_score="3-"
-        )
+        result = evaluate_deterioration("MPI-003", _data_respiratory_alert(), previous_score="3-")
         # 1 domain affected vs 3 previous → improving
         assert result.score == "1+"
         assert result.trend == "improving"
 
     def test_one_domain_affected_worsening_trend_1minus(self):
         """1 domain affected, previous_score='0' → worsening → score '1-'."""
-        result = evaluate_deterioration(
-            "MPI-004", _data_hemodynamic_alert(), previous_score="0"
-        )
+        result = evaluate_deterioration("MPI-004", _data_hemodynamic_alert(), previous_score="0")
         assert result.score == "1-"
         assert result.trend == "worsening"
 
@@ -145,9 +139,7 @@ class TestEvaluateDeteriorationScore:
 
     def test_three_plus_domains_improving_score_3plus(self):
         """3+ domains affected, previous_score='3-' with more domains → improving → '3+'."""
-        result = evaluate_deterioration(
-            "MPI-006", _data_respiratory_alert(), previous_score="3-"
-        )
+        result = evaluate_deterioration("MPI-006", _data_respiratory_alert(), previous_score="3-")
         # 1 domain vs 3 previous → improving → score starts with "1+"
         assert result.trend == "improving"
 
@@ -166,24 +158,18 @@ class TestTrendComputation:
 
     def test_trend_improving_fewer_domains(self):
         """Fewer domains than previous → improving."""
-        result = evaluate_deterioration(
-            "MPI-T2", _data_respiratory_alert(), previous_score="3-"
-        )
+        result = evaluate_deterioration("MPI-T2", _data_respiratory_alert(), previous_score="3-")
         assert result.trend == "improving"
 
     def test_trend_worsening_more_domains(self):
         """More domains than previous → worsening."""
-        result = evaluate_deterioration(
-            "MPI-T3", _data_multi_domain_3plus(), previous_score="0"
-        )
+        result = evaluate_deterioration("MPI-T3", _data_multi_domain_3plus(), previous_score="0")
         assert result.trend == "worsening"
 
     def test_trend_stable_same_domains(self):
         """Same number of domains → stable."""
         # Trigger 1 domain, compare to previous "1-"
-        result = evaluate_deterioration(
-            "MPI-T4", _data_respiratory_alert(), previous_score="1-"
-        )
+        result = evaluate_deterioration("MPI-T4", _data_respiratory_alert(), previous_score="1-")
         assert result.trend == "stable"
         assert result.score == "1-"
 
@@ -328,9 +314,7 @@ class TestRecommendationStrings:
 
     def test_score_3plus_recommendation(self):
         """3+ improving → recommendation mentions MELHORANDO."""
-        result = evaluate_deterioration(
-            "MPI-R3P", _data_respiratory_alert(), previous_score="3-"
-        )
+        result = evaluate_deterioration("MPI-R3P", _data_respiratory_alert(), previous_score="3-")
         assert "MELHORANDO" in result.recommendation
 
 
@@ -344,9 +328,7 @@ class TestEdgeCases:
 
     def test_previous_score_none(self):
         """previous_score=None is handled gracefully."""
-        result = evaluate_deterioration(
-            "MPI-EDGE1", _data_respiratory_alert(), previous_score=None
-        )
+        result = evaluate_deterioration("MPI-EDGE1", _data_respiratory_alert(), previous_score=None)
         assert result.score in ("0", "1-", "1+", "3-", "3+")
 
     def test_previous_score_invalid(self):
@@ -362,9 +344,7 @@ class TestEdgeCases:
         data = {"saturacao_o2": 85.0, "fio2": 70.0}  # percentage
         result = evaluate_deterioration("MPI-FIO2", data)
         # Should trigger SpO2/FiO2 criterion
-        spo2_crit = next(
-            (c for c in result.criteria if "Queda de SpO2" in c.name), None
-        )
+        spo2_crit = next((c for c in result.criteria if "Queda de SpO2" in c.name), None)
         assert spo2_crit is not None
         # 85% < 90% and FiO2=0.70 > 0.60 → critical
         assert spo2_crit.status in ("alert", "critical")

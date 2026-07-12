@@ -22,7 +22,6 @@ Two synced pathways are used, chosen for their different shapes:
 
 from __future__ import annotations
 
-import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,8 +29,8 @@ from intensicare.services.pathway_definitions_sync import sync_pathway_definitio
 from intensicare.services.pathway_enrollment import (
     enroll_patient,
     evaluate_criteria,
-    get_patient_pathways,
     get_pathway_progress,
+    get_patient_pathways,
 )
 from intensicare.services.pathway_repository import PathwayRepository
 from intensicare.services.trilhas_engine import TrilhasEngine

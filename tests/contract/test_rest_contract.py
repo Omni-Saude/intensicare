@@ -2,8 +2,6 @@
 
 import yaml
 
-from jsonschema import Draft202012Validator, FormatChecker, validate
-
 
 def test_openapi_yaml_is_valid():
     """OpenAPI spec must be valid YAML and parse successfully."""
@@ -48,8 +46,9 @@ def test_openapi_has_lifecycle_endpoints():
     for endpoint in lifecycle_endpoints:
         assert endpoint in spec["paths"], f"Missing lifecycle endpoint: {endpoint}"
         assert "post" in spec["paths"][endpoint], f"{endpoint} must be POST"
-        assert "200" in spec["paths"][endpoint]["post"]["responses"], \
+        assert "200" in spec["paths"][endpoint]["post"]["responses"], (
             f"{endpoint} must have 200 response"
+        )
 
 
 def test_alert_response_contract():
@@ -65,8 +64,8 @@ def test_alert_response_contract():
     raw_required = alert_schema.get("required", [])
     required_fields: set[str] = set()
     for item in raw_required:
-        for field in item.split(","):
-            field = field.strip()
+        for raw_field in item.split(","):
+            field = raw_field.strip()
             if field:
                 required_fields.add(field)
 
@@ -75,12 +74,21 @@ def test_alert_response_contract():
     # both represent the same semantic field. The spec is richer than our
     # current DB model — we validate what we do serve.
     props = set(alert_schema.get("properties", {}).keys())
-    api_fields = {"id", "mpi_id", "score_id", "severity", "status",
-                  "body", "created_at", "acknowledged_at", "acknowledged_by",
-                  "resolved_at", "resolution"}
+    api_fields = {
+        "id",
+        "mpi_id",
+        "score_id",
+        "severity",
+        "status",
+        "body",
+        "created_at",
+        "acknowledged_at",
+        "acknowledged_by",
+        "resolved_at",
+        "resolution",
+    }
     missing_from_props = api_fields - props
-    assert not missing_from_props, \
-        f"API fields missing from spec properties: {missing_from_props}"
+    assert not missing_from_props, f"API fields missing from spec properties: {missing_from_props}"
 
     # title/name is present (spec calls it "name")
     assert "name" in props, "Spec Alert must have 'name' field (API uses 'title')"
@@ -88,8 +96,7 @@ def test_alert_response_contract():
     # Core fields must be in the required list
     core_required = {"id", "mpi_id", "severity", "status", "created_at"}
     missing_core = core_required - required_fields
-    assert not missing_core, \
-        f"Core Alert fields missing from spec required: {missing_core}"
+    assert not missing_core, f"Core Alert fields missing from spec required: {missing_core}"
 
 
 def test_severity_enum():
@@ -99,8 +106,9 @@ def test_severity_enum():
 
     severity = spec["components"]["schemas"]["Severity"]
     assert severity["type"] == "string"
-    assert set(severity["enum"]) == {"normal", "watch", "urgent", "critical"}, \
+    assert set(severity["enum"]) == {"normal", "watch", "urgent", "critical"}, (
         f"Severity enum mismatch: {severity['enum']}"
+    )
 
 
 def test_alert_status_enum():
@@ -109,8 +117,14 @@ def test_alert_status_enum():
         spec = yaml.safe_load(f)
 
     alert_status = spec["components"]["schemas"]["AlertStatus"]
-    assert set(alert_status["enum"]) == {"raised", "acknowledged", "acting", "resolved", "escalated", "expired"}, \
-        f"AlertStatus enum mismatch: {alert_status['enum']}"
+    assert set(alert_status["enum"]) == {
+        "raised",
+        "acknowledged",
+        "acting",
+        "resolved",
+        "escalated",
+        "expired",
+    }, f"AlertStatus enum mismatch: {alert_status['enum']}"
 
 
 def test_resolution_enum():
@@ -119,8 +133,9 @@ def test_resolution_enum():
         spec = yaml.safe_load(f)
 
     resolution = spec["components"]["schemas"]["Resolution"]
-    assert set(resolution["enum"]) == {"true_positive", "false_positive", "intervention_done"}, \
+    assert set(resolution["enum"]) == {"true_positive", "false_positive", "intervention_done"}, (
         f"Resolution enum mismatch: {resolution['enum']}"
+    )
 
 
 def test_error_envelope_schema():

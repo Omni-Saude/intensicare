@@ -58,6 +58,7 @@ def classify_sofa_mortality_risk(total_score: int) -> str:
         return "high"
     return "very_high"
 
+
 # Respiration — PaO2/FiO2 ratio (mmHg); inclusive lower bound of each score band
 SOFA_RESP_PF_NORMAL = 400  # >= 400 -> 0
 SOFA_RESP_PF_MILD = 300  # >= 300 -> 1

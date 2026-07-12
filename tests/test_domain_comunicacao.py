@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from intensicare.services.domain_comunicacao import (
-    aggregate_reactions_by_emoji_sql,
     aggregate_reactions_by_emoji_groupby,
+    aggregate_reactions_by_emoji_sql,
     aggregate_reactions_with_users,
     find_user_reaction,
     get_user_reaction_id,

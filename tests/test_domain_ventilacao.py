@@ -1,4 +1,5 @@
 """Tests for Ventilation Monitoring domain."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -6,15 +7,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from intensicare.services.domain_ventilacao import (
-    ParameterTrend,
-    VentilationParameters,
     VentilationResult,
     VentilationTrend,
     compute_ventilation_trend,
     evaluate_ventilation,
     extract_ventilation_params,
 )
-
 
 # ============================================================================
 # extract_ventilation_params
@@ -160,7 +158,7 @@ class TestVentilationTrend:
         """
         now = datetime.now(timezone.utc)
         history = []
-        for i, (hours_ago, peep, pplat) in enumerate(entries):
+        for _i, (hours_ago, peep, pplat) in enumerate(entries):
             ts = now - timedelta(hours=hours_ago)
             history.append(
                 {

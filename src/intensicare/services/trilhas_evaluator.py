@@ -13,17 +13,16 @@ Reference: _work/alerts/schema/pathway.schema.json
 
 from __future__ import annotations
 
-import logging
-import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import logging
+import threading
 from typing import Any
 
 import redis.asyncio as aioredis
 
 from intensicare.services.trilhas_compiler import (
-    CompiledPredicate,
     EvaluationResult,
     PredicateCompiler,
 )
@@ -117,9 +116,7 @@ class SuppressionTracker:
             self._redis = get_redis()
             logger.debug("SuppressionTracker: using Redis backend")
         except Exception:
-            logger.warning(
-                "SuppressionTracker: Redis unavailable, falling back to in-memory"
-            )
+            logger.warning("SuppressionTracker: Redis unavailable, falling back to in-memory")
         return self._redis
 
     @staticmethod
@@ -154,13 +151,19 @@ class SuppressionTracker:
 
         if r is not None:
             return await self._check_and_record_redis(
-                mpi_id, pathway_id, criterion_id,
-                cooldown_minutes, rate_limit_per_hour,
+                mpi_id,
+                pathway_id,
+                criterion_id,
+                cooldown_minutes,
+                rate_limit_per_hour,
                 r,
             )
         return self._check_and_record_memory(
-            mpi_id, pathway_id, criterion_id,
-            cooldown_minutes, rate_limit_per_hour,
+            mpi_id,
+            pathway_id,
+            criterion_id,
+            cooldown_minutes,
+            rate_limit_per_hour,
         )
 
     async def _check_and_record_redis(
@@ -183,8 +186,7 @@ class SuppressionTracker:
                 ttl: int = await r.ttl(cooldown_key)
                 remaining = ttl if ttl > 0 else 0
                 return False, (
-                    f"Cooldown: {cooldown_minutes}min not elapsed "
-                    f"({remaining}s remaining)"
+                    f"Cooldown: {cooldown_minutes}min not elapsed ({remaining}s remaining)"
                 )
 
         # ── Rate limit check ──
@@ -222,12 +224,9 @@ class SuppressionTracker:
             if cooldown_minutes > 0 and key in self._last_fired:
                 elapsed = now - self._last_fired[key]
                 if elapsed < timedelta(minutes=cooldown_minutes):
-                    remaining = int(
-                        (timedelta(minutes=cooldown_minutes) - elapsed).total_seconds()
-                    )
+                    remaining = int((timedelta(minutes=cooldown_minutes) - elapsed).total_seconds())
                     return False, (
-                        f"Cooldown: {cooldown_minutes}min not elapsed "
-                        f"({remaining}s remaining)"
+                        f"Cooldown: {cooldown_minutes}min not elapsed ({remaining}s remaining)"
                     )
 
             # ── Rate limit check ──
@@ -261,7 +260,9 @@ class SuppressionTracker:
             cursor = 0
             while True:
                 cursor, keys = await r.scan(
-                    cursor, match=f"{self.COOLDOWN_PREFIX}:*", count=100,
+                    cursor,
+                    match=f"{self.COOLDOWN_PREFIX}:*",
+                    count=100,
                 )
                 if keys:
                     await r.delete(*keys)
@@ -270,7 +271,9 @@ class SuppressionTracker:
             cursor = 0
             while True:
                 cursor, keys = await r.scan(
-                    cursor, match=f"{self.RATE_PREFIX}:*", count=100,
+                    cursor,
+                    match=f"{self.RATE_PREFIX}:*",
+                    count=100,
                 )
                 if keys:
                     await r.delete(*keys)
@@ -364,7 +367,8 @@ class TrilhasEvaluator:
             if not predicate_dict:
                 logger.debug(
                     "Criterion %s in pathway %s has no predicate, skipping",
-                    criterion_id, pathway_name,
+                    criterion_id,
+                    pathway_name,
                 )
                 continue
 
@@ -374,7 +378,9 @@ class TrilhasEvaluator:
             except ValueError as exc:
                 logger.warning(
                     "Failed to compile predicate for criterion %s in pathway %s: %s",
-                    criterion_id, pathway_name, exc,
+                    criterion_id,
+                    pathway_name,
+                    exc,
                 )
                 continue
 
@@ -384,7 +390,9 @@ class TrilhasEvaluator:
             except KeyError:
                 logger.debug(
                     "Input '%s' not in patient_data for criterion %s in pathway %s",
-                    compiled.input_name, criterion_id, pathway_name,
+                    compiled.input_name,
+                    criterion_id,
+                    pathway_name,
                 )
                 continue
 
@@ -420,7 +428,10 @@ class TrilhasEvaluator:
                     firing.suppress_reason = reason
                     logger.debug(
                         "Suppressed criterion %s for patient %s in pathway %s: %s",
-                        criterion_id, mpi_id, pathway_name, reason,
+                        criterion_id,
+                        mpi_id,
+                        pathway_name,
+                        reason,
                     )
 
             firings.append(firing)
@@ -506,7 +517,10 @@ class TrilhasEvaluator:
             AlertFiring with all firings and aggregated metadata.
         """
         firings = await self.evaluate_pathway(
-            pathway_def, mpi_id, patient_data, apply_suppression=apply_suppression,
+            pathway_def,
+            mpi_id,
+            patient_data,
+            apply_suppression=apply_suppression,
         )
         return self.build_alert(mpi_id, pathway_def, firings)
 

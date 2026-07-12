@@ -221,7 +221,9 @@ class TestResolveAlert:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_resolve_success_acknowledged(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_resolve_success_acknowledged(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Should resolve an acknowledged alert."""
         alert = await create_test_alert(db_session, status="acknowledged")
         user = User(
@@ -353,7 +355,9 @@ class TestEscalateAlert:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_escalate_success_from_active(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_escalate_success_from_active(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Should escalate an active alert."""
         alert = await create_test_alert(db_session, status="active")
         user = User(
@@ -378,7 +382,9 @@ class TestEscalateAlert:
         assert data["status"] == "escalated"
 
     @pytest.mark.asyncio
-    async def test_escalate_success_from_acknowledged(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_escalate_success_from_acknowledged(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Should escalate an acknowledged alert."""
         alert = await create_test_alert(db_session, status="acknowledged")
         user = User(

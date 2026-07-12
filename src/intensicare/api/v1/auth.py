@@ -1,5 +1,7 @@
 """Authentication endpoints — login, register, logout."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 
 import bcrypt
@@ -51,7 +53,7 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105 — OAuth2 token type literal, not a secret
     user: UserResponse
 
 
@@ -84,9 +86,7 @@ def _user_to_response(user: User) -> UserResponse:
     )
 
 
-def _build_login_response(
-    user: User, access_token: str, refresh_token: str
-) -> JSONResponse:
+def _build_login_response(user: User, access_token: str, refresh_token: str) -> JSONResponse:
     """Build a JSONResponse with tokens, user info, and dual cookies."""
     user_resp = _user_to_response(user)
     response = JSONResponse(

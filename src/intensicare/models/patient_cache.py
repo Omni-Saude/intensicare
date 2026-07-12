@@ -11,11 +11,20 @@ sem descriptografar o valor armazenado.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from intensicare.core.database import Base
+
+if TYPE_CHECKING:
+    # Import-time only (avoids circular imports at runtime — alert.py imports
+    # this module); satisfies static analysis for the quoted relationship()
+    # forward refs below, which SQLAlchemy itself resolves via its registry.
+    from intensicare.models.alert import Alert
+    from intensicare.models.clinical_score import ClinicalScore
+    from intensicare.models.pathway import PatientPathway
 
 
 class PatientCache(Base):

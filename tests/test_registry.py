@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import pytest
 from httpx import AsyncClient
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.services.domain_tenancy import (
@@ -23,10 +23,10 @@ from intensicare.services.domain_tenancy import (
     get_estabelecimento,
 )
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def _empresa_payload(
     razao_social: str = "Hospital Teste Ltda",
@@ -56,6 +56,7 @@ def _estabelecimento_payload(
 # Empresa endpoint tests
 # ============================================================================
 
+
 class TestCreateEmpresa:
     """POST /api/v1/registry/empresas"""
 
@@ -69,9 +70,7 @@ class TestCreateEmpresa:
             nome_fantasia="São Lucas",
             cnpj="11222333000144",
         )
-        resp = await client.post(
-            "/api/v1/registry/empresas", json=payload, headers=admin_headers
-        )
+        resp = await client.post("/api/v1/registry/empresas", json=payload, headers=admin_headers)
         assert resp.status_code == 201
         data = resp.json()
         assert data["razao_social"] == payload["razao_social"]
@@ -88,9 +87,7 @@ class TestCreateEmpresa:
         """Creating an empresa with an already-registered CNPJ returns 409."""
         payload = _empresa_payload(cnpj="99988877700155")
         # First creation
-        resp1 = await client.post(
-            "/api/v1/registry/empresas", json=payload, headers=admin_headers
-        )
+        resp1 = await client.post("/api/v1/registry/empresas", json=payload, headers=admin_headers)
         assert resp1.status_code == 201
 
         # Duplicate — same CNPJ
@@ -99,9 +96,7 @@ class TestCreateEmpresa:
             nome_fantasia="Outra",
             cnpj="99988877700155",
         )
-        resp2 = await client.post(
-            "/api/v1/registry/empresas", json=payload2, headers=admin_headers
-        )
+        resp2 = await client.post("/api/v1/registry/empresas", json=payload2, headers=admin_headers)
         assert resp2.status_code == 409
         assert "CNPJ" in resp2.json()["detail"]
 
@@ -121,9 +116,7 @@ class TestListEmpresas:
             headers=admin_headers,
         )
 
-        resp = await client.get(
-            "/api/v1/registry/empresas", headers=admin_headers
-        )
+        resp = await client.get("/api/v1/registry/empresas", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
@@ -208,9 +201,7 @@ class TestGetEmpresa:
         )
         empresa_id = create_resp.json()["id"]
 
-        resp = await client.get(
-            f"/api/v1/registry/empresas/{empresa_id}", headers=admin_headers
-        )
+        resp = await client.get(f"/api/v1/registry/empresas/{empresa_id}", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["id"] == empresa_id
@@ -222,9 +213,7 @@ class TestGetEmpresa:
     ) -> None:
         """Getting a non-existent empresa returns 404."""
         fake_id = str(uuid4())
-        resp = await client.get(
-            f"/api/v1/registry/empresas/{fake_id}", headers=admin_headers
-        )
+        resp = await client.get(f"/api/v1/registry/empresas/{fake_id}", headers=admin_headers)
         assert resp.status_code == 404
         assert "não encontrada" in resp.json()["detail"]
 
@@ -285,9 +274,7 @@ class TestDeleteEmpresa:
         )
         empresa_id = create_resp.json()["id"]
 
-        resp = await client.delete(
-            f"/api/v1/registry/empresas/{empresa_id}", headers=admin_headers
-        )
+        resp = await client.delete(f"/api/v1/registry/empresas/{empresa_id}", headers=admin_headers)
         assert resp.status_code == 204
 
         # Verify it's gone
@@ -302,15 +289,14 @@ class TestDeleteEmpresa:
     ) -> None:
         """Deleting a non-existent empresa returns 404."""
         fake_id = str(uuid4())
-        resp = await client.delete(
-            f"/api/v1/registry/empresas/{fake_id}", headers=admin_headers
-        )
+        resp = await client.delete(f"/api/v1/registry/empresas/{fake_id}", headers=admin_headers)
         assert resp.status_code == 404
 
 
 # ============================================================================
 # Estabelecimento endpoint tests
 # ============================================================================
+
 
 class TestListEstabelecimentos:
     """GET /api/v1/registry/estabelecimentos"""
@@ -334,9 +320,7 @@ class TestListEstabelecimentos:
         )
         await create_estabelecimento(db_session, estab_data)
 
-        resp = await client.get(
-            "/api/v1/registry/estabelecimentos", headers=admin_headers
-        )
+        resp = await client.get("/api/v1/registry/estabelecimentos", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
@@ -359,9 +343,7 @@ class TestListEstabelecimentos:
         # Create estabelecimento
         await create_estabelecimento(
             db_session,
-            _estabelecimento_payload(
-                empresa_id=empresa_id, nome="UTI Neo Natal", cnes="1111111"
-            ),
+            _estabelecimento_payload(empresa_id=empresa_id, nome="UTI Neo Natal", cnes="1111111"),
         )
 
         resp = await client.get(
@@ -379,6 +361,7 @@ class TestListEstabelecimentos:
 # ============================================================================
 # Domain service tests (create_estabelecimento / get_estabelecimento)
 # ============================================================================
+
 
 class TestEstabelecimentoService:
     """Direct tests for domain_tenancy registry CRUD functions."""

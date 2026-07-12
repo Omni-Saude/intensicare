@@ -18,7 +18,5 @@ def validate_fio2_fraction(value: float) -> float:
         ValueError: If value > 1.0 (likely a percentage that should be divided by 100).
     """
     if value > 1.0:
-        raise ValueError(
-            "FiO2 fraction must be ≤ 1.0; percent values should be divided by 100"
-        )
+        raise ValueError("FiO2 fraction must be ≤ 1.0; percent values should be divided by 100")
     return value

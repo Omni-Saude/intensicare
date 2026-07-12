@@ -7,12 +7,11 @@ expiração e claims obrigatórios (iss, aud, sub, tenant_id).
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from jose import JWTError, jwt  # type: ignore[import-untyped]
-from jose.jwk import RSAKey  # type: ignore[import-untyped]
 
 from intensicare.config import settings
 
@@ -69,7 +68,7 @@ async def _fetch_jwks() -> dict[str, Any]:
 
     Em produção, substituir por um mecanismo com cache (ex: Redis, TTL 1h).
     """
-    global _jwks_cache  # noqa: PLW0603
+    global _jwks_cache
 
     if _jwks_cache is not None:
         return _jwks_cache
@@ -124,9 +123,7 @@ def _extract_claims(token: str, key: dict[str, Any]) -> dict[str, Any]:
     expected_issuer = settings.iam_oidc_issuer.rstrip("/")
     actual_issuer = payload.get("iss", "")
     if not actual_issuer.startswith(expected_issuer):
-        raise IAMTokenError(
-            f"Invalid issuer: expected {expected_issuer}, got {actual_issuer}"
-        )
+        raise IAMTokenError(f"Invalid issuer: expected {expected_issuer}, got {actual_issuer}")
 
     now = datetime.now(timezone.utc)
     exp = payload.get("exp")
@@ -152,16 +149,8 @@ def _identity_from_claims(claims: dict[str, Any]) -> IAMIdentity:
     #   custom:role      → role clínico (médico, enfermeiro, admin)
     #   groups          → grupos IAM IC (ex: "UTI-Alpha", "Pharma")
     username = claims.get("preferred_username") or claims.get("username") or sub
-    tenant_id = (
-        claims.get("custom:tenant_id")
-        or claims.get("tenant_id")
-        or "default"
-    )
-    role = (
-        claims.get("custom:role")
-        or claims.get("role")
-        or "viewer"
-    )
+    tenant_id = claims.get("custom:tenant_id") or claims.get("tenant_id") or "default"
+    role = claims.get("custom:role") or claims.get("role") or "viewer"
     email = claims.get("email")
     groups = claims.get("groups", [])
     if isinstance(groups, str):

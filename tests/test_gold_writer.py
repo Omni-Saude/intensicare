@@ -14,15 +14,13 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.models.alert import Alert
+from intensicare.models.clinical_score import ClinicalScore
+
 # Importação antecipada dos modelos gold para que Base.metadata os inclua
 # antes de create_tables (fixture autouse de sessão).
-from intensicare.services.gold_schema import FactAlert, FactPatientScore  # noqa: F401
-
-from intensicare.models.alert import Alert
-from intensicare.models.alert_definition_version import AlertDefinitionVersion
-from intensicare.models.clinical_score import ClinicalScore
-from intensicare.services.gold_writer import GoldWriter, PHI_DENYLIST
-
+from intensicare.services.gold_schema import FactAlert, FactPatientScore
+from intensicare.services.gold_writer import PHI_DENYLIST, GoldWriter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,8 +38,7 @@ def _make_score(**overrides: object) -> ClinicalScore:
         "id": 1,
     }
     defaults.update(overrides)
-    score = ClinicalScore(**defaults)  # type: ignore[arg-type]
-    return score
+    return ClinicalScore(**defaults)  # type: ignore[arg-type]
 
 
 def _make_alert(**overrides: object) -> Alert:
@@ -56,8 +53,7 @@ def _make_alert(**overrides: object) -> Alert:
         "id": 1,
     }
     defaults.update(overrides)
-    alert = Alert(**defaults)  # type: ignore[arg-type]
-    return alert
+    return Alert(**defaults)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -80,13 +76,11 @@ class TestPhiAbsence:
             "medical_record_number",
             "mrn",
         }
-        assert required.issubset(PHI_DENYLIST), (
-            f"PHI_DENYLIST missing: {required - PHI_DENYLIST}"
-        )
+        assert required.issubset(PHI_DENYLIST), f"PHI_DENYLIST missing: {required - PHI_DENYLIST}"
 
     def test_score_payload_lacks_phi_fields(self) -> None:
         """O payload de score deve conter apenas campos não-PHI."""
-        score = _make_score()
+        _make_score()
         # Verifica que o payload NÃO contém campos PHI
         payload_keys = {
             "mpi_id",
@@ -98,8 +92,7 @@ class TestPhiAbsence:
         }
         # Nenhum desses deve estar na denylist
         assert PHI_DENYLIST.isdisjoint(payload_keys), (
-            f"Score payload keys overlap with PHI denylist: "
-            f"{PHI_DENYLIST & payload_keys}"
+            f"Score payload keys overlap with PHI denylist: {PHI_DENYLIST & payload_keys}"
         )
 
     def test_alert_payload_lacks_phi_fields(self) -> None:
@@ -115,8 +108,7 @@ class TestPhiAbsence:
             "source_alert_id",
         }
         assert PHI_DENYLIST.isdisjoint(payload_keys), (
-            f"Alert payload keys overlap with PHI denylist: "
-            f"{PHI_DENYLIST & payload_keys}"
+            f"Alert payload keys overlap with PHI denylist: {PHI_DENYLIST & payload_keys}"
         )
 
     def test_phi_denylist_rejects_contaminated_payload(self) -> None:
@@ -152,8 +144,10 @@ class TestWriteScores:
         assert inserted == 1
 
         # Verifica que foi persistido
-        stmt = select(text("1")).select_from(FactPatientScore).where(
-            FactPatientScore.source_score_id == 100
+        stmt = (
+            select(text("1"))
+            .select_from(FactPatientScore)
+            .where(FactPatientScore.source_score_id == 100)
         )
         result = await db_session.execute(stmt)
         assert result.scalar_one() == 1
@@ -191,18 +185,14 @@ class TestWriteScores:
         await db_session.flush()
 
         # Todas as linhas devem ter algorithm_version não-nulo
-        stmt = select(FactPatientScore).where(
-            FactPatientScore.algorithm_version.is_(None)
-        )
+        stmt = select(FactPatientScore).where(FactPatientScore.algorithm_version.is_(None))
         result = await db_session.execute(stmt)
         null_versions = result.fetchall()
         assert len(null_versions) == 0, (
             f"Found {len(null_versions)} fact_patient_score rows with NULL algorithm_version"
         )
 
-    async def test_write_empty_scores_returns_zero(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_write_empty_scores_returns_zero(self, db_session: AsyncSession) -> None:
         """Lista vazia deve retornar 0 inserções."""
         writer = GoldWriter(db_session)
         inserted = await writer.write_scores([])
@@ -220,9 +210,7 @@ class TestWriteAlerts:
     async def test_write_single_alert(self, db_session: AsyncSession) -> None:
         """Escrever um alerta deve resultar em 1 linha inserida."""
         writer = GoldWriter(db_session)
-        alert = _make_alert(
-            id=400, definition_version_id="ALERT-TEST-v1.0"
-        )
+        alert = _make_alert(id=400, definition_version_id="ALERT-TEST-v1.0")
         inserted = await writer.write_alerts([alert])
         await db_session.flush()
 
@@ -238,12 +226,9 @@ class TestWriteAlerts:
         """Escrever múltiplos alertas deve inserir todos."""
         writer = GoldWriter(db_session)
         alerts = [
-            _make_alert(id=501, mpi_id="MPI-A", severity="watch",
-                        definition_version_id="v1.0"),
-            _make_alert(id=502, mpi_id="MPI-B", severity="urgent",
-                        definition_version_id="v2.0"),
-            _make_alert(id=503, mpi_id="MPI-C", severity="critical",
-                        definition_version_id="v3.0"),
+            _make_alert(id=501, mpi_id="MPI-A", severity="watch", definition_version_id="v1.0"),
+            _make_alert(id=502, mpi_id="MPI-B", severity="urgent", definition_version_id="v2.0"),
+            _make_alert(id=503, mpi_id="MPI-C", severity="critical", definition_version_id="v3.0"),
         ]
         inserted = await writer.write_alerts(alerts)
         await db_session.flush()
@@ -264,9 +249,7 @@ class TestWriteAlerts:
         await db_session.flush()
 
         # Todas as linhas devem ter definition_version não-nulo
-        stmt = select(FactAlert).where(
-            FactAlert.definition_version.is_(None)
-        )
+        stmt = select(FactAlert).where(FactAlert.definition_version.is_(None))
         result = await db_session.execute(stmt)
         null_versions = result.fetchall()
         assert len(null_versions) == 0, (
@@ -279,9 +262,7 @@ class TestWriteAlerts:
         row = result2.scalar_one()
         assert row.definition_version == "unknown"
 
-    async def test_write_empty_alerts_returns_zero(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_write_empty_alerts_returns_zero(self, db_session: AsyncSession) -> None:
         """Lista vazia deve retornar 0 inserções."""
         writer = GoldWriter(db_session)
         inserted = await writer.write_alerts([])
@@ -296,9 +277,7 @@ class TestWriteAlerts:
 class TestIdempotency:
     """Garante que replay do mesmo dado não duplica linhas."""
 
-    async def test_replay_scores_does_not_duplicate(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_replay_scores_does_not_duplicate(self, db_session: AsyncSession) -> None:
         """Escrever os mesmos scores duas vezes → apenas 1 linha por score."""
         writer = GoldWriter(db_session)
         scores = [
@@ -321,9 +300,7 @@ class TestIdempotency:
         result = await db_session.execute(stmt)
         assert result.scalar_one() == 2
 
-    async def test_replay_alerts_does_not_duplicate(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_replay_alerts_does_not_duplicate(self, db_session: AsyncSession) -> None:
         """Escrever os mesmos alertas duas vezes → apenas 1 linha por alerta."""
         writer = GoldWriter(db_session)
         alerts = [
@@ -346,9 +323,7 @@ class TestIdempotency:
         result = await db_session.execute(stmt)
         assert result.scalar_one() == 2
 
-    async def test_partial_replay_only_inserts_new(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_partial_replay_only_inserts_new(self, db_session: AsyncSession) -> None:
         """Replay com alguns novos + alguns existentes → apenas novos inseridos."""
         writer = GoldWriter(db_session)
         batch1 = [
@@ -388,10 +363,7 @@ class TestOneDirectional:
         # Não deve ter métodos públicos de leitura/query
         forbidden_patterns = ["read", "get", "query", "fetch", "select", "load"]
         for pattern in forbidden_patterns:
-            matching = [
-                m for m in writer_methods
-                if pattern in m.lower() and not m.startswith("_")
-            ]
+            matching = [m for m in writer_methods if pattern in m.lower() and not m.startswith("_")]
             assert len(matching) == 0, (
                 f"GoldWriter should not have '{pattern}' method (one-directional). "
                 f"Found: {matching}"
@@ -420,9 +392,7 @@ class TestOneDirectional:
 class TestFactTableSchema:
     """Verifica que as tabelas fact_* foram criadas com as colunas corretas."""
 
-    async def test_fact_patient_score_table_exists(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_fact_patient_score_table_exists(self, db_session: AsyncSession) -> None:
         """Tabela fact_patient_score deve existir."""
         stmt = select(text("count(*)")).select_from(FactPatientScore)
         result = await db_session.execute(stmt)
@@ -434,9 +404,7 @@ class TestFactTableSchema:
         result = await db_session.execute(stmt)
         assert result.scalar_one() == 0
 
-    async def test_fact_patient_score_has_expected_columns(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_fact_patient_score_has_expected_columns(self, db_session: AsyncSession) -> None:
         """fact_patient_score deve ter as colunas esperadas."""
         expected = {
             "id",
@@ -448,13 +416,9 @@ class TestFactTableSchema:
             "source_score_id",
         }
         columns = {c.name for c in FactPatientScore.__table__.columns}
-        assert expected.issubset(columns), (
-            f"Missing columns: {expected - columns}"
-        )
+        assert expected.issubset(columns), f"Missing columns: {expected - columns}"
 
-    async def test_fact_alert_has_expected_columns(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_fact_alert_has_expected_columns(self, db_session: AsyncSession) -> None:
         """fact_alert deve ter as colunas esperadas."""
         expected = {
             "id",
@@ -467,13 +431,9 @@ class TestFactTableSchema:
             "source_alert_id",
         }
         columns = {c.name for c in FactAlert.__table__.columns}
-        assert expected.issubset(columns), (
-            f"Missing columns: {expected - columns}"
-        )
+        assert expected.issubset(columns), f"Missing columns: {expected - columns}"
 
-    async def test_fact_patient_score_unique_constraint(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_fact_patient_score_unique_constraint(self, db_session: AsyncSession) -> None:
         """source_score_id deve ter UNIQUE constraint."""
         writer = GoldWriter(db_session)
         score = _make_score(id=1101)
@@ -498,9 +458,7 @@ class TestFactTableSchema:
             )
             await db_session.flush()
 
-    async def test_fact_alert_unique_constraint(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_fact_alert_unique_constraint(self, db_session: AsyncSession) -> None:
         """source_alert_id deve ter UNIQUE constraint."""
         writer = GoldWriter(db_session)
         alert = _make_alert(id=1201)

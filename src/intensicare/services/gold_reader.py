@@ -14,9 +14,7 @@ Arquitetura:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from intensicare.clients.athena_client import AthenaClient, AthenaQueryResult
@@ -26,7 +24,7 @@ from intensicare.services.gold_schema import (
     DOMAIN_WATERMARK_COLUMN,
     build_domain_query,
 )
-from intensicare.services.units_normalizer import normalize_value, UnitNormalizationError
+from intensicare.services.units_normalizer import UnitNormalizationError, normalize_value
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +134,7 @@ class AthenaPoller:
         """
         if domain not in self._cadence:
             raise DomainConfigError(
-                f"Domínio '{domain}' não reconhecido. "
-                f"Disponíveis: {sorted(self._cadence.keys())}"
+                f"Domínio '{domain}' não reconhecido. Disponíveis: {sorted(self._cadence.keys())}"
             )
 
         redis = get_redis()
@@ -148,7 +145,8 @@ class AthenaPoller:
         if not acquired:
             logger.info(
                 "Backpressure: poll ignorado para %s/%s — anterior em execução",
-                tenant_id, domain,
+                tenant_id,
+                domain,
             )
             return {
                 "status": "skipped",
@@ -161,16 +159,12 @@ class AthenaPoller:
             }
 
         try:
-            return await self._execute_poll(
-                domain, tenant_id, redis, limit, force_full_load
-            )
+            return await self._execute_poll(domain, tenant_id, redis, limit, force_full_load)
         finally:
             # Libera o lock (apenas se ainda for nosso)
             await redis.delete(lock_key)
 
-    async def get_last_watermark(
-        self, tenant_id: str, domain: str
-    ) -> str | None:
+    async def get_last_watermark(self, tenant_id: str, domain: str) -> str | None:
         """Retorna o último watermark (timestamp ISO-8601) para um domínio/tenant.
 
         Returns:
@@ -215,13 +209,13 @@ class AthenaPoller:
 
         logger.info(
             "Poll iniciado: domain=%s tenant=%s watermark=%s",
-            domain, tenant_id, last_watermark or "(full load)",
+            domain,
+            tenant_id,
+            last_watermark or "(full load)",
         )
 
         # 3. Query Athena (parametrizada — F-INT-001)
-        query, params = build_domain_query(
-            domain, tenant_id, last_watermark, limit=limit
-        )
+        query, params = build_domain_query(domain, tenant_id, last_watermark, limit=limit)
         logger.debug("Athena query: %s | params: %s", query, params)
 
         try:
@@ -229,8 +223,9 @@ class AthenaPoller:
                 query, parameters=params, workgroup=f"{tenant_id}-{domain}"
             )
         except Exception as exc:
-            logger.error("Athena query falhou: domain=%s tenant=%s error=%s",
-                         domain, tenant_id, exc)
+            logger.error(
+                "Athena query falhou: domain=%s tenant=%s error=%s", domain, tenant_id, exc
+            )
             return {
                 "status": "error",
                 "domain": domain,
@@ -271,12 +266,18 @@ class AthenaPoller:
             await redis.set(watermark_key, new_watermark)
             logger.info(
                 "Watermark avançado: domain=%s tenant=%s %s → %s",
-                domain, tenant_id, last_watermark, new_watermark,
+                domain,
+                tenant_id,
+                last_watermark,
+                new_watermark,
             )
 
         logger.info(
             "Poll concluído: domain=%s tenant=%s rows=%d errors=%d",
-            domain, tenant_id, len(normalized_rows), norm_errors,
+            domain,
+            tenant_id,
+            len(normalized_rows),
+            norm_errors,
         )
 
         return {
@@ -292,7 +293,7 @@ class AthenaPoller:
     def _normalize_rows(
         self,
         rows: list[dict[str, Any]],
-        domain: str,  # noqa: ARG002 — reservado para normalização domain-specific
+        domain: str,
         *,
         watermark_column: str = "ingested_at",
     ) -> tuple[list[dict[str, Any]], int]:
@@ -322,7 +323,10 @@ class AthenaPoller:
                 except (ValueError, UnitNormalizationError) as exc:
                     logger.warning(
                         "Normalização falhou: param=%s value=%s unit=%s error=%s",
-                        parameter, value_str, unit, exc,
+                        parameter,
+                        value_str,
+                        unit,
+                        exc,
                     )
                     errors += 1
                     # Mantém a linha original, mas marca o erro

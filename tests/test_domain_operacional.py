@@ -111,6 +111,7 @@ class TestComputeLengthOfStay:
 
     def test_date_input(self) -> None:
         from datetime import timedelta
+
         past = date.today() - timedelta(days=5)
         assert compute_length_of_stay(past) == 5
 

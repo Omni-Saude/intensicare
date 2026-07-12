@@ -19,7 +19,6 @@ from typing import Any
 
 from intensicare.schemas.severity import SeverityLevel
 
-
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
@@ -187,7 +186,6 @@ def evaluate_ards_staging(inputs: dict[str, Any]) -> RespiratoryAlertResult:
             pf_stage = "leve"
 
     # Authoritative: PF overrides SF when ABG available
-    stage_order = {"grave": 3, "moderada": 2, "leve": 1}
     final_stage = None
 
     if pf_stage is not None:
@@ -262,10 +260,9 @@ def evaluate_deterioration(inputs: dict[str, Any]) -> RespiratoryAlertResult:
         fio2_f = _ensure_fio2_fraction(fio2)
         fio2_6h_f = _ensure_fio2_fraction(fio2_6h)
         if fio2_f is not None and fio2_6h_f is not None and fio2_6h_f > 0:
-            if fio2_f > 1.30 * fio2_6h_f:
-                if spo2 is not None and spo2_6h is not None:
-                    if float(spo2) <= float(spo2_6h):
-                        deterioration = True
+            if fio2_f > 1.30 * fio2_6h_f and spo2 is not None and spo2_6h is not None:
+                if float(spo2) <= float(spo2_6h):
+                    deterioration = True
 
     if deterioration:
         result.fired = True
@@ -457,10 +454,9 @@ def evaluate_prolonged_intubation(inputs: dict[str, Any]) -> RespiratoryAlertRes
         # >= 14 inclusive
         if days >= 14:
             result.fired = True
-    else:
-        # > 10 strict
-        if days > 10:
-            result.fired = True
+    # > 10 strict
+    elif days > 10:
+        result.fired = True
 
     if result.fired:
         result.band = "watch"
@@ -538,9 +534,13 @@ def evaluate_high_pplat_tidal(
             "vc_ml_kg_pbw": vc_ml_kg_pbw,
             "pplat_high": pplat_high,
             "vc_high": vc_high,
-            "pbw": None if altura is None else (50 + 0.91 * (float(altura) - 152.4)
-                   if sexo not in ("F", "FEMININO")
-                   else 45.5 + 0.91 * (float(altura) - 152.4)),
+            "pbw": None
+            if altura is None
+            else (
+                50 + 0.91 * (float(altura) - 152.4)
+                if sexo not in ("F", "FEMININO")
+                else 45.5 + 0.91 * (float(altura) - 152.4)
+            ),
             "recommendation": "Avaliar ventilação protetora (VC 4-6 mL/kg PBW, Pplat <= 30)",
         }
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -119,9 +118,7 @@ CROSS_FIELD_RULES: dict[str, dict[str, Any]] = {
         "depends_on_form": "rass",
         "blocking_value": -5.0,
         "blocking_condition": "eq",
-        "error_message": (
-            "CAM-ICU não aplicável — RASS = -5 (paciente incapaz de despertar)"
-        ),
+        "error_message": ("CAM-ICU não aplicável — RASS = -5 (paciente incapaz de despertar)"),
         "http_status": 422,
         "severity": "critical",
         "clinical_rationale": (
@@ -178,7 +175,8 @@ def _get_latest_rass_score(mpi_id: str) -> float | None:
         Latest RASS score (float), or None if no RASS submitted.
     """
     rass_subs = [
-        s for s in _submissions
+        s
+        for s in _submissions
         if s["mpi_id"] == mpi_id and s["form_type"] == "rass" and s["score"] is not None
     ]
     if not rass_subs:
@@ -353,8 +351,7 @@ def submit_form(
     """
     if form_type not in FORM_DEFINITIONS:
         raise ValueError(
-            f"Unknown form_type: {form_type!r}. "
-            f"Must be one of: {', '.join(FORM_DEFINITIONS)}"
+            f"Unknown form_type: {form_type!r}. Must be one of: {', '.join(FORM_DEFINITIONS)}"
         )
 
     # ── Validate definition_version ────────────────────────────────────
@@ -452,9 +449,7 @@ def list_submissions(
 # ---------------------------------------------------------------------------
 
 
-def calculate_score(
-    form_type: str, data: dict
-) -> tuple[float | None, str | None]:
+def calculate_score(form_type: str, data: dict) -> tuple[float | None, str | None]:
     """Calculate clinical score for a form type.
 
     Args:
@@ -476,8 +471,7 @@ def calculate_score(
     """
     if form_type not in FORM_DEFINITIONS:
         raise ValueError(
-            f"Unknown form_type: {form_type!r}. "
-            f"Must be one of: {', '.join(FORM_DEFINITIONS)}"
+            f"Unknown form_type: {form_type!r}. Must be one of: {', '.join(FORM_DEFINITIONS)}"
         )
 
     if form_type == "sofa":
@@ -485,22 +479,22 @@ def calculate_score(
         severity = _sofa_severity(score)
         return score, severity
 
-    elif form_type == "rass":
+    if form_type == "rass":
         score = _calculate_rass(data)
         severity = _rass_severity(score)
         return score, severity
 
-    elif form_type == "cam-icu":
+    if form_type == "cam-icu":
         score = _calculate_cam_icu(data)
         severity = "delirium_positivo" if score == 1 else "delirium_negativo"
         return score, severity
 
-    elif form_type == "glasgow":
+    if form_type == "glasgow":
         score = _calculate_glasgow(data)
         severity = _glasgow_severity(score)
         return score, severity
 
-    elif form_type == "bps-nrs":
+    if form_type == "bps-nrs":
         score, severity = _calculate_bps_nrs(data)
         return score, severity
 
@@ -669,12 +663,11 @@ def _sofa_severity(score: float) -> str | None:
     s = int(score)
     if s <= 6:
         return "baixo_risco"
-    elif s <= 9:
+    if s <= 9:
         return "risco_moderado"
-    elif s <= 12:
+    if s <= 12:
         return "risco_alto"
-    else:
-        return "risco_muito_alto"
+    return "risco_muito_alto"
 
 
 # ── RASS ────────────────────────────────────────────────────────────────────
@@ -765,12 +758,11 @@ def _glasgow_severity(score: float) -> str | None:
     s = int(score)
     if s >= 13:
         return "leve"
-    elif s >= 9:
+    if s >= 9:
         return "moderado"
-    elif s >= 6:
+    if s >= 6:
         return "grave"
-    else:
-        return "muito_grave"
+    return "muito_grave"
 
 
 # ── BPS/NRS ─────────────────────────────────────────────────────────────────
@@ -801,22 +793,21 @@ def _calculate_bps_nrs(data: dict) -> tuple[float | None, str | None]:
         score = max(0.0, min(10.0, nrs_val))
         severity = _nrs_severity(score)
         return score, severity
-    else:
-        # BPS
-        facial = _num(data.get("expressao_facial"))
-        membros = _num(data.get("membros_superiores"))
-        ventilacao = _num(data.get("ventilacao_mecanica_indicador"))
+    # BPS
+    facial = _num(data.get("expressao_facial"))
+    membros = _num(data.get("membros_superiores"))
+    ventilacao = _num(data.get("ventilacao_mecanica_indicador"))
 
-        if facial is None and membros is None and ventilacao is None:
-            return None, None
+    if facial is None and membros is None and ventilacao is None:
+        return None, None
 
-        f = max(1, min(4, int(facial))) if facial is not None else 1
-        m = max(1, min(4, int(membros))) if membros is not None else 1
-        v = max(1, min(4, int(ventilacao))) if ventilacao is not None else 1
+    f = max(1, min(4, int(facial))) if facial is not None else 1
+    m = max(1, min(4, int(membros))) if membros is not None else 1
+    v = max(1, min(4, int(ventilacao))) if ventilacao is not None else 1
 
-        score = float(f + m + v)
-        severity = _bps_severity(score)
-        return score, severity
+    score = float(f + m + v)
+    severity = _bps_severity(score)
+    return score, severity
 
 
 def _bps_severity(score: float) -> str | None:
@@ -824,12 +815,11 @@ def _bps_severity(score: float) -> str | None:
     s = int(score)
     if s <= 3:
         return "sem_dor"
-    elif s <= 6:
+    if s <= 6:
         return "dor_leve"
-    elif s <= 9:
+    if s <= 9:
         return "dor_moderada"
-    else:
-        return "dor_intensa"
+    return "dor_intensa"
 
 
 def _nrs_severity(score: float) -> str | None:
@@ -837,12 +827,11 @@ def _nrs_severity(score: float) -> str | None:
     s = int(score)
     if s == 0:
         return "sem_dor"
-    elif s <= 3:
+    if s <= 3:
         return "dor_leve"
-    elif s <= 6:
+    if s <= 6:
         return "dor_moderada"
-    else:
-        return "dor_intensa"
+    return "dor_intensa"
 
 
 # ---------------------------------------------------------------------------

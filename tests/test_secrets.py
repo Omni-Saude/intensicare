@@ -17,13 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from intensicare.core.secrets import (
+    _secret_cache,
     get_secret,
     get_secret_sync,
     invalidate_secret_cache,
     prefetch_secrets,
-    _secret_cache,
 )
-
 
 # ─── Clean up cache between tests ────────────────────────────────────────────
 
@@ -61,9 +60,7 @@ class TestGetSecret:
         ):
             result = await get_secret("prod/db/password")
             assert result == '{"password": "secret123"}'
-            mock_client.get_secret_value.assert_called_once_with(
-                SecretId="prod/db/password"
-            )
+            mock_client.get_secret_value.assert_called_once_with(SecretId="prod/db/password")
             # Should now be cached
             assert _secret_cache["prod/db/password"] == '{"password": "secret123"}'
 
@@ -94,8 +91,8 @@ class TestGetSecret:
         mock_client.exceptions.ResourceNotFoundException = type(
             "ResourceNotFoundException", (Exception,), {}
         )
-        mock_client.get_secret_value.side_effect = (
-            mock_client.exceptions.ResourceNotFoundException("Not found")
+        mock_client.get_secret_value.side_effect = mock_client.exceptions.ResourceNotFoundException(
+            "Not found"
         )
 
         with patch(
@@ -109,9 +106,7 @@ class TestGetSecret:
     @pytest.mark.asyncio
     async def test_boto3_not_available_returns_none(self):
         """When boto3 is not installed, return None gracefully."""
-        with patch(
-            "intensicare.core.secrets._has_boto3", return_value=False
-        ):
+        with patch("intensicare.core.secrets._has_boto3", return_value=False):
             result = await get_secret("any/secret")
             assert result is None
 
@@ -122,8 +117,8 @@ class TestGetSecret:
         mock_client.exceptions.InvalidRequestException = type(
             "InvalidRequestException", (Exception,), {}
         )
-        mock_client.get_secret_value.side_effect = (
-            mock_client.exceptions.InvalidRequestException("Bad request")
+        mock_client.get_secret_value.side_effect = mock_client.exceptions.InvalidRequestException(
+            "Bad request"
         )
 
         with patch(

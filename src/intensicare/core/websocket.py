@@ -48,9 +48,9 @@ class WebSocketManager:
         import warnings
 
         warnings.warn(
-            'WebSocketManager.connect() is deprecated for client connections. '
-            'Use WSConnectionManager (api.v1.ws) instead. '
-            'This legacy manager is now internal-only for broadcast_alert().',
+            "WebSocketManager.connect() is deprecated for client connections. "
+            "Use WSConnectionManager (api.v1.ws) instead. "
+            "This legacy manager is now internal-only for broadcast_alert().",
             DeprecationWarning,
             stacklevel=2,
         )

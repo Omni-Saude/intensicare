@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 
 class TestArqRedisSettings:
     """Testa get_arq_redis_settings."""
@@ -95,7 +93,7 @@ class TestRedisConnectionKwargs:
                 "password": "secret123",
             }
             settings = get_arq_redis_settings()
-            assert settings.password == "secret123"  # type: ignore[attr-defined]
+            assert settings.password == "secret123"  # type: ignore[attr-defined]  # noqa: S105
 
     def test_redis_settings_with_tls(self):
         """Deve propagar SSL/TLS config para RedisSettings."""

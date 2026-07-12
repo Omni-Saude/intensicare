@@ -13,8 +13,8 @@ Covers:
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from httpx import AsyncClient
+import pytest
 
 from intensicare.api.v1.health import (
     ComponentCheck,
@@ -29,7 +29,6 @@ from intensicare.api.v1.health import (
     _record_watchdog_ping,
     health_check,
 )
-
 
 # ─── ComponentCheck model tests ──────────────────────────────────────────────
 
@@ -108,9 +107,7 @@ class TestPostgresqlCheck:
         mock_engine = MagicMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
 
-        with patch(
-            "intensicare.api.v1.health.get_engine", return_value=mock_engine
-        ):
+        with patch("intensicare.api.v1.health.get_engine", return_value=mock_engine):
             result = await _check_postgresql()
             assert result.status == "ok"
             assert result.latency_ms is not None
@@ -137,9 +134,7 @@ class TestRedisCheck:
         mock_redis = AsyncMock()
         mock_redis.ping.return_value = True
 
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _check_redis()
             assert result.status == "ok"
 
@@ -149,9 +144,7 @@ class TestRedisCheck:
         mock_redis = AsyncMock()
         mock_redis.ping.side_effect = Exception("Connection refused")
 
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _check_redis()
             assert result.status == "error"
 
@@ -165,9 +158,7 @@ class TestArqCheck:
         mock_redis = AsyncMock()
         mock_redis.keys.return_value = [b"arq:queue", b"arq:worker:abc"]
 
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _check_arq()
             assert result.status == "ok"
             assert "2 ARQ key" in (result.detail or "")
@@ -178,9 +169,7 @@ class TestArqCheck:
         mock_redis = AsyncMock()
         mock_redis.keys.return_value = []
 
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _check_arq()
             assert result.status == "ok"
             assert "No ARQ keys" in (result.detail or "")
@@ -191,9 +180,7 @@ class TestArqCheck:
         mock_redis = AsyncMock()
         mock_redis.keys.side_effect = Exception("Redis down")
 
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _check_arq()
             assert result.status == "error"
 
@@ -204,9 +191,7 @@ class TestAthenaCheck:
     @pytest.mark.asyncio
     async def test_skipped_when_not_configured(self):
         """Should return skipped when Athena is not enabled."""
-        with patch(
-            "intensicare.api.v1.health.settings.athena_enabled", False
-        ):
+        with patch("intensicare.api.v1.health.settings.athena_enabled", False):
             result = await _check_athena()
             assert result.status == "skipped"
             assert "not configured" in (result.detail or "").lower()
@@ -222,13 +207,13 @@ class TestAthenaCheck:
             total_rows=1,
             query_execution_id="test-exec-id",
         )
-        with patch(
-            "intensicare.api.v1.health.settings.athena_enabled", True
-        ), patch(
-            "intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"
-        ), patch(
-            "intensicare.clients.athena_client.AthenaClient.execute_query",
-            AsyncMock(return_value=mock_result),
+        with (
+            patch("intensicare.api.v1.health.settings.athena_enabled", True),
+            patch("intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"),
+            patch(
+                "intensicare.clients.athena_client.AthenaClient.execute_query",
+                AsyncMock(return_value=mock_result),
+            ),
         ):
             result = await _check_athena()
             assert result.status == "ok"
@@ -237,13 +222,13 @@ class TestAthenaCheck:
     @pytest.mark.asyncio
     async def test_error_when_athena_fails(self):
         """Should return error when Athena query fails."""
-        with patch(
-            "intensicare.api.v1.health.settings.athena_enabled", True
-        ), patch(
-            "intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"
-        ), patch(
-            "intensicare.clients.athena_client.AthenaClient.execute_query",
-            AsyncMock(side_effect=Exception("Athena unreachable")),
+        with (
+            patch("intensicare.api.v1.health.settings.athena_enabled", True),
+            patch("intensicare.api.v1.health.settings.athena_output_location", "s3://bucket/"),
+            patch(
+                "intensicare.clients.athena_client.AthenaClient.execute_query",
+                AsyncMock(side_effect=Exception("Athena unreachable")),
+            ),
         ):
             result = await _check_athena()
             assert result.status == "error"
@@ -267,9 +252,7 @@ class TestStalenessMatrix:
         mock_engine = MagicMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
 
-        with patch(
-            "intensicare.api.v1.health.get_engine", return_value=mock_engine
-        ):
+        with patch("intensicare.api.v1.health.get_engine", return_value=mock_engine):
             result = await _compute_staleness_matrix()
             assert isinstance(result, dict)
 
@@ -290,9 +273,7 @@ class TestStalenessMatrix:
         mock_engine = MagicMock()
         mock_engine.connect.return_value.__aenter__.return_value = mock_conn
 
-        with patch(
-            "intensicare.api.v1.health.get_engine", return_value=mock_engine
-        ):
+        with patch("intensicare.api.v1.health.get_engine", return_value=mock_engine):
             result = await _compute_staleness_matrix()
             assert "ICU-1" in result
             assert "mews" in result["ICU-1"]
@@ -321,9 +302,7 @@ class TestWatchdog:
     async def test_record_ping(self):
         """Should set Redis key with ISO timestamp."""
         mock_redis = AsyncMock()
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             await _record_watchdog_ping()
             mock_redis.set.assert_called_once()
 
@@ -332,9 +311,7 @@ class TestWatchdog:
         """Should return the stored timestamp."""
         mock_redis = AsyncMock()
         mock_redis.get.return_value = "2026-07-06T12:00:00Z"
-        with patch(
-            "intensicare.api.v1.health.get_redis", return_value=mock_redis
-        ):
+        with patch("intensicare.api.v1.health.get_redis", return_value=mock_redis):
             result = await _get_watchdog_last_seen()
             assert result == "2026-07-06T12:00:00Z"
 
@@ -358,28 +335,36 @@ class TestAggregateStatus:
     @pytest.mark.asyncio
     async def test_all_healthy(self):
         """All components ok → healthy."""
-        with patch(
-            "intensicare.api.v1.health._check_postgresql",
-            return_value=ComponentCheck(status="ok", latency_ms=5.0),
-        ), patch(
-            "intensicare.api.v1.health._check_redis",
-            return_value=ComponentCheck(status="ok", latency_ms=2.0),
-        ), patch(
-            "intensicare.api.v1.health._check_arq",
-            return_value=ComponentCheck(status="ok", latency_ms=3.0),
-        ), patch(
-            "intensicare.api.v1.health._check_athena",
-            return_value=ComponentCheck(status="skipped", detail="Not configured"),
-        ), patch(
-            "intensicare.api.v1.health._compute_staleness_matrix",
-            return_value={},
-        ), patch(
-            "intensicare.api.v1.health._record_watchdog_ping",
-            new_callable=AsyncMock,
-        ), patch(
-            "intensicare.api.v1.health._get_watchdog_last_seen",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "intensicare.api.v1.health._check_postgresql",
+                return_value=ComponentCheck(status="ok", latency_ms=5.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_redis",
+                return_value=ComponentCheck(status="ok", latency_ms=2.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_arq",
+                return_value=ComponentCheck(status="ok", latency_ms=3.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_athena",
+                return_value=ComponentCheck(status="skipped", detail="Not configured"),
+            ),
+            patch(
+                "intensicare.api.v1.health._compute_staleness_matrix",
+                return_value={},
+            ),
+            patch(
+                "intensicare.api.v1.health._record_watchdog_ping",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "intensicare.api.v1.health._get_watchdog_last_seen",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             response = await health_check()
             assert response.status == "healthy"
@@ -387,28 +372,36 @@ class TestAggregateStatus:
     @pytest.mark.asyncio
     async def test_one_degraded_component(self):
         """One component in error → degraded."""
-        with patch(
-            "intensicare.api.v1.health._check_postgresql",
-            return_value=ComponentCheck(status="ok", latency_ms=5.0),
-        ), patch(
-            "intensicare.api.v1.health._check_redis",
-            return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Timeout"),
-        ), patch(
-            "intensicare.api.v1.health._check_arq",
-            return_value=ComponentCheck(status="ok", latency_ms=3.0),
-        ), patch(
-            "intensicare.api.v1.health._check_athena",
-            return_value=ComponentCheck(status="skipped"),
-        ), patch(
-            "intensicare.api.v1.health._compute_staleness_matrix",
-            return_value={},
-        ), patch(
-            "intensicare.api.v1.health._record_watchdog_ping",
-            new_callable=AsyncMock,
-        ), patch(
-            "intensicare.api.v1.health._get_watchdog_last_seen",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "intensicare.api.v1.health._check_postgresql",
+                return_value=ComponentCheck(status="ok", latency_ms=5.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_redis",
+                return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Timeout"),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_arq",
+                return_value=ComponentCheck(status="ok", latency_ms=3.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_athena",
+                return_value=ComponentCheck(status="skipped"),
+            ),
+            patch(
+                "intensicare.api.v1.health._compute_staleness_matrix",
+                return_value={},
+            ),
+            patch(
+                "intensicare.api.v1.health._record_watchdog_ping",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "intensicare.api.v1.health._get_watchdog_last_seen",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             response = await health_check()
             assert response.status == "degraded"
@@ -416,28 +409,36 @@ class TestAggregateStatus:
     @pytest.mark.asyncio
     async def test_both_critical_components_fail(self):
         """PostgreSQL AND Redis both in error → unhealthy."""
-        with patch(
-            "intensicare.api.v1.health._check_postgresql",
-            return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Down"),
-        ), patch(
-            "intensicare.api.v1.health._check_redis",
-            return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Down"),
-        ), patch(
-            "intensicare.api.v1.health._check_arq",
-            return_value=ComponentCheck(status="error", latency_ms=100.0),
-        ), patch(
-            "intensicare.api.v1.health._check_athena",
-            return_value=ComponentCheck(status="skipped"),
-        ), patch(
-            "intensicare.api.v1.health._compute_staleness_matrix",
-            return_value={},
-        ), patch(
-            "intensicare.api.v1.health._record_watchdog_ping",
-            new_callable=AsyncMock,
-        ), patch(
-            "intensicare.api.v1.health._get_watchdog_last_seen",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "intensicare.api.v1.health._check_postgresql",
+                return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Down"),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_redis",
+                return_value=ComponentCheck(status="error", latency_ms=100.0, detail="Down"),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_arq",
+                return_value=ComponentCheck(status="error", latency_ms=100.0),
+            ),
+            patch(
+                "intensicare.api.v1.health._check_athena",
+                return_value=ComponentCheck(status="skipped"),
+            ),
+            patch(
+                "intensicare.api.v1.health._compute_staleness_matrix",
+                return_value={},
+            ),
+            patch(
+                "intensicare.api.v1.health._record_watchdog_ping",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "intensicare.api.v1.health._get_watchdog_last_seen",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             response = await health_check()
             assert response.status == "unhealthy"

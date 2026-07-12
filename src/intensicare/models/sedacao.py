@@ -22,7 +22,9 @@ class SedationAssessment(Base):
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
     rass_score: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Richmond Agitation-Sedation Scale: -5 (unarousable) to +4 (combative)"
+        Integer,
+        nullable=True,
+        comment="Richmond Agitation-Sedation Scale: -5 (unarousable) to +4 (combative)",
     )
     rass_label: Mapped[str | None] = mapped_column(
         String(32), nullable=True, comment="e.g. Sonolento, Agitado, Calmo"
@@ -36,7 +38,9 @@ class SedationAssessment(Base):
     )
 
     cam_icu_positive: Mapped[bool | None] = mapped_column(
-        Boolean, nullable=True, comment="CAM-ICU delirium screening result (True=positive for delirium)"
+        Boolean,
+        nullable=True,
+        comment="CAM-ICU delirium screening result (True=positive for delirium)",
     )
     cam_icu_features: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True, comment="CAM-ICU feature details (Feature 1-4, RASS reference)"

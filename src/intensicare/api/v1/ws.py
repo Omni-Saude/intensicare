@@ -19,10 +19,11 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from datetime import datetime, timezone
 import json
 import logging
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
@@ -42,7 +43,7 @@ router = APIRouter()
 class ChannelConnection:
     """Wraps a single WebSocket with per-connection state."""
 
-    __slots__ = ("ws", "user", "channels", "last_pong", "last_activity")
+    __slots__ = ("channels", "last_activity", "last_pong", "user", "ws")
 
     def __init__(self, ws: WebSocket, user: str) -> None:
         self.ws: WebSocket = ws
@@ -64,8 +65,8 @@ class WSConnectionManager:
     """
 
     HEARTBEAT_INTERVAL = 30  # seconds between server pings
-    PONG_TIMEOUT = 10        # seconds to wait for pong after ping
-    STALE_TIMEOUT = 60       # seconds without any activity before disconnect
+    PONG_TIMEOUT = 10  # seconds to wait for pong after ping
+    STALE_TIMEOUT = 60  # seconds without any activity before disconnect
 
     def __init__(self) -> None:
         self._connections: dict[WebSocket, ChannelConnection] = {}
@@ -78,9 +79,7 @@ class WSConnectionManager:
         await ws.accept()
         conn = ChannelConnection(ws, user)
         self._connections[ws] = conn
-        logger.info(
-            "WS connected: user=%s total=%d", user, len(self._connections)
-        )
+        logger.info("WS connected: user=%s total=%d", user, len(self._connections))
         # Start heartbeat loop if this is the first connection.
         if self._heartbeat_task is None or self._heartbeat_task.done():
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -124,8 +123,8 @@ class WSConnectionManager:
         disconnected: list[WebSocket] = []
         payload = {
             "type": channel,
-            "data": data,          # backward-compat (legacy consumers)
-            "payload": data,       # unified envelope
+            "data": data,  # backward-compat (legacy consumers)
+            "payload": data,  # unified envelope
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -164,10 +163,9 @@ class WSConnectionManager:
 
         event = {"channel": channel, "data": data}
         for q in listeners[:]:  # iterate over a shallow copy
-            try:
+            # defensive — shouldn't happen with unbounded queues
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(event)
-            except asyncio.QueueFull:
-                pass  # defensive — shouldn't happen with unbounded queues
 
     async def send_to_connection(self, ws: WebSocket, payload: dict[str, Any]) -> None:
         """Send a message to a single connection."""
@@ -298,9 +296,7 @@ async def websocket_endpoint(
             try:
                 data = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
-                await manager.send_to_connection(
-                    ws, {"type": "error", "message": "Invalid JSON"}
-                )
+                await manager.send_to_connection(ws, {"type": "error", "message": "Invalid JSON"})
                 continue
 
             # ── Per-message auth check (M7 / F-09) ─────────────────────────
@@ -371,7 +367,5 @@ async def websocket_endpoint(
         logger.exception("WebSocket error for user=%s", username)
     finally:
         manager.disconnect(ws)
-        try:
+        with contextlib.suppress(Exception):
             await ws.close()
-        except Exception:
-            pass

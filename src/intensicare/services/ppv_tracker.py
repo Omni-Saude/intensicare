@@ -20,16 +20,18 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import defaultdict
 from datetime import datetime, timezone
+import logging
 from typing import TYPE_CHECKING
 
 # OTEL imports — optional, graceful degradation if not installed
 try:
     from opentelemetry import metrics as _otel_metrics
-    from opentelemetry.metrics import (  # noqa: F811
+    from opentelemetry.metrics import (
         CallbackOptions as _CallbackOptions,
+    )
+    from opentelemetry.metrics import (
         Observation as _Observation,
     )
 
@@ -41,7 +43,7 @@ except ImportError:  # pragma: no cover
     _Observation = object  # type: ignore[assignment,misc]
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -213,9 +215,7 @@ class PPVTracker:
 
                 if resolution in _POSITIVE_RESOLUTIONS:
                     self._true_positives += 1
-                    self._severity_tp[severity] = (
-                        self._severity_tp.get(severity, 0) + 1
-                    )
+                    self._severity_tp[severity] = self._severity_tp.get(severity, 0) + 1
                 elif resolution == "false_positive":
                     self._false_positives += 1
 

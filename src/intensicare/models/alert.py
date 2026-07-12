@@ -25,22 +25,23 @@ class Alert(Base):
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     score_id: Mapped[int | None] = mapped_column(BigInteger)
     severity: Mapped[str] = mapped_column(
-        String(16), nullable=False,
-        comment="Canonical severity: normal, watch, urgent, critical"
+        String(16), nullable=False, comment="Canonical severity: normal, watch, urgent, critical"
     )
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="active",
-        comment="Status lifecycle: active, acting, escalated, acknowledged, resolved"
+        String(16),
+        nullable=False,
+        default="active",
+        comment="Status lifecycle: active, acting, escalated, acknowledged, resolved",
     )
     definition_version_id: Mapped[str | None] = mapped_column(
         String(32),
         ForeignKey("alert_definition_version.definition_version"),
-        comment="Versão da definição que gerou este alerta"
+        comment="Versão da definição que gerou este alerta",
     )
     correlation_event_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("correlation_event.id"),
-        comment="Evento de correlação ao qual este alerta pertence"
+        comment="Evento de correlação ao qual este alerta pertence",
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text)

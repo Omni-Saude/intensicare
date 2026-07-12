@@ -6,10 +6,8 @@ OpenAPI contract — antimicrobial assessment endpoints.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Criterion
@@ -59,9 +57,7 @@ class AntimicrobialAssessmentResponse(BaseModel):
     mpi_id: str
     criteria: list[AntimicrobialCriterionSchema]
     score: int = Field(..., ge=0, le=12, description="Total non-conformities (0-12)")
-    severity: str = Field(
-        ..., description="Severity band: NEUTRO, AMARELO, VERMELHO"
-    )
+    severity: str = Field(..., description="Severity band: NEUTRO, AMARELO, VERMELHO")
     recommendation: str = Field(..., description="Clinical recommendation (PT-BR)")
     assessed_at: datetime
     assessed_by: str

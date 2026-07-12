@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from intensicare.services.patients import (
-    _fhir_data_to_enrichment,
     _enrich_from_fhir,
+    _fhir_data_to_enrichment,
 )
 
 # ---------------------------------------------------------------------------
@@ -18,6 +19,7 @@ from intensicare.services.patients import (
 
 class FakeFHIRData:
     """Fake FHIRPatientData for testing."""
+
     mpi_id: str = "P-001"
     display_name: str | None = "João Silva"
     gender: str | None = "male"
@@ -26,9 +28,9 @@ class FakeFHIRData:
     phone: str | None = None
     address: str | None = None
     primary_condition: str | None = None
-    condition_list: list[str] = []
-    allergy_list: list[str] = []
-    latest_observations: dict = {}
+    condition_list: ClassVar[list[str]] = []
+    allergy_list: ClassVar[list[str]] = []
+    latest_observations: ClassVar[dict] = {}
 
 
 def test_fhir_data_to_enrichment_basic():

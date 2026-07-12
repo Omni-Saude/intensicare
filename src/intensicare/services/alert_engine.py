@@ -10,7 +10,7 @@ from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.threshold_config import ThresholdConfig
-from intensicare.schemas.severity import CANONICAL_SEVERITIES, SeverityLevel
+from intensicare.schemas.severity import CANONICAL_SEVERITIES
 
 
 async def check_score_against_thresholds(
@@ -59,9 +59,7 @@ async def check_score_against_thresholds(
 
     # Validate severity against canonical model
     if severity not in CANONICAL_SEVERITIES:
-        raise ValueError(
-            f"Invalid severity '{severity}'. Must be one of {CANONICAL_SEVERITIES}"
-        )
+        raise ValueError(f"Invalid severity '{severity}'. Must be one of {CANONICAL_SEVERITIES}")
 
     # Rate limiting via Redis
     redis_client = get_redis()

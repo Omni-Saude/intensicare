@@ -9,21 +9,19 @@ Tests:
 
 from __future__ import annotations
 
-import asyncio
-import time
+import contextlib
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.core.redis import get_redis
 from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.threshold_config import ThresholdConfig
 from intensicare.services.alert_engine import process_clinical_score
-from intensicare.core.redis import get_redis
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -78,9 +76,7 @@ class TestDBKillDrill:
     """L7 chaos: simulate database unavailability."""
 
     @pytest.mark.asyncio
-    async def test_db_kill_grace_period(
-        self, db_session: AsyncSession
-    ):
+    async def test_db_kill_grace_period(self, db_session: AsyncSession):
         """
         Simulate DB being killed mid-operation. Verify:
         - Operations during outage raise expected exceptions
@@ -102,27 +98,19 @@ class TestDBKillDrill:
         # Post-outage: attempt operations on closed session should fail
         # (The session has been closed, further ORM operations are invalid)
         score2 = create_clinical_score("dbkill-tenant-0001", score_value=9)
-        try:
+        # Expected: session operations fail on closed session (failure itself
+        # is the assertion; if it doesn't raise, that's also interesting info
+        # — session auto-reconnect behavior varies)
+        with contextlib.suppress(Exception):
             await process_clinical_score(db_session, score2)
-            # If it doesn't raise, that's also interesting info
-            # (session auto-reconnect behavior varies)
-        except Exception:
-            pass  # Expected: session operations fail on closed session
 
     @pytest.mark.asyncio
-    async def test_db_kill_no_corruption(
-        self, db_session: AsyncSession
-    ):
+    async def test_db_kill_no_corruption(self, db_session: AsyncSession):
         """
         Verify that a DB kill mid-write does not leave corrupt data.
         The rollback mechanism should clean up any partial writes.
         """
         await seed_chaos_fixtures(db_session, "nocrpt-tenant")
-
-        alert_count_before = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
-        count_before = alert_count_before.scalar() or 0
 
         # Write one alert successfully
         score = create_clinical_score("nocrpt-tenant-0001", score_value=8)
@@ -139,9 +127,7 @@ class TestDBKillDrill:
         # No exception = session recovered
 
     @pytest.mark.asyncio
-    async def test_db_reconnect_resilience(
-        self, db_session: AsyncSession
-    ):
+    async def test_db_reconnect_resilience(self, db_session: AsyncSession):
         """
         Verify that after a simulated DB outage and recovery,
         new operations succeed without data loss.
@@ -170,9 +156,7 @@ class TestRedisKillDrill:
     """L7 chaos: simulate Redis unavailability."""
 
     @pytest.mark.asyncio
-    async def test_redis_kill_degradation_mode(
-        self, db_session: AsyncSession
-    ):
+    async def test_redis_kill_degradation_mode(self, db_session: AsyncSession):
         """
         When Redis is unavailable, the alert engine should degrade
         gracefully: skip rate-limit checks and still create alerts.
@@ -206,9 +190,7 @@ class TestRedisKillDrill:
 
         try:
             # Should fail gracefully (connection error) but NOT crash the server
-            score_degraded = create_clinical_score(
-                "rediskill-tenant-0001", score_value=9
-            )
+            score_degraded = create_clinical_score("rediskill-tenant-0001", score_value=9)
             with pytest.raises(ConnectionError):
                 await process_clinical_score(db_session, score_degraded)
         finally:
@@ -217,9 +199,7 @@ class TestRedisKillDrill:
             redis_client.pipeline = original_pipeline  # type: ignore[method-assign]
 
     @pytest.mark.asyncio
-    async def test_redis_reconnect_after_kill(
-        self, db_session: AsyncSession
-    ):
+    async def test_redis_reconnect_after_kill(self, db_session: AsyncSession):
         """
         After Redis recovers from a kill, operations resume normally.
         """
@@ -237,14 +217,12 @@ class TestRedisKillDrill:
         assert alert.severity == "critical"
 
         # Verify rate-limit key was set (Redis functioning)
-        rate_key = f"alert_rate:redisreconn-tenant-0001:MEWS"
+        rate_key = "alert_rate:redisreconn-tenant-0001:MEWS"
         count = await redis_client.get(rate_key)
         assert count is not None, "Rate-limit key should be set after alert"
 
     @pytest.mark.asyncio
-    async def test_redis_fallback_no_data_loss(
-        self, db_session: AsyncSession
-    ):
+    async def test_redis_fallback_no_data_loss(self, db_session: AsyncSession):
         """
         Even when Redis is unhealthy, ensure that critical patient data
         (alerts) are not silently dropped — either they succeed or error
@@ -252,9 +230,7 @@ class TestRedisKillDrill:
         """
         await seed_chaos_fixtures(db_session, "fallback-tenant")
 
-        alert_count_before = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        alert_count_before = await db_session.execute(select(func.count()).select_from(Alert))
         count_before = alert_count_before.scalar() or 0
 
         # Normal operation: create an alert
@@ -263,9 +239,7 @@ class TestRedisKillDrill:
         assert alert is not None
 
         # Verify alert persisted
-        alert_count_after = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        alert_count_after = await db_session.execute(select(func.count()).select_from(Alert))
         assert (alert_count_after.scalar() or 0) == count_before + 1
 
 
@@ -276,9 +250,7 @@ class TestPollerKillDrill:
     """L7 chaos: simulate EWS/NRT poller process termination."""
 
     @pytest.mark.asyncio
-    async def test_poller_kill_buffering_no_loss(
-        self, db_session: AsyncSession
-    ):
+    async def test_poller_kill_buffering_no_loss(self, db_session: AsyncSession):
         """
         Simulate poller kill: scores queued during outage should be
         processed when poller restarts (no data loss).
@@ -295,7 +267,6 @@ class TestPollerKillDrill:
 
         # Phase 2: "Poller kill" — scores are in DB but not yet processed
         # (In production, the poller reads from DB and calls process_clinical_score)
-        unprocessed_ids = [s.id for s in scores_buffered]
 
         # Phase 3: Recovery — process the buffered scores
         alerts_created = 0
@@ -310,9 +281,7 @@ class TestPollerKillDrill:
         print(f"\nPoller recovery: {alerts_created} alerts from {len(scores_buffered)} scores")
 
     @pytest.mark.asyncio
-    async def test_poller_restart_resumes_processing(
-        self, db_session: AsyncSession
-    ):
+    async def test_poller_restart_resumes_processing(self, db_session: AsyncSession):
         """
         After poller restart, unprocessed scores are picked up from
         the last checkpoint without duplication.
@@ -338,25 +307,19 @@ class TestPollerKillDrill:
         # Verify: no duplicate alerts for the same score
         # (alert_engine checks via score_id association)
         duplicate_check = await db_session.execute(
-            select(func.count())
-            .select_from(Alert)
-            .where(Alert.score_id == score2.id)
+            select(func.count()).select_from(Alert).where(Alert.score_id == score2.id)
         )
         assert duplicate_check.scalar() == 1, "Should not create duplicate alerts"
 
     @pytest.mark.asyncio
-    async def test_poller_kill_mid_batch(
-        self, db_session: AsyncSession
-    ):
+    async def test_poller_kill_mid_batch(self, db_session: AsyncSession):
         """
         If poller dies mid-batch, already-committed scores should persist
         and be re-readable on restart.
         """
         await seed_chaos_fixtures(db_session, "midbatch-tenant")
 
-        count_before = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        await db_session.execute(select(func.count()).select_from(Alert))
 
         # Batch: process 3 scores, "kill" before 4th
         alerts_before_kill = []
@@ -370,9 +333,7 @@ class TestPollerKillDrill:
         await db_session.flush()
 
         # Verify alerts created before kill survived
-        count_after = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        await db_session.execute(select(func.count()).select_from(Alert))
         # Alerts flushed to DB survive session rollback in this test isolation model
         assert len(alerts_before_kill) == 3
         for a in alerts_before_kill:

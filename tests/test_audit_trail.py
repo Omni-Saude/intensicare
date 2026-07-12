@@ -89,9 +89,7 @@ class TestAuditTrailInsert:
             await db_session.flush()
             ids.append(entry.id)
 
-        result = await db_session.execute(
-            text("SELECT count(*) as cnt FROM audit_trail")
-        )
+        result = await db_session.execute(text("SELECT count(*) as cnt FROM audit_trail"))
         count = result.scalar()
         assert count == 3, f"Esperava 3 registros, encontrou {count}"
 
@@ -150,9 +148,7 @@ class TestAuditTrailImmutable:
             f"Mensagem de erro esperada não encontrada: {error_msg}"
         )
 
-    async def test_row_preserved_after_blocked_mutation(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_row_preserved_after_blocked_mutation(self, db_session: AsyncSession) -> None:
         """Verifica que após tentativa de mutação bloqueada, o registro original
         permanece intacto (DRILL-AUDIT-COMPLETENESS / row bytes unchanged)."""
         entry = await self._create_entry(db_session)
@@ -165,7 +161,7 @@ class TestAuditTrailImmutable:
                 {"id": entry.id},
             )
             await db_session.flush()
-        except Exception:
+        except Exception:  # noqa: S110 — failure itself is the assertion (UPDATE must be blocked)
             pass
 
         # O registro original deve permanecer inalterado
@@ -177,10 +173,7 @@ class TestAuditTrailImmutable:
     async def test_trigger_exists(self, db_session: AsyncSession) -> None:
         """Verifica que o trigger de imutabilidade está instalado."""
         result = await db_session.execute(
-            text(
-                "SELECT tgname FROM pg_trigger "
-                "WHERE tgname = 'trg_audit_trail_immutable'"
-            )
+            text("SELECT tgname FROM pg_trigger WHERE tgname = 'trg_audit_trail_immutable'")
         )
         row = result.fetchone()
         assert row is not None, "Trigger trg_audit_trail_immutable não encontrado"

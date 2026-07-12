@@ -17,10 +17,11 @@ defensive fallback for the two catalog endpoints when the TrilhasEngine
 fails to load — these are pathway *definitions*, not patient *state*, and
 are not part of the deprecated PathwayStore.
 """
+
 from __future__ import annotations
 
-import logging
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ from intensicare.schemas.pathways import (
     PatientPathwaySchema,
     UpdateCriteriaRequest,
 )
+
 # NOTE: these two are the legacy *catalog* readers (static YAML-seed
 # definitions), kept only as a defensive fallback for GET /pathways and
 # GET /pathways/{id} when the TrilhasEngine fails to load. They are NOT the
@@ -52,13 +54,15 @@ from intensicare.schemas.pathways import (
 # was intentionally left unimported.
 from intensicare.services.domain_trilhas_engine import (
     get_pathway_by_id as _legacy_get_pathway_by_id,
+)
+from intensicare.services.domain_trilhas_engine import (
     get_pathway_catalog,
 )
 from intensicare.services.pathway_enrollment import (
     enroll_patient,
     evaluate_criteria,
-    get_patient_pathways,
     get_pathway_progress,
+    get_patient_pathways,
 )
 from intensicare.services.pathway_repository import PathwayRepository
 from intensicare.services.trilhas_engine import TrilhasEngine
@@ -71,6 +75,7 @@ router = APIRouter(prefix="/api/v1", tags=["pathways"])
 # New stateless engine (primary for reads); falls back to legacy
 # ---------------------------------------------------------------------------
 _engine: TrilhasEngine | None = None
+
 
 def _get_engine() -> TrilhasEngine | None:
     """Lazily initialize the TrilhasEngine. Returns None if YAML not found."""
@@ -89,7 +94,8 @@ def _get_engine() -> TrilhasEngine | None:
             _engine = None
     return _engine
 
-def _pathway_def_to_flat_dict(pdef) -> dict:
+
+def _pathway_def_to_flat_dict(pdef: Any) -> dict[str, Any]:
     """Convert a PathwayDefinition (YAML-based) to the flat dict format
     expected by _to_pathway_schema.
 
@@ -108,31 +114,35 @@ def _pathway_def_to_flat_dict(pdef) -> dict:
     flat_version = pathway_meta.get("version", getattr(pdef, "version", ""))
 
     # Flatten criteria: YAML nests unit inside predicate
-    raw_criteria: list[dict] = raw.get("criteria", []) if isinstance(raw, dict) else []
-    flat_criteria: list[dict] = []
+    raw_criteria: list[dict[str, Any]] = raw.get("criteria", []) if isinstance(raw, dict) else []
+    flat_criteria: list[dict[str, Any]] = []
     for c in raw_criteria:
         pred = c.get("predicate", {})
-        flat_criteria.append({
-            "id": c.get("id", ""),
-            "name": c.get("name", ""),
-            "category": c.get("category", ""),
-            "description": c.get("description", pred.get("rationale", "")),
-            "unit": pred.get("unit"),
-            "normal_range": c.get("normal_range"),
-            "alert_threshold": c.get("alert_threshold"),
-        })
+        flat_criteria.append(
+            {
+                "id": c.get("id", ""),
+                "name": c.get("name", ""),
+                "category": c.get("category", ""),
+                "description": c.get("description", pred.get("rationale", "")),
+                "unit": pred.get("unit"),
+                "normal_range": c.get("normal_range"),
+                "alert_threshold": c.get("alert_threshold"),
+            }
+        )
 
     # Flatten states: YAML states have id/name/order/is_terminal
-    raw_states: list[dict] = raw.get("states", []) if isinstance(raw, dict) else []
-    flat_states: list[dict] = []
+    raw_states: list[dict[str, Any]] = raw.get("states", []) if isinstance(raw, dict) else []
+    flat_states: list[dict[str, Any]] = []
     for s in raw_states:
-        flat_states.append({
-            "id": s.get("id", ""),
-            "name": s.get("name", ""),
-            "order": s.get("order", 0),
-            "description": s.get("description", ""),
-            "is_terminal": s.get("is_terminal", False),
-        })
+        flat_states.append(
+            {
+                "id": s.get("id", ""),
+                "name": s.get("name", ""),
+                "order": s.get("order", 0),
+                "description": s.get("description", ""),
+                "is_terminal": s.get("is_terminal", False),
+            }
+        )
 
     return {
         "id": flat_id,
@@ -146,7 +156,7 @@ def _pathway_def_to_flat_dict(pdef) -> dict:
     }
 
 
-def _pathway_orm_to_flat_dict(pathway: Pathway) -> dict:
+def _pathway_orm_to_flat_dict(pathway: Pathway) -> dict[str, Any]:
     """Convert a persisted ``Pathway`` row (criteria eager-loaded by the
     caller via ``PathwayRepository.get_pathway``) to the same flat dict
     shape as ``_pathway_def_to_flat_dict``/legacy catalog dicts, including
@@ -181,7 +191,8 @@ def _pathway_orm_to_flat_dict(pathway: Pathway) -> dict:
 # Helpers
 # ===========================================================================
 
-def _to_pathway_schema(data: dict) -> PathwaySchema:
+
+def _to_pathway_schema(data: dict[str, Any]) -> PathwaySchema:
     """Convert a pathway dict from the domain service to a PathwaySchema."""
     return PathwaySchema(
         id=data["id"],
@@ -209,43 +220,41 @@ def _coerce_value_to_string(value: Any) -> str | None:
         # Convert to string, stripping unnecessary ".0" for ints
         s = str(value)
         if isinstance(value, float) and value == int(value):
-            return s.split('.')[0]  # "3.0" → "3"
+            return s.split(".", maxsplit=1)[0]  # "3.0" → "3"
         return s
     return str(value)
 
 
 def _merge_criteria(
-    criteria_defs: list[dict],
-    evaluated: list[dict] | None = None,
+    criteria_defs: list[dict[str, Any]],
+    evaluated: list[dict[str, Any]] | None = None,
 ) -> list[PathwayCriteriaSchema]:
     """Merge pathway criteria definitions with patient-evaluated values."""
-    eval_map: dict[str, dict] = {}
+    eval_map: dict[str, dict[str, Any]] = {}
     if evaluated:
-        eval_map = {
-            c["id"]: c
-            for c in evaluated
-            if c.get("id")
-        }
+        eval_map = {c["id"]: c for c in evaluated if c.get("id")}
 
     result: list[PathwayCriteriaSchema] = []
     for cd in criteria_defs:
         ev = eval_map.get(cd["id"], {})
-        result.append(PathwayCriteriaSchema(
-            id=cd["id"],
-            name=cd["name"],
-            category=cd.get("category", ""),
-            description=cd.get("description"),
-            unit=cd.get("unit"),
-            normal_range=cd.get("normal_range"),
-            alert_threshold=cd.get("alert_threshold"),
-            met=ev.get("met"),
-            value=_coerce_value_to_string(ev.get("value")),
-            evaluated_at=_parse_dt(ev.get("evaluated_at")),
-        ))
+        result.append(
+            PathwayCriteriaSchema(
+                id=cd["id"],
+                name=cd["name"],
+                category=cd.get("category", ""),
+                description=cd.get("description"),
+                unit=cd.get("unit"),
+                normal_range=cd.get("normal_range"),
+                alert_threshold=cd.get("alert_threshold"),
+                met=ev.get("met"),
+                value=_coerce_value_to_string(ev.get("value")),
+                evaluated_at=_parse_dt(ev.get("evaluated_at")),
+            )
+        )
     return result
 
 
-async def _to_patient_pathway_schema(db: AsyncSession, pp: dict) -> PatientPathwaySchema:
+async def _to_patient_pathway_schema(db: AsyncSession, pp: dict[str, Any]) -> PatientPathwaySchema:
     """Convert a patient pathway dict (from the enrollment service) to a
     schema, resolving the owning pathway definition from the persistent
     store."""
@@ -258,14 +267,15 @@ async def _to_patient_pathway_schema(db: AsyncSession, pp: dict) -> PatientPathw
         )
     pathway = _pathway_orm_to_flat_dict(pathway_orm)
 
-    criteria_data: list[dict] = pp.get("criteria_data", [])
+    criteria_data: list[dict[str, Any]] = pp.get("criteria_data", [])
     criteria_schemas = _merge_criteria(
-        pathway.get("criteria", []), criteria_data,
+        pathway.get("criteria", []),
+        criteria_data,
     )
 
     # Resolve current state definition from the pathway
     current_state_id = pp["current_state"]
-    current_state_def: dict | None = None
+    current_state_def: dict[str, Any] | None = None
     for s in pathway.get("states", []):
         if s["id"] == current_state_id:
             current_state_def = s
@@ -289,7 +299,10 @@ async def _to_patient_pathway_schema(db: AsyncSession, pp: dict) -> PatientPathw
         criteria=criteria_schemas,
         status=pp.get("status", "active"),
         severity=pp.get("severity"),
-        enrolled_at=_parse_dt(pp["enrolled_at"]),
+        # enrolled_at is a required field on an enrollment record (set at
+        # enrollment time); _parse_dt's Optional return type is for the
+        # genuinely-optional fields below (completed_at, updated_at).
+        enrolled_at=_parse_dt(pp["enrolled_at"]),  # type: ignore[arg-type]
         enrolled_by=pp.get("enrolled_by"),
         completed_at=_parse_dt(pp.get("completed_at")),
         updated_at=_parse_dt(pp.get("updated_at")),
@@ -297,8 +310,10 @@ async def _to_patient_pathway_schema(db: AsyncSession, pp: dict) -> PatientPathw
 
 
 async def _find_enrollment(
-    db: AsyncSession, mpi_id: str, patient_pathway_id: int,
-) -> dict | None:
+    db: AsyncSession,
+    mpi_id: str,
+    patient_pathway_id: int,
+) -> dict[str, Any] | None:
     """Fetch a single patient-pathway enrollment as a dict, scoped to the
     owning patient.
 
@@ -335,18 +350,14 @@ async def _find_enrollment(
 
 
 def _criteria_to_patient_data(
-    criteria: list[dict],
+    criteria: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Convert criteria update dicts to a flat patient_data dict for TrilhasEngine.
 
     Extracts ``id`` and ``value`` from each criteria dict, suitable for
     passing to ``TrilhasEngine.evaluate()``.
     """
-    return {
-        c["id"]: c["value"]
-        for c in criteria
-        if c.get("id") and c.get("value") is not None
-    }
+    return {c["id"]: c["value"] for c in criteria if c.get("id") and c.get("value") is not None}
 
 
 def _log_evaluation_pass_failure(exc: Exception, *, phase: str, **context: object) -> None:
@@ -362,12 +373,17 @@ def _log_evaluation_pass_failure(exc: Exception, *, phase: str, **context: objec
     with a full stack trace rather than being swallowed.
     """
     ctx = ", ".join(f"{k}={v!r}" for k, v in context.items())
-    kind = "AttributeError (likely a programming bug — check async/await wiring)" \
-        if isinstance(exc, AttributeError) else type(exc).__name__
+    kind = (
+        "AttributeError (likely a programming bug — check async/await wiring)"
+        if isinstance(exc, AttributeError)
+        else type(exc).__name__
+    )
     logger.exception(
         "TrilhasEngine evaluation pass failed on %s (%s) [%s]; continuing "
         "since evaluation is enrichment-only, not the enrollment source of truth",
-        phase, ctx, kind,
+        phase,
+        ctx,
+        kind,
     )
 
 
@@ -387,7 +403,7 @@ def _parse_dt(value: object) -> datetime | None:
     return None
 
 
-def _resolve_current_state(pathway: dict | None, current_state_id: str) -> dict:
+def _resolve_current_state(pathway: dict[str, Any] | None, current_state_id: str) -> dict[str, Any]:
     """Look up state definition from the pathway the patient is enrolled in."""
     if pathway:
         for s in pathway.get("states", []):
@@ -401,11 +417,11 @@ def _resolve_current_state(pathway: dict | None, current_state_id: str) -> dict:
 
 
 def _resolve_progress_criteria(
-    pathway: dict | None,
-    evaluated: list[dict],
+    pathway: dict[str, Any] | None,
+    evaluated: list[dict[str, Any]],
 ) -> list[PathwayCriteriaSchema]:
     """Merge progress criteria with pathway definitions for full metadata."""
-    criteria_defs: list[dict] = pathway.get("criteria", []) if pathway else []
+    criteria_defs: list[dict[str, Any]] = pathway.get("criteria", []) if pathway else []
 
     # Build def map; if no pathway found, use evaluated data as-is
     if not criteria_defs:
@@ -431,6 +447,7 @@ def _resolve_progress_criteria(
 # ===========================================================================
 # GET /pathways — Catalog listing
 # ===========================================================================
+
 
 @router.get("/pathways", response_model=PathwayListResponse)
 async def list_pathways(
@@ -476,6 +493,7 @@ async def list_pathways(
 # GET /pathways/{pathway_id} — Pathway detail with criteria
 # ===========================================================================
 
+
 @router.get("/pathways/{pathway_id}", response_model=PathwaySchema)
 async def get_pathway(
     pathway_id: int,
@@ -492,7 +510,7 @@ async def get_pathway(
     ``pathways`` table when the engine path is used.
     """
     engine = _get_engine()
-    pathway: dict | None = None
+    pathway: dict[str, Any] | None = None
     if engine is not None:
         pdef = engine.get_pathway(pathway_id)
         if pdef is not None:
@@ -516,6 +534,7 @@ async def get_pathway(
 # ===========================================================================
 # GET /patients/{mpi_id}/pathways — Patient's active pathways
 # ===========================================================================
+
 
 @router.get(
     "/patients/{mpi_id}/pathways",
@@ -548,6 +567,7 @@ async def list_patient_pathways(
 # POST /patients/{mpi_id}/pathways — Enroll patient
 # ===========================================================================
 
+
 @router.post(
     "/patients/{mpi_id}/pathways",
     response_model=PatientPathwaySchema,
@@ -578,7 +598,8 @@ async def enroll_patient_in_pathway(
         if pdef is not None:
             logger.info(
                 "TrilhasEngine validated pathway %d (%s); enrolling via persistent service",
-                body.pathway_id, pdef.name,
+                body.pathway_id,
+                pdef.name,
             )
         else:
             logger.warning(
@@ -629,15 +650,22 @@ async def enroll_patient_in_pathway(
                 if alerts:
                     logger.info(
                         "TrilhasEngine produced %d alert(s) on enrollment for mpi=%s pathway=%d",
-                        len(alerts), mpi_id, body.pathway_id,
+                        len(alerts),
+                        mpi_id,
+                        body.pathway_id,
                     )
         except Exception as exc:
             _log_evaluation_pass_failure(
-                exc, phase="enrollment", mpi_id=mpi_id, pathway_id=body.pathway_id,
+                exc,
+                phase="enrollment",
+                mpi_id=mpi_id,
+                pathway_id=body.pathway_id,
             )
 
-    # Fetch the created enrollment to build the full response
-    enrollment = await _find_enrollment(db, mpi_id, result.patient_pathway_id)
+    # Fetch the created enrollment to build the full response.
+    # result.error was checked above (and raises on any failure), so on this
+    # path enroll_patient's success branch always set patient_pathway_id.
+    enrollment = await _find_enrollment(db, mpi_id, result.patient_pathway_id)  # type: ignore[arg-type]
     if enrollment is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -649,6 +677,7 @@ async def enroll_patient_in_pathway(
 # ===========================================================================
 # PUT /patients/{mpi_id}/pathways/{patient_pathway_id}/criteria
 # ===========================================================================
+
 
 @router.put(
     "/patients/{mpi_id}/pathways/{patient_pathway_id}/criteria",
@@ -679,15 +708,15 @@ async def update_pathway_criteria(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Inscrição de pathway {patient_pathway_id} não encontrada "
-                   f"para o paciente {mpi_id}.",
+            f"para o paciente {mpi_id}.",
         )
 
     if enrollment.get("status") != "active":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Inscrição de pathway não está ativa "
-                   f"(status: {enrollment.get('status')}). "
-                   f"Apenas pathways ativos podem ter critérios atualizados.",
+            f"(status: {enrollment.get('status')}). "
+            f"Apenas pathways ativos podem ter critérios atualizados.",
         )
 
     engine = _get_engine()
@@ -700,19 +729,23 @@ async def update_pathway_criteria(
                 alerts = await engine.evaluate(mpi_id, patient_data)
                 if alerts:
                     logger.info(
-                        "TrilhasEngine produced %d alert(s) on criteria update "
-                        "for mpi=%s pp_id=%d",
-                        len(alerts), mpi_id, patient_pathway_id,
+                        "TrilhasEngine produced %d alert(s) on criteria update for mpi=%s pp_id=%d",
+                        len(alerts),
+                        mpi_id,
+                        patient_pathway_id,
                     )
                 else:
                     logger.debug(
                         "TrilhasEngine evaluation pass: 0 alerts for mpi=%s pp_id=%d",
-                        mpi_id, patient_pathway_id,
+                        mpi_id,
+                        patient_pathway_id,
                     )
         except Exception as exc:
             _log_evaluation_pass_failure(
-                exc, phase="criteria update",
-                mpi_id=mpi_id, patient_pathway_id=patient_pathway_id,
+                exc,
+                phase="criteria update",
+                mpi_id=mpi_id,
+                patient_pathway_id=patient_pathway_id,
             )
     else:
         logger.warning(
@@ -741,6 +774,7 @@ async def update_pathway_criteria(
 # ===========================================================================
 # GET /patients/{mpi_id}/pathways/{patient_pathway_id}/progress
 # ===========================================================================
+
 
 @router.get(
     "/patients/{mpi_id}/pathways/{patient_pathway_id}/progress",
@@ -774,10 +808,10 @@ async def get_pathway_progress_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Inscrição de pathway {patient_pathway_id} não encontrada "
-                       f"para o paciente {mpi_id}.",
+                f"para o paciente {mpi_id}.",
             )
 
-    pathway_flat: dict | None = None
+    pathway_flat: dict[str, Any] | None = None
     if enrollment is not None:
         repo = PathwayRepository(db)
         pathway_orm = await repo.get_pathway(enrollment["pathway_id"])

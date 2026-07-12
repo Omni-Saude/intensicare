@@ -6,8 +6,8 @@ by whom, on what date, and the evidence basis.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, String, Text
 import sqlalchemy as sa
+from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base

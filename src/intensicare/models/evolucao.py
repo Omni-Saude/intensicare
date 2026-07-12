@@ -12,7 +12,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from intensicare.core.database import Base
 
-
 # ---------------------------------------------------------------------------
 # EvolucaoTemplate — templates for clinical note sections
 # ---------------------------------------------------------------------------
@@ -59,9 +58,7 @@ class EvolucaoTemplate(Base):
     )
 
     # Relationships
-    evolucoes: Mapped[list["Evolucao"]] = relationship(
-        "Evolucao", back_populates="template"
-    )
+    evolucoes: Mapped[list["Evolucao"]] = relationship("Evolucao", back_populates="template")
 
     def __repr__(self) -> str:
         return f"<EvolucaoTemplate(id={self.id!r}, role={self.role!r})>"
@@ -189,9 +186,7 @@ class EvolucaoSection(Base):
     )
 
     # Relationships
-    evolucao: Mapped["Evolucao"] = relationship(
-        "Evolucao", back_populates="sections_rel"
-    )
+    evolucao: Mapped["Evolucao"] = relationship("Evolucao", back_populates="sections_rel")
 
     def __repr__(self) -> str:
         return (

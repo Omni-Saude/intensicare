@@ -30,30 +30,29 @@ class ProphylaxisAssessment(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     bundle_id: Mapped[str] = mapped_column(
-        String(32), nullable=False,
-        comment="Bundle identifier: lamgd, tev, hiperglicemia, mobilizacao, dispositivos"
+        String(32),
+        nullable=False,
+        comment="Bundle identifier: lamgd, tev, hiperglicemia, mobilizacao, dispositivos",
     )
 
     # JSONB array of {id, met, na} criterion states
     criteria: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
-        comment="Array of {id, met, na} objects for each criterion"
+        JSONB, comment="Array of {id, met, na} objects for each criterion"
     )
 
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="pending",
-        comment="Bundle status: complete, partial, pending, na"
+        String(16),
+        nullable=False,
+        default="pending",
+        comment="Bundle status: complete, partial, pending, na",
     )
     score: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0,
-        comment="Bundle score 0-100"
+        Integer, nullable=False, default=0, comment="Bundle score 0-100"
     )
 
     assessed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        comment="Timestamp of the last assessment"
+        DateTime(timezone=True), nullable=False, comment="Timestamp of the last assessment"
     )
     assessed_by: Mapped[str | None] = mapped_column(
-        String(255),
-        comment="User who performed the assessment"
+        String(255), comment="User who performed the assessment"
     )

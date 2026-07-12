@@ -6,22 +6,19 @@ Plus CRIT non-auto-resolve on stale guard.
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.schemas.severity import SeverityLevel
 from intensicare.services.domain_electrolyte import (
+    ELECTROLYTE_ALERT_DEFINITIONS,
+    ElectrolyteAlertResult,
     evaluate_all,
-    evaluate_potassium,
-    evaluate_sodium,
-    evaluate_sodium_correction,
     evaluate_calcium,
     evaluate_magnesium,
     evaluate_phosphate,
+    evaluate_potassium,
+    evaluate_sodium,
+    evaluate_sodium_correction,
     should_auto_resolve,
-    ElectrolyteAlertResult,
-    ELECTROLYTE_ALERT_DEFINITIONS,
 )
-
 
 # ===================================================================
 # ALERT-ELY-POTASSIUM-01 — 7 test vectors
@@ -57,19 +54,23 @@ class TestPotassium:
     def test_tv4_boundary_5_5_no_fire(self):
         """TV-4: K+ exactly 5.5 is NOT > 5.5 -> watch band does not open,
         even with trend+CKD."""
-        r = evaluate_potassium({
-            "potassio": 5.5,
-            "delta_k_24h": 0.8,
-            "ckd_moderada_grave": True,
-        })
+        r = evaluate_potassium(
+            {
+                "potassio": 5.5,
+                "delta_k_24h": 0.8,
+                "ckd_moderada_grave": True,
+            }
+        )
         assert not r.fired
 
     def test_tv5_critical_hyperkalemia_digoxin(self):
         """TV-5: critical hyperkalemia + digoxin -> digoxin_toxicity_context."""
-        r = evaluate_potassium({
-            "potassio": 6.8,
-            "digoxina_ativa": True,
-        })
+        r = evaluate_potassium(
+            {
+                "potassio": 6.8,
+                "digoxina_ativa": True,
+            }
+        )
         assert r.fired
         assert r.direction == "hyper"
         assert r.band == "critical"
@@ -82,10 +83,12 @@ class TestPotassium:
 
     def test_tv7_watch_hypokalemia_qtc(self):
         """TV-7: K+ 3.2 < 3.5 AND QTc 520 > 500 -> watch."""
-        r = evaluate_potassium({
-            "potassio": 3.2,
-            "qtc": 520,
-        })
+        r = evaluate_potassium(
+            {
+                "potassio": 3.2,
+                "qtc": 520,
+            }
+        )
         assert r.fired
         assert r.band == "watch"
         assert r.severity == SeverityLevel.WATCH
@@ -125,10 +128,12 @@ class TestSodium:
     def test_tv4_boundary_155_no_fire(self):
         """TV-4: Na+ exactly 155 NOT > 155; watch needs >150 AND delta>5 (trailing=2)
         -> no-fire."""
-        r = evaluate_sodium({
-            "sodio": 155,
-            "delta_na_24h_trailing": 2,
-        })
+        r = evaluate_sodium(
+            {
+                "sodio": 155,
+                "delta_na_24h_trailing": 2,
+            }
+        )
         assert not r.fired
 
     def test_tv5_urgent_hypernatremia(self):
@@ -145,10 +150,12 @@ class TestSodium:
 
     def test_tv7_watch_acute_hyponatremia_trend(self):
         """TV-7: Na+ 128 < 130 AND acute trailing fall -7 -> watch."""
-        r = evaluate_sodium({
-            "sodio": 128,
-            "delta_na_24h_trailing": -7,
-        })
+        r = evaluate_sodium(
+            {
+                "sodio": 128,
+                "delta_na_24h_trailing": -7,
+            }
+        )
         assert r.fired
         assert r.band == "watch"
         assert r.severity == SeverityLevel.WATCH
@@ -164,64 +171,76 @@ class TestSodiumCorrection:
 
     def test_tv1_critical_overcorrection(self):
         """TV-1: Na+ rose from 24h nadir 118 -> 130 (+12) > 10 -> critical."""
-        r = evaluate_sodium_correction({
-            "sodio": 130,
-            "sodio_nadir_24h": 118,
-            "correcao_na_24h_from_nadir": 12,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 130,
+                "sodio_nadir_24h": 118,
+                "correcao_na_24h_from_nadir": 12,
+            }
+        )
         assert r.fired
         assert r.band == "critical"
         assert r.severity == SeverityLevel.CRITICAL
 
     def test_tv2_urgent_approaching_ceiling(self):
         """TV-2: +9 mmol/L/24h from nadir > 8 -> urgent."""
-        r = evaluate_sodium_correction({
-            "sodio": 128,
-            "sodio_nadir_24h": 119,
-            "correcao_na_24h_from_nadir": 9,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 128,
+                "sodio_nadir_24h": 119,
+                "correcao_na_24h_from_nadir": 9,
+            }
+        )
         assert r.fired
         assert r.band == "urgent"
         assert r.severity == SeverityLevel.URGENT
 
     def test_tv3_boundary_10_urgent(self):
         """TV-3: exactly +10 from nadir is NOT > 10 (critical) but IS > 8 -> urgent."""
-        r = evaluate_sodium_correction({
-            "sodio": 130,
-            "sodio_nadir_24h": 120,
-            "correcao_na_24h_from_nadir": 10,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 130,
+                "sodio_nadir_24h": 120,
+                "correcao_na_24h_from_nadir": 10,
+            }
+        )
         assert r.fired
         assert r.band == "urgent"
 
     def test_tv4_boundary_8_no_fire(self):
         """TV-4: exactly +8 from nadir is NOT > 8 -> no-fire."""
-        r = evaluate_sodium_correction({
-            "sodio": 126,
-            "sodio_nadir_24h": 118,
-            "correcao_na_24h_from_nadir": 8,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 126,
+                "sodio_nadir_24h": 118,
+                "correcao_na_24h_from_nadir": 8,
+            }
+        )
         assert not r.fired
 
     def test_tv5_controlled_correction_no_fire(self):
         """TV-5: controlled +4 mmol/L/24h correction from nadir -> no-fire."""
-        r = evaluate_sodium_correction({
-            "sodio": 124,
-            "sodio_nadir_24h": 120,
-            "correcao_na_24h_from_nadir": 4,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 124,
+                "sodio_nadir_24h": 120,
+                "correcao_na_24h_from_nadir": 4,
+            }
+        )
         assert not r.fired
 
     def test_tv6_uses_from_nadir_not_trailing(self):
         """TV-6: Na 140->120->132: correction FROM NADIR is +12 > 10 -> critical.
         The TRAILING delta (132-140 = -8) would MISS it entirely.
         Proves CORRECTION-02 MUST use correcao_na_24h_from_nadir."""
-        r = evaluate_sodium_correction({
-            "sodio": 132,
-            "sodio_nadir_24h": 120,
-            "correcao_na_24h_from_nadir": 12,
-            "delta_na_24h_trailing": -8,
-        })
+        r = evaluate_sodium_correction(
+            {
+                "sodio": 132,
+                "sodio_nadir_24h": 120,
+                "correcao_na_24h_from_nadir": 12,
+                "delta_na_24h_trailing": -8,
+            }
+        )
         assert r.fired
         assert r.band == "critical"
         assert r.severity == SeverityLevel.CRITICAL
@@ -268,11 +287,13 @@ class TestCalcium:
     def test_tv5_fallback_corrected_total_critical(self):
         """TV-5: ionized unavailable; corrected total = 6.0 + 0.8*(4.0-4.0)
         = 6.0 < 7.0 -> critical (fallback path)."""
-        r = evaluate_calcium({
-            "calcio_ionizado": None,
-            "calcio_total": 6.0,
-            "albumina": 4.0,
-        })
+        r = evaluate_calcium(
+            {
+                "calcio_ionizado": None,
+                "calcio_total": 6.0,
+                "albumina": 4.0,
+            }
+        )
         assert r.fired
         assert r.direction == "hypo"
         assert r.band == "critical"
@@ -286,10 +307,12 @@ class TestCalcium:
 
     def test_tv7_urgent_hypocalcemia_qtc(self):
         """TV-7: iCa 0.85 < 0.90 -> urgent; QTc 510>500 context present."""
-        r = evaluate_calcium({
-            "calcio_ionizado": 0.85,
-            "qtc": 510,
-        })
+        r = evaluate_calcium(
+            {
+                "calcio_ionizado": 0.85,
+                "qtc": 510,
+            }
+        )
         assert r.fired
         assert r.band == "urgent"
         assert r.severity == SeverityLevel.URGENT
@@ -326,18 +349,22 @@ class TestMagnesium:
     def test_tv4_boundary_0_9_no_fire(self):
         """TV-4: Mg exactly 0.9 is NOT < 0.9 -> watch does not open,
         even with hypokalemia."""
-        r = evaluate_magnesium({
-            "magnesio": 0.9,
-            "potassio": 3.0,
-        })
+        r = evaluate_magnesium(
+            {
+                "magnesio": 0.9,
+                "potassio": 3.0,
+            }
+        )
         assert not r.fired
 
     def test_tv5_watch_with_hypokalemia(self):
         """TV-5: Mg 0.8 < 0.9 AND K 3.2 < 3.5 -> watch."""
-        r = evaluate_magnesium({
-            "magnesio": 0.8,
-            "potassio": 3.2,
-        })
+        r = evaluate_magnesium(
+            {
+                "magnesio": 0.8,
+                "potassio": 3.2,
+            }
+        )
         assert r.fired
         assert r.band == "watch"
         assert r.severity == SeverityLevel.WATCH
@@ -436,10 +463,16 @@ class TestEvaluateAll:
             ({"sodio": 140}, "ALERT-ELY-SODIUM-01", False),
             ({"sodio": 118}, "ALERT-ELY-SODIUM-01", True),
             # SODIUM-CORRECTION
-            ({"correcao_na_24h_from_nadir": 12, "sodio": 130, "sodio_nadir_24h": 118},
-             "ALERT-ELY-SODIUM-CORRECTION-02", True),
-            ({"correcao_na_24h_from_nadir": 4, "sodio": 124, "sodio_nadir_24h": 120},
-             "ALERT-ELY-SODIUM-CORRECTION-02", False),
+            (
+                {"correcao_na_24h_from_nadir": 12, "sodio": 130, "sodio_nadir_24h": 118},
+                "ALERT-ELY-SODIUM-CORRECTION-02",
+                True,
+            ),
+            (
+                {"correcao_na_24h_from_nadir": 4, "sodio": 124, "sodio_nadir_24h": 120},
+                "ALERT-ELY-SODIUM-CORRECTION-02",
+                False,
+            ),
             # CALCIUM
             ({"calcio_ionizado": 0.72}, "ALERT-ELY-CALCIUM-01", True),
             ({"calcio_ionizado": 1.20}, "ALERT-ELY-CALCIUM-01", False),
@@ -536,12 +569,16 @@ class TestCritNonAutoResolve:
         crit_alerts = [
             ("ALERT-ELY-POTASSIUM-01", evaluate_potassium({"potassio": 7.0})),
             ("ALERT-ELY-SODIUM-01", evaluate_sodium({"sodio": 162})),
-            ("ALERT-ELY-SODIUM-CORRECTION-02",
-             evaluate_sodium_correction({
-                 "correcao_na_24h_from_nadir": 12,
-                 "sodio": 130,
-                 "sodio_nadir_24h": 118,
-             })),
+            (
+                "ALERT-ELY-SODIUM-CORRECTION-02",
+                evaluate_sodium_correction(
+                    {
+                        "correcao_na_24h_from_nadir": 12,
+                        "sodio": 130,
+                        "sodio_nadir_24h": 118,
+                    }
+                ),
+            ),
             ("ALERT-ELY-CALCIUM-01", evaluate_calcium({"calcio_ionizado": 0.72})),
             ("ALERT-ELY-MAGNESIUM-01", evaluate_magnesium({"magnesio": 0.42})),
             ("ALERT-ELY-PHOSPHATE-01", evaluate_phosphate({"fosfato": 3.0})),
@@ -571,13 +608,10 @@ class TestDefinitionsIntegrity:
 
     def test_all_have_required_fields(self):
         """Every definition must have the required fields."""
-        required = {"definition_version", "score_type", "semver",
-                     "spec_hash", "description"}
+        required = {"definition_version", "score_type", "semver", "spec_hash", "description"}
         for d in ELECTROLYTE_ALERT_DEFINITIONS:
             missing = required - set(d.keys())
-            assert not missing, (
-                f"{d.get('definition_version', '?')}: missing fields {missing}"
-            )
+            assert not missing, f"{d.get('definition_version', '?')}: missing fields {missing}"
 
     def test_unique_definition_versions(self):
         """Definition versions must be unique."""
@@ -597,19 +631,21 @@ class TestGlucoseCorrection:
         """When glicemia > 100, the corrected sodium should be higher."""
         # Na+ 128 with glucose 500 mg/dL -> corrected Na = 128 + 0.024*(500-100)
         # = 128 + 9.6 = 137.6 -> should NOT fire hyponatremia
-        r = evaluate_sodium({
-            "sodio": 128,
-            "glicemia": 500,
-        })
-        assert not r.fired, (
-            "Glucose-corrected Na ~137.6 should not trigger hypoNa alert"
+        r = evaluate_sodium(
+            {
+                "sodio": 128,
+                "glicemia": 500,
+            }
         )
+        assert not r.fired, "Glucose-corrected Na ~137.6 should not trigger hypoNa alert"
 
     def test_glucose_correction_not_applied_when_normal(self):
         """When glicemia <= 100, no correction is applied."""
-        r = evaluate_sodium({
-            "sodio": 118,
-            "glicemia": 90,
-        })
+        r = evaluate_sodium(
+            {
+                "sodio": 118,
+                "glicemia": 90,
+            }
+        )
         assert r.fired
         assert r.band == "critical"

@@ -136,9 +136,7 @@ class _PrometheusHistogram:
         self.buckets = sorted(buckets or _default_latency_buckets())
         self._count: dict[tuple[tuple[str, str], ...], float] = {}
         self._sum: dict[tuple[tuple[str, str], ...], float] = {}
-        self._bucket_counts: dict[
-            tuple[tuple[tuple[str, str], ...], float], float
-        ] = {}
+        self._bucket_counts: dict[tuple[tuple[tuple[str, str], ...], float], float] = {}
         self._created_at = time.time()
 
     def observe(self, amount: float, labels: dict[str, str] | None = None) -> None:
@@ -172,25 +170,17 @@ class _PrometheusHistogram:
             sum_val = self._sum.get(key, 0.0)
             lines.append(f"{self.name}_count{label_str} {_format_value(count_val)}")
             lines.append(f"{self.name}_sum{label_str} {_format_value(sum_val)}")
-            lines.append(
-                f"{self.name}_created{label_str} {_format_value(self._created_at)}"
-            )
+            lines.append(f"{self.name}_created{label_str} {_format_value(self._created_at)}")
 
             cumulative = 0.0
             for bucket in self.buckets:
                 bk = (key, bucket)
                 cumulative += self._bucket_counts.get(bk, 0.0)
-                bucket_label_str = _format_labels(
-                    dict(key) | {"le": str(bucket)}
-                )
-                lines.append(
-                    f"{self.name}_bucket{bucket_label_str} {_format_value(cumulative)}"
-                )
+                bucket_label_str = _format_labels(dict(key) | {"le": str(bucket)})
+                lines.append(f"{self.name}_bucket{bucket_label_str} {_format_value(cumulative)}")
             # +Inf bucket
             inf_label = _format_labels(dict(key) | {"le": "+Inf"})
-            lines.append(
-                f"{self.name}_bucket{inf_label} {_format_value(cumulative)}"
-            )
+            lines.append(f"{self.name}_bucket{inf_label} {_format_value(cumulative)}")
 
         return lines
 
@@ -200,14 +190,9 @@ class _PrometheusHistogram:
 # ---------------------------------------------------------------------------
 
 
-def _labels_to_key(
-    labels: dict[str, str], label_names: list[str]
-) -> tuple[tuple[str, str], ...]:
+def _labels_to_key(labels: dict[str, str], label_names: list[str]) -> tuple[tuple[str, str], ...]:
     """Converte labels para uma tupla determinística."""
-    return tuple(
-        (name, labels.get(name, ""))
-        for name in sorted(label_names or labels.keys())
-    )
+    return tuple((name, labels.get(name, "")) for name in sorted(label_names or labels.keys()))
 
 
 def _format_labels(labels: dict[str, str]) -> str:
@@ -235,8 +220,22 @@ def _default_latency_buckets() -> list[float]:
     Cobre de 1ms até 30s — alinhado ao SLO de 30s (VIS-C-09).
     """
     return [
-        0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
-        1.0, 2.5, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0,
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        15.0,
+        20.0,
+        25.0,
+        30.0,
     ]
 
 

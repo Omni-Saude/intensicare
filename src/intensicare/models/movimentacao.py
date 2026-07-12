@@ -11,7 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
 
-
 # ---------------------------------------------------------------------------
 # PatientMovement — registro de admissão, transferência e alta
 # ---------------------------------------------------------------------------
@@ -52,9 +51,7 @@ class PatientMovement(Base):
         nullable=False,
         comment="Date/time the movement occurred",
     )
-    notes: Mapped[str | None] = mapped_column(
-        String(1024), nullable=True, comment="Clinical notes"
-    )
+    notes: Mapped[str | None] = mapped_column(String(1024), nullable=True, comment="Clinical notes")
     registered_by: Mapped[str | None] = mapped_column(
         String(255), nullable=True, comment="Professional who registered the movement"
     )

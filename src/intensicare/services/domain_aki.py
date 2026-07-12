@@ -19,7 +19,6 @@ from typing import Any
 
 from intensicare.schemas.severity import SeverityLevel
 
-
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
@@ -94,9 +93,8 @@ def compute_kdigo_stage(inputs: dict[str, Any]) -> int:
         # Stage 1: delta >= 0.3 OR (Cr >= 1.5*baseline within 7d)
         # Boundary: Cr=1.5× inclusive (>=)
         elif (
-            (delta_cr_48h is not None and delta_cr_48h >= 0.3)
-            or creatinina >= 1.5 * creatinina_basal
-        ):
+            delta_cr_48h is not None and delta_cr_48h >= 0.3
+        ) or creatinina >= 1.5 * creatinina_basal:
             stage_cr = 1
 
     # --- stage_uo ---
@@ -195,10 +193,7 @@ def evaluate_progression(inputs: dict[str, Any]) -> AkiAlertResult:
     result.fired = True
     result.kdigo_stage = stage_now
 
-    if stage_now >= 3:
-        band = "critical"
-    else:
-        band = "urgent"
+    band = "critical" if stage_now >= 3 else "urgent"
 
     result.band = band
     result.severity = _band_severity(band)
@@ -236,9 +231,7 @@ def _check_nephrotoxic_combo(inputs: dict[str, Any]) -> bool:
         return True
     if amino and aine:
         return True
-    if ieca and hipo:
-        return True
-    return False
+    return bool(ieca and hipo)
 
 
 def evaluate_nephrotoxin(inputs: dict[str, Any]) -> AkiAlertResult:

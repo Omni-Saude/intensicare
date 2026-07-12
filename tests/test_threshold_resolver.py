@@ -6,15 +6,14 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.models.audit_trail import AuditTrail
 from intensicare.models.threshold_config import ThresholdConfig
 from intensicare.services.threshold_resolver import (
     resolve_threshold,
     write_threshold_audit,
 )
 
-
 # ── helpers ────────────────────────────────────────────────────────────────
+
 
 async def _create_config(
     db: AsyncSession,
@@ -51,8 +50,8 @@ class TestResolveThreshold:
     @pytest.mark.asyncio
     async def test_bed_overrides_unit(self, db_session: AsyncSession):
         """Bed-level config deve ter precedência sobre unit-level."""
-        await _create_config(db_session, unit=None, bed_id=None, watch=3)       # tenant
-        await _create_config(db_session, unit="ICU", bed_id=None, watch=2)      # unit
+        await _create_config(db_session, unit=None, bed_id=None, watch=3)  # tenant
+        await _create_config(db_session, unit="ICU", bed_id=None, watch=2)  # unit
         await _create_config(db_session, unit="ICU", bed_id="BED-01", watch=1)  # bed
 
         result = await resolve_threshold(
@@ -63,13 +62,13 @@ class TestResolveThreshold:
             bed_id="BED-01",
         )
         assert result is not None
-        assert result.watch_threshold == 1           # bed-level venceu
+        assert result.watch_threshold == 1  # bed-level venceu
         assert result.bed_id == "BED-01"
 
     @pytest.mark.asyncio
     async def test_unit_overrides_tenant(self, db_session: AsyncSession):
         """Unit-level config deve ter precedência sobre tenant-level."""
-        await _create_config(db_session, unit=None, bed_id=None, watch=3)   # tenant
+        await _create_config(db_session, unit=None, bed_id=None, watch=3)  # tenant
         await _create_config(db_session, unit="ICU", bed_id=None, watch=2)  # unit
 
         result = await resolve_threshold(
@@ -80,7 +79,7 @@ class TestResolveThreshold:
             bed_id="BED-01",  # bed não tem config → cai para unit
         )
         assert result is not None
-        assert result.watch_threshold == 2           # unit-level venceu
+        assert result.watch_threshold == 2  # unit-level venceu
         assert result.unit == "ICU"
 
     @pytest.mark.asyncio
@@ -96,7 +95,7 @@ class TestResolveThreshold:
             bed_id="BED-99",
         )
         assert result is not None
-        assert result.watch_threshold == 3           # tenant fallback
+        assert result.watch_threshold == 3  # tenant fallback
         assert result.unit is None
         assert result.bed_id is None
 
@@ -140,7 +139,7 @@ class TestResolveThreshold:
             unit="ICU",
         )
         assert result is not None
-        assert result.watch_threshold == 2           # unit-level
+        assert result.watch_threshold == 2  # unit-level
 
     @pytest.mark.asyncio
     async def test_different_score_types_isolated(self, db_session: AsyncSession):
@@ -347,9 +346,6 @@ class TestThresholdAuditTrail:
 
         # Verifica que todas as entradas de auditoria estão no banco
         audit_result = await db_session.execute(
-            text(
-                "SELECT count(*) as cnt FROM audit_trail "
-                "WHERE entity_table = 'threshold_config'"
-            )
+            text("SELECT count(*) as cnt FROM audit_trail WHERE entity_table = 'threshold_config'")
         )
         assert audit_result.scalar() == 3

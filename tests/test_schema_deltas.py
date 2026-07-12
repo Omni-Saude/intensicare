@@ -3,14 +3,12 @@
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.models.alert import Alert
 from intensicare.models.alert_definition_version import AlertDefinitionVersion
 from intensicare.models.correlation_event import CorrelationEvent
 from intensicare.models.threshold_config import ThresholdConfig
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Alert status — acting / escalated

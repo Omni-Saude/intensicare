@@ -34,11 +34,12 @@ class TestLifespanStartup:
     @pytest.mark.asyncio
     async def test_engine_created_on_startup(self, app):
         """Engine SQLAlchemy deve ser criada no startup."""
-        with patch.object(db_module, "get_engine") as mock_get_engine, \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock), \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock):
-
+        with (
+            patch.object(db_module, "get_engine") as mock_get_engine,
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock),
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock),
+        ):
             async with lifespan(app):
                 pass
 
@@ -48,11 +49,12 @@ class TestLifespanStartup:
     @pytest.mark.asyncio
     async def test_redis_pool_created_on_startup(self, app):
         """Pool Redis deve ser criado no startup."""
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock), \
-             patch.object(redis_module, "get_redis") as mock_get_redis, \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock):
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock),
+            patch.object(redis_module, "get_redis") as mock_get_redis,
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock),
+        ):
             async with lifespan(app):
                 pass
 
@@ -61,11 +63,12 @@ class TestLifespanStartup:
     @pytest.mark.asyncio
     async def test_app_state_started_on_startup(self, app):
         """app.state.started deve ser True durante o startup."""
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock), \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock):
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock),
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock),
+        ):
             async with lifespan(app):
                 assert app.state.started is True
 
@@ -84,11 +87,12 @@ class TestLifespanShutdown:
     @pytest.mark.asyncio
     async def test_engine_disposed_on_shutdown(self, app):
         """Engine SQLAlchemy deve ser fechada (dispose) no shutdown."""
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock) as mock_dispose, \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock):
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock) as mock_dispose,
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock),
+        ):
             async with lifespan(app):
                 pass
 
@@ -99,11 +103,12 @@ class TestLifespanShutdown:
     @pytest.mark.asyncio
     async def test_redis_pool_closed_on_shutdown(self, app):
         """Pool Redis deve ser fechado no shutdown."""
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock), \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock) as mock_close:
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock),
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock) as mock_close,
+        ):
             async with lifespan(app):
                 pass
 
@@ -113,19 +118,18 @@ class TestLifespanShutdown:
     @pytest.mark.asyncio
     async def test_shutdown_order_engine_before_redis(self, app):
         """Engine deve ser fechada antes do Redis no shutdown (ordem importa)."""
-        from unittest.mock import call
 
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock) as mock_dispose, \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock) as mock_close:
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock) as mock_dispose,
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock) as mock_close,
+        ):
             async with lifespan(app):
                 pass
 
         # Verifica ordem das chamadas no shutdown
         # mock_dispose deve ser chamado antes de mock_close
-        dispose_call_index = mock_dispose.call_count  # placeholder
         # Usa assert_has_calls para verificar ordem
         mock_dispose.assert_called_once()
         mock_close.assert_called_once()
@@ -139,11 +143,12 @@ class TestLifespanShutdown:
     @pytest.mark.asyncio
     async def test_app_state_false_after_shutdown(self, app):
         """app.state.started deve ser False após o shutdown."""
-        with patch.object(db_module, "get_engine"), \
-             patch.object(db_module, "dispose_engine", new_callable=AsyncMock), \
-             patch.object(redis_module, "get_redis"), \
-             patch.object(redis_module, "close_redis", new_callable=AsyncMock):
-
+        with (
+            patch.object(db_module, "get_engine"),
+            patch.object(db_module, "dispose_engine", new_callable=AsyncMock),
+            patch.object(redis_module, "get_redis"),
+            patch.object(redis_module, "close_redis", new_callable=AsyncMock),
+        ):
             async with lifespan(app):
                 pass
 

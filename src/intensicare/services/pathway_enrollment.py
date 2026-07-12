@@ -634,12 +634,11 @@ def _determine_severity(met_count: int, total_count: int) -> str:
     ratio = met_count / total_count
     if ratio >= 0.80:
         return "normal"
-    elif ratio >= 0.60:
+    if ratio >= 0.60:
         return "watch"
-    elif ratio >= 0.40:
+    if ratio >= 0.40:
         return "urgent"
-    else:
-        return "critical"
+    return "critical"
 
 
 def _determine_trend(history: list[dict[str, Any]]) -> str:
@@ -670,9 +669,7 @@ def _determine_trend(history: list[dict[str, Any]]) -> str:
 
     # All transitions are forward by design (Rule 2).
     trend = "stable"
-    if len(history) >= 2:
-        trend = "improving"
-    elif len(history) == 1:
+    if len(history) >= 2 or len(history) == 1:
         trend = "improving"
 
     return trend
@@ -709,119 +706,131 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Reavaliar parâmetros ventilatórios IMEDIATAMENTE. "
-                "Verificar PEEP, driving pressure e relação P/F. Considerar manobras de recrutamento alveolar "
+                "Menos de 40% dos critérios atendidos. Reavaliar parâmetros "
+                "ventilatórios IMEDIATAMENTE. Verificar PEEP, driving pressure e "
+                "relação P/F. Considerar manobras de recrutamento alveolar "
                 "e posição prona se P/F < 150. Acionar fisioterapia respiratória."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios parcialmente atendidos (40-59%). Ajustar parâmetros do ventilador nas próximas 6h. "
-                "Reavaliar PEEP ideal e considerar gasometria de controle. Manter cabeceira elevada 30-45°."
+                "Critérios parcialmente atendidos (40-59%). Ajustar parâmetros "
+                "do ventilador nas próximas 6h. Reavaliar PEEP ideal e "
+                "considerar gasometria de controle. Manter cabeceira elevada 30-45°."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Manter parâmetros protetores e monitorizar "
-                "tendência da mecânica pulmonar a cada 12h. Avaliar diariamente prontidão para desmame."
+                "Maioria dos critérios atendidos (60-79%). Manter parâmetros protetores e "
+                "monitorizar "
+                "tendência da mecânica pulmonar a cada 12h. Avaliar diariamente prontidão para "
+                "desmame."
             )
-        else:  # normal
-            return (
-                f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-                "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
-                "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
-            )
+        # normal
+        return (
+            f"✓ Dentro das metas — {pathway_name} ({state_name}): "
+            "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
+            "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
+        )
 
-    elif pathway_name == "Sepse":
+    if pathway_name == "Sepse":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
                 "Menos de 40% dos critérios atendidos. ACIONAR PROTOCOLO DE SEPSE IMEDIATAMENTE. "
-                "Verificar: antibiótico administrado? Culturas coletadas? Ressuscitação volêmica iniciada? "
-                "Lactato >4 mmol/L requer reavaliação em 2-4h. Considerar acesso central e droga vasoativa."
+                "Verificar: antibiótico administrado? Culturas coletadas? Ressuscitação volêmica "
+                "iniciada? "
+                "Lactato >4 mmol/L requer reavaliação em 2-4h. Considerar acesso central e droga "
+                "vasoativa."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios do bundle de sepse incompletos (40-59%). Completar bundle da 1ª hora: "
                 "coletar culturas, administrar antibiótico, iniciar cristaloide 30 mL/kg. "
                 "Reavaliar lactato em 2-4h."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Bundle de sepse parcialmente completo (60-79%). Verificar itens pendentes e "
                 "reavaliar resposta hemodinâmica. Monitorizar clearance de lactato a cada 6h. "
                 "Avaliar descalonamento antimicrobiano em 48-72h."
             )
-        else:  # normal
-            return (
-                f"✓ Resposta adequada — {pathway_name} ({state_name}): "
-                "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
-                "Manter monitorização e avaliar transição para via oral de antibióticos. "
-                "Reavaliar culturas e possibilidade de descalonamento."
-            )
+        # normal
+        return (
+            f"✓ Resposta adequada — {pathway_name} ({state_name}): "
+            "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
+            "Manter monitorização e avaliar transição para via oral de antibióticos. "
+            "Reavaliar culturas e possibilidade de descalonamento."
+        )
 
-    elif pathway_name == "Desmame":
+    if pathway_name == "Desmame":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios de desmame atendidos. Paciente NÃO está pronto para desmame. "
-                "Otimizar parâmetros ventilatórios, corrigir distúrbios metabólicos e eletrolíticos. "
+                "Menos de 40% dos critérios de desmame atendidos. Paciente NÃO está pronto para "
+                "desmame. "
+                "Otimizar parâmetros ventilatórios, corrigir distúrbios metabólicos e "
+                "eletrolíticos. "
                 "Reavaliar em 24h. Manter ventilação mecânica com parâmetros protetores."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios de prontidão para desmame parcialmente atendidos (40-59%). "
                 "Reavaliar força muscular respiratória (NIF) e drive respiratório (RSBI). "
                 "Considerar TRE (Teste de Respiração Espontânea) se Glasgow ≥11 e tosse eficaz."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Maioria dos critérios atendidos (60-79%). Paciente próximo da prontidão para TRE. "
-                "Verificar critérios pendentes e programar teste de respiração espontânea nas próximas 12-24h. "
+                "Verificar critérios pendentes e programar teste de respiração espontânea nas "
+                "próximas 12-24h. "
                 "Manter sedação mínima (RASS -1 a 0)."
             )
-        else:  # normal
-            return (
-                f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
-                "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
-                "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
-                "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
-            )
+        # normal
+        return (
+            f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
+            "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
+            "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
+            "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
+        )
 
-    elif pathway_name == "Nutrição Enteral":
+    if pathway_name == "Nutrição Enteral":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Intolerância grave à dieta ou desnutrição severa. "
+                "Menos de 40% dos critérios atendidos. Intolerância grave à dieta ou desnutrição "
+                "severa. "
                 "Reavaliar via de acesso nutricional, considerar nutrição parenteral suplementar. "
                 "Investigar causas de intolerância (íleo, infecção, isquemia mesentérica). "
                 "Acionar equipe de terapia nutricional."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios nutricionais parcialmente atendidos (40-59%). Aporte calórico-proteico abaixo da meta. "
-                "Avaliar resíduo gástrico e considerar procinético. Ajustar velocidade de infusão e "
+                "Critérios nutricionais parcialmente atendidos (40-59%). Aporte calórico-proteico "
+                "abaixo da meta. "
+                "Avaliar resíduo gástrico e considerar procinético. Ajustar velocidade de infusão "
+                "e "
                 "concentração da fórmula. Reavaliar em 24h."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Maioria dos critérios atendidos (60-79%). Progredir dieta conforme protocolo, "
                 "atingindo meta calórica em até 72h. Monitorizar resíduo gástrico a cada 6h e "
                 "sinais de intolerância. Manter cabeceira elevada."
             )
-        else:  # normal
-            return (
-                f"✓ Meta nutricional — {pathway_name} ({state_name}): "
-                "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
-                "Avaliar transição para dieta via oral conforme melhora clínica. "
-                "Manter monitorização de tolerância e balanço nitrogenado semanal."
-            )
+        # normal
+        return (
+            f"✓ Meta nutricional — {pathway_name} ({state_name}): "
+            "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
+            "Avaliar transição para dieta via oral conforme melhora clínica. "
+            "Manter monitorização de tolerância e balanço nitrogenado semanal."
+        )
 
     # Generic fallback recommendation.
     if severity == "critical":
@@ -830,18 +839,19 @@ def _build_recommendation(
             "Menos de 40% dos critérios clínicos atendidos. Requer intervenção imediata. "
             "Reavaliar todos os parâmetros e acionar equipe multidisciplinar."
         )
-    elif severity == "urgent":
+    if severity == "urgent":
         return (
             f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-            "Critérios parcialmente atendidos (40-59%). Priorizar itens pendentes e reavaliar em 6-12h."
+            "Critérios parcialmente atendidos (40-59%). Priorizar itens pendentes e reavaliar em "
+            "6-12h."
         )
-    elif severity == "watch":
+    if severity == "watch":
         return (
             f"Acompanhar — {pathway_name} ({state_name}): "
-            "Maioria dos critérios atendidos (60-79%). Verificar pendências e manter monitorização programada."
+            "Maioria dos critérios atendidos (60-79%). Verificar pendências e manter "
+            "monitorização programada."
         )
-    else:
-        return (
-            f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
-        )
+    return (
+        f"✓ Dentro das metas — {pathway_name} ({state_name}): "
+        "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
+    )

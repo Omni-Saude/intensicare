@@ -13,13 +13,9 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.services.domain_eficiencia import (
-    CATEGORY_LABELS,
     TRANSFUSION_CRITERIA,
     EfficiencyAssessment,
-    FrailtyScale,
     RestraintStatus,
     TransfusionCriterionResult,
     _build_recommendation,
@@ -31,7 +27,6 @@ from intensicare.services.domain_eficiencia import (
     get_transfusion_categories,
     get_transfusion_criteria_catalog,
 )
-
 
 # ============================================================================
 # Transfusion Criteria Catalog — 12 items
@@ -145,19 +140,21 @@ class TestEvaluateTransfusionCriteria:
 
     def test_all_criteria_met_count(self):
         """With all optimal inputs, ≥8 of 12 criteria are met → appropriate=True."""
-        result = evaluate_transfusion_criteria({
-            "hb_pre": 7.5,
-            "hb_post": 9.0,
-            "units": 1,
-            "reassessed_6h": True,
-            "reaction": False,
-            "indication_documented": True,
-            "consent_signed": True,
-            "patient_id_checked": True,
-            "abo_rh_confirmed": True,
-            "cold_chain_ok": True,
-            "infusion_time_min": 120,
-        })
+        result = evaluate_transfusion_criteria(
+            {
+                "hb_pre": 7.5,
+                "hb_post": 9.0,
+                "units": 1,
+                "reassessed_6h": True,
+                "reaction": False,
+                "indication_documented": True,
+                "consent_signed": True,
+                "patient_id_checked": True,
+                "abo_rh_confirmed": True,
+                "cold_chain_ok": True,
+                "infusion_time_min": 120,
+            }
+        )
         assert result["met_count"] >= 8
         assert result["appropriate"] is True
 
@@ -185,22 +182,26 @@ class TestEvaluateRestraint:
 
     def test_restraint_within_4h(self):
         """Restraint active ≤ 4h — duration_within_limit is True."""
-        result = evaluate_restraint({
-            "active": True,
-            "duration_hours": 3.5,
-            "reassessed_today": True,
-        })
+        result = evaluate_restraint(
+            {
+                "active": True,
+                "duration_hours": 3.5,
+                "reassessed_today": True,
+            }
+        )
         assert result["active"] is True
         assert result["criteria_met"]["duration_within_limit"] is True
         assert result["criteria_met"]["daily_reassessment"] is True
 
     def test_restraint_exceeds_4h_detection(self):
         """Restraint active > 4h — duration_within_limit is False."""
-        result = evaluate_restraint({
-            "active": True,
-            "duration_hours": 6.0,
-            "reassessed_today": False,
-        })
+        result = evaluate_restraint(
+            {
+                "active": True,
+                "duration_hours": 6.0,
+                "reassessed_today": False,
+            }
+        )
         assert result["active"] is True
         assert result["duration_hours"] == 6.0
         assert result["criteria_met"]["duration_within_limit"] is False

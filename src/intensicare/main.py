@@ -4,13 +4,12 @@ Aplicação principal FastAPI — Intensicare.
 Inicializa a aplicação, registra rotas, middlewares e handlers de ciclo de vida.
 """
 
-import logging
 from contextlib import asynccontextmanager
+import logging
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from intensicare.api.clinical_forms import router as clinical_forms_router
 from intensicare.api.reference_ranges import router as reference_ranges_router
@@ -20,8 +19,8 @@ from intensicare.api.v1 import (
     alert_routing_router,
     alerts_router,
     antimicrobial_router,
-    auth_router,
     api_v1_auth_router,
+    auth_router,
     dashboard_router,
     deterioration_router,
     documentacao_router,
@@ -135,10 +134,12 @@ def create_app() -> FastAPI:
 
     # Security headers — OWASP-recommended headers (HSTS, CSP, X-Frame-Options, …)
     from intensicare.core.security_headers import SecurityHeadersMiddleware
+
     app.add_middleware(SecurityHeadersMiddleware)
 
     # Rate limiting — prevents brute-force attacks on auth endpoints
     from intensicare.core.rate_limit import RateLimitMiddleware
+
     app.add_middleware(RateLimitMiddleware)
 
     # Health check — redirect /health to /api/v1/health for backward compat

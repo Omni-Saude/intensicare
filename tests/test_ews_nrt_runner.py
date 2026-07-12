@@ -5,8 +5,6 @@ Cobre as funções standalone (sem DB) de ews_nrt_runner.py.
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.services.ews_nrt_runner import (
     EWSScoreSnapshot,
     _get_red_params,
@@ -15,7 +13,6 @@ from intensicare.services.ews_nrt_runner import (
     evaluate_ews_sofa_organ_dysfunction_03,
     evaluate_ews_trend_rising_02,
 )
-
 
 # ---------------------------------------------------------------------------
 # _get_red_params
@@ -177,7 +174,8 @@ def test_discharge_readiness_all_criteria_met():
     snap.spo2 = 96
     snap.supplemental_o2 = False
     fired, reason = evaluate_ews_discharge_readiness_04(
-        snap, has_active_deterioration=False,
+        snap,
+        has_active_deterioration=False,
     )
     assert fired
     assert "all stability criteria met" in reason
@@ -193,7 +191,8 @@ def test_discharge_readiness_gcs_too_low():
     snap.spo2 = 96
     snap.supplemental_o2 = False
     fired, reason = evaluate_ews_discharge_readiness_04(
-        snap, has_active_deterioration=False,
+        snap,
+        has_active_deterioration=False,
     )
     assert not fired
     assert "GCS" in reason
@@ -209,7 +208,8 @@ def test_discharge_readiness_active_deterioration():
     snap.spo2 = 96
     snap.supplemental_o2 = False
     fired, reason = evaluate_ews_discharge_readiness_04(
-        snap, has_active_deterioration=True,
+        snap,
+        has_active_deterioration=True,
     )
     assert not fired
     assert "active deterioration" in reason
@@ -225,7 +225,8 @@ def test_discharge_readiness_ventilation_active():
     snap.spo2 = 96
     snap.supplemental_o2 = False
     fired, reason = evaluate_ews_discharge_readiness_04(
-        snap, has_active_deterioration=False,
+        snap,
+        has_active_deterioration=False,
     )
     assert not fired
     assert "mechanical ventilation" in reason

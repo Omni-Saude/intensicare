@@ -28,7 +28,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-
 # ============================================================================
 # Enums (aligned with OpenAPI)
 # ============================================================================
@@ -209,9 +208,7 @@ def _build_recommendation(
             "Recomenda-se auditoria das transfusões recentes."
         )
     else:
-        parts.append(
-            "Transfusões dentro dos critérios de adequação. Manter monitorização."
-        )
+        parts.append("Transfusões dentro dos critérios de adequação. Manter monitorização.")
 
     if restraint_active and restraint_duration_hours > 4:
         parts.append(
@@ -219,9 +216,7 @@ def _build_recommendation(
             "reavaliar necessidade e documentar revisão diária."
         )
     elif restraint_active:
-        parts.append(
-            "Contenção mecânica ativa — programar reavaliação em 4h."
-        )
+        parts.append("Contenção mecânica ativa — programar reavaliação em 4h.")
     else:
         parts.append("Contenção mecânica sem intercorrências.")
 
@@ -281,165 +276,183 @@ def evaluate_transfusion_criteria(
     # TF-001: Hb pré-transfusional documentada
     hb_pre = inp.get("hb_pre")
     tf001_met = hb_pre is not None
-    criteria_results.append({
-        "code": "TF-001",
-        "description": "Hb pré-transfusional documentada",
-        "met": tf001_met,
-        "detail": f"Hb = {hb_pre} g/dL" if tf001_met else "Hb pré-transfusional não registrada",
-    })
+    criteria_results.append(
+        {
+            "code": "TF-001",
+            "description": "Hb pré-transfusional documentada",
+            "met": tf001_met,
+            "detail": f"Hb = {hb_pre} g/dL" if tf001_met else "Hb pré-transfusional não registrada",
+        }
+    )
     if tf001_met:
         met_count += 1
 
     # TF-002: Hb ≥ 7 g/dL (gatilho restritivo) — met means it's WITHIN threshold (appropriate)
     tf002_met = hb_pre is not None and hb_pre >= 7.0
-    criteria_results.append({
-        "code": "TF-002",
-        "description": "Hb ≥ 7 g/dL (gatilho restritivo)",
-        "met": tf002_met,
-        "detail": (
-            f"Gatilho restritivo respeitado — Hb {hb_pre} < 7.0"
-            if not tf002_met and hb_pre is not None
-            else f"Hb = {hb_pre} g/dL — requer justificativa"
-            if tf002_met
-            else "Hb não disponível para avaliação do gatilho"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-002",
+            "description": "Hb ≥ 7 g/dL (gatilho restritivo)",
+            "met": tf002_met,
+            "detail": (
+                f"Gatilho restritivo respeitado — Hb {hb_pre} < 7.0"
+                if not tf002_met and hb_pre is not None
+                else f"Hb = {hb_pre} g/dL — requer justificativa"
+                if tf002_met
+                else "Hb não disponível para avaliação do gatilho"
+            ),
+        }
+    )
     if tf002_met:
         met_count += 1
 
     # TF-003: Transfusão em 1 unidade (single-unit strategy)
     units = inp.get("units", 0)
     tf003_met = units <= 1
-    criteria_results.append({
-        "code": "TF-003",
-        "description": "Transfusão em 1 unidade (single-unit)",
-        "met": tf003_met,
-        "detail": f"{units} unidade(s) transfundida(s)",
-    })
+    criteria_results.append(
+        {
+            "code": "TF-003",
+            "description": "Transfusão em 1 unidade (single-unit)",
+            "met": tf003_met,
+            "detail": f"{units} unidade(s) transfundida(s)",
+        }
+    )
     if tf003_met:
         met_count += 1
 
     # TF-004: Reavaliação clínica pós-transfusional em até 6h
     reassessed = inp.get("reassessed_6h", False)
     tf004_met = bool(reassessed)
-    criteria_results.append({
-        "code": "TF-004",
-        "description": "Reavaliação clínica pós-transfusional",
-        "met": tf004_met,
-        "detail": (
-            "Reavaliação documentada em até 6h"
-            if tf004_met
-            else "Reavaliação pós-transfusional pendente"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-004",
+            "description": "Reavaliação clínica pós-transfusional",
+            "met": tf004_met,
+            "detail": (
+                "Reavaliação documentada em até 6h"
+                if tf004_met
+                else "Reavaliação pós-transfusional pendente"
+            ),
+        }
+    )
     if tf004_met:
         met_count += 1
 
     # TF-005: Hb pós-transfusional documentada
     hb_post = inp.get("hb_post")
     tf005_met = hb_post is not None
-    criteria_results.append({
-        "code": "TF-005",
-        "description": "Hb pós-transfusional documentada",
-        "met": tf005_met,
-        "detail": f"Hb pós = {hb_post} g/dL" if tf005_met else "Hb pós-transfusional pendente",
-    })
+    criteria_results.append(
+        {
+            "code": "TF-005",
+            "description": "Hb pós-transfusional documentada",
+            "met": tf005_met,
+            "detail": f"Hb pós = {hb_post} g/dL" if tf005_met else "Hb pós-transfusional pendente",
+        }
+    )
     if tf005_met:
         met_count += 1
 
     # TF-006: Ausência de reação transfusional
     reaction = inp.get("reaction", False)
     tf006_met = not bool(reaction)
-    criteria_results.append({
-        "code": "TF-006",
-        "description": "Ausência de reação transfusional",
-        "met": tf006_met,
-        "detail": (
-            "Sem sinais de reação transfusional"
-            if tf006_met
-            else "Reação transfusional registrada — verificar protocolo"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-006",
+            "description": "Ausência de reação transfusional",
+            "met": tf006_met,
+            "detail": (
+                "Sem sinais de reação transfusional"
+                if tf006_met
+                else "Reação transfusional registrada — verificar protocolo"
+            ),
+        }
+    )
     if tf006_met:
         met_count += 1
 
     # TF-007: Indicação clínica documentada
     indication_doc = inp.get("indication_documented", False)
     tf007_met = bool(indication_doc)
-    criteria_results.append({
-        "code": "TF-007",
-        "description": "Indicação clínica documentada",
-        "met": tf007_met,
-        "detail": (
-            "Indicação registrada no prontuário"
-            if tf007_met
-            else "Indicação clínica não documentada"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-007",
+            "description": "Indicação clínica documentada",
+            "met": tf007_met,
+            "detail": (
+                "Indicação registrada no prontuário"
+                if tf007_met
+                else "Indicação clínica não documentada"
+            ),
+        }
+    )
     if tf007_met:
         met_count += 1
 
     # TF-008: Termo de consentimento assinado
     consent = inp.get("consent_signed", False)
     tf008_met = bool(consent)
-    criteria_results.append({
-        "code": "TF-008",
-        "description": "Termo de consentimento assinado",
-        "met": tf008_met,
-        "detail": (
-            "Consentimento informado documentado"
-            if tf008_met
-            else "Consentimento pendente"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-008",
+            "description": "Termo de consentimento assinado",
+            "met": tf008_met,
+            "detail": (
+                "Consentimento informado documentado" if tf008_met else "Consentimento pendente"
+            ),
+        }
+    )
     if tf008_met:
         met_count += 1
 
     # TF-009: Identificação correta do paciente
     id_checked = inp.get("patient_id_checked", False)
     tf009_met = bool(id_checked)
-    criteria_results.append({
-        "code": "TF-009",
-        "description": "Identificação correta do paciente",
-        "met": tf009_met,
-        "detail": (
-            "Dupla checagem de identificação realizada"
-            if tf009_met
-            else "Dupla checagem pendente"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-009",
+            "description": "Identificação correta do paciente",
+            "met": tf009_met,
+            "detail": (
+                "Dupla checagem de identificação realizada"
+                if tf009_met
+                else "Dupla checagem pendente"
+            ),
+        }
+    )
     if tf009_met:
         met_count += 1
 
     # TF-010: Compatibilidade ABO/Rh confirmada
     abo_ok = inp.get("abo_rh_confirmed", False)
     tf010_met = bool(abo_ok)
-    criteria_results.append({
-        "code": "TF-010",
-        "description": "Compatibilidade ABO/Rh confirmada",
-        "met": tf010_met,
-        "detail": (
-            "Prova cruzada / compatibilidade confirmada"
-            if tf010_met
-            else "Confirmação de compatibilidade pendente"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-010",
+            "description": "Compatibilidade ABO/Rh confirmada",
+            "met": tf010_met,
+            "detail": (
+                "Prova cruzada / compatibilidade confirmada"
+                if tf010_met
+                else "Confirmação de compatibilidade pendente"
+            ),
+        }
+    )
     if tf010_met:
         met_count += 1
 
     # TF-011: Temperatura de armazenamento adequada
     cold_ok = inp.get("cold_chain_ok", False)
     tf011_met = bool(cold_ok)
-    criteria_results.append({
-        "code": "TF-011",
-        "description": "Temperatura de armazenamento adequada",
-        "met": tf011_met,
-        "detail": (
-            "Cadeia de frio mantida"
-            if tf011_met
-            else "Registro de cadeia de frio pendente"
-        ),
-    })
+    criteria_results.append(
+        {
+            "code": "TF-011",
+            "description": "Temperatura de armazenamento adequada",
+            "met": tf011_met,
+            "detail": (
+                "Cadeia de frio mantida" if tf011_met else "Registro de cadeia de frio pendente"
+            ),
+        }
+    )
     if tf011_met:
         met_count += 1
 
@@ -451,12 +464,14 @@ def evaluate_transfusion_criteria(
     else:
         tf012_met = False
         detail = "Tempo de infusão não registrado"
-    criteria_results.append({
-        "code": "TF-012",
-        "description": "Tempo de infusão ≤ 4 horas",
-        "met": tf012_met,
-        "detail": detail,
-    })
+    criteria_results.append(
+        {
+            "code": "TF-012",
+            "description": "Tempo de infusão ≤ 4 horas",
+            "met": tf012_met,
+            "detail": detail,
+        }
+    )
     if tf012_met:
         met_count += 1
 
@@ -571,7 +586,9 @@ def evaluate_los(
     """
     inp = inputs or {}
     days = float(inp.get("days", 0))
-    expected_days = float(inp.get("expected_days", 0)) if inp.get("expected_days") is not None else None
+    expected_days = (
+        float(inp.get("expected_days", 0)) if inp.get("expected_days") is not None else None
+    )
     admission_at = inp.get("admission_at")
 
     # Outlier detection: actual > 1.5× expected (or > 14 days if no benchmark)
@@ -664,4 +681,4 @@ def get_transfusion_categories() -> dict[str, str]:
     Returns:
         Dict mapping category keys to human-readable labels.
     """
-    return {k: v for k, v in CATEGORY_LABELS.items()}
+    return dict(CATEGORY_LABELS.items())

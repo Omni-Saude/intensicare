@@ -8,19 +8,17 @@ Gate C (facade==predicate): hand-edit a facade threshold -> fails.
 from __future__ import annotations
 
 import copy
-import tempfile
 from pathlib import Path
+import tempfile
 
-import pytest
 import yaml
 
 from intensicare.services.alert_compiler import (
     AlertCompiler,
     AlertDefinition,
-    compile_alert_registry,
     alert_catalog_paths,
+    compile_alert_registry,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -83,20 +81,14 @@ class TestAlertCatalogLoading:
     def test_all_catalogs_compile(self):
         """All catalogs compile via AlertCompiler without exception."""
         definitions, compiler = compile_alert_registry(_repo_root())
-        assert len(definitions) >= 20, (
-            f"Expected >= 20 definitions, got {len(definitions)}"
-        )
-        assert not compiler.errors, (
-            f"Compilation errors: {compiler.errors}"
-        )
+        assert len(definitions) >= 20, f"Expected >= 20 definitions, got {len(definitions)}"
+        assert not compiler.errors, f"Compilation errors: {compiler.errors}"
 
     def test_versioned_definitions_have_hashes(self):
         """Every compiled definition must have a content hash."""
         definitions, _ = compile_alert_registry(_repo_root())
         for alert_id, ad in definitions.items():
-            assert ad.content_hash, (
-                f"{alert_id}: missing content_hash"
-            )
+            assert ad.content_hash, f"{alert_id}: missing content_hash"
             assert ad.definition_version.startswith(alert_id), (
                 f"{alert_id}: definition_version doesn't start with alert_id"
             )
@@ -123,7 +115,7 @@ class TestGateACriterionCoverage:
         that most alerts pass, not that zero failures exist.
         """
         definitions, compiler = compile_alert_registry(_repo_root())
-        ok, failures = compiler.gate_a_criterion_coverage()
+        _ok, failures = compiler.gate_a_criterion_coverage()
         # Gate A is a lint; some catalog YAMLs declare inputs consumed
         # by derived computations rather than directly in trigger.logic.
         # We assert that at least 70% of definitions pass.
@@ -141,16 +133,14 @@ class TestGateACriterionCoverage:
         We take the AKI staging alert and remove 'creatinina' from the logic,
         but keep it in the inputs list. Gate A must detect this.
         """
-        definitions, compiler = compile_alert_registry(_repo_root())
+        definitions, _compiler = compile_alert_registry(_repo_root())
         ad = definitions.get("ALERT-AKI-KDIGO-STAGE-01")
         assert ad is not None, "AKI staging alert not found"
 
         # Check baseline passes
         declared = {i.name for i in ad.inputs}
         assert "creatinina" in declared, "creatinina should be a declared input"
-        assert "creatinina" in ad.referenced_inputs, (
-            "creatinina should be referenced in baseline"
-        )
+        assert "creatinina" in ad.referenced_inputs, "creatinina should be referenced in baseline"
 
         # Create a seeded-defect copy: remove creatinina from logic
         defect_ad = copy.deepcopy(ad)
@@ -159,8 +149,10 @@ class TestGateACriterionCoverage:
         defect_ad.trigger_logic = defect_logic
         # Re-extract referenced inputs
         from intensicare.services.alert_compiler import extract_referenced_inputs
+
         defect_ad.referenced_inputs = extract_referenced_inputs(
-            defect_logic, {i.name for i in defect_ad.inputs},
+            defect_logic,
+            {i.name for i in defect_ad.inputs},
         )
 
         # Verify the defect: creatinina should NOT be referenced
@@ -172,16 +164,14 @@ class TestGateACriterionCoverage:
         c = AlertCompiler(_repo_root())
         c.definitions = {"ALERT-AKI-KDIGO-STAGE-01": defect_ad}
         ok, failures = c.gate_a_criterion_coverage()
-        assert not ok, (
-            "Gate A should FAIL when an input is declared but not referenced"
-        )
+        assert not ok, "Gate A should FAIL when an input is declared but not referenced"
         assert any("creatinina" in str(f) for f in failures), (
             f"Failure should mention creatininina; got: {failures}"
         )
 
     def test_seeded_defect_unwire_boolean_input_fails(self):
         """Removing a boolean input from logic should also fail Gate A."""
-        definitions, compiler = compile_alert_registry(_repo_root())
+        definitions, _compiler = compile_alert_registry(_repo_root())
         ad = definitions.get("ALERT-AKI-NEPHROTOXIN-03")
         assert ad is not None, "Nephrotoxin alert not found"
 
@@ -194,15 +184,17 @@ class TestGateACriterionCoverage:
         defect_logic = defect_ad.trigger_logic.replace("ieca_bra_ativo", "XXX_UNWIRED_XXX")
         defect_ad.trigger_logic = defect_logic
         from intensicare.services.alert_compiler import extract_referenced_inputs
+
         defect_ad.referenced_inputs = extract_referenced_inputs(
-            defect_logic, {i.name for i in defect_ad.inputs},
+            defect_logic,
+            {i.name for i in defect_ad.inputs},
         )
 
         assert "ieca_bra_ativo" not in defect_ad.referenced_inputs
 
         c = AlertCompiler(_repo_root())
         c.definitions = {"ALERT-AKI-NEPHROTOXIN-03": defect_ad}
-        ok, failures = c.gate_a_criterion_coverage()
+        ok, _failures = c.gate_a_criterion_coverage()
         assert not ok, "Gate A should FAIL"
 
 
@@ -216,13 +208,11 @@ class TestGateBBandPartition:
 
     def test_baseline_band_partitions_pass(self):
         """All current catalog alerts should pass Gate B."""
-        definitions, compiler = compile_alert_registry(_repo_root())
+        _definitions, compiler = compile_alert_registry(_repo_root())
         ok, failures = compiler.gate_b_band_partition()
         # Gate B may have some warnings but should not have hard failures
         # on baseline data
-        assert ok or len(failures) == 0, (
-            f"Gate B baseline failures: {failures}"
-        )
+        assert ok or len(failures) == 0, f"Gate B baseline failures: {failures}"
 
     def test_seeded_defect_strict_renal_edge_gt_5_0_fails(self):
         """Reintroducing a strict >5.0 edge on renal bands should fail Gate B.
@@ -237,7 +227,9 @@ class TestGateBBandPartition:
         """
         # Create a synthetic definition with a known gap
         from intensicare.services.alert_compiler import (
-            AlertDefinition, InputDef, BandEdge, BandScale,
+            BandEdge,
+            BandScale,
+            InputDef,
         )
 
         ad = AlertDefinition(
@@ -245,12 +237,10 @@ class TestGateBBandPartition:
             name="Test Renal Gap",
             severity="critical",
             domain="test",
-            trigger_logic="critical if creatinina > 5.0 mg/dL; "
-                          "urgent if creatinina > 3.0 mg/dL",
+            trigger_logic="critical if creatinina > 5.0 mg/dL; urgent if creatinina > 3.0 mg/dL",
             trigger_window="PT24H",
             inputs=[
-                InputDef(name="creatinina", type="quantity", unit="mg/dL",
-                         source="test"),
+                InputDef(name="creatinina", type="quantity", unit="mg/dL", source="test"),
             ],
             evidence=[],
             suppression={},
@@ -265,10 +255,20 @@ class TestGateBBandPartition:
                     variable="creatinina",
                     unit="mg/dL",
                     bands=[
-                        BandEdge(variable="creatinina", operator=">",
-                                 value=5.0, unit="mg/dL", severity="critical"),
-                        BandEdge(variable="creatinina", operator=">",
-                                 value=3.0, unit="mg/dL", severity="urgent"),
+                        BandEdge(
+                            variable="creatinina",
+                            operator=">",
+                            value=5.0,
+                            unit="mg/dL",
+                            severity="critical",
+                        ),
+                        BandEdge(
+                            variable="creatinina",
+                            operator=">",
+                            value=3.0,
+                            unit="mg/dL",
+                            severity="urgent",
+                        ),
                     ],
                 ),
             ],
@@ -276,7 +276,7 @@ class TestGateBBandPartition:
 
         c = AlertCompiler(_repo_root())
         c.definitions = {"TEST-RENAL-GAP-01": ad}
-        ok, failures = c.gate_b_band_partition()
+        _ok, _failures = c.gate_b_band_partition()
         # The gap at exactly 5.0: >5.0 excludes it, >3.0 includes it,
         # but the strict >5.0 edge creates a semantic gap.
         # Our checker should catch this.
@@ -291,11 +291,10 @@ class TestGateBBandPartition:
             severity="critical",
             domain="test",
             trigger_logic="critical if creatinina > 5.0 mg/dL; "
-                          "urgent if creatinina < 5.0 mg/dL and creatinina > 3.0 mg/dL",
+            "urgent if creatinina < 5.0 mg/dL and creatinina > 3.0 mg/dL",
             trigger_window="PT24H",
             inputs=[
-                InputDef(name="creatinina", type="quantity", unit="mg/dL",
-                         source="test"),
+                InputDef(name="creatinina", type="quantity", unit="mg/dL", source="test"),
             ],
             evidence=[],
             suppression={},
@@ -310,10 +309,20 @@ class TestGateBBandPartition:
                     variable="creatinina",
                     unit="mg/dL",
                     bands=[
-                        BandEdge(variable="creatinina", operator=">",
-                                 value=5.0, unit="mg/dL", severity="critical"),
-                        BandEdge(variable="creatinina", operator="<",
-                                 value=5.0, unit="mg/dL", severity="urgent"),
+                        BandEdge(
+                            variable="creatinina",
+                            operator=">",
+                            value=5.0,
+                            unit="mg/dL",
+                            severity="critical",
+                        ),
+                        BandEdge(
+                            variable="creatinina",
+                            operator="<",
+                            value=5.0,
+                            unit="mg/dL",
+                            severity="urgent",
+                        ),
                     ],
                 ),
             ],
@@ -333,7 +342,9 @@ class TestGateBBandPartition:
     def test_seeded_defect_overlap_bands_detected(self):
         """Overlapping severity bands on same variable should be detected."""
         from intensicare.services.alert_compiler import (
-            AlertDefinition, InputDef, BandEdge, BandScale,
+            BandEdge,
+            BandScale,
+            InputDef,
         )
 
         ad = AlertDefinition(
@@ -344,8 +355,7 @@ class TestGateBBandPartition:
             trigger_logic="critical if potassio > 6.0; urgent if potassio > 5.5",
             trigger_window="PT24H",
             inputs=[
-                InputDef(name="potassio", type="quantity", unit="mmol/L",
-                         source="test"),
+                InputDef(name="potassio", type="quantity", unit="mmol/L", source="test"),
             ],
             evidence=[],
             suppression={},
@@ -360,10 +370,20 @@ class TestGateBBandPartition:
                     variable="potassio",
                     unit="mmol/L",
                     bands=[
-                        BandEdge(variable="potassio", operator=">",
-                                 value=6.0, unit="mmol/L", severity="critical"),
-                        BandEdge(variable="potassio", operator=">",
-                                 value=5.5, unit="mmol/L", severity="urgent"),
+                        BandEdge(
+                            variable="potassio",
+                            operator=">",
+                            value=6.0,
+                            unit="mmol/L",
+                            severity="critical",
+                        ),
+                        BandEdge(
+                            variable="potassio",
+                            operator=">",
+                            value=5.5,
+                            unit="mmol/L",
+                            severity="urgent",
+                        ),
                     ],
                 ),
             ],
@@ -374,9 +394,7 @@ class TestGateBBandPartition:
         ok, failures = c.gate_b_band_partition()
         # With both ">" operators, >6.0 is a subset of >5.5 — that's fine
         # (severity layers). This should pass.
-        assert ok or len(failures) == 0, (
-            f"Overlapping > bands should be OK; failures: {failures}"
-        )
+        assert ok or len(failures) == 0, f"Overlapping > bands should be OK; failures: {failures}"
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +415,7 @@ class TestGateCFacadePredicate:
         inputs. We assert most alerts pass.
         """
         definitions, compiler = compile_alert_registry(_repo_root())
-        ok, failures = compiler.gate_c_facade_predicate()
+        _ok, failures = compiler.gate_c_facade_predicate()
         total = len(definitions)
         failed_alerts = len({f["alert_id"] for f in failures})
         pass_rate = (total - failed_alerts) / total if total > 0 else 0
@@ -414,7 +432,8 @@ class TestGateCFacadePredicate:
         references a non-existent variable.
         """
         from intensicare.services.alert_compiler import (
-            AlertDefinition, InputDef, FacadeThreshold,
+            FacadeThreshold,
+            InputDef,
         )
 
         # Create a definition with a facade threshold for a variable
@@ -427,8 +446,7 @@ class TestGateCFacadePredicate:
             trigger_logic="critical if potassio_VERMELHO > 6.5 mmol/L",
             trigger_window="PT24H",
             inputs=[
-                InputDef(name="potassio", type="quantity", unit="mmol/L",
-                         source="test"),
+                InputDef(name="potassio", type="quantity", unit="mmol/L", source="test"),
             ],
             evidence=[],
             suppression={},
@@ -455,14 +473,16 @@ class TestGateCFacadePredicate:
         # The variable "potassio_VERMELHO" is NOT in declared inputs
         # (only "potassio" is)
         assert not ok, (
-            f"Gate C should FAIL when facade references undeclared variable; "
-            f"failures: {failures}"
+            f"Gate C should FAIL when facade references undeclared variable; failures: {failures}"
         )
 
     def test_seeded_defect_mismatched_unit_fails(self):
         """A facade threshold with wrong unit should be caught."""
         from intensicare.services.alert_compiler import (
-            AlertDefinition, InputDef, FacadeThreshold, BandEdge, BandScale,
+            BandEdge,
+            BandScale,
+            FacadeThreshold,
+            InputDef,
         )
 
         ad = AlertDefinition(
@@ -473,8 +493,7 @@ class TestGateCFacadePredicate:
             trigger_logic="critical if potassio > 6.5 mg/dL",
             trigger_window="PT24H",
             inputs=[
-                InputDef(name="potassio", type="quantity", unit="mmol/L",
-                         source="test"),
+                InputDef(name="potassio", type="quantity", unit="mmol/L", source="test"),
             ],
             evidence=[],
             suppression={},
@@ -489,8 +508,13 @@ class TestGateCFacadePredicate:
                     variable="potassio",
                     unit="mmol/L",
                     bands=[
-                        BandEdge(variable="potassio", operator=">",
-                                 value=6.5, unit="mg/dL", severity="critical"),
+                        BandEdge(
+                            variable="potassio",
+                            operator=">",
+                            value=6.5,
+                            unit="mg/dL",
+                            severity="critical",
+                        ),
                     ],
                 ),
             ],
@@ -531,7 +555,7 @@ class TestEvaluateAlertDefinition:
 
     def test_evaluate_matches_test_vector(self):
         """evaluate_alert_definition should match test vector expectations."""
-        definitions, compiler = compile_alert_registry(_repo_root())
+        _definitions, compiler = compile_alert_registry(_repo_root())
 
         # Test potassium alert with critical hyperkalemia
         result = compiler.evaluate_alert_definition(
@@ -557,7 +581,8 @@ class TestEvaluateAlertDefinition:
         """Empty inputs should return False for most alerts."""
         _, compiler = compile_alert_registry(_repo_root())
         result = compiler.evaluate_alert_definition(
-            "ALERT-ELY-POTASSIUM-01", {},
+            "ALERT-ELY-POTASSIUM-01",
+            {},
         )
         assert result is False
 
@@ -582,10 +607,15 @@ class TestRegistryExport:
         """Each registry entry must have alert_id, name, severity, domain, version."""
         _, compiler = compile_alert_registry(_repo_root())
         registry = compiler.export_registry()
-        required = {"alert_id", "name", "severity", "domain",
-                     "definition_version", "content_hash", "inputs"}
+        required = {
+            "alert_id",
+            "name",
+            "severity",
+            "domain",
+            "definition_version",
+            "content_hash",
+            "inputs",
+        }
         for alert_id, entry in registry.items():
             for field in required:
-                assert field in entry, (
-                    f"{alert_id}: missing field '{field}'"
-                )
+                assert field in entry, f"{alert_id}: missing field '{field}'"

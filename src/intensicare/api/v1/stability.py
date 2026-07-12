@@ -15,14 +15,14 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
+from intensicare.models.lab_result import LabResult
 from intensicare.models.user import User
 from intensicare.models.vital_sign import VitalSign
-from intensicare.models.lab_result import LabResult
 from intensicare.schemas.stability import (
     StabilityCriterionSchema,
     StabilityStatusSchema,
@@ -128,9 +128,7 @@ def _demo_clinical_data(mpi_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_real_clinical_data(
-    db: AsyncSession, mpi_id: str
-) -> dict[str, Any]:
+async def _fetch_real_clinical_data(db: AsyncSession, mpi_id: str) -> dict[str, Any]:
     """Fetch real clinical data from VitalSign hypertable and LabResult table.
 
     Queries the most recent vital signs and lab results for the patient
@@ -156,15 +154,17 @@ async def _fetch_real_clinical_data(
     vital = vital_result.scalar_one_or_none()
 
     if vital is not None:
-        clinical_data.update({
-            "frequencia_cardiaca": vital.heart_rate,
-            "pressao_arterial_media": (
-                _compute_map(vital.systolic_bp, vital.diastolic_bp)
-                if vital.systolic_bp is not None and vital.diastolic_bp is not None
-                else vital.map_value
-            ),
-            "pressao_arterial_sistolica": vital.systolic_bp,
-        })
+        clinical_data.update(
+            {
+                "frequencia_cardiaca": vital.heart_rate,
+                "pressao_arterial_media": (
+                    _compute_map(vital.systolic_bp, vital.diastolic_bp)
+                    if vital.systolic_bp is not None and vital.diastolic_bp is not None
+                    else vital.map_value
+                ),
+                "pressao_arterial_sistolica": vital.systolic_bp,
+            }
+        )
 
     # ── Fetch most recent lab results ─────────────────────────────────
     lab_stmt = (
@@ -241,9 +241,7 @@ def _result_to_status(result: StabilityEvaluationResult) -> StabilityStatusSchem
 # ---------------------------------------------------------------------------
 
 
-def _demo_history(
-    mpi_id: str, current_score: int, current_severity: str
-) -> list[dict[str, Any]]:
+def _demo_history(mpi_id: str, current_score: int, current_severity: str) -> list[dict[str, Any]]:
     """Gera 7 dias de histórico sintético para demonstração de tendência."""
     today = date.today()
     history: list[dict[str, Any]] = []
@@ -258,14 +256,14 @@ def _demo_history(
 
     for i, score in enumerate(trajectory):
         day = today - timedelta(days=6 - i)
-        sev = (
-            "estavel" if score <= 3 else "atencao" if score <= 9 else "critico"
+        sev = "estavel" if score <= 3 else "atencao" if score <= 9 else "critico"
+        history.append(
+            {
+                "score": score,
+                "severity": sev,
+                "assessed_at": day.isoformat(),
+            }
         )
-        history.append({
-            "score": score,
-            "severity": sev,
-            "assessed_at": day.isoformat(),
-        })
 
     return history
 
@@ -354,13 +352,9 @@ async def get_patient_stability_trend(
                 detail=f"Paciente demo {mpi_id} não encontrado. Disponíveis: {sorted(_DEMO_MPI_IDS)}",
             )
         clinical_data = _demo_clinical_data(mpi_id)
-        current_result: StabilityEvaluationResult = evaluate_stability(
-            mpi_id, clinical_data
-        )
+        current_result: StabilityEvaluationResult = evaluate_stability(mpi_id, clinical_data)
         current_status = _result_to_status(current_result)
-        history = _demo_history(
-            mpi_id, current_result.score, current_result.severity
-        )
+        history = _demo_history(mpi_id, current_result.score, current_result.severity)
     else:
         # ── Real mode: query VitalSign for trend data ──────────────
         clinical_data = await _fetch_real_clinical_data(db, mpi_id)
@@ -381,9 +375,7 @@ async def get_patient_stability_trend(
     # Converte pontos de tendência para schemas Pydantic
     trend_points = [
         StabilityTrendPointSchema(
-            date=date.fromisoformat(tp["date"])
-            if isinstance(tp["date"], str)
-            else tp["date"],
+            date=date.fromisoformat(tp["date"]) if isinstance(tp["date"], str) else tp["date"],
             score=tp["score"],
             severity=tp["severity"],
             criteria_triggered=tp.get("criteria_triggered", tp["score"]),
@@ -405,9 +397,7 @@ async def get_patient_stability_trend(
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_real_trend_history(
-    db: AsyncSession, mpi_id: str
-) -> list[dict[str, Any]]:
+async def _fetch_real_trend_history(db: AsyncSession, mpi_id: str) -> list[dict[str, Any]]:
     """Build 7-day trend history from real VitalSign records.
 
     Queries one vital sign snapshot per day for the last 7 days,
@@ -453,17 +443,21 @@ async def _fetch_real_trend_history(
                 "pressao_arterial_sistolica": vital.systolic_bp,
             }
             result = evaluate_stability(mpi_id, clinical_data)
-            history.append({
-                "score": result.score,
-                "severity": result.severity,
-                "assessed_at": target_date.isoformat(),
-            })
+            history.append(
+                {
+                    "score": result.score,
+                    "severity": result.severity,
+                    "assessed_at": target_date.isoformat(),
+                }
+            )
         else:
             # No data for this day — use neutral placeholder
-            history.append({
-                "score": 0,
-                "severity": "estavel",
-                "assessed_at": target_date.isoformat(),
-            })
+            history.append(
+                {
+                    "score": 0,
+                    "severity": "estavel",
+                    "assessed_at": target_date.isoformat(),
+                }
+            )
 
     return history

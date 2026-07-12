@@ -25,9 +25,9 @@ from pathlib import Path
 class AltBDecision(str, Enum):
     """Decisão do trigger Alternativa-B conforme system-architecture.md §6.1."""
 
-    DEFER = "DEFER"                # Dados insuficientes (menos de 7 dias)
-    ACTIVATE = "ACTIVATE"          # Condição T1(a) ou T1(b) satisfeita
-    ESCALATE = "ESCALATE"          # Escalar para AMH platform team (T3/T4)
+    DEFER = "DEFER"  # Dados insuficientes (menos de 7 dias)
+    ACTIVATE = "ACTIVATE"  # Condição T1(a) ou T1(b) satisfeita
+    ESCALATE = "ESCALATE"  # Escalar para AMH platform team (T3/T4)
     DO_NOT_ACTIVATE = "DO_NOT_ACTIVATE"  # Condições não satisfeitas (T6)
 
 
@@ -135,11 +135,7 @@ class AltBTrigger:
     def _prune_old_observations(self) -> None:
         """Remove observações fora da janela rolante de window_days."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.state.window_days)
-        self.state.observations = [
-            obs
-            for obs in self.state.observations
-            if obs.timestamp > cutoff
-        ]
+        self.state.observations = [obs for obs in self.state.observations if obs.timestamp > cutoff]
 
     @property
     def window_observations(self) -> list[LatencyObservation]:
@@ -180,9 +176,7 @@ class AltBTrigger:
             return AltBDecision.ACTIVATE
 
         # ── T1(a): p95 > 30s por 7 dias consecutivos com MLLP saudável ──
-        all_above_threshold = all(
-            obs.p95_seconds > self.state.threshold_seconds for obs in recent
-        )
+        all_above_threshold = all(obs.p95_seconds > self.state.threshold_seconds for obs in recent)
         all_mllp_healthy = all(obs.mllp_healthy for obs in recent)
 
         if all_above_threshold and all_mllp_healthy:
@@ -218,13 +212,10 @@ class AltBTrigger:
         avg_p95 = sum(o.p95_seconds for o in recent) / len(recent)
         max_p95 = max(o.p95_seconds for o in recent)
         min_p95 = min(o.p95_seconds for o in recent)
-        days_above = sum(
-            1 for o in recent if o.p95_seconds > self.state.threshold_seconds
-        )
+        days_above = sum(1 for o in recent if o.p95_seconds > self.state.threshold_seconds)
 
         mllp_breach = any(
-            o.mllp_unavailable_pct > self.state.mllp_unavailability_threshold_pct
-            for o in recent
+            o.mllp_unavailable_pct > self.state.mllp_unavailability_threshold_pct for o in recent
         )
         max_mllp_unavailability = max(o.mllp_unavailable_pct for o in recent)
 
@@ -238,7 +229,7 @@ class AltBTrigger:
             "## WO-040: Alternativa-B Trigger — RECOMENDAÇÃO DE ATIVAÇÃO",
             "",
             f"**Timestamp:** {datetime.now(timezone.utc).isoformat()}",
-            f"**Decisão:** ACTIVATE Alternativa B",
+            "**Decisão:** ACTIVATE Alternativa B",
             f"**Gatilho:** system-architecture.md §6 {trigger_condition}",
             f"**Estado MLLP:** {'DEGRADADO' if mllp_breach else 'SAUDÁVEL'}",
             "",
@@ -266,38 +257,40 @@ class AltBTrigger:
                 f"| {obs.mllp_unavailable_pct:.2f} |"
             )
 
-        lines.extend([
-            "",
-            "### Ação Recomendada",
-            "",
-            "1. **Provisionar um tópico MSK dedicado** (ADR001-F-08) para o feed operacional de vitals",
-            "2. **Escopo:** sinais vitais operacionais (MEWS/NEWS2/qSOFA, hemodynamic NRT)",
-            "3. **Manter Gold como fonte analítica canônica** (ADR001-C-01/04) — sem alteração",
-            "4. **Submeter para sign-off:** CTO Office + Time de Engenharia AMH",
-            "5. **Não provisionar broker próprio** — o tópico é provisionado pelo AMH platform team (§6.2, §7)",
-            "",
-            "### Invariantes Preservados",
-            "",
-            "- Gold write-back (`ADR001-C-04`) mantido — sem alteração",
-            "- Athena analytics (`ADR001-C-01`) mantido — sem alteração",
-            "- `mpi_id` permanece como chave única (`ADR001-C-02`)",
-            "- Nenhum broker infra próprio além do tópico provisionado (`ADR001-F-10`)",
-            "",
-            "### Sign-off Obrigatório",
-            "",
-            "| Papel | Nome | Assinatura | Data |",
-            "|---|---|---|---|",
-            "| CTO Office | ___________ | ___________ | ___/___/____ |",
-            "| AMH Engineering Lead | ___________ | ___________ | ___/___/____ |",
-            "| amh-integration-architect | ___________ | ___________ | ___/___/____ |",
-            "",
-            "### Referências",
-            "",
-            "- [system-architecture.md §6](../architecture/system-architecture.md) — Alternativa-B decision table",
-            "- [ADR-001](../adr/ADR-001-amh-data-platform-consumer.md) — IntensiCare as AMH Data-Platform Consumer",
-            "- [_work/budgets/latency.yaml](../_work/budgets/latency.yaml) — canonical latency budget",
-            "- [BUILD-JOURNAL.md](BUILD-JOURNAL.md) — registro de decisão",
-        ])
+        lines.extend(
+            [
+                "",
+                "### Ação Recomendada",
+                "",
+                "1. **Provisionar um tópico MSK dedicado** (ADR001-F-08) para o feed operacional de vitals",
+                "2. **Escopo:** sinais vitais operacionais (MEWS/NEWS2/qSOFA, hemodynamic NRT)",
+                "3. **Manter Gold como fonte analítica canônica** (ADR001-C-01/04) — sem alteração",
+                "4. **Submeter para sign-off:** CTO Office + Time de Engenharia AMH",
+                "5. **Não provisionar broker próprio** — o tópico é provisionado pelo AMH platform team (§6.2, §7)",
+                "",
+                "### Invariantes Preservados",
+                "",
+                "- Gold write-back (`ADR001-C-04`) mantido — sem alteração",
+                "- Athena analytics (`ADR001-C-01`) mantido — sem alteração",
+                "- `mpi_id` permanece como chave única (`ADR001-C-02`)",
+                "- Nenhum broker infra próprio além do tópico provisionado (`ADR001-F-10`)",
+                "",
+                "### Sign-off Obrigatório",
+                "",
+                "| Papel | Nome | Assinatura | Data |",
+                "|---|---|---|---|",
+                "| CTO Office | ___________ | ___________ | ___/___/____ |",
+                "| AMH Engineering Lead | ___________ | ___________ | ___/___/____ |",
+                "| amh-integration-architect | ___________ | ___________ | ___/___/____ |",
+                "",
+                "### Referências",
+                "",
+                "- [system-architecture.md §6](../architecture/system-architecture.md) — Alternativa-B decision table",
+                "- [ADR-001](../adr/ADR-001-amh-data-platform-consumer.md) — IntensiCare as AMH Data-Platform Consumer",
+                "- [_work/budgets/latency.yaml](../_work/budgets/latency.yaml) — canonical latency budget",
+                "- [BUILD-JOURNAL.md](BUILD-JOURNAL.md) — registro de decisão",
+            ]
+        )
 
         return "\n".join(lines)
 

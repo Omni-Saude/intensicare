@@ -7,16 +7,18 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Condition / Action item validators (opcionais, mantidos aqui para documentar o schema)
 # ---------------------------------------------------------------------------
+
 
 class ConditionItem(BaseModel):
     """Uma única condição de roteamento."""
 
     field: str = Field(..., description="Campo a ser avaliado (ex.: severity, unit, mpi_id)")
-    operator: str = Field(..., description="Operador: equals, in, not_in, gt, lt, gte, lte, contains")
+    operator: str = Field(
+        ..., description="Operador: equals, in, not_in, gt, lt, gte, lte, contains"
+    )
     value: Any = Field(..., description="Valor(es) de comparação (scalar ou lista)")
 
 
@@ -26,12 +28,15 @@ class ActionItem(BaseModel):
     type: str = Field(..., description="Tipo da ação: notify, escalate, webhook, assign")
     channel: str | None = Field(None, description="Canal: push, email, sms, webhook")
     target: str = Field(..., description="Alvo da ação (team id, endpoint, etc.)")
-    delay_minutes: int | None = Field(None, ge=0, description="Delay em minutos antes de executar a ação")
+    delay_minutes: int | None = Field(
+        None, ge=0, description="Delay em minutos antes de executar a ação"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
+
 
 class AlertRoutingRuleCreate(BaseModel):
     """Schema para criação de uma regra de roteamento."""
@@ -64,6 +69,7 @@ class AlertRoutingRuleUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
+
 
 class AlertRoutingRuleResponse(BaseModel):
     """Resposta individual de uma regra de roteamento."""

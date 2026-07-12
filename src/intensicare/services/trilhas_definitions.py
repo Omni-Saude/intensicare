@@ -441,9 +441,7 @@ _PATHWAY_BY_SLUG: dict[str, dict[str, Any]] = {}
 _LOADED_FROM_YAML: bool = False
 
 # ── Default YAML pathway directories (relative to repo root) ──
-_DEFAULT_YAML_DIRS: tuple[str, ...] = (
-    "_work/alerts/pathways",
-)
+_DEFAULT_YAML_DIRS: tuple[str, ...] = ("_work/alerts/pathways",)
 
 
 def _load_pathways_from_yaml(
@@ -513,7 +511,7 @@ def _load_pathways_from_yaml(
 
             # Normalize the YAML structure into the seed pathway format
             pathway_meta = raw.get("pathway", {})
-            evaluation = raw.get("evaluation", {})
+            raw.get("evaluation", {})
             criteria_yaml = raw.get("criteria", [])
             states_yaml = raw.get("states", [])
 
@@ -525,29 +523,33 @@ def _load_pathways_from_yaml(
             # Build states in seed format
             states: list[dict[str, Any]] = []
             for s in states_yaml:
-                states.append({
-                    "id": s.get("id", ""),
-                    "name": s.get("name", ""),
-                    "order": s.get("order", 0),
-                    "description": s.get("description", ""),
-                    "is_terminal": s.get("is_terminal", False),
-                })
+                states.append(
+                    {
+                        "id": s.get("id", ""),
+                        "name": s.get("name", ""),
+                        "order": s.get("order", 0),
+                        "description": s.get("description", ""),
+                        "is_terminal": s.get("is_terminal", False),
+                    }
+                )
 
             # Build criteria in seed format
             criteria: list[dict[str, Any]] = []
             for c in criteria_yaml:
                 pred = c.get("predicate", {})
-                criteria.append({
-                    "id": c.get("id", ""),
-                    "name": c.get("name", ""),
-                    "category": c.get("category", ""),
-                    "description": c.get("description", ""),
-                    "unit": pred.get("unit", c.get("unit", "")),
-                    "normal_range": c.get("normal_range", ""),
-                    "alert_threshold": c.get("alert_threshold", ""),
-                    # Preserve the full predicate for the compiler
-                    "predicate": pred,
-                })
+                criteria.append(
+                    {
+                        "id": c.get("id", ""),
+                        "name": c.get("name", ""),
+                        "category": c.get("category", ""),
+                        "description": c.get("description", ""),
+                        "unit": pred.get("unit", c.get("unit", "")),
+                        "normal_range": c.get("normal_range", ""),
+                        "alert_threshold": c.get("alert_threshold", ""),
+                        # Preserve the full predicate for the compiler
+                        "predicate": pred,
+                    }
+                )
 
             pathway_dict: dict[str, Any] = {
                 "id": pathway_id,
@@ -574,7 +576,7 @@ def _merge_and_cache() -> None:
     YAML-loaded pathways are appended after seed pathways.
     Duplicate pathway IDs from YAML override seeds (last wins).
     """
-    global _PATHWAY_BY_ID, _PATHWAY_BY_SLUG, _LOADED_FROM_YAML  # noqa: PLW0603
+    global _PATHWAY_BY_ID, _PATHWAY_BY_SLUG, _LOADED_FROM_YAML
 
     if _PATHWAY_BY_ID and _LOADED_FROM_YAML:
         # Already fully loaded
@@ -635,15 +637,17 @@ def get_pathway_catalog(active_only: bool = True) -> list[dict[str, Any]]:
             continue
         seen_ids.add(pid)
         # Return a shallow copy so callers don't mutate seeds
-        catalog.append({
-            "id": p["id"],
-            "name": p["name"],
-            "description": p["description"],
-            "slug": p["slug"],
-            "active": p["active"],
-            "states": [dict(s) for s in p["states"]],
-            "criteria": [dict(c) for c in p["criteria"]],
-        })
+        catalog.append(
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "description": p["description"],
+                "slug": p["slug"],
+                "active": p["active"],
+                "states": [dict(s) for s in p["states"]],
+                "criteria": [dict(c) for c in p["criteria"]],
+            }
+        )
     return catalog
 
 

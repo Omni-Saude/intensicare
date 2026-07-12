@@ -14,7 +14,6 @@ import uuid
 from httpx import AsyncClient
 import pytest
 
-
 VALID_RASS_PAYLOAD = {
     "form_type": "rass",
     "patient_mpi_id": "MPI-001",

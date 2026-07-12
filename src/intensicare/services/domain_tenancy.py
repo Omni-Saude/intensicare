@@ -21,8 +21,11 @@ from __future__ import annotations
 __version__ = "3.0.0"
 
 from datetime import datetime, timezone
-from math import floor
 
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from intensicare.models.registry import Empresa, Estabelecimento, Setor
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RULE-TENANCY-ORGANIZACAO-005: Establishment macro-indicator aggregate
@@ -62,6 +65,7 @@ def aggregate_establishment_indicators(
 # Single-record fetch with silent failure (returns None on missing).
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def fetch_sector_indicator(
     indicators: list[dict[str, object]] | None,
 ) -> dict[str, object] | None:
@@ -89,6 +93,7 @@ def fetch_sector_indicator(
 # Establishment-level count sums unread messages across ALL sectors.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def establishment_unread_count(sector_unread_counts: list[int]) -> int:
     """Sum unread message counts across all sectors.
 
@@ -110,6 +115,7 @@ def establishment_unread_count(sector_unread_counts: list[int]) -> int:
 # Legacy source: core/models/setor.py @8166c07
 # Firestore-backed unread count per sector.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def sector_unread_count(firestore_counts: dict[str, int] | None) -> int:
     """Read sector unread message count from Firestore-derived data.
@@ -136,9 +142,8 @@ def sector_unread_count(firestore_counts: dict[str, int] | None) -> int:
 # Format: estabelecimento.nome + " - " + setor.nome
 # ═════════════════════════════════════════════════════════════════════════════
 
-def combined_setor_display_name(
-    estabelecimento_nome: str, setor_nome: str
-) -> str:
+
+def combined_setor_display_name(estabelecimento_nome: str, setor_nome: str) -> str:
     """Combine establishment name and sector name for display.
 
     RULE-TENANCY-ORGANIZACAO-009 (RATIFIED, UNVERIFIABLE).
@@ -161,6 +166,7 @@ def combined_setor_display_name(
 # Legacy source: core/models/setor.py @8166c07
 # Floor timestamp to 5-minute buckets for display consistency.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def floor_to_5min_bucket(ts: datetime) -> datetime:
     """Floor a timestamp to the nearest 5-minute bucket.
@@ -185,6 +191,7 @@ def floor_to_5min_bucket(ts: datetime) -> datetime:
 # Legacy source: core/models/setor.py @8166c07
 # Merges manual-movement alert counts with automatic-pathway records.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def merge_sector_alert_counts(
     manual_counts: dict[str, int],
@@ -217,6 +224,7 @@ def merge_sector_alert_counts(
 # Only counts beds where ativo=True.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def active_bed_count(beds: list[dict[str, object]]) -> int:
     """Count active beds only (ativo=True).
 
@@ -238,6 +246,7 @@ def active_bed_count(beds: list[dict[str, object]]) -> int:
 # Legacy source: core/models/setor.py @8166c07
 # Merges gender counts from manual movements + automatic-pathway records.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def merge_sector_gender_counts(
     manual_genders: dict[str, int],
@@ -270,6 +279,7 @@ def merge_sector_gender_counts(
 # Picks the first related Observacao without explicit ordering.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def sector_chat_preview(
     observacoes: list[dict[str, object]],
 ) -> dict[str, object] | None:
@@ -296,6 +306,7 @@ def sector_chat_preview(
 # Legacy source: core/models/setor.py @8166c07
 # Total intervention count for current month for sector indicators.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def monthly_intervention_count(
     interventions: list[dict[str, object]],
@@ -339,6 +350,7 @@ def monthly_intervention_count(
 # Aggregates clinical indicators across care pathways within a sector.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def sector_clinical_indicator_aggregation(
     pathway_indicators: dict[str, dict[str, float]],
 ) -> dict[str, float]:
@@ -353,7 +365,7 @@ def sector_clinical_indicator_aggregation(
         Aggregated indicators across all pathways (sum per indicator name).
     """
     aggregated: dict[str, float] = {}
-    for pathway_name, indicators in pathway_indicators.items():
+    for _pathway_name, indicators in pathway_indicators.items():
         for ind_name, value in indicators.items():
             aggregated[ind_name] = aggregated.get(ind_name, 0.0) + value
     return {k: round(v, 2) for k, v in aggregated.items()}
@@ -366,6 +378,7 @@ def sector_clinical_indicator_aggregation(
 # Legacy source: core/models/empresa.py @8166c07
 # Scopes company-wide indicator actions to user's establishments.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def company_indicadores_scopes(
     user_establishment_ids: list[int],
@@ -394,6 +407,7 @@ def company_indicadores_scopes(
 # Scopes establishment-level indicator actions to movimentacoes and sectors.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def establishment_indicadores_scopes(
     establishment_id: int,
     movimentacoes: list[dict[str, object]],
@@ -411,14 +425,8 @@ def establishment_indicadores_scopes(
     Returns:
         Dict with 'movimentacoes' and 'setores' keys, each filtered.
     """
-    scoped_movs = [
-        m for m in movimentacoes
-        if m.get("estabelecimento_id") == establishment_id
-    ]
-    scoped_sectors = [
-        s for s in sectors
-        if s.get("estabelecimento_id") == establishment_id
-    ]
+    scoped_movs = [m for m in movimentacoes if m.get("estabelecimento_id") == establishment_id]
+    scoped_sectors = [s for s in sectors if s.get("estabelecimento_id") == establishment_id]
     return {
         "movimentacoes": scoped_movs,
         "setores": scoped_sectors,
@@ -428,12 +436,6 @@ def establishment_indicadores_scopes(
 # ═════════════════════════════════════════════════════════════════════════════
 # Registry CRUD — Empresa / Estabelecimento / Setor
 # ═════════════════════════════════════════════════════════════════════════════
-
-from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from intensicare.models.registry import Empresa, Estabelecimento, Setor
-
 
 # ── Empresa ─────────────────────────────────────────────────────────────────
 
@@ -547,9 +549,7 @@ async def list_estabelecimentos(
 
 async def get_estabelecimento(db: AsyncSession, estab_id: str) -> Estabelecimento | None:
     """Get a single estabelecimento by ID."""
-    result = await db.execute(
-        select(Estabelecimento).where(Estabelecimento.id == estab_id)
-    )
+    result = await db.execute(select(Estabelecimento).where(Estabelecimento.id == estab_id))
     return result.scalar_one_or_none()
 
 

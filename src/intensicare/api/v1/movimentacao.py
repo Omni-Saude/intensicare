@@ -72,9 +72,9 @@ def _to_bed_response(bed) -> BedSchema:
         unit=bed.unit,
         status=bed.status,
         current_patient_mpi_id=bed.current_patient_mpi_id,
-        last_updated=_parse_iso_to_datetime(
-            getattr(bed, "last_cleaned_at", None)
-        ) if bed.last_cleaned_at else datetime.now(timezone.utc),
+        last_updated=_parse_iso_to_datetime(getattr(bed, "last_cleaned_at", None))
+        if bed.last_cleaned_at
+        else datetime.now(timezone.utc),
     )
 
 
@@ -158,7 +158,7 @@ async def create_movement(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_movement_response(movement)
 
@@ -231,10 +231,10 @@ async def update_bed(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(exc),
-            )
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_bed_response(bed)

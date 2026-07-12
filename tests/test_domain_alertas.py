@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.services.domain_alertas import (
     aggregate_alert_counts,
     contar_qtd_criterios_alerta,
@@ -61,30 +59,22 @@ class TestAggregateAlertCounts:
 
     def test_vermelho_precedence(self) -> None:
         """(VERMELHO, NEUTRO, AMARELO, NEUTRO) -> VERMELHO += 1"""
-        counts = aggregate_alert_counts(
-            [("VERMELHO", "NEUTRO", "AMARELO", "NEUTRO")]
-        )
+        counts = aggregate_alert_counts([("VERMELHO", "NEUTRO", "AMARELO", "NEUTRO")])
         assert counts == {"VERMELHO": 1, "AMARELO": 0, "NEUTRO": 0}
 
     def test_amarelo_precedence(self) -> None:
         """(NEUTRO, AMARELO, NEUTRO, None) -> AMARELO += 1"""
-        counts = aggregate_alert_counts(
-            [("NEUTRO", "AMARELO", "NEUTRO", None)]
-        )
+        counts = aggregate_alert_counts([("NEUTRO", "AMARELO", "NEUTRO", None)])
         assert counts == {"VERMELHO": 0, "AMARELO": 1, "NEUTRO": 0}
 
     def test_all_null(self) -> None:
         """(None, None, None, None) -> NEUTRO += 1"""
-        counts = aggregate_alert_counts(
-            [(None, None, None, None)]
-        )
+        counts = aggregate_alert_counts([(None, None, None, None)])
         assert counts == {"VERMELHO": 0, "AMARELO": 0, "NEUTRO": 1}
 
     def test_all_neutro(self) -> None:
         """(NEUTRO, NEUTRO, NEUTRO, NEUTRO) -> NEUTRO += 1"""
-        counts = aggregate_alert_counts(
-            [("NEUTRO", "NEUTRO", "NEUTRO", "NEUTRO")]
-        )
+        counts = aggregate_alert_counts([("NEUTRO", "NEUTRO", "NEUTRO", "NEUTRO")])
         assert counts == {"VERMELHO": 0, "AMARELO": 0, "NEUTRO": 1}
 
     def test_mixed_count(self) -> None:

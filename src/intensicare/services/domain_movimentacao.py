@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 # RULE-MOVIMENTACAO-ADT-001: Length-of-stay (tempo de permanencia)
 # Category: physiological-calculation | Type: formula | Status: OK | Verdict: UNVERIFIABLE
@@ -91,6 +90,7 @@ def buscar_dias_internacao(data_entrada: datetime | None) -> int:
 # noradrenalina, and other clinical signals for a bed/movimentacao.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def build_micro_indicators_payload(
     vm: bool = False,
     noradrenalina: bool = False,
@@ -141,6 +141,7 @@ def build_micro_indicators_payload(
 # Surface mortalidade_esperada without recomputation.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def surface_expected_mortality(
     mortalidade_esperada: float | None,
     with_label: bool = True,
@@ -172,6 +173,7 @@ def surface_expected_mortality(
 # Lookup key collapses nr_atendimento + bed name into compound key format.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def build_bed_lookup_key(nr_atendimento: str, bed_name: str) -> str:
     """Build compound lookup key from attendance number + bed name.
 
@@ -196,6 +198,7 @@ def build_bed_lookup_key(nr_atendimento: str, bed_name: str) -> str:
 # When bed is unassigned (no patient), snapshot defaults to {}.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def bed_patient_snapshot(
     patient_data: dict[str, object] | None,
 ) -> dict[str, object]:
@@ -219,6 +222,7 @@ def bed_patient_snapshot(
 # Legacy source: core/api/v1/serializers/movimentacao.py @8166c07
 # Computes basic patient display fields: nome_completo, idade.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def patient_basic_fields(
     nome: str | None = None,
@@ -249,10 +253,7 @@ def patient_basic_fields(
         idade = (
             today.year
             - data_nascimento.year
-            - (
-                (today.month, today.day)
-                < (data_nascimento.month, data_nascimento.day)
-            )
+            - ((today.month, today.day) < (data_nascimento.month, data_nascimento.day))
         )
 
     return {"nome_completo": nome_completo, "idade": idade}
@@ -266,6 +267,7 @@ def patient_basic_fields(
 # A precomputed vinculo (patient-bed relationship) lookup dict built but
 # never consumed in the current code path. Preserved for downstream consumers.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def build_vinculo_lookup(
     movimentacoes: list[dict[str, object]],
@@ -299,6 +301,7 @@ def build_vinculo_lookup(
 # Legacy source: core/api/v1/serializers/leito.py @8166c07
 # Constructs RTSP URL for live bed camera stream from camera config.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def build_camera_rtsp_url(
     camera_ip: str,
@@ -338,6 +341,7 @@ def build_camera_rtsp_url(
 # Delegated to a model property: leito.assistido reports whether the bed
 # currently has an active care-pathway being attended.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def compute_assistido_flag(
     has_active_pathway: bool = False,
@@ -391,6 +395,7 @@ def _init_default_beds() -> None:
 
 # ── Dataclasses ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class MovementRecord:
     id: int | None = None
@@ -432,6 +437,7 @@ class MovementListResult:
 
 # ── Internal helpers ────────────────────────────────────────────────────────
 
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -467,8 +473,10 @@ def _movement_from_dict(d: dict[str, Any]) -> MovementRecord:
 
 # ── Validation ──────────────────────────────────────────────────────────────
 
-def _validate_movement(mpi_id: str, movement_type: str, from_bed: str | None,
-                       to_bed: str | None) -> None:
+
+def _validate_movement(
+    mpi_id: str, movement_type: str, from_bed: str | None, to_bed: str | None
+) -> None:
     """Validate movement rules: bed availability, patient state consistency.
 
     Raises ValueError for invalid types, non-existent beds, occupied beds,
@@ -479,8 +487,7 @@ def _validate_movement(mpi_id: str, movement_type: str, from_bed: str | None,
     valid_types = {"admission", "transfer", "discharge"}
     if movement_type not in valid_types:
         raise ValueError(
-            f"Invalid movement type '{movement_type}'. "
-            f"Must be one of: {sorted(valid_types)}."
+            f"Invalid movement type '{movement_type}'. Must be one of: {sorted(valid_types)}."
         )
 
     if not mpi_id or not mpi_id.strip():
@@ -494,15 +501,11 @@ def _validate_movement(mpi_id: str, movement_type: str, from_bed: str | None,
             raise ValueError(f"Bed '{to_bed}' not found.")
         bed = _beds_store[to_bed]
         if bed["status"] != "free":
-            raise ValueError(
-                f"Bed '{to_bed}' is not free (current status: {bed['status']})."
-            )
+            raise ValueError(f"Bed '{to_bed}' is not free (current status: {bed['status']}).")
         # Check patient is not already admitted to another bed
         for b in _beds_store.values():
             if b["current_patient_mpi_id"] == mpi_id and b["status"] == "occupied":
-                raise ValueError(
-                    f"Patient '{mpi_id}' is already admitted to bed '{b['id']}'."
-                )
+                raise ValueError(f"Patient '{mpi_id}' is already admitted to bed '{b['id']}'.")
 
     # Transfer: from_bed must be occupied by this patient, to_bed must be free
     elif movement_type == "transfer":
@@ -516,9 +519,7 @@ def _validate_movement(mpi_id: str, movement_type: str, from_bed: str | None,
             raise ValueError(f"Target bed '{to_bed}' not found.")
         source = _beds_store[from_bed]
         if source["status"] != "occupied" or source["current_patient_mpi_id"] != mpi_id:
-            raise ValueError(
-                f"Patient '{mpi_id}' is not occupying bed '{from_bed}'."
-            )
+            raise ValueError(f"Patient '{mpi_id}' is not occupying bed '{from_bed}'.")
         target = _beds_store[to_bed]
         if target["status"] != "free":
             raise ValueError(
@@ -533,17 +534,23 @@ def _validate_movement(mpi_id: str, movement_type: str, from_bed: str | None,
             raise ValueError(f"Bed '{from_bed}' not found.")
         source = _beds_store[from_bed]
         if source["status"] != "occupied" or source["current_patient_mpi_id"] != mpi_id:
-            raise ValueError(
-                f"Patient '{mpi_id}' is not occupying bed '{from_bed}'."
-            )
+            raise ValueError(f"Patient '{mpi_id}' is not occupying bed '{from_bed}'.")
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-def register_movement(mpi_id: str, movement_type: str, from_unit: str | None = None,
-                     to_unit: str | None = None, from_bed: str | None = None,
-                     to_bed: str | None = None, timestamp: str = "",
-                     notes: str | None = None, registered_by: str = "system") -> MovementRecord:
+
+def register_movement(
+    mpi_id: str,
+    movement_type: str,
+    from_unit: str | None = None,
+    to_unit: str | None = None,
+    from_bed: str | None = None,
+    to_bed: str | None = None,
+    timestamp: str = "",
+    notes: str | None = None,
+    registered_by: str = "system",
+) -> MovementRecord:
     """Register a patient movement (admission, transfer, discharge).
 
     Validates bed availability, handles discharge (frees bed), handles admission
@@ -622,8 +629,9 @@ def register_movement(mpi_id: str, movement_type: str, from_unit: str | None = N
     return _movement_from_dict(record_dict)
 
 
-def get_patient_movements(mpi_id: str, movement_type: str | None = None,
-                         limit: int = 50, offset: int = 0) -> MovementListResult:
+def get_patient_movements(
+    mpi_id: str, movement_type: str | None = None, limit: int = 50, offset: int = 0
+) -> MovementListResult:
     """Get movement history for a patient with optional type filter.
 
     Args:
@@ -638,16 +646,16 @@ def get_patient_movements(mpi_id: str, movement_type: str | None = None,
     _init_default_beds()
 
     filtered = [
-        m for m in _movements_store
-        if m["mpi_id"] == mpi_id
-        and (movement_type is None or m["type"] == movement_type)
+        m
+        for m in _movements_store
+        if m["mpi_id"] == mpi_id and (movement_type is None or m["type"] == movement_type)
     ]
 
     # Sort by timestamp descending (most recent first)
     filtered.sort(key=lambda m: str(m.get("timestamp", "")), reverse=True)
 
     total = len(filtered)
-    page = filtered[offset:offset + limit]
+    page = filtered[offset : offset + limit]
 
     return MovementListResult(
         movements=[_movement_from_dict(m) for m in page],
@@ -706,9 +714,7 @@ def update_bed_status(bed_id: str, status: str, notes: str | None = None) -> Bed
 
     valid_statuses = {"free", "occupied", "blocked", "cleaning"}
     if status not in valid_statuses:
-        raise ValueError(
-            f"Invalid status '{status}'. Must be one of: {sorted(valid_statuses)}."
-        )
+        raise ValueError(f"Invalid status '{status}'. Must be one of: {sorted(valid_statuses)}.")
 
     if bed_id not in _beds_store:
         raise ValueError(f"Bed '{bed_id}' not found.")

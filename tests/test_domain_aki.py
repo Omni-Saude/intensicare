@@ -12,12 +12,10 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.schemas.severity import SeverityLevel
 from intensicare.services.domain_aki import (
-    AkiAlertResult,
     AKI_ALERT_DEFINITIONS,
+    AkiAlertResult,
     _check_nephrotoxic_combo,
     compute_kdigo_stage,
     evaluate_all,
@@ -26,7 +24,6 @@ from intensicare.services.domain_aki import (
     evaluate_progression,
     should_auto_resolve,
 )
-
 
 # ===========================================================================
 # ALERT-AKI-KDIGO-STAGE-01 — 7 test vectors
@@ -170,11 +167,13 @@ class TestComputeKdigoStage:
     def test_stage_3_rrt_active(self):
         """RRT active → stage 3 regardless of Cr."""
         assert (
-            compute_kdigo_stage({
-                "creatinina": 1.0,
-                "creatinina_basal": 1.0,
-                "terapia_renal_substitutiva": True,
-            })
+            compute_kdigo_stage(
+                {
+                    "creatinina": 1.0,
+                    "creatinina_basal": 1.0,
+                    "terapia_renal_substitutiva": True,
+                }
+            )
             == 3
         )
 
@@ -185,40 +184,48 @@ class TestComputeKdigoStage:
     def test_stage_1_delta_cr(self):
         """delta_cr_48h >= 0.3 → stage 1."""
         assert (
-            compute_kdigo_stage({
-                "creatinina": 1.3,
-                "creatinina_basal": 1.0,
-                "delta_cr_48h": 0.3,
-            })
+            compute_kdigo_stage(
+                {
+                    "creatinina": 1.3,
+                    "creatinina_basal": 1.0,
+                    "delta_cr_48h": 0.3,
+                }
+            )
             == 1
         )
 
     def test_stage_uo_3(self):
         """UO < 0.3 → stage_uo 3."""
         assert (
-            compute_kdigo_stage({
-                "debito_urinario_horario": 0.2,
-            })
+            compute_kdigo_stage(
+                {
+                    "debito_urinario_horario": 0.2,
+                }
+            )
             == 3
         )
 
     def test_stage_uo_1(self):
         """UO < 0.5 but >= 0.3 → stage_uo 1."""
         assert (
-            compute_kdigo_stage({
-                "debito_urinario_horario": 0.4,
-            })
+            compute_kdigo_stage(
+                {
+                    "debito_urinario_horario": 0.4,
+                }
+            )
             == 1
         )
 
     def test_max_of_axes(self):
         """max(stage_cr=2, stage_uo=3) → 3."""
         assert (
-            compute_kdigo_stage({
-                "creatinina": 2.2,
-                "creatinina_basal": 1.0,
-                "debito_urinario_horario": 0.25,
-            })
+            compute_kdigo_stage(
+                {
+                    "creatinina": 2.2,
+                    "creatinina_basal": 1.0,
+                    "debito_urinario_horario": 0.25,
+                }
+            )
             == 3
         )
 
@@ -380,35 +387,31 @@ class TestNephrotoxicCombo:
     """Unit tests for the combo checker."""
 
     def test_vanco_amino(self):
-        assert _check_nephrotoxic_combo({
-            "vancomicina_ativa": True, "aminoglicosideo_ativo": True
-        })
+        assert _check_nephrotoxic_combo({"vancomicina_ativa": True, "aminoglicosideo_ativo": True})
 
     def test_vanco_contraste(self):
-        assert _check_nephrotoxic_combo({
-            "vancomicina_ativa": True, "contraste_iodado": True
-        })
+        assert _check_nephrotoxic_combo({"vancomicina_ativa": True, "contraste_iodado": True})
 
     def test_amino_aine(self):
-        assert _check_nephrotoxic_combo({
-            "aminoglicosideo_ativo": True, "aine_ativo": True
-        })
+        assert _check_nephrotoxic_combo({"aminoglicosideo_ativo": True, "aine_ativo": True})
 
     def test_ieca_hipovolemia(self):
-        assert _check_nephrotoxic_combo({
-            "ieca_bra_ativo": True, "hipovolemia": True
-        })
+        assert _check_nephrotoxic_combo({"ieca_bra_ativo": True, "hipovolemia": True})
 
     def test_no_combo_single_drug(self):
-        assert not _check_nephrotoxic_combo({
-            "vancomicina_ativa": True,
-        })
+        assert not _check_nephrotoxic_combo(
+            {
+                "vancomicina_ativa": True,
+            }
+        )
 
     def test_no_combo_wrong_pairs(self):
-        assert not _check_nephrotoxic_combo({
-            "vancomicina_ativa": True,
-            "aine_ativo": True,
-        })
+        assert not _check_nephrotoxic_combo(
+            {
+                "vancomicina_ativa": True,
+                "aine_ativo": True,
+            }
+        )
 
 
 # ===========================================================================

@@ -22,9 +22,9 @@ Formato SSE (por evento):
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse

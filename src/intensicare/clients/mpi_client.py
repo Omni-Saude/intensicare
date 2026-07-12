@@ -11,9 +11,9 @@ circuit breaker via Redis (3 consecutive failures → open 30s).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -136,7 +136,7 @@ class MPIClient:
         Redis is unavailable.
         """
         try:
-            from intensicare.core.redis import get_redis  # noqa: PLC0415
+            from intensicare.core.redis import get_redis
 
             redis = get_redis()
             open_until = await redis.get(CIRCUIT_OPEN_KEY)
@@ -146,7 +146,9 @@ class MPIClient:
                 # Circuit timeout expired — reset
                 await redis.delete(CIRCUIT_FAILURE_KEY, CIRCUIT_OPEN_KEY)
         except Exception:
-            pass  # Redis unavailable → allow requests
+            logger.debug(
+                "Redis unavailable for circuit breaker check — allowing request", exc_info=True
+            )
         return True
 
     async def _record_failure(self) -> None:
@@ -156,29 +158,25 @@ class MPIClient:
         for CIRCUIT_OPEN_TIMEOUT seconds.
         """
         try:
-            from intensicare.core.redis import get_redis  # noqa: PLC0415
+            from intensicare.core.redis import get_redis
 
             redis = get_redis()
             count: int = await redis.incr(CIRCUIT_FAILURE_KEY)  # type: ignore[assignment]
             if count >= CIRCUIT_FAILURE_THRESHOLD:
-                await redis.set(
-                    CIRCUIT_OPEN_KEY, str(time.time() + CIRCUIT_OPEN_TIMEOUT)
-                )
-                logger.warning(
-                    "MPI circuit breaker OPEN — %d consecutive failures", count
-                )
+                await redis.set(CIRCUIT_OPEN_KEY, str(time.time() + CIRCUIT_OPEN_TIMEOUT))
+                logger.warning("MPI circuit breaker OPEN — %d consecutive failures", count)
         except Exception:
-            pass
+            logger.debug("Redis unavailable for circuit breaker failure recording", exc_info=True)
 
     async def _record_success(self) -> None:
         """Reset circuit breaker on successful MPI call."""
         try:
-            from intensicare.core.redis import get_redis  # noqa: PLC0415
+            from intensicare.core.redis import get_redis
 
             redis = get_redis()
             await redis.delete(CIRCUIT_FAILURE_KEY, CIRCUIT_OPEN_KEY)
         except Exception:
-            pass
+            logger.debug("Redis unavailable for circuit breaker reset", exc_info=True)
 
     # ── Retry-capable inner call ──────────────────────────────────────
 
@@ -261,14 +259,10 @@ def get_mpi_client() -> MPIClient:
     """Return the module-level MPI client, creating it on first call."""
     global _mpi_client
     if _mpi_client is None:
-        from intensicare.config import settings  # noqa: PLC0415 — avoid circular import
+        from intensicare.config import settings
 
         base = settings.mpi_base_url or None
-        token = (
-            settings.mpi_auth_token.get_secret_value()
-            if settings.mpi_auth_token
-            else None
-        )
+        token = settings.mpi_auth_token.get_secret_value() if settings.mpi_auth_token else None
         _mpi_client = MPIClient(base_url=base, auth_token=token)
     return _mpi_client
 

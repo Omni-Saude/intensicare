@@ -11,7 +11,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # EvolucaoSection — individual SBAR section
 # ---------------------------------------------------------------------------
@@ -30,9 +29,7 @@ class EvolucaoSectionSchema(BaseModel):
     section_label: str = Field(
         ..., min_length=1, max_length=64, description="Human-readable section label"
     )
-    content: str = Field(
-        ..., min_length=1, max_length=4096, description="Section text content"
-    )
+    content: str = Field(..., min_length=1, max_length=4096, description="Section text content")
     order: int = Field(..., ge=0, description="Display order within the evolution")
 
     model_config = {"from_attributes": True}
@@ -55,9 +52,7 @@ class EvolucaoTemplateSchema(BaseModel):
         max_length=32,
         description="Clinical role: medico, enfermeiro, fisioterapeuta, etc.",
     )
-    name: str = Field(
-        ..., min_length=1, max_length=128, description="Human-readable template name"
-    )
+    name: str = Field(..., min_length=1, max_length=128, description="Human-readable template name")
     sections: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Array of SBAR section definitions with field definitions",
@@ -105,9 +100,7 @@ class EvolucaoSchema(BaseModel):
     content_hash: str | None = Field(
         None, min_length=1, max_length=64, description="SHA-256 hash for non-repudiation"
     )
-    previous_id: int | None = Field(
-        None, description="FK to previous version (amendment chain)"
-    )
+    previous_id: int | None = Field(None, description="FK to previous version (amendment chain)")
     status: str = Field(
         "final", min_length=1, max_length=16, description="Status: draft, final, amended"
     )
@@ -133,9 +126,7 @@ class EvolucaoSchema(BaseModel):
 class EvolucaoCreate(BaseModel):
     """Request body for creating a new clinical evolution note."""
 
-    template_id: str = Field(
-        ..., min_length=1, max_length=32, description="Template key to use"
-    )
+    template_id: str = Field(..., min_length=1, max_length=32, description="Template key to use")
     type: str = Field(
         ...,
         min_length=1,

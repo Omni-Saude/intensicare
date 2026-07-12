@@ -23,8 +23,6 @@ __version__ = "3.0.0"
 
 from collections.abc import Callable
 from itertools import groupby
-from typing import Any
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RULE-COMUNICACAO-001: Reaction-count-by-emoji aggregation
@@ -122,6 +120,7 @@ def aggregate_reactions_with_users(
 # Legacy source: core/api/v1/serializers/observacao.py @8166c07
 # Returns the reaction id (or None) for the current user on a given observation.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def find_user_reaction(
     reactions: list[dict[str, object]],

@@ -115,7 +115,7 @@ async def test_cross_tenant_decrypt_fails(
     await _set_encryption_key(pgcrypto_session, TENANT_B_KEY)
 
     # Tentativa de descriptografar com chave B deve falhar
-    with pytest.raises(ValueError, match="wrong key|corrupted|NULL"):
+    with pytest.raises(ValueError, match=r"wrong key|corrupted|NULL"):
         await decrypt_phi(pgcrypto_session, ciphertext)
 
     # A transação PostgreSQL fica em estado abortado após erro de decrypt.
@@ -142,13 +142,13 @@ async def test_cross_tenant_own_key_works(
 
     # Tenant A não consegue ler dados de B
     await _set_encryption_key(pgcrypto_session, TENANT_A_KEY)
-    with pytest.raises(ValueError, match="wrong key|corrupted|NULL"):
+    with pytest.raises(ValueError, match=r"wrong key|corrupted|NULL"):
         await decrypt_phi(pgcrypto_session, ct_b)
     await pgcrypto_session.rollback()
 
     # Tenant B não consegue ler dados de A
     await _set_encryption_key(pgcrypto_session, TENANT_B_KEY)
-    with pytest.raises(ValueError, match="wrong key|corrupted|NULL"):
+    with pytest.raises(ValueError, match=r"wrong key|corrupted|NULL"):
         await decrypt_phi(pgcrypto_session, ct_a)
     await pgcrypto_session.rollback()
 
@@ -306,9 +306,7 @@ async def test_age_derivation_known_birth_date(
     age = await age_derivation(pgcrypto_session, encrypted)
 
     expected_age = (
-        date_type.today().year
-        - 1990
-        - ((date_type.today().month, date_type.today().day) < (6, 15))
+        date_type.today().year - 1990 - ((date_type.today().month, date_type.today().day) < (6, 15))
     )
     assert age == expected_age, f"Expected age {expected_age}, got {age}"
 
@@ -434,9 +432,7 @@ async def test_patient_cache_no_plaintext_phi_in_db(
 
     # Agora fazemos uma query raw para obter os bytes EXATOS do banco
     row = await pgcrypto_session.execute(
-        text(
-            "SELECT display_name, cpf FROM patient_cache WHERE mpi_id = :mpi"
-        ),
+        text("SELECT display_name, cpf FROM patient_cache WHERE mpi_id = :mpi"),
         {"mpi": "MPI-EGRESS-TEST-001"},
     )
     db_display_name, db_cpf = row.one()

@@ -9,7 +9,7 @@ Resolves AUDIT-008: Severity enum mismatch between backend and frontend.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 
 class SeverityLevel(str, Enum):
@@ -75,30 +75,30 @@ class TripleEncoder:
     accessibility (WCAG 2.1 AA compliant).
     """
 
-    _ENCODING: dict[SeverityLevel, dict[str, str]] = {
+    _ENCODING: ClassVar[dict[SeverityLevel, dict[str, str]]] = {
         SeverityLevel.NORMAL: {
-            "color": "#2DD269",       # spec green
+            "color": "#2DD269",  # spec green
             "icon": "check-circle",
             "shape": "circle",
             "label": "Normal",
             "description": "Sem alerta ativo",
         },
         SeverityLevel.WATCH: {
-            "color": "#F2B90D",       # spec yellow
+            "color": "#F2B90D",  # spec yellow
             "icon": "eye",
             "shape": "rounded-square",
             "label": "Observação",
             "description": "Monitoramento recomendado",
         },
         SeverityLevel.URGENT: {
-            "color": "#F96F06",       # spec orange
+            "color": "#F96F06",  # spec orange
             "icon": "alert-triangle",
             "shape": "triangle",
             "label": "Urgente",
             "description": "Ação em até 2h",
         },
         SeverityLevel.CRITICAL: {
-            "color": "#F5828F",       # spec red/pink
+            "color": "#F5828F",  # spec red/pink
             "icon": "alert-octagon",
             "shape": "octagon",
             "label": "Crítico",
@@ -144,10 +144,7 @@ class TripleEncoder:
     @classmethod
     def all_severities(cls) -> list[dict[str, Any]]:
         """Return encoding for all severity levels (for API discovery)."""
-        return [
-            {"severity": sev.value, **cls._ENCODING[sev]}
-            for sev in SeverityLevel
-        ]
+        return [{"severity": sev.value, **cls._ENCODING[sev]} for sev in SeverityLevel]
 
 
 def highest_severity(*severities: str | None) -> SeverityLevel | None:

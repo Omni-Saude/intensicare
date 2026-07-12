@@ -23,9 +23,7 @@ class FormDefinition(Base):
     fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     scoring: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Relacionamento reverso para submissões
     submissions: Mapped[list["ClinicalFormSubmission"]] = relationship(
@@ -57,9 +55,7 @@ class ClinicalFormSubmission(Base):
     score: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     severity: Mapped[str | None] = mapped_column(String(16))
     submitted_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    submitted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
-    )
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     version: Mapped[str] = mapped_column(
         String(16), nullable=False, comment="Versão da definição de formulário usada"
     )

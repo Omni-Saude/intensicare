@@ -49,20 +49,24 @@ def _criteria_to_schema(criteria: list) -> list[BundleCriterionSchema]:
     for c in criteria:
         if hasattr(c, "label"):
             # CriterionResult dataclass from domain service
-            result.append(BundleCriterionSchema(
-                id=c.id,
-                label=c.label,
-                met=c.met,
-                na=c.na,
-            ))
+            result.append(
+                BundleCriterionSchema(
+                    id=c.id,
+                    label=c.label,
+                    met=c.met,
+                    na=c.na,
+                )
+            )
         else:
             # Plain dict (fallback)
-            result.append(BundleCriterionSchema(
-                id=c["id"],
-                label=c["label"],
-                met=c.get("met", False),
-                na=c.get("na", False),
-            ))
+            result.append(
+                BundleCriterionSchema(
+                    id=c["id"],
+                    label=c["label"],
+                    met=c.get("met", False),
+                    na=c.get("na", False),
+                )
+            )
     return result
 
 
@@ -93,7 +97,9 @@ def _build_bundle_response(
     response_model=ProphylaxisBundlesListResponse,
 )
 async def list_prophylaxis_bundles(
-    mpi_id: str | None = Query(None, description="Patient MPI ID (optional; returns all bundles when omitted)"),
+    mpi_id: str | None = Query(
+        None, description="Patient MPI ID (optional; returns all bundles when omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ProphylaxisBundlesListResponse:
@@ -127,11 +133,13 @@ async def list_prophylaxis_bundles(
     response_bundles: list[ProphylaxisBundleResponse] = []
     for br in bundles_result.bundles:
         db_row = existing.get(br.id)
-        response_bundles.append(_build_bundle_response(
-            br,
-            assessed_at=db_row.assessed_at if db_row else None,
-            assessed_by=db_row.assessed_by if db_row else None,
-        ))
+        response_bundles.append(
+            _build_bundle_response(
+                br,
+                assessed_at=db_row.assessed_at if db_row else None,
+                assessed_by=db_row.assessed_by if db_row else None,
+            )
+        )
 
     return ProphylaxisBundlesListResponse(
         bundles=response_bundles,
@@ -159,8 +167,7 @@ async def get_prophylaxis_bundle(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Unknown bundle_id: {bundle_id}. "
-                f"Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
+                f"Unknown bundle_id: {bundle_id}. Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
             ),
         )
 
@@ -209,8 +216,7 @@ async def update_prophylaxis_bundle(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Unknown bundle_id: {bundle_id}. "
-                f"Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
+                f"Unknown bundle_id: {bundle_id}. Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
             ),
         )
 
@@ -220,8 +226,7 @@ async def update_prophylaxis_bundle(
 
     # Convert CriterionResult dataclasses to JSONB-compatible dicts
     criteria_jsonb = [
-        {"id": c.id, "label": c.label, "met": c.met, "na": c.na}
-        for c in bundle_result.criteria
+        {"id": c.id, "label": c.label, "met": c.met, "na": c.na} for c in bundle_result.criteria
     ]
 
     now = datetime.now(timezone.utc)
@@ -281,8 +286,7 @@ async def get_bundle_criteria_catalog(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Unknown bundle_id: {bundle_id}. "
-                f"Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
+                f"Unknown bundle_id: {bundle_id}. Valid: {', '.join(sorted(VALID_BUNDLE_IDS))}"
             ),
         )
 

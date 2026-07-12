@@ -18,11 +18,8 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-import re
 from datetime import date, datetime, timezone
 from math import floor
-from typing import Any
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RULE-OPERACIONAL-INFRA-002: Patient name abbreviation
@@ -64,7 +61,7 @@ def nome_abreviado(nome_completo: str, max_parts: int = 2) -> str:
 
     result_parts: list[str] = []
     full_kept = 0
-    for i, part in enumerate(parts):
+    for _i, part in enumerate(parts):
         lower = part.lower()
         if full_kept < max_parts or lower in _CONNECTIVES:
             result_parts.append(part)
@@ -84,6 +81,7 @@ def nome_abreviado(nome_completo: str, max_parts: int = 2) -> str:
 # Legacy source: core/utils.py @8166c07
 # Groups prescriptions by day, keyed by patient atendimento number.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def group_prescriptions_by_day(
     prescriptions: list[dict[str, object]],
@@ -149,6 +147,7 @@ def get_real_day(dt: datetime | None = None) -> date:
     if dt.hour < _SHIFT_HOUR:
         # Before 07:00, it's still the previous clinical day
         from datetime import timedelta
+
         return (dt - timedelta(days=1)).date()
     return dt.date()
 
@@ -160,6 +159,7 @@ def get_real_day(dt: datetime | None = None) -> date:
 # Legacy source: core/utils.py @8166c07
 # Windowed to the last 3 days, ordered by date descending.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def filter_prescriptions_last_3_days(
     prescriptions: list[dict[str, object]],
@@ -181,6 +181,7 @@ def filter_prescriptions_last_3_days(
 
     cutoff_date = reference_date.date()
     from datetime import timedelta
+
     three_days_ago = cutoff_date - timedelta(days=3)
 
     filtered = []
@@ -217,6 +218,7 @@ def filter_prescriptions_last_3_days(
 # TEMPO_PERMANENCIA: whole-day difference between now and admission date.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def compute_length_of_stay(data_entrada: date | datetime) -> int:
     """Compute length of stay in whole days.
 
@@ -229,10 +231,7 @@ def compute_length_of_stay(data_entrada: date | datetime) -> int:
     Returns:
         Number of whole days elapsed.
     """
-    if isinstance(data_entrada, datetime):
-        entrada_date = data_entrada.date()
-    else:
-        entrada_date = data_entrada
+    entrada_date = data_entrada.date() if isinstance(data_entrada, datetime) else data_entrada
     return (datetime.now(timezone.utc).date() - entrada_date).days
 
 
@@ -288,6 +287,7 @@ def compute_pagination(
 # Returns the floor of total seconds / 60 between two datetimes.
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def minutes_elapsed(
     start: datetime,
     end: datetime | None = None,
@@ -316,6 +316,7 @@ def minutes_elapsed(
 # Legacy source: core/utils.py:85-98 @8166c07
 # Normalizes hour-only strings (e.g. "7" -> "07:00", "7:30" -> "07:30").
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def format_horario(hora_str: str) -> str:
     """Normalize an hour-time string to HH:MM format.
@@ -406,6 +407,7 @@ def parse_date_to_iso(date_str: str | None) -> str | None:
 # Legacy source: core/utils.py @8166c07
 # Safely coerces a value to float, returning 0.0 on failure.
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def get_number(value: object) -> float:
     """Safely coerce a value to float, returning 0.0 on failure.

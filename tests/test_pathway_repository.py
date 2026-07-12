@@ -232,10 +232,17 @@ class TestEnrollmentCrud:
         # PatientPathway.pathway was eager-loaded (selectinload) — safe to touch.
         assert fetched.pathway.slug == "crud-pathway"
 
-    async def test_get_active_enrollment_none_when_not_active(self, db_session: AsyncSession) -> None:
+    async def test_get_active_enrollment_none_when_not_active(
+        self, db_session: AsyncSession
+    ) -> None:
         repo = PathwayRepository(db_session)
         await repo.upsert_pathway_definition(
-            meta={"id": 90021, "name": "Inactive Enrollment", "slug": "inactive-enrollment", "active": True},
+            meta={
+                "id": 90021,
+                "name": "Inactive Enrollment",
+                "slug": "inactive-enrollment",
+                "active": True,
+            },
             definition_hash="hash-v1",
             states=_states(),
             criteria=[],
@@ -308,7 +315,7 @@ class TestEnrollmentCrud:
             states=_states(),
             criteria=_criteria("crit-1"),
         )
-        enrollment = await _enroll(repo, mpi_id="MPI-REPO-005", pathway_id=90025)
+        await _enroll(repo, mpi_id="MPI-REPO-005", pathway_id=90025)
 
         fetched = await repo.get_active_enrollment("MPI-REPO-005", 90025)
         assert fetched is not None
@@ -323,7 +330,12 @@ class TestEnrollmentCrud:
         """
         repo = PathwayRepository(db_session)
         await repo.upsert_pathway_definition(
-            meta={"id": 90026, "name": "Transitions Raise", "slug": "transitions-raise", "active": True},
+            meta={
+                "id": 90026,
+                "name": "Transitions Raise",
+                "slug": "transitions-raise",
+                "active": True,
+            },
             definition_hash="hash-v1",
             states=_states(),
             criteria=[],

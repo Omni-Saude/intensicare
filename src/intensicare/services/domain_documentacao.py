@@ -7,8 +7,8 @@ __version__ = "3.0.0"
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +20,49 @@ GLOSA_CRITERIA = [
     {"id": "GZ-001", "name": "Identificação do paciente", "category": "identificacao", "weight": 3},
     {"id": "GZ-002", "name": "Data de atendimento", "category": "identificacao", "weight": 3},
     {"id": "GZ-003", "name": "Assinatura do profissional", "category": "autenticacao", "weight": 5},
-    {"id": "GZ-004", "name": "Número do conselho de classe", "category": "autenticacao", "weight": 5},
+    {
+        "id": "GZ-004",
+        "name": "Número do conselho de classe",
+        "category": "autenticacao",
+        "weight": 5,
+    },
     {"id": "GZ-005", "name": "CID-10 principal", "category": "codificacao", "weight": 4},
     {"id": "GZ-006", "name": "CID-10 secundários", "category": "codificacao", "weight": 2},
-    {"id": "GZ-007", "name": "Procedimento compatível com CID", "category": "compatibilidade", "weight": 5},
-    {"id": "GZ-008", "name": "Diária compatível com UTI", "category": "compatibilidade", "weight": 4},
+    {
+        "id": "GZ-007",
+        "name": "Procedimento compatível com CID",
+        "category": "compatibilidade",
+        "weight": 5,
+    },
+    {
+        "id": "GZ-008",
+        "name": "Diária compatível com UTI",
+        "category": "compatibilidade",
+        "weight": 4,
+    },
     {"id": "GZ-009", "name": "Taxas e gases alinhados", "category": "compatibilidade", "weight": 3},
-    {"id": "GZ-010", "name": "Medicamentos com justificativa", "category": "medicacao", "weight": 4},
+    {
+        "id": "GZ-010",
+        "name": "Medicamentos com justificativa",
+        "category": "medicacao",
+        "weight": 4,
+    },
     {"id": "GZ-011", "name": "Exames com justificativa", "category": "exames", "weight": 3},
-    {"id": "GZ-012", "name": "Procedimentos com justificativa", "category": "procedimentos", "weight": 4},
+    {
+        "id": "GZ-012",
+        "name": "Procedimentos com justificativa",
+        "category": "procedimentos",
+        "weight": 4,
+    },
     {"id": "GZ-013", "name": "Evolução clínica do dia", "category": "evolucao", "weight": 5},
     {"id": "GZ-014", "name": "Prescrição do dia", "category": "prescricao", "weight": 5},
     {"id": "GZ-015", "name": "Relatório de alta (se aplicável)", "category": "alta", "weight": 3},
-    {"id": "GZ-016", "name": "Termo de consentimento (se aplicável)", "category": "legal", "weight": 3},
+    {
+        "id": "GZ-016",
+        "name": "Termo de consentimento (se aplicável)",
+        "category": "legal",
+        "weight": 3,
+    },
 ]
 
 # Maximum possible score (sum of all weights = 61, but spec defines 66)
@@ -119,7 +149,7 @@ def _parse_decimal(value: Any) -> Decimal | None:
         return None
     try:
         return Decimal(str(value))
-    except (ValueError, TypeError, Exception):  # noqa: BLE001
+    except (ValueError, TypeError, Exception):
         return None
 
 
@@ -307,7 +337,17 @@ def evaluate_glosa(documentacao_id: int) -> GlosaEvaluationResult:
     # Check for council number patterns (CRM, COREN, CREFITO, etc.)
     has_conselho = any(
         keyword in all_text
-        for keyword in ["crm", "coren", "crefito", "crf", "crn", "crp", "cro", "conselho", "registro profissional"]
+        for keyword in [
+            "crm",
+            "coren",
+            "crefito",
+            "crf",
+            "crn",
+            "crp",
+            "cro",
+            "conselho",
+            "registro profissional",
+        ]
     )
     if has_conselho:
         criteria_met.append("GZ-004")
@@ -318,6 +358,7 @@ def evaluate_glosa(documentacao_id: int) -> GlosaEvaluationResult:
     # ── GZ-005: CID-10 principal ──
     # Check for ICD-10 code patterns (e.g., J18.9, I10, A00-B99)
     import re
+
     cid_pattern = re.compile(r"\b[A-Z]\d{2}(?:\.\d{1,3})?\b")
     cid_matches = cid_pattern.findall(record.description + " " + (record.observacoes or ""))
     if cid_matches:
@@ -397,7 +438,13 @@ def evaluate_glosa(documentacao_id: int) -> GlosaEvaluationResult:
         criteria_missing.append("GZ-012")
 
     # ── GZ-013: Evolução clínica do dia ──
-    evo_keywords = ["evolução", "evolucao", "evolução clínica", "evolucao clinica", "evolução diária"]
+    evo_keywords = [
+        "evolução",
+        "evolucao",
+        "evolução clínica",
+        "evolucao clinica",
+        "evolução diária",
+    ]
     if doc_type in ("evolucao", "evolução") or any(kw in all_text for kw in evo_keywords):
         criteria_met.append("GZ-013")
         score += 5
@@ -414,12 +461,28 @@ def evaluate_glosa(documentacao_id: int) -> GlosaEvaluationResult:
 
     # ── GZ-015: Relatório de alta (se aplicável) ──
     # This is "se aplicável" (if applicable) — only required for discharge types
-    alta_keywords = ["alta", "relatório de alta", "relatorio de alta", "sumário de alta", "sumario de alta"]
-    is_alta_doc = doc_type in ("alta", "sumario_alta", "relatorio_alta") or any(kw in all_text for kw in alta_keywords)
+    alta_keywords = [
+        "alta",
+        "relatório de alta",
+        "relatorio de alta",
+        "sumário de alta",
+        "sumario de alta",
+    ]
+    is_alta_doc = doc_type in ("alta", "sumario_alta", "relatorio_alta") or any(
+        kw in all_text for kw in alta_keywords
+    )
     if is_alta_doc:
         # Check if discharge report content is present
         has_alta_content = any(
-            kw in all_text for kw in ["diagnóstico", "diagnostico", "procedimento", "período", "periodo", "desfecho"]
+            kw in all_text
+            for kw in [
+                "diagnóstico",
+                "diagnostico",
+                "procedimento",
+                "período",
+                "periodo",
+                "desfecho",
+            ]
         )
         if has_alta_content:
             criteria_met.append("GZ-015")
@@ -435,7 +498,9 @@ def evaluate_glosa(documentacao_id: int) -> GlosaEvaluationResult:
     # "Se aplicável" — only required when procedures demand consent
     consent_keywords = ["consentimento", "consent", "tc", "termo de consentimento", "tc"]
     has_consent = any(kw in all_text for kw in consent_keywords)
-    has_invasive = any(kw in all_text for kw in ["invasivo", "cirurgia", "cirúrgico", "cirurgico", "procedimento"])
+    has_invasive = any(
+        kw in all_text for kw in ["invasivo", "cirurgia", "cirúrgico", "cirurgico", "procedimento"]
+    )
     if has_invasive:
         if has_consent:
             criteria_met.append("GZ-016")
@@ -512,9 +577,7 @@ def update_glosa_status(
         ValueError: If documentacao_id is not found or status is invalid.
     """
     if not _validate_glosa_status(status):
-        raise ValueError(
-            f"Invalid glosa status: '{status}'. Valid: {GLOSA_STATUSES}"
-        )
+        raise ValueError(f"Invalid glosa status: '{status}'. Valid: {GLOSA_STATUSES}")
 
     record = _documentacao_store.get(documentacao_id)
     if record is None:
@@ -544,11 +607,11 @@ __all__ = [
     "GLOSA_CRITERIA",
     "GLOSA_MAX_SCORE",
     "GLOSA_STATUSES",
+    "DocumentacaoListResult",
     "DocumentacaoRecord",
     "GlosaEvaluationResult",
-    "DocumentacaoListResult",
     "create_documentacao",
-    "list_documentacao",
     "evaluate_glosa",
+    "list_documentacao",
     "update_glosa_status",
 ]

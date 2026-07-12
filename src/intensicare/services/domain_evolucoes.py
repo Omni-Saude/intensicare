@@ -6,10 +6,10 @@ __version__ = "3.0.0"
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 import hashlib
 import json
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +169,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "fields": [
                     {"key": "queixa_principal", "label": "Queixa principal", "type": "text"},
                     {"key": "evolucao_24h", "label": "Evolução nas últimas 24h", "type": "text"},
-                    {"key": "nivel_consciencia", "label": "Nível de consciência (Glasgow)", "type": "number"},
+                    {
+                        "key": "nivel_consciencia",
+                        "label": "Nível de consciência (Glasgow)",
+                        "type": "number",
+                    },
                 ],
             },
             {
@@ -177,7 +181,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "diagnostico_principal", "label": "Diagnóstico principal", "type": "text"},
+                    {
+                        "key": "diagnostico_principal",
+                        "label": "Diagnóstico principal",
+                        "type": "text",
+                    },
                     {"key": "comorbidades", "label": "Comorbidades relevantes", "type": "text"},
                     {"key": "cirurgias_recentes", "label": "Cirurgias recentes", "type": "text"},
                     {"key": "alergias", "label": "Alergias conhecidas", "type": "text"},
@@ -190,8 +198,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "fields": [
                     {"key": "sinais_vitais", "label": "Sinais vitais", "type": "text"},
                     {"key": "exame_fisico", "label": "Exame físico segmentar", "type": "text"},
-                    {"key": "exames_complementares", "label": "Exames complementares", "type": "text"},
-                    {"key": "hipotese_diagnostica", "label": "Hipótese diagnóstica atual", "type": "text"},
+                    {
+                        "key": "exames_complementares",
+                        "label": "Exames complementares",
+                        "type": "text",
+                    },
+                    {
+                        "key": "hipotese_diagnostica",
+                        "label": "Hipótese diagnóstica atual",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -219,9 +235,17 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 0,
                 "fields": [
                     {"key": "estado_geral", "label": "Estado geral do paciente", "type": "text"},
-                    {"key": "queixas_enfermagem", "label": "Queixas referidas à enfermagem", "type": "text"},
+                    {
+                        "key": "queixas_enfermagem",
+                        "label": "Queixas referidas à enfermagem",
+                        "type": "text",
+                    },
                     {"key": "risco_queda", "label": "Risco de queda (Morse)", "type": "number"},
-                    {"key": "risco_ulcera", "label": "Risco de úlcera por pressão (Braden)", "type": "number"},
+                    {
+                        "key": "risco_ulcera",
+                        "label": "Risco de úlcera por pressão (Braden)",
+                        "type": "number",
+                    },
                 ],
             },
             {
@@ -229,7 +253,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "diagnosticos_enfermagem", "label": "Diagnósticos de enfermagem ativos", "type": "text"},
+                    {
+                        "key": "diagnosticos_enfermagem",
+                        "label": "Diagnósticos de enfermagem ativos",
+                        "type": "text",
+                    },
                     {"key": "dispositivos", "label": "Dispositivos invasivos", "type": "text"},
                     {"key": "restricoes", "label": "Restrições / precauções", "type": "text"},
                 ],
@@ -242,8 +270,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                     {"key": "ssvv", "label": "Sinais vitais (SSVV)", "type": "text"},
                     {"key": "pele_mucosas", "label": "Pele e mucosas", "type": "text"},
                     {"key": "acessos", "label": "Acessos venosos e curativos", "type": "text"},
-                    {"key": "eliminacoes", "label": "Eliminações vesicais/Intestinais", "type": "text"},
-                    {"key": "escalas", "label": "Escalas (Dor, Glasgow, Ramsay/RASS)", "type": "text"},
+                    {
+                        "key": "eliminacoes",
+                        "label": "Eliminações vesicais/Intestinais",
+                        "type": "text",
+                    },
+                    {
+                        "key": "escalas",
+                        "label": "Escalas (Dor, Glasgow, Ramsay/RASS)",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -251,7 +287,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "intervencoes", "label": "Intervenções de enfermagem realizadas", "type": "text"},
+                    {
+                        "key": "intervencoes",
+                        "label": "Intervenções de enfermagem realizadas",
+                        "type": "text",
+                    },
                     {"key": "planejamento", "label": "Planejamento próximo turno", "type": "text"},
                 ],
             },
@@ -269,7 +309,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Situação",
                 "order": 0,
                 "fields": [
-                    {"key": "suporte_ventilatorio", "label": "Suporte ventilatório atual", "type": "text"},
+                    {
+                        "key": "suporte_ventilatorio",
+                        "label": "Suporte ventilatório atual",
+                        "type": "text",
+                    },
                     {"key": "modalidade", "label": "Modalidade ventilatória", "type": "text"},
                     {"key": "via_aerea", "label": "Via aérea (TOT/TQT/VNI/CN)", "type": "text"},
                 ],
@@ -279,9 +323,17 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "tempo_vm", "label": "Tempo de ventilação mecânica (dias)", "type": "number"},
+                    {
+                        "key": "tempo_vm",
+                        "label": "Tempo de ventilação mecânica (dias)",
+                        "type": "number",
+                    },
                     {"key": "desmames", "label": "Tentativas de desmame prévias", "type": "text"},
-                    {"key": "comorbidades_respiratorias", "label": "Comorbidades respiratórias", "type": "text"},
+                    {
+                        "key": "comorbidades_respiratorias",
+                        "label": "Comorbidades respiratórias",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -291,7 +343,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "fields": [
                     {"key": "ausculta", "label": "Ausculta pulmonar", "type": "text"},
                     {"key": "parametros_vm", "label": "Parâmetros ventilatórios", "type": "text"},
-                    {"key": "forca_muscular", "label": "Força muscular respiratória (PImax/PEmax)", "type": "text"},
+                    {
+                        "key": "forca_muscular",
+                        "label": "Força muscular respiratória (PImax/PEmax)",
+                        "type": "text",
+                    },
                     {"key": "mobilizacao", "label": "Mobilização e posicionamento", "type": "text"},
                 ],
             },
@@ -300,8 +356,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "conduta_fisioterapia", "label": "Conduta fisioterapêutica", "type": "text"},
-                    {"key": "plano_desmame", "label": "Plano de desmame ventilatório", "type": "text"},
+                    {
+                        "key": "conduta_fisioterapia",
+                        "label": "Conduta fisioterapêutica",
+                        "type": "text",
+                    },
+                    {
+                        "key": "plano_desmame",
+                        "label": "Plano de desmame ventilatório",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -318,8 +382,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Situação",
                 "order": 0,
                 "fields": [
-                    {"key": "terapia_atual", "label": "Terapia farmacológica atual", "type": "text"},
-                    {"key": "interacoes", "label": "Interações medicamentosas potenciais", "type": "text"},
+                    {
+                        "key": "terapia_atual",
+                        "label": "Terapia farmacológica atual",
+                        "type": "text",
+                    },
+                    {
+                        "key": "interacoes",
+                        "label": "Interações medicamentosas potenciais",
+                        "type": "text",
+                    },
                     {"key": "dose_ajuste", "label": "Ajustes de dose pendentes", "type": "text"},
                 ],
             },
@@ -338,9 +410,21 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "niveis_sericos", "label": "Níveis séricos (vanco/aminoglicosídeos)", "type": "text"},
-                    {"key": "eventos_adversos", "label": "Eventos adversos suspeitos", "type": "text"},
-                    {"key": "reconciliacao", "label": "Reconciliação medicamentosa", "type": "text"},
+                    {
+                        "key": "niveis_sericos",
+                        "label": "Níveis séricos (vanco/aminoglicosídeos)",
+                        "type": "text",
+                    },
+                    {
+                        "key": "eventos_adversos",
+                        "label": "Eventos adversos suspeitos",
+                        "type": "text",
+                    },
+                    {
+                        "key": "reconciliacao",
+                        "label": "Reconciliação medicamentosa",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -348,7 +432,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "intervencoes_farmaceuticas", "label": "Intervenções farmacêuticas sugeridas", "type": "text"},
+                    {
+                        "key": "intervencoes_farmaceuticas",
+                        "label": "Intervenções farmacêuticas sugeridas",
+                        "type": "text",
+                    },
                     {"key": "monitoramento", "label": "Monitoramento recomendado", "type": "text"},
                 ],
             },
@@ -376,7 +464,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "desnutricao_previa", "label": "Desnutrição prévia / ASG", "type": "text"},
+                    {
+                        "key": "desnutricao_previa",
+                        "label": "Desnutrição prévia / ASG",
+                        "type": "text",
+                    },
                     {"key": "jejum_prolongado", "label": "Tempo de jejum / NPO", "type": "text"},
                     {"key": "cirurgia_tgi", "label": "Cirurgia do TGI recente", "type": "text"},
                 ],
@@ -386,9 +478,17 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "calorias_programadas", "label": "Calorias programadas vs. infundidas", "type": "text"},
+                    {
+                        "key": "calorias_programadas",
+                        "label": "Calorias programadas vs. infundidas",
+                        "type": "text",
+                    },
                     {"key": "proteinas", "label": "Proteínas (g/kg/dia)", "type": "number"},
-                    {"key": "exames_nutricionais", "label": "Exames laboratoriais nutricionais", "type": "text"},
+                    {
+                        "key": "exames_nutricionais",
+                        "label": "Exames laboratoriais nutricionais",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -397,7 +497,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 3,
                 "fields": [
                     {"key": "ajuste_dieta", "label": "Ajuste de dieta / fórmula", "type": "text"},
-                    {"key": "metas_nutricionais", "label": "Metas nutricionais 24-48h", "type": "text"},
+                    {
+                        "key": "metas_nutricionais",
+                        "label": "Metas nutricionais 24-48h",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -416,7 +520,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "fields": [
                     {"key": "estado_emocional", "label": "Estado emocional atual", "type": "text"},
                     {"key": "humor", "label": "Humor / afeto", "type": "text"},
-                    {"key": "demandas_psicologicas", "label": "Demandas psicológicas identificadas", "type": "text"},
+                    {
+                        "key": "demandas_psicologicas",
+                        "label": "Demandas psicológicas identificadas",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -424,9 +532,21 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "historico_psiquiatrico", "label": "Histórico psiquiátrico", "type": "text"},
-                    {"key": "suporte_familiar", "label": "Rede de suporte familiar/social", "type": "text"},
-                    {"key": "mecanismos_enfrentamento", "label": "Mecanismos de enfrentamento prévios", "type": "text"},
+                    {
+                        "key": "historico_psiquiatrico",
+                        "label": "Histórico psiquiátrico",
+                        "type": "text",
+                    },
+                    {
+                        "key": "suporte_familiar",
+                        "label": "Rede de suporte familiar/social",
+                        "type": "text",
+                    },
+                    {
+                        "key": "mecanismos_enfrentamento",
+                        "label": "Mecanismos de enfrentamento prévios",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -444,8 +564,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "intervencao_psicologica", "label": "Intervenção psicológica realizada", "type": "text"},
-                    {"key": "encaminhamentos", "label": "Encaminhamentos / continuidade", "type": "text"},
+                    {
+                        "key": "intervencao_psicologica",
+                        "label": "Intervenção psicológica realizada",
+                        "type": "text",
+                    },
+                    {
+                        "key": "encaminhamentos",
+                        "label": "Encaminhamentos / continuidade",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -462,7 +590,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Situação",
                 "order": 0,
                 "fields": [
-                    {"key": "via_alimentacao", "label": "Via de alimentação oral atual", "type": "text"},
+                    {
+                        "key": "via_alimentacao",
+                        "label": "Via de alimentação oral atual",
+                        "type": "text",
+                    },
                     {"key": "degluicao", "label": "Deglutição", "type": "text"},
                     {"key": "comunicacao", "label": "Habilidade de comunicação", "type": "text"},
                 ],
@@ -482,7 +614,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "teste_disfagia", "label": "Teste de disfagia / blue dye", "type": "text"},
+                    {
+                        "key": "teste_disfagia",
+                        "label": "Teste de disfagia / blue dye",
+                        "type": "text",
+                    },
                     {"key": "voz_fala", "label": "Qualidade vocal / fala", "type": "text"},
                     {"key": "valvula_fala", "label": "Uso de válvula de fala", "type": "text"},
                 ],
@@ -492,7 +628,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "consistencia_dieta", "label": "Consistência de dieta recomendada", "type": "text"},
+                    {
+                        "key": "consistencia_dieta",
+                        "label": "Consistência de dieta recomendada",
+                        "type": "text",
+                    },
                     {"key": "exercicios", "label": "Exercícios fonoaudiológicos", "type": "text"},
                 ],
             },
@@ -510,8 +650,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Situação",
                 "order": 0,
                 "fields": [
-                    {"key": "estado_consciencia", "label": "Estado de consciência / alerta", "type": "text"},
-                    {"key": "resposta_estimulos", "label": "Resposta a estímulos sonoros", "type": "text"},
+                    {
+                        "key": "estado_consciencia",
+                        "label": "Estado de consciência / alerta",
+                        "type": "text",
+                    },
+                    {
+                        "key": "resposta_estimulos",
+                        "label": "Resposta a estímulos sonoros",
+                        "type": "text",
+                    },
                     {"key": "nivel_agitacao", "label": "Nível de agitação (RASS)", "type": "text"},
                 ],
             },
@@ -520,9 +668,21 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "preferencia_musical", "label": "Preferências musicais/familiares", "type": "text"},
-                    {"key": "sessoes_previas", "label": "Sessões prévias e resposta", "type": "text"},
-                    {"key": "restricoes_auditivas", "label": "Restrições auditivas", "type": "text"},
+                    {
+                        "key": "preferencia_musical",
+                        "label": "Preferências musicais/familiares",
+                        "type": "text",
+                    },
+                    {
+                        "key": "sessoes_previas",
+                        "label": "Sessões prévias e resposta",
+                        "type": "text",
+                    },
+                    {
+                        "key": "restricoes_auditivas",
+                        "label": "Restrições auditivas",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -530,9 +690,21 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "intervencao_aplicada", "label": "Técnica musicoterapêutica aplicada", "type": "text"},
-                    {"key": "resposta_fisiologica", "label": "Resposta fisiológica pré/pós (FC, FR, PA)", "type": "text"},
-                    {"key": "resposta_comportamental", "label": "Resposta comportamental/emocional", "type": "text"},
+                    {
+                        "key": "intervencao_aplicada",
+                        "label": "Técnica musicoterapêutica aplicada",
+                        "type": "text",
+                    },
+                    {
+                        "key": "resposta_fisiologica",
+                        "label": "Resposta fisiológica pré/pós (FC, FR, PA)",
+                        "type": "text",
+                    },
+                    {
+                        "key": "resposta_comportamental",
+                        "label": "Resposta comportamental/emocional",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -541,7 +713,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 3,
                 "fields": [
                     {"key": "plano_sessoes", "label": "Plano de próximas sessões", "type": "text"},
-                    {"key": "integracao_equipe", "label": "Observações para equipe multidisciplinar", "type": "text"},
+                    {
+                        "key": "integracao_equipe",
+                        "label": "Observações para equipe multidisciplinar",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -559,8 +735,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 0,
                 "fields": [
                     {"key": "condicao_geral", "label": "Condição geral observada", "type": "text"},
-                    {"key": "intercorrencias_turno", "label": "Intercorrências do turno", "type": "text"},
-                    {"key": "comunicacao_enfermeiro", "label": "Comunicações ao enfermeiro", "type": "text"},
+                    {
+                        "key": "intercorrencias_turno",
+                        "label": "Intercorrências do turno",
+                        "type": "text",
+                    },
+                    {
+                        "key": "comunicacao_enfermeiro",
+                        "label": "Comunicações ao enfermeiro",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -568,8 +752,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "cuidados_prescritos", "label": "Cuidados prescritos do turno", "type": "text"},
-                    {"key": "dispositivos_instalados", "label": "Dispositivos instalados", "type": "text"},
+                    {
+                        "key": "cuidados_prescritos",
+                        "label": "Cuidados prescritos do turno",
+                        "type": "text",
+                    },
+                    {
+                        "key": "dispositivos_instalados",
+                        "label": "Dispositivos instalados",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -578,7 +770,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 2,
                 "fields": [
                     {"key": "ssvv_turno", "label": "SSVV do turno (mín/máx)", "type": "text"},
-                    {"key": "balanco_hidrico_parcial", "label": "Balanço hídrico parcial", "type": "text"},
+                    {
+                        "key": "balanco_hidrico_parcial",
+                        "label": "Balanço hídrico parcial",
+                        "type": "text",
+                    },
                     {"key": "glicemia", "label": "Glicemia capilar", "type": "text"},
                 ],
             },
@@ -587,8 +783,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "passagem_plantao", "label": "Informações para passagem de plantão", "type": "text"},
-                    {"key": "pendente_turno", "label": "Pendente para próximo turno", "type": "text"},
+                    {
+                        "key": "passagem_plantao",
+                        "label": "Informações para passagem de plantão",
+                        "type": "text",
+                    },
+                    {
+                        "key": "pendente_turno",
+                        "label": "Pendente para próximo turno",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -605,9 +809,21 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Situação",
                 "order": 0,
                 "fields": [
-                    {"key": "motivo_admissao", "label": "Motivo da admissão na UTI", "type": "text"},
-                    {"key": "procedencia", "label": "Procedência (PS/CC/enfermaria/externo)", "type": "text"},
-                    {"key": "gravidade_admissao", "label": "Gravidade na admissão (SAPS 3 / APACHE)", "type": "text"},
+                    {
+                        "key": "motivo_admissao",
+                        "label": "Motivo da admissão na UTI",
+                        "type": "text",
+                    },
+                    {
+                        "key": "procedencia",
+                        "label": "Procedência (PS/CC/enfermaria/externo)",
+                        "type": "text",
+                    },
+                    {
+                        "key": "gravidade_admissao",
+                        "label": "Gravidade na admissão (SAPS 3 / APACHE)",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -617,7 +833,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "fields": [
                     {"key": "hda", "label": "História da doença atual (HDA)", "type": "text"},
                     {"key": "comorbidades", "label": "Comorbidades", "type": "text"},
-                    {"key": "medicacoes_previas", "label": "Medicações de uso prévio", "type": "text"},
+                    {
+                        "key": "medicacoes_previas",
+                        "label": "Medicações de uso prévio",
+                        "type": "text",
+                    },
                     {"key": "alergias", "label": "Alergias", "type": "text"},
                 ],
             },
@@ -626,9 +846,17 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "exame_fisico_admissao", "label": "Exame físico de admissão", "type": "text"},
+                    {
+                        "key": "exame_fisico_admissao",
+                        "label": "Exame físico de admissão",
+                        "type": "text",
+                    },
                     {"key": "exames_admissionais", "label": "Exames admissionais", "type": "text"},
-                    {"key": "impressao_diagnostica", "label": "Impressão diagnóstica inicial", "type": "text"},
+                    {
+                        "key": "impressao_diagnostica",
+                        "label": "Impressão diagnóstica inicial",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -655,8 +883,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 0,
                 "fields": [
                     {"key": "motivo_alta", "label": "Motivo da alta da UTI", "type": "text"},
-                    {"key": "tempo_internacao", "label": "Tempo de internação na UTI (dias)", "type": "number"},
-                    {"key": "destino", "label": "Destino (enfermaria / unidade semi-intensiva / domicílio)", "type": "text"},
+                    {
+                        "key": "tempo_internacao",
+                        "label": "Tempo de internação na UTI (dias)",
+                        "type": "number",
+                    },
+                    {
+                        "key": "destino",
+                        "label": "Destino (enfermaria / unidade semi-intensiva / domicílio)",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -664,7 +900,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "resumo_internacao", "label": "Resumo da internação na UTI", "type": "text"},
+                    {
+                        "key": "resumo_internacao",
+                        "label": "Resumo da internação na UTI",
+                        "type": "text",
+                    },
                     {"key": "complicacoes", "label": "Complicações durante UTI", "type": "text"},
                     {"key": "procedimentos", "label": "Procedimentos realizados", "type": "text"},
                 ],
@@ -684,8 +924,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "orientacoes_alta", "label": "Orientações pós-alta da UTI", "type": "text"},
-                    {"key": "seguimento", "label": "Plano de seguimento ambulatorial", "type": "text"},
+                    {
+                        "key": "orientacoes_alta",
+                        "label": "Orientações pós-alta da UTI",
+                        "type": "text",
+                    },
+                    {
+                        "key": "seguimento",
+                        "label": "Plano de seguimento ambulatorial",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -712,8 +960,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "justificativa", "label": "Justificativa da movimentação", "type": "text"},
-                    {"key": "riscos_identificados", "label": "Riscos identificados no transporte", "type": "text"},
+                    {
+                        "key": "justificativa",
+                        "label": "Justificativa da movimentação",
+                        "type": "text",
+                    },
+                    {
+                        "key": "riscos_identificados",
+                        "label": "Riscos identificados no transporte",
+                        "type": "text",
+                    },
                     {"key": "equipe_transporte", "label": "Equipe de transporte", "type": "text"},
                 ],
             },
@@ -723,7 +979,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 2,
                 "fields": [
                     {"key": "condicao_pre", "label": "Condição pré-transporte", "type": "text"},
-                    {"key": "monitorizacao", "label": "Monitorização durante transporte", "type": "text"},
+                    {
+                        "key": "monitorizacao",
+                        "label": "Monitorização durante transporte",
+                        "type": "text",
+                    },
                     {"key": "condicao_pos", "label": "Condição pós-transporte", "type": "text"},
                 ],
             },
@@ -732,7 +992,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "intercorrencias", "label": "Intercorrências no transporte", "type": "text"},
+                    {
+                        "key": "intercorrencias",
+                        "label": "Intercorrências no transporte",
+                        "type": "text",
+                    },
                     {"key": "cuidados_pos", "label": "Cuidados pós-transporte", "type": "text"},
                 ],
             },
@@ -761,7 +1025,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 1,
                 "fields": [
                     {"key": "contexto", "label": "Contexto clínico pré-evento", "type": "text"},
-                    {"key": "fatores_contribuintes", "label": "Fatores contribuintes identificados", "type": "text"},
+                    {
+                        "key": "fatores_contribuintes",
+                        "label": "Fatores contribuintes identificados",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -770,8 +1038,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 2,
                 "fields": [
                     {"key": "gravidade", "label": "Gravidade do evento", "type": "text"},
-                    {"key": "intervencao_imediata", "label": "Intervenção imediata realizada", "type": "text"},
-                    {"key": "resposta_intervencao", "label": "Resposta à intervenção", "type": "text"},
+                    {
+                        "key": "intervencao_imediata",
+                        "label": "Intervenção imediata realizada",
+                        "type": "text",
+                    },
+                    {
+                        "key": "resposta_intervencao",
+                        "label": "Resposta à intervenção",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -780,7 +1056,11 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "order": 3,
                 "fields": [
                     {"key": "notificacao", "label": "Notificação (NSP/anvisa)", "type": "text"},
-                    {"key": "acoes_corretivas", "label": "Ações corretivas/preventivas", "type": "text"},
+                    {
+                        "key": "acoes_corretivas",
+                        "label": "Ações corretivas/preventivas",
+                        "type": "text",
+                    },
                     {"key": "seguimento_pos", "label": "Seguimento pós-evento", "type": "text"},
                 ],
             },
@@ -808,9 +1088,17 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "disfuncao_renal", "label": "Disfunção renal (IRA/IRC)", "type": "text"},
+                    {
+                        "key": "disfuncao_renal",
+                        "label": "Disfunção renal (IRA/IRC)",
+                        "type": "text",
+                    },
                     {"key": "trs", "label": "Terapia renal substitutiva", "type": "text"},
-                    {"key": "drogas_vasoativas", "label": "Drogas vasoativas (diluição)", "type": "text"},
+                    {
+                        "key": "drogas_vasoativas",
+                        "label": "Drogas vasoativas (diluição)",
+                        "type": "text",
+                    },
                 ],
             },
             {
@@ -818,8 +1106,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Avaliação",
                 "order": 2,
                 "fields": [
-                    {"key": "ganhos", "label": "Ganhos (infusões, dieta, medicamentos)", "type": "text"},
-                    {"key": "perdas", "label": "Perdas (diurese, drenos, fezes, TRS)", "type": "text"},
+                    {
+                        "key": "ganhos",
+                        "label": "Ganhos (infusões, dieta, medicamentos)",
+                        "type": "text",
+                    },
+                    {
+                        "key": "perdas",
+                        "label": "Perdas (diurese, drenos, fezes, TRS)",
+                        "type": "text",
+                    },
                     {"key": "balanco_total", "label": "Balanço hídrico total", "type": "text"},
                 ],
             },
@@ -828,8 +1124,16 @@ def _build_all_templates() -> dict[str, EvolutionTemplate]:
                 "section_label": "Recomendação",
                 "order": 3,
                 "fields": [
-                    {"key": "ajuste_hidrico", "label": "Ajuste de fluidos / diuréticos", "type": "text"},
-                    {"key": "metas_proximo_periodo", "label": "Metas para próximo período", "type": "text"},
+                    {
+                        "key": "ajuste_hidrico",
+                        "label": "Ajuste de fluidos / diuréticos",
+                        "type": "text",
+                    },
+                    {
+                        "key": "metas_proximo_periodo",
+                        "label": "Metas para próximo período",
+                        "type": "text",
+                    },
                 ],
             },
         ],
@@ -916,9 +1220,7 @@ def _validate_template(template_id: str, sections: list[dict]) -> bool:
 
     if not section_keys.issubset(expected_order):
         unknown = section_keys - expected_order
-        raise ValueError(
-            f"Seções inválidas: {unknown}. Use apenas: {sorted(expected_order)}"
-        )
+        raise ValueError(f"Seções inválidas: {unknown}. Use apenas: {sorted(expected_order)}")
 
     # Validate all SBAR sections are present (strict)
     if section_keys != expected_order:
@@ -936,9 +1238,7 @@ def _validate_template(template_id: str, sections: list[dict]) -> bool:
         sk = section.get("section_key", "?")
         content = section.get("content", "")
         if not content or not content.strip():
-            raise ValueError(
-                f"Seção '{sk}' ({SBAR_SECTIONS.get(sk, sk)}) não pode estar vazia."
-            )
+            raise ValueError(f"Seção '{sk}' ({SBAR_SECTIONS.get(sk, sk)}) não pode estar vazia.")
 
     # Validate section order within the array matches SBAR canonical order
     for idx, section in enumerate(sections):
@@ -991,7 +1291,11 @@ def _build_sbar_template(role: str) -> EvolutionTemplate:
                 "section_label": "Antecedentes",
                 "order": 1,
                 "fields": [
-                    {"key": "historia_relevante", "label": "História clínica relevante", "type": "text"},
+                    {
+                        "key": "historia_relevante",
+                        "label": "História clínica relevante",
+                        "type": "text",
+                    },
                     {"key": "contexto", "label": "Contexto atual", "type": "text"},
                 ],
             },
@@ -1032,9 +1336,7 @@ def _validate_evolution_input(
 
     # type must be valid
     if type not in EVOLUTION_TYPES:
-        raise ValueError(
-            f"Tipo de evolução inválido: '{type}'. Válidos: {EVOLUTION_TYPES}"
-        )
+        raise ValueError(f"Tipo de evolução inválido: '{type}'. Válidos: {EVOLUTION_TYPES}")
 
     # author required
     if not author or not author.strip():
@@ -1042,9 +1344,7 @@ def _validate_evolution_input(
 
     # author_role must be valid
     if author_role not in CLINICAL_ROLES:
-        raise ValueError(
-            f"Papel clínico inválido: '{author_role}'. Válidos: {CLINICAL_ROLES}"
-        )
+        raise ValueError(f"Papel clínico inválido: '{author_role}'. Válidos: {CLINICAL_ROLES}")
 
     # sections must be non-empty list
     if not sections:
@@ -1059,12 +1359,14 @@ def _serialize_sections_for_record(sections: list[dict]) -> list[dict]:
     result: list[dict] = []
     for idx, s in enumerate(sections):
         sk = s.get("section_key", "")
-        result.append({
-            "section_key": sk,
-            "section_label": s.get("section_label") or SBAR_SECTIONS.get(sk, sk.title()),
-            "content": s.get("content", ""),
-            "order": s.get("order", idx),
-        })
+        result.append(
+            {
+                "section_key": sk,
+                "section_label": s.get("section_label") or SBAR_SECTIONS.get(sk, sk.title()),
+                "content": s.get("content", ""),
+                "order": s.get("order", idx),
+            }
+        )
     return result
 
 
@@ -1225,9 +1527,7 @@ def list_evolutions(
     # Filter by type if specified
     if type:
         if type not in EVOLUTION_TYPES:
-            logger.warning(
-                "Unknown evolution type filter: %s (valid: %s)", type, EVOLUTION_TYPES
-            )
+            logger.warning("Unknown evolution type filter: %s (valid: %s)", type, EVOLUTION_TYPES)
         else:
             items = [r for r in items if r.type == type]
 

@@ -8,6 +8,8 @@ A dependência ``get_current_user`` detecta automaticamente o tipo de
 token (IAM IC vs JWT local) pelo header e claims.
 """
 
+import logging
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -19,12 +21,12 @@ from intensicare.core.database import get_db
 from intensicare.core.redis import get_redis
 from intensicare.models.user import User
 
+logger = logging.getLogger(__name__)
+
 security = HTTPBearer()
 
 
-async def _resolve_user_from_db(
-    db: AsyncSession, username: str
-) -> User:
+async def _resolve_user_from_db(db: AsyncSession, username: str) -> User:
     """Busca usuário no banco local (compatibilidade com MVP)."""
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
@@ -56,12 +58,13 @@ async def get_current_user(
     if settings.iam_enabled:
         try:
             from intensicare.auth.iam import validate_iam_token
+
             identity = await validate_iam_token(token)
             # Mapeia IAMIdentity → User local (ou cria virtual)
             return await _resolve_user_from_db(db, identity.username)
         except Exception:
             # Fallback: tenta JWT local
-            pass
+            logger.debug("IAM token validation failed, falling back to local JWT", exc_info=True)
 
     # JWT local (MVP / dev / fallback)
     redis_client = get_redis()
@@ -230,9 +233,7 @@ async def record_failed_login(username: str) -> None:
     if attempts == 1:
         await redis_client.expire(attempts_key, _LOCKOUT_DURATION_SECONDS)
     if attempts >= _MAX_FAILED_ATTEMPTS:
-        await redis_client.setex(
-            lockout_key, _LOCKOUT_DURATION_SECONDS, "1"
-        )
+        await redis_client.setex(lockout_key, _LOCKOUT_DURATION_SECONDS, "1")
         await redis_client.delete(attempts_key)
 
 
@@ -270,9 +271,10 @@ async def get_current_tenant_id(
             token = auth_header[7:].strip()
             try:
                 from intensicare.auth.iam import validate_iam_token
+
                 identity = await validate_iam_token(token)
                 return identity.tenant_id
             except Exception:
-                pass
+                logger.debug("IAM tenant resolution failed, using default tenant", exc_info=True)
 
     return "default"

@@ -18,10 +18,11 @@ Full scorer integration requires wiring to actual MEWS/NEWS2/SOFA/qSOFA implemen
 (deferred). For now, this harness validates vector structure, counts, and consistency.
 """
 
-import pytest
-import yaml
 from pathlib import Path
 from typing import Any
+
+import pytest
+import yaml
 
 VECTORS_DIR = Path(__file__).parent.parent.parent / "docs" / "plan" / "_work" / "alerts"
 
@@ -118,15 +119,15 @@ def test_alert_vector_structure(vector: dict[str, Any]) -> None:
 
     # Consistency: kind="fire" implies expected="fire"
     if vector["kind"] == "fire":
-        assert (
-            vector["expected"] == "fire"
-        ), f"Vector {vector_id}: kind=fire but expected={vector['expected']}"
+        assert vector["expected"] == "fire", (
+            f"Vector {vector_id}: kind=fire but expected={vector['expected']}"
+        )
 
     # Consistency: kind="no-fire" implies expected="no-fire"
     if vector["kind"] == "no-fire":
-        assert (
-            vector["expected"] == "no-fire"
-        ), f"Vector {vector_id}: kind=no-fire but expected={vector['expected']}"
+        assert vector["expected"] == "no-fire", (
+            f"Vector {vector_id}: kind=no-fire but expected={vector['expected']}"
+        )
 
     # Inputs must be a dict
     assert isinstance(vector["inputs"], dict), (

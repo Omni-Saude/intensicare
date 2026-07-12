@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 from intensicare.auth.dependencies import get_current_user
 from intensicare.models.user import User
 from intensicare.services.domain_ventilacao import (
-    evaluate_ventilation,
     VentilationResult,
+    evaluate_ventilation,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ventilation"])
@@ -187,12 +187,12 @@ def _build_history(base_entry: dict[str, Any], num_entries: int = 30) -> list[di
         # Small deterministic variation based on position
         # Use a simple pattern: slightly improving over time
         progress = i / max(num_entries - 1, 1)  # 0..1
-        jitter_fio2 = (-0.02 + progress * 0.04)  # FiO2 weaning
-        jitter_peep = (-1.0 + progress * 2.0)
-        jitter_vc = (5.0 - progress * 10.0)
+        jitter_fio2 = -0.02 + progress * 0.04  # FiO2 weaning
+        jitter_peep = -1.0 + progress * 2.0
+        jitter_vc = 5.0 - progress * 10.0
         jitter_fr = int(-2 + progress * 4)
-        jitter_pplat = (-1.5 + progress * 3.0)
-        jitter_pao2 = (3.0 - progress * 6.0)
+        jitter_pplat = -1.5 + progress * 3.0
+        jitter_pao2 = 3.0 - progress * 6.0
 
         entry = {
             "id": base_entry.get("id", 0) + i + 1,
@@ -282,8 +282,7 @@ async def get_patient_ventilation(
     trend_params: dict[str, ParameterTrendSchema] = {}
     for key, pt in t.parameters.items():
         series_points = [
-            SeriesPoint(value=s["value"], collected_at=s["collected_at"])
-            for s in pt.series
+            SeriesPoint(value=s["value"], collected_at=s["collected_at"]) for s in pt.series
         ]
         trend_params[key] = ParameterTrendSchema(
             current=pt.current,
@@ -370,8 +369,10 @@ async def get_patient_ventilation_history(
 
     # Sort newest first
     filtered.sort(
-        key=lambda e: _parse_history_datetime(e.get("collected_at", ""))
-        or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda e: (
+            _parse_history_datetime(e.get("collected_at", ""))
+            or datetime.min.replace(tzinfo=timezone.utc)
+        ),
         reverse=True,
     )
 
