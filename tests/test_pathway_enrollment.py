@@ -195,7 +195,15 @@ class TestEvaluateCriteria:
         assert result.state_changed is True
         assert result.new_state == "alta"
         assert "Avançando" in result.transition_reason
-        assert result.severity == "normal"  # 2/2 met = 100%
+        # Severity is now band-based (gatekeeper G-S2 fix), not the old
+        # met/total ratio — it no longer follows from "2/2 met". Both
+        # criteria were evaluated here with the placeholder value=1 (see
+        # _met()): crit-vent-pf=1 falls in the YAML graded band [0, 100)
+        # -> "critical"; crit-vent-peep=1 fails its ">= 5" threshold ->
+        # "normal". Pathway severity is the max of evaluated criteria ->
+        # "critical". This is independent of the "met" flags driving the
+        # state transition above (Rule 8 only reads "met", never severity).
+        assert result.severity == "critical"
 
         pathways = await get_patient_pathways(db_session, "MPI-ENR-100", status_filter="completed")
         assert len(pathways) == 1
@@ -222,8 +230,15 @@ class TestEvaluateCriteria:
         # new_state stays at the current (unchanged) state when there's no
         # transition — evaluate_criteria only overwrites it on an advance.
         assert result.new_state == "initial"
-        # 1 of 7 met (~14%) -> critical (Rule 10: < 40%).
-        assert result.severity == "critical"
+        # Gatekeeper G-S2 fix: severity is no longer "1 of 7 met (~14%) ->
+        # critical" (the old ratio rule wrongly treated the other 6
+        # never-evaluated criteria as "failed"). Only crit-sep-qsofa was
+        # evaluated (value=1), which falls in the YAML graded band [0, 2)
+        # -> "normal"; the other 6 are PENDING and excluded from the
+        # computation entirely. Pathway severity is "normal" — this is the
+        # exact scenario the bug fix targets (partial evaluation must not
+        # inflate severity).
+        assert result.severity == "normal"
 
     async def test_all_criteria_met_transitions_to_intermediate_state(
         self, db_session: AsyncSession, synced_pathways: TrilhasEngine
@@ -244,7 +259,16 @@ class TestEvaluateCriteria:
 
         assert result.state_changed is True
         assert result.new_state == "confirmacao"
-        assert result.severity == "normal"  # 7/7 met = 100%
+        # Severity is band-based (gatekeeper G-S2 fix), not "7/7 met = 100%".
+        # All 7 criteria were evaluated with the placeholder value=1 (see
+        # _met()); classified against their real YAML bands: qsofa=1 ->
+        # normal, lactato=1 -> normal, pct=1 -> watch, pam=1 -> critical
+        # (PAM 1 mmHg is well under the 65 mmHg band boundary), the two
+        # boolean bundle criteria (culturas/atb) -> urgent (truthy value=1
+        # "fires"), fluid=1 -> critical. Max across evaluated = "critical".
+        # This is independent of the "met" flags driving the transition
+        # above (Rule 8 only reads "met", never severity).
+        assert result.severity == "critical"
 
         pathways = await get_patient_pathways(db_session, "MPI-ENR-102")
         assert len(pathways) == 1
@@ -400,7 +424,12 @@ class TestGetPathwayProgress:
         assert progress0.trend == "none"
         assert progress0.state_history == []
 
-        # 1 of 2 met (50%) -> urgent, no transition yet.
+        # Only crit-vent-pf evaluated so far (value=300), no transition yet.
+        # Gatekeeper G-S2 fix: severity is band-based, not "1 of 2 met (50%)
+        # -> urgent". pf_ratio=300 falls in the YAML graded band [300, +inf)
+        # -> "normal" (the only evaluated criterion; crit-vent-peep is
+        # PENDING and excluded) -> pathway severity "normal" ->
+        # "Dentro das metas" recommendation branch.
         await evaluate_criteria(
             db_session,
             mpi_id="MPI-ENR-301",
@@ -409,10 +438,17 @@ class TestGetPathwayProgress:
         )
         progress1 = await get_pathway_progress(db_session, "MPI-ENR-301", pp_id)
         assert progress1.trend == "none"
-        assert "ATENÇÃO" in progress1.recommendation
+        assert "Dentro das metas" in progress1.recommendation
         assert "Ventilação Mecânica" in progress1.recommendation
 
         # All met -> transitions to terminal 'alta', completing the pathway.
+        # crit-vent-peep=8 satisfies its ">= 5" YAML threshold predicate;
+        # the compiler classifies a met threshold predicate as "urgent"
+        # (same alerting-engine semantics used everywhere else in Trilhas —
+        # reused as-is here, not reinterpreted). Max(normal, urgent) ->
+        # "urgent" -> "ATENÇÃO" recommendation branch, even though the
+        # pathway has just completed (severity reflects the criteria
+        # values, not completion status).
         await evaluate_criteria(
             db_session,
             mpi_id="MPI-ENR-301",
@@ -426,7 +462,7 @@ class TestGetPathwayProgress:
         assert transition["from_state"] == "initial"
         assert transition["to_state"] == "alta"
         assert transition["changed_at"] is not None
-        assert "Dentro das metas" in progress2.recommendation
+        assert "ATENÇÃO" in progress2.recommendation
 
     async def test_progress_unknown_patient_pathway_returns_fallback(
         self, db_session: AsyncSession, synced_pathways: TrilhasEngine
