@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from intensicare.api.clinical_forms import router as clinical_forms_router
 from intensicare.api.reference_ranges import router as reference_ranges_router
