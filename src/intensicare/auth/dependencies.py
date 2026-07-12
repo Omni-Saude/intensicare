@@ -117,9 +117,21 @@ CLINICAL_ROLES = [
 
 
 def _has_role(user: User, *roles: str) -> bool:
-    """Verifica se o usuário é admin ou possui um dos roles especificados."""
-    if user.is_admin:
-        return True
+    """Verifica se o usuário possui um dos roles clínicos especificados.
+
+    Fix RBAC (audit CRITICAL #6): ``is_admin`` NÃO é mais um bypass
+    incondicional para guards clínicos (require_medico, require_enfermeiro,
+    etc.). Um administrador de sistema não é implicitamente médico,
+    enfermeiro, fisioterapeuta, farmacêutico ou nutricionista — essas
+    permissões clínicas dependem do ``user.role`` real. Acesso
+    administrativo (não-clínico) continua garantido por ``require_admin``.
+
+    Levantamento prévio (grep no código): nenhum endpoint/router usa
+    require_medico/require_enfermeiro/require_fisioterapeuta/
+    require_farmacia/require_nutricao como dependência ativa, e nenhum
+    teste existente exercitava o bypass de admin aqui — a remoção é
+    comportamentalmente segura.
+    """
     return user.role in roles
 
 

@@ -11,6 +11,13 @@ Validates pathway YAML definitions against three CI gates:
     For every graded (bands-based) predicate, the bands must partition the
     input domain with no gaps, no overlaps, and no unreachable bands.
     null upper-bound = positive infinity.
+    In addition to the hand-rolled partition check above, Gate B also runs
+    every predicate through the REAL production PredicateCompiler
+    (intensicare.services.trilhas_compiler) — the same code path
+    TrilhasEngine uses at runtime. This catches anything that could drift
+    between this script's reimplementation and the actual compiler,
+    including discontinuous bands and a last band that is closed (has a
+    non-null upper bound) instead of covering to +∞.
 
   Gate C — Facade ≡ Predicate:
     If a predicate declares a `rationale` field, the validator renders the
@@ -33,6 +40,21 @@ import sys
 from pathlib import Path
 
 import yaml
+
+# ---------------------------------------------------------------------------
+# Make the production compiler importable without requiring the caller to
+# set PYTHONPATH — keeps this script standalone-executable exactly as
+# before (`python scripts/validate_alerts.py ...`), per the existing CI
+# workflow invocation (.github/workflows/validate-alerts.yml), while still
+# letting Gate B exercise the REAL PredicateCompiler (see Gate B docstring
+# above).
+# ---------------------------------------------------------------------------
+_REPO_ROOT_FOR_IMPORT = Path(__file__).resolve().parent.parent
+_SRC_DIR = _REPO_ROOT_FOR_IMPORT / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from intensicare.services.trilhas_compiler import PredicateCompiler  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Canonical unit registry (source: scripts/verify_units.py)
@@ -290,6 +312,53 @@ def gate_b_band_partition(defs: list[dict]) -> int:
     return 0
 
 
+def gate_b_real_compilation(defs: list[dict]) -> int:
+    """Validate every predicate compiles for real via PredicateCompiler.
+
+    This complements ``gate_b_band_partition`` (a hand-rolled reimplementation
+    of the partition rules) by invoking the actual production compiler —
+    the same code path TrilhasEngine uses at runtime — against every
+    predicate (threshold, graded, boolean, composite). A discontinuous
+    band, an overlapping band, or a last band that is closed instead of
+    covering to +∞ raises ValueError in the real compiler and fails this
+    gate, exactly as it would fail pathway loading in TrilhasEngine.
+
+    Returns: 0 on pass, 1 on failure.
+    """
+    errors: list[str] = []
+    total_compiled = 0
+    compiler = PredicateCompiler()
+
+    for d in defs:
+        src = d.get("_source_file", "?")
+        criteria_list = d.get("criteria", [])
+        for ci, crit in enumerate(criteria_list):
+            pred = crit.get("predicate", {})
+            if not pred:
+                continue
+            crit_id = crit.get("id", f"criteria[{ci}]")
+            try:
+                compiler.compile(pred)
+                total_compiled += 1
+            except (ValueError, KeyError, TypeError) as exc:
+                errors.append(
+                    f"{src}: criteria[{ci}] ({crit_id}) — predicate failed "
+                    f"REAL compilation via PredicateCompiler: {exc}"
+                )
+
+    if errors:
+        print(f"FAIL [Gate B/compile]: {len(errors)} predicate(s) failed real compilation:")
+        for e in errors:
+            print(f"  - {e}")
+        return 1
+
+    print(
+        f"PASS [Gate B/compile]: {total_compiled} predicate(s) compiled "
+        "successfully via the real PredicateCompiler."
+    )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Gate C: Facade ≡ Predicate
 # ---------------------------------------------------------------------------
@@ -433,6 +502,9 @@ def main() -> int:
 
     if "B" in gates:
         rc = gate_b_band_partition(definitions)
+        exit_code |= rc
+        print()
+        rc = gate_b_real_compilation(definitions)
         exit_code |= rc
         print()
 

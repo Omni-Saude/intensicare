@@ -225,6 +225,10 @@ db-reset: ## Reseta o banco de dados (drop + recreate + migrate)
 db-shell: ## Abre psql no banco de dados (via Docker)
 	$(COMPOSE) exec postgres psql -U intensicare -d intensicare
 
+.PHONY: seed-demo
+seed-demo: ## Semeia pacientes sintéticos de demonstração (MPI-DEMO-001..005)
+	$(VENV)/bin/python scripts/dev/seed_demo.py
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Segurança
 # ═══════════════════════════════════════════════════════════════════════════

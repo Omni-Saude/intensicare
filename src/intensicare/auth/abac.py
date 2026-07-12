@@ -40,6 +40,10 @@ class ClinicalRole(str, Enum):
     ADMIN = "admin"               # Administrador — acesso global (multi-tenant)
     VIEWER = "viewer"             # Visualizador — somente leitura, dashboards
     AUDITOR = "auditor"           # Auditor — somente audit_trail, sem PHI
+    PHYSIOTHERAPIST = "physiotherapist"  # Fisioterapeuta — sem equivalente EN direto;
+                                          # políticas espelham NURSE (ver fix RBAC #6)
+    NUTRITIONIST = "nutritionist"        # Nutricionista — sem equivalente EN direto;
+                                          # políticas espelham NURSE (ver fix RBAC #6)
 
 
 class ResourceType(str, Enum):
@@ -152,6 +156,72 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
     ),
     ABACPolicy(
         role=ClinicalRole.NURSE,
+        resource=ResourceType.DASHBOARD,
+        allowed_actions={Action.READ},
+    ),
+
+    # Physiotherapist: sem equivalente EN na matriz original — políticas
+    # espelham NURSE (leitura/escrita de vitals, leitura de scores/labs).
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.VITALS,
+        allowed_actions={Action.READ, Action.WRITE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.CLINICAL_SCORES,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.LAB_RESULTS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.PATIENT_DEMOGRAPHICS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.ALERTS,
+        allowed_actions={Action.READ, Action.ACKNOWLEDGE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.DASHBOARD,
+        allowed_actions={Action.READ},
+    ),
+
+    # Nutritionist: sem equivalente EN na matriz original — políticas
+    # espelham NURSE (leitura/escrita de vitals, leitura de scores/labs).
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.VITALS,
+        allowed_actions={Action.READ, Action.WRITE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.CLINICAL_SCORES,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.LAB_RESULTS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.PATIENT_DEMOGRAPHICS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.ALERTS,
+        allowed_actions={Action.READ, Action.ACKNOWLEDGE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
         resource=ResourceType.DASHBOARD,
         allowed_actions={Action.READ},
     ),
@@ -380,6 +450,28 @@ async def get_lf_grant_engine() -> _LFGrantEngine:
 
 
 # ---------------------------------------------------------------------------
+# Alinhamento de vocabulário — CLINICAL_ROLES (PT-BR, auth/dependencies.py)
+# → ClinicalRole (EN, ABAC) — fix RBAC audit CRITICAL #6
+# ---------------------------------------------------------------------------
+
+ROLE_ALIASES: dict[str, str] = {
+    # CLINICAL_ROLES em auth/dependencies.py usa vocabulário PT-BR; a matriz
+    # ABAC (ClinicalRole) usa EN. Sem este mapeamento, todo role PT-BR
+    # desconhecido do enum caía silenciosamente em VIEWER (ver evaluate_abac).
+    "admin": ClinicalRole.ADMIN.value,
+    "medico": ClinicalRole.PHYSICIAN.value,
+    "enfermeiro": ClinicalRole.NURSE.value,
+    "farmacia": ClinicalRole.PHARMACIST.value,
+    # fisioterapeuta/nutricao não têm equivalente EN direto na matriz
+    # original — mapeados para roles próprios com políticas espelhando
+    # NURSE (ver _ABAC_POLICY_MATRIX acima).
+    "fisioterapeuta": ClinicalRole.PHYSIOTHERAPIST.value,
+    "nutricao": ClinicalRole.NUTRITIONIST.value,
+    "readonly": ClinicalRole.VIEWER.value,
+}
+
+
+# ---------------------------------------------------------------------------
 # Avaliador ABAC local
 # ---------------------------------------------------------------------------
 
@@ -414,7 +506,8 @@ def evaluate_abac(
     """Avalia se uma ação é permitida pelas políticas ABAC.
 
     Args:
-        role_str: Role clínico do usuário (string; mapeado para ClinicalRole).
+        role_str: Role clínico do usuário (string; PT-BR ou EN — ver
+            ROLE_ALIASES — mapeado para ClinicalRole).
         resource: Tipo de recurso acessado.
         action: Ação solicitada.
         tenant_id: Tenant do usuário autenticado.
@@ -423,10 +516,19 @@ def evaluate_abac(
     Returns:
         True se a ação é permitida, False caso contrário.
     """
+    normalized_role = ROLE_ALIASES.get(role_str, role_str)
     try:
-        role = ClinicalRole(role_str)
+        role = ClinicalRole(normalized_role)
     except ValueError:
-        logger.warning("Unknown clinical role: %r — defaulting to VIEWER", role_str)
+        # Fallback seguro (somente leitura) — mas auditável: role
+        # desconhecido é logado para investigação (dado inconsistente de
+        # usuário/seed, typo, ou vocabulário novo não mapeado em
+        # ROLE_ALIASES).
+        logger.warning(
+            "Unknown clinical role: %r (normalized=%r) — defaulting to VIEWER",
+            role_str,
+            normalized_role,
+        )
         role = ClinicalRole.VIEWER
 
     # Admin tem acesso cross-tenant

@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.auth.dependencies import get_current_tenant_id, require_admin
+from intensicare.auth.dependencies import (
+    CLINICAL_ROLES,
+    get_current_tenant_id,
+    require_admin,
+)
 from intensicare.auth.abac import (
     ABACAccessDenied,
     Action,
@@ -72,6 +76,7 @@ class UserCreate(BaseModel):
     display_name: str | None = Field(None, max_length=255)
     is_admin: bool = False
     is_active: bool = True
+    role: str = "readonly"
 
     @field_validator("username")
     @classmethod
@@ -87,6 +92,15 @@ class UserCreate(BaseModel):
             raise ValueError("Password must be at least 8 characters")
         return v
 
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        if v not in CLINICAL_ROLES:
+            raise ValueError(
+                f"Invalid role '{v}'. Must be one of: {', '.join(CLINICAL_ROLES)}"
+            )
+        return v
+
 
 class UserUpdate(BaseModel):
     """Partial update for a user (role, status, display name)."""
@@ -95,6 +109,16 @@ class UserUpdate(BaseModel):
     is_admin: bool | None = None
     is_active: bool | None = None
     email: str | None = Field(None, max_length=255)
+    role: str | None = None
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str | None) -> str | None:
+        if v is not None and v not in CLINICAL_ROLES:
+            raise ValueError(
+                f"Invalid role '{v}'. Must be one of: {', '.join(CLINICAL_ROLES)}"
+            )
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +200,13 @@ async def list_users(
     current_admin: User = Depends(require_admin),
 ) -> UserListResponse:
     """List all registered users with their roles and statuses (admin-only)."""
-    # ABAC enforcement
+    # ABAC enforcement — usa o role real do usuário autenticado, não um
+    # valor fixo (fix RBAC audit CRITICAL #6). require_admin já garante
+    # is_admin=True; o ABAC valida o role clínico contra a matriz de
+    # permissões de USER.
     tenant_id = await get_current_tenant_id(request)
     require_abac(
-        role_str="admin",
+        role_str=current_admin.role,
         resource=ResourceType.USER,
         action=Action.READ,
         tenant_id=tenant_id,
@@ -207,10 +234,11 @@ async def create_user(
     request: Request = None,  # type: ignore[assignment]  # noqa: ARG001
 ) -> UserOut:
     """Create a new user (admin-only)."""
-    # ABAC enforcement
+    # ABAC enforcement — usa o role real do usuário autenticado, não um
+    # valor fixo (fix RBAC audit CRITICAL #6).
     tenant_id = await get_current_tenant_id(request)
     require_abac(
-        role_str="admin",
+        role_str=current_admin.role,
         resource=ResourceType.USER,
         action=Action.WRITE,
         tenant_id=tenant_id,
@@ -244,6 +272,7 @@ async def create_user(
         display_name=body.display_name or body.username,
         is_admin=body.is_admin,
         is_active=body.is_active,
+        role=body.role,
         created_at=datetime.now(timezone.utc),
     )
     session.add(user)
@@ -257,6 +286,7 @@ async def create_user(
             "display_name": user.display_name,
             "is_admin": user.is_admin,
             "is_active": user.is_active,
+            "role": user.role,
         },
         default=str,
     ).encode()
@@ -288,10 +318,11 @@ async def update_user(
     request: Request = None,  # type: ignore[assignment]  # noqa: ARG001
 ) -> UserOut:
     """Update a user's role, active status, or display name (admin-only)."""
-    # ABAC enforcement
+    # ABAC enforcement — usa o role real do usuário autenticado, não um
+    # valor fixo (fix RBAC audit CRITICAL #6).
     tenant_id = await get_current_tenant_id(request)
     require_abac(
-        role_str="admin",
+        role_str=current_admin.role,
         resource=ResourceType.USER,
         action=Action.WRITE,
         tenant_id=tenant_id,
@@ -308,6 +339,7 @@ async def update_user(
             "display_name": user.display_name,
             "is_admin": user.is_admin,
             "is_active": user.is_active,
+            "role": user.role,
         },
         default=str,
     ).encode()
@@ -325,6 +357,7 @@ async def update_user(
             "display_name": user.display_name,
             "is_admin": user.is_admin,
             "is_active": user.is_active,
+            "role": user.role,
         },
         default=str,
     ).encode()

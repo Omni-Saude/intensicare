@@ -16,16 +16,17 @@ from __future__ import annotations
 
 from typing import Any
 
-MEWS_VERSION = "MEWS-v2.0.0"  # CLINICALLY RATIFIED per RAT-MEWS-SUBBE-2001 (AUDIT-001)
+MEWS_VERSION = "MEWS-v3.0.0"  # RAT-MEWS-SUBBE-2001-R2 (pending clinical sign-off — ver migração)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Published MEWS thresholds (Subbe et al., QJM 2001;94:521-526).
-# Corrected bands per AUDIT-001 (RATIFIED per RAT-MEWS-SUBBE-2001).
-# HR ≤40:2, 41-50:1, RR ≤8:2, Temp ≤35.0:2 — aligned to Subbe 2001 original.
+# Bands realigned to the classic Subbe 2001 table per AUDIT-001 follow-up.
+# RAT-MEWS-SUBBE-2001-R2 (pending clinical sign-off — ver migração):
+# HR <40:2, 40-50:1, RR ≤8:2, Temp <35.0:2, 35.0-38.4:0, ≥38.5:2.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Heart rate (bpm); inclusive upper bound of each band
-MEWS_HR_BRADY_SEVERE_MAX = 40  # <= 40 -> 2
+MEWS_HR_BRADY_SEVERE_MAX = 39  # <= 39 (i.e. < 40) -> 2
 MEWS_HR_BRADY_MODERATE_MAX = 50  # <= 50 -> 1
 MEWS_HR_NORMAL_MAX = 100  # <= 100 -> 0
 MEWS_HR_TACHY_MILD_MAX = 110  # <= 110 -> 1
@@ -43,21 +44,19 @@ MEWS_RR_NORMAL_MAX = 14  # <= 14 -> 0
 MEWS_RR_TACHY_MILD_MAX = 20  # <= 20 -> 1
 MEWS_RR_TACHY_MODERATE_MAX = 29  # <= 29 -> 2, else -> 3
 
-# Temperature (°C); inclusive upper bound of each band
-MEWS_TEMP_HYPOTHERMIA_MAX = 35.0  # <= 35.0 -> 2
-MEWS_TEMP_LOW_MAX = 36.0  # <= 36.0 -> 1
-MEWS_TEMP_NORMAL_MAX = 38.0  # <= 38.0 -> 0
-MEWS_TEMP_MILD_FEVER_MAX = 38.5  # <= 38.5 -> 1, else -> 2
+# Temperature (°C); Subbe 2001 classic 3-band table (RAT-MEWS-SUBBE-2001-R2)
+MEWS_TEMP_HYPOTHERMIA_BELOW = 35.0  # < 35.0 -> 2 (exclusive; 35.0 itself -> 0)
+MEWS_TEMP_NORMAL_MAX = 38.4  # 35.0 <= value <= 38.4 -> 0, else (>= 38.5) -> 2
 
 # Trend analysis requires at least this many consecutive scores
 MEWS_TREND_MIN_SAMPLES = 2
 
 
 def _score_heart_rate(value: int | None) -> dict[str, Any]:
-    """MEWS sub-score para frequência cardíaca (bpm).
+    """MEWS sub-score para frequência cardíaca (bpm) — Subbe 2001.
 
-    ≤40   = 2 (bradicardia severa)
-    41-50 = 1 (bradicardia moderada)
+    <40   = 2 (bradicardia severa)
+    40-50 = 1 (bradicardia moderada)
     51-100 = 0 (normal)
     101-110 = 1 (taquicardia leve)
     111-129 = 2 (taquicardia moderada)
@@ -129,27 +128,21 @@ def _score_respiratory_rate(value: int | None) -> dict[str, Any]:
 
 
 def _score_temperature(value: float | None) -> dict[str, Any]:
-    """MEWS sub-score para temperatura (°C).
+    """MEWS sub-score para temperatura (°C) — Subbe 2001 classic 3-band table.
 
-    ≤35.0      = 2 (hipotermia)
-    35.1-36.0  = 1 (temperatura baixa)
-    36.1-38.0  = 0 (normal)
-    38.1-38.5  = 1 (febre leve)
-    ≥38.6      = 2 (febre)
+    <35.0        = 2 (hipotermia)
+    35.0-38.4    = 0 (normal)
+    ≥38.5        = 2 (febre)
     """
     if value is None:
         return {"temperature": 0, "temperature_status": "missing"}
     # Round to 1 decimal to prevent float boundary edge cases
     # (e.g., 34.9999999999 < 35 causing wrong score).
     value = round(value, 1)
-    if value <= MEWS_TEMP_HYPOTHERMIA_MAX:
+    if value < MEWS_TEMP_HYPOTHERMIA_BELOW:
         pts = 2
-    elif value <= MEWS_TEMP_LOW_MAX:
-        pts = 1
     elif value <= MEWS_TEMP_NORMAL_MAX:
         pts = 0
-    elif value <= MEWS_TEMP_MILD_FEVER_MAX:
-        pts = 1
     else:
         pts = 2
     return {"temperature": pts}
@@ -195,7 +188,7 @@ def calculate_mews(
         Tuple de (score_total, components_dict) onde:
         - score_total: int com a soma dos sub-scores (0-15).
         - components_dict: dict com sub-scores individuais e status.
-          Inclui 'algorithm_version' = 'MEWS-v2.0.0' e 'missing_components' se houver.
+          Inclui 'algorithm_version' = 'MEWS-v3.0.0' e 'missing_components' se houver.
     """
     components: dict[str, Any] = {"algorithm_version": MEWS_VERSION}
 
