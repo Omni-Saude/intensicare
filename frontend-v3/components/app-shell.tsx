@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useConnectionStatus } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
+import { Logo } from '@/components/brand/logo';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -94,10 +95,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-[var(--border-default)]">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
-              IntensiCare
-            </span>
+          <Link href="/" className="flex items-center gap-2" aria-label="IntensiCare — Dashboard">
+            <Logo variant="full" theme="dark" className="h-8 w-auto" />
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
