@@ -101,8 +101,13 @@ def upgrade() -> None:
     # NB: threshold_config's unique constraint (tenant_id, unit, bed_id,
     # score_type) does not by itself dedupe rows where unit/bed_id are both
     # NULL (standard SQL treats NULL <> NULL), so we gate the insert with a
-    # NOT EXISTS check in addition to ON CONFLICT DO NOTHING to guarantee
-    # idempotent re-runs.
+    # NOT EXISTS check. We intentionally do NOT also use ON CONFLICT here:
+    # it requires a unique/exclusion constraint or index exactly matching
+    # (tenant_id, unit, bed_id, score_type) to exist on the target table,
+    # which is not guaranteed on every DB this migration runs against (e.g.
+    # a dev DB created via metadata.create_all without that constraint) —
+    # ON CONFLICT would then raise InvalidColumnReferenceError. The
+    # WHERE NOT EXISTS guard alone is sufficient and portable.
     for row in SEED_ROWS:
         guideline_source = row["guideline_source"].replace("'", "''")
         evidence_doi_sql = (
@@ -129,8 +134,7 @@ def upgrade() -> None:
                       AND unit IS NULL
                       AND bed_id IS NULL
                       AND score_type = '{row["score_type"]}'
-                )
-                ON CONFLICT (tenant_id, unit, bed_id, score_type) DO NOTHING;
+                );
                 """
             )
         )
