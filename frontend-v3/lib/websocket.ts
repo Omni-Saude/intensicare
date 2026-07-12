@@ -3,7 +3,23 @@
 // =============================================================================
 // Single WebSocket connection with channel multiplexing.
 // Automatic fallback to polling when WS fails (CSP, firewall, timeout).
-// JWT handshake: challenge → token → subscribe.
+//
+// Real backend protocol (see src/intensicare/api/v1/ws.py — that file is the
+// spec, not this comment):
+//   Endpoint:  ws(s)://<backend-host>/api/v1/ws?token=<JWT>
+//              A missing/invalid token closes the socket with code 1008.
+//   Client -> Server (JSON), every message re-includes the JWT (per-message
+//   auth, M7/F-09 — tokens are re-validated on every frame, not just at
+//   connect time):
+//     {"action":"subscribe",   "channel":"<event_type>", "token":"<JWT>"}
+//     {"action":"unsubscribe", "channel":"<event_type>", "token":"<JWT>"}
+//     {"action":"pong",        "token":"<JWT>"}
+//   Server -> Client (JSON):
+//     {"type":"ping"}                                          (every 30s)
+//     {"type":"<channel>","data":...,"payload":...,"timestamp":...}
+//     {"type":"error","message":"..."}
+//   There is no handshake/challenge and no "subscribed" ack — the server
+//   just starts forwarding events for channels the client has subscribed to.
 //
 // Usage:
 //   useRealtimeChannel('bed_grid.updated', () => mutateDashboard());
@@ -28,12 +44,16 @@ export type RealtimeChannel =
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'fallback';
 
+// Server -> client envelope. `type` is either a channel name (event), the
+// literal 'ping' (heartbeat), or 'error'. Events carry both `data` and
+// `payload` (same value, `data` kept for backward-compat consumers) plus a
+// `timestamp`. Errors carry `message` instead.
 interface WSMessage {
-  type: 'auth_required' | 'auth' | 'subscribed' | 'event' | 'error' | 'ping' | 'pong';
-  channel?: RealtimeChannel;
-  challenge?: string;
-  token?: string;
-  payload?: Record<string, unknown>;
+  type: string;
+  data?: unknown;
+  payload?: unknown;
+  timestamp?: string;
+  message?: string;
 }
 
 interface ChannelSubscription {
@@ -42,6 +62,30 @@ interface ChannelSubscription {
   filter?: (payload: unknown) => boolean;
   fallbackInterval: number;
   pollTimer: ReturnType<typeof setInterval> | null;
+}
+
+// ── Channel aliasing ──
+// The backend does NOT publish a `pathway.state_changed` channel — pathway
+// transitions are published by PathwayEnrollmentService (Sprint 1) as
+// `pathway.updated` only (see services/pathway_enrollment.py
+// _publish_pathway_updated). Pages in this app still subscribe to
+// `pathway.state_changed` and cannot be edited here, so we alias it
+// transparently: we subscribe to the real backend channel on the wire, and
+// route incoming `pathway.updated` events back out to any local
+// `pathway.state_changed` subscribers too. The payload shape published by
+// the enrollment service (mpi_id, patient_pathway_id, pathway_id,
+// pathway_slug, from_state, to_state, status, severity) is a superset of
+// what a `state_changed` consumer would expect, so this is payload-compatible.
+function toBackendChannel(channel: RealtimeChannel): string {
+  return channel === 'pathway.state_changed' ? 'pathway.updated' : channel;
+}
+
+function localChannelsForBackendChannel(backendChannel: string): RealtimeChannel[] {
+  const result: RealtimeChannel[] = [];
+  subscriptions.forEach((_subs, ch) => {
+    if (toBackendChannel(ch) === backendChannel) result.push(ch);
+  });
+  return result;
 }
 
 // ── Global state (module-level singleton, client-only) ──
@@ -56,17 +100,44 @@ const subscriptions = new Map<RealtimeChannel, ChannelSubscription[]>();
 let lastEvent: Date | null = null;
 const lastEventListeners = new Set<(date: Date | null) => void>();
 
-const WS_URL = typeof window !== 'undefined'
-  ? (process.env.NEXT_PUBLIC_WS_URL || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`)
-  : '';
+// Resolve the WebSocket base URL. lib/api.ts talks to the backend through a
+// relative '/api/v1' path proxied by next.config.ts's rewrites() — but
+// Next.js rewrites cannot reliably proxy a WebSocket upgrade, so the client
+// must connect to the backend directly. We read the same *kind* of explicit,
+// env-driven config lib/api.ts's proxy relies on (NEXT_PUBLIC_WS_URL, see
+// frontend-v3/.env.local — defaults to the dev backend at :8000) rather than
+// trusting window.location.host blindly. Only when that env var is absent do
+// we fall back to same-origin, and even then with the real backend path.
+function resolveWsBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const configured = process.env.NEXT_PUBLIC_WS_URL;
+  if (configured) return configured;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/api/v1/ws`;
+}
 
 const WS_TIMEOUT = 5000;
 
-// ── Heartbeat
-let pingTimer: ReturnType<typeof setInterval> | null = null;
-let pongTimeout: ReturnType<typeof setTimeout> | null = null;
-const PING_INTERVAL = 30_000;
-const PONG_TIMEOUT = 5_000;
+// ── Heartbeat watchdog ──
+// The SERVER pings every 30s and disconnects a client that hasn't answered
+// within HEARTBEAT_INTERVAL + PONG_TIMEOUT (40s, see ws.py). The client's
+// job is just to answer each ping with a pong (see onmessage below); this
+// watchdog is the client-side mirror — if no server ping (or any message)
+// arrives for a while, treat the connection as dead and let the existing
+// reconnect/fallback machinery in ws.onclose take over.
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+const WATCHDOG_TIMEOUT = 45_000; // server heartbeat window (40s) + latency buffer
+
+function resetWatchdog(): void {
+  if (watchdogTimer) clearTimeout(watchdogTimer);
+  watchdogTimer = setTimeout(() => {
+    if (ws) { ws.close(); ws = null; }
+  }, WATCHDOG_TIMEOUT);
+}
+
+function stopWatchdog(): void {
+  if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
+}
 
 // ── Reconnect backoff
 let reconnectAttempt = 0;
@@ -127,29 +198,6 @@ function stopAllPolling() {
   subscriptions.forEach((subs) => subs.forEach(stopPolling));
 }
 
-// ── Heartbeat engine
-
-function startHeartbeat(): void {
-  if (pingTimer) return;
-  pingTimer = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ping' }));
-      pongTimeout = setTimeout(() => {
-        // No pong received — connection is dead
-        if (ws) {
-          ws.close();
-          ws = null;
-        }
-      }, PONG_TIMEOUT);
-    }
-  }, PING_INTERVAL);
-}
-
-function stopHeartbeat(): void {
-  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-  if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
-}
-
 // ── Visibility / online listeners
 
 function setupVisibilityListeners(): void {
@@ -162,7 +210,7 @@ function setupVisibilityListeners(): void {
       if (_connectionStatus === 'connected' && (!ws || ws.readyState !== WebSocket.OPEN)) {
         // Tab became visible but WS is dead — reconnect
         reconnectAttempt = 0;
-        stopHeartbeat();
+        stopWatchdog();
         if (ws) { ws.close(); ws = null; }
         connectWS();
       }
@@ -175,6 +223,16 @@ function setupVisibilityListeners(): void {
       connectWS();
     }
   });
+}
+
+// ── Channel (un)subscribe wire messages ──
+// Every client message must re-include a valid token (per-message auth).
+
+function sendChannelAction(action: 'subscribe' | 'unsubscribe', backendChannel: string): void {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const token = getToken();
+  if (!token) return;
+  ws.send(JSON.stringify({ action, channel: backendChannel, token }));
 }
 
 // ── WebSocket engine (singleton) ──
@@ -191,10 +249,19 @@ function connectWS(): void {
     return;
   }
 
+  const base = resolveWsBaseUrl();
+  if (!base) {
+    setStatus('disconnected');
+    return;
+  }
+
   setStatus('connecting');
 
+  const sep = base.includes('?') ? '&' : '?';
+  const url = `${base}${sep}token=${encodeURIComponent(token)}`;
+
   try {
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(url);
   } catch {
     setStatus('fallback');
     startAllPolling();
@@ -210,48 +277,57 @@ function connectWS(): void {
     startAllPolling();
   }, WS_TIMEOUT);
 
-  ws.onopen = () => clearTimeout(timeoutId);
+  ws.onopen = () => {
+    clearTimeout(timeoutId);
+    reconnectAttempt = 0;
+
+    // No handshake/ack in the real protocol — subscribe immediately for
+    // every channel a consumer has already registered, then declare the
+    // connection live.
+    const backendChannels = new Set<string>();
+    subscriptions.forEach((_subs, ch) => backendChannels.add(toBackendChannel(ch)));
+    backendChannels.forEach((bc) => sendChannelAction('subscribe', bc));
+
+    setStatus('connected');
+    stopAllPolling();
+    resetWatchdog();
+  };
 
   ws.onmessage = (event: MessageEvent) => {
     try {
       const msg: WSMessage = JSON.parse(event.data);
+      resetWatchdog();
 
-      if (msg.type === 'auth_required') {
+      if (msg.type === 'ping') {
+        // Server heartbeat — answer with a pong (re-including the token,
+        // per-message auth) so the server doesn't drop us as stale.
         const token = getToken();
-        if (!token) {
-          ws?.close();
-          ws = null;
-          setStatus('disconnected');
-          return;
+        if (token && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'pong', token }));
         }
-        ws?.send(JSON.stringify({ type: 'auth', token, challenge: msg.challenge || '' }));
         return;
       }
 
-      if (msg.type === 'subscribed') {
-        clearTimeout(timeoutId);
-        reconnectAttempt = 0;
-        setStatus('connected');
-        stopAllPolling();
-        startHeartbeat();
-        return;
-      }
-
-      if (msg.type === 'pong') {
-        if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
-        return;
-      }
-
-      if (msg.type === 'event' && msg.channel && msg.payload !== undefined) {
-        const subs = subscriptions.get(msg.channel);
-        if (subs) {
-          subs.forEach((sub) => {
-            if (!sub.filter || sub.filter(msg.payload)) sub.onMessage(msg.payload);
-          });
+      if (msg.type === 'error') {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[WS] Server error:', msg.message);
         }
-        lastEvent = new Date();
-        lastEventListeners.forEach((fn) => fn(lastEvent));
+        return;
       }
+
+      // Otherwise `type` is the channel name the event was published on.
+      const localChannels = localChannelsForBackendChannel(msg.type);
+      if (localChannels.length === 0) return;
+
+      const eventPayload = msg.payload !== undefined ? msg.payload : msg.data;
+      localChannels.forEach((ch) => {
+        const subs = subscriptions.get(ch);
+        subs?.forEach((sub) => {
+          if (!sub.filter || sub.filter(eventPayload)) sub.onMessage(eventPayload);
+        });
+      });
+      lastEvent = new Date();
+      lastEventListeners.forEach((fn) => fn(lastEvent));
     } catch {
       if (process.env.NODE_ENV === 'development') {
         console.warn('[WS] Malformed message:', typeof event.data === 'string' ? event.data.slice(0, 100) : '(non-string data)');
@@ -261,7 +337,7 @@ function connectWS(): void {
 
   ws.onclose = () => {
     ws = null;
-    stopHeartbeat();
+    stopWatchdog();
     if (_connectionStatus === 'connected' || _connectionStatus === 'connecting') {
       setStatus('fallback');
       startAllPolling();
@@ -280,7 +356,7 @@ function connectWS(): void {
 }
 
 function disconnectWS(): void {
-  stopHeartbeat();
+  stopWatchdog();
   reconnectAttempt = 0;
   intentionallyDisconnected = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -295,12 +371,22 @@ function subscribe(sub: ChannelSubscription): () => void {
 
   if (_connectionStatus === 'disconnected') connectWS();
   if (_connectionStatus === 'fallback') startPolling(sub);
+  if (_connectionStatus === 'connected') sendChannelAction('subscribe', toBackendChannel(sub.channel));
 
   return () => {
     const current = subscriptions.get(sub.channel) || [];
     subscriptions.set(sub.channel, current.filter((s) => s !== sub));
     stopPolling(sub);
     if (subscriptions.get(sub.channel)?.length === 0) subscriptions.delete(sub.channel);
+
+    // Only unsubscribe on the wire once no local channel (including aliases)
+    // still needs this backend channel.
+    const backendChannel = toBackendChannel(sub.channel);
+    const stillNeeded = Array.from(subscriptions.keys()).some(
+      (ch) => toBackendChannel(ch) === backendChannel,
+    );
+    if (!stillNeeded) sendChannelAction('unsubscribe', backendChannel);
+
     if (subscriptions.size === 0) disconnectWS();
   };
 }

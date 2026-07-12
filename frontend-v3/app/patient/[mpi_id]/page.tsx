@@ -13,6 +13,7 @@ import {
   type AlertInfo,
 } from '@/lib/api';
 import { useRealtimeChannel } from '@/lib/websocket';
+import { useSetBreadcrumbLabel } from '@/lib/breadcrumb-context';
 import { PatientHeader } from '@/components/patient/patient-header';
 import { VitalsPanel } from '@/components/patient/vitals-panel';
 import { ScoreTimeline } from '@/components/patient/score-timeline';
@@ -80,6 +81,9 @@ export default function PatientDetailPage() {
   }, { fallbackInterval: 60_000, filter: (p) => !p || (p as Record<string, unknown>).mpi_id === mpiId });
   useRealtimeChannel('alert.raised', () => mutateAlerts(), { fallbackInterval: 60_000 });
   useRealtimeChannel('alert.updated', () => mutateAlerts(), { fallbackInterval: 60_000 });
+
+  // Breadcrumb: show the patient's name instead of the raw MPI ID once loaded.
+  useSetBreadcrumbLabel(mpiId, patient?.patient_name);
 
   // Filter alerts to only those belonging to this patient
   const patientAlerts = (alertsData?.items ?? []).filter(

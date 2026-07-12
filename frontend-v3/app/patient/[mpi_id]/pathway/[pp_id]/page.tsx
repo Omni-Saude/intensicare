@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import { fetchPathwayProgress, type PathwayProgress, type PathwayState } from '@/lib/api';
 import { useRealtimeChannel } from '@/lib/websocket';
+import { useSetBreadcrumbLabel } from '@/lib/breadcrumb-context';
 import { PathwayHeader } from '@/components/pathway/pathway-header';
 import { StateFlow } from '@/components/pathway/state-flow';
 import { CriteriaList } from '@/components/pathway/criteria-list';
@@ -51,6 +52,9 @@ export default function PathwayViewPage() {
     const d = p as Record<string, unknown>;
     return d.mpi_id === mpiId && d.pp_id === ppId;
   }});
+
+  // Breadcrumb: show the pathway's name instead of the raw pp_id once loaded.
+  useSetBreadcrumbLabel(ppIdRaw, progress?.pathway_name);
 
   // ---------- No params ----------
   if (!mpiId || ppId === undefined || isNaN(ppId)) {

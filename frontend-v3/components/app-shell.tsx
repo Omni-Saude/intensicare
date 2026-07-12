@@ -19,6 +19,7 @@ import { useAuth } from '@/lib/auth';
 import { useConnectionStatus } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/brand/logo';
+import { BreadcrumbProvider, useBreadcrumbLabels } from '@/lib/breadcrumb-context';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -27,8 +28,20 @@ const NAV_ITEMS = [
   { href: '/admin', label: 'Admin', icon: Shield },
 ];
 
+// Fixed PT-BR labels for static (non-dynamic) URL segments. Segments not
+// listed here (e.g. IDs) fall back to the title-cased slug, or to a
+// registered label from BreadcrumbContext when available.
+const STATIC_SEGMENT_LABELS: Record<string, string> = {
+  patient: 'Paciente',
+  pathway: 'Trilha',
+  pathways: 'Trilhas',
+  alerts: 'Alertas',
+  admin: 'Admin',
+};
+
 function Breadcrumb() {
   const pathname = usePathname();
+  const { labels } = useBreadcrumbLabels();
   const segments = pathname.split('/').filter(Boolean);
 
   if (segments.length === 0) {
@@ -42,7 +55,9 @@ function Breadcrumb() {
 
   const crumbs = segments.map((seg, i) => {
     const href = '/' + segments.slice(0, i + 1).join('/');
-    const label = seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const fallback =
+      STATIC_SEGMENT_LABELS[seg] ?? seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const label = labels[seg] ?? fallback;
     return { href, label, isLast: i === segments.length - 1 };
   });
 
@@ -83,6 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <BreadcrumbProvider>
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside
@@ -147,7 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => { logout(); setConfirmLogout(false); }}
-                    className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-white font-medium hover:opacity-90 transition-opacity"
+                    className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-[#0a0e14] font-medium hover:opacity-90 transition-opacity"
                     aria-label="Confirmar saída"
                   >
                     Sair
@@ -221,5 +237,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </div>
+    </BreadcrumbProvider>
   );
 }

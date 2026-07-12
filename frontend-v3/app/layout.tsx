@@ -8,6 +8,15 @@ export const metadata: Metadata = {
   description: 'Plataforma de acompanhamento de pacientes críticos',
 };
 
+// Required for the CSP nonce set in middleware.ts to actually reach the
+// HTML: nonces are per-request, but nothing else in this tree calls a
+// dynamic API (cookies()/headers()), so without this Next would statically
+// prerender the shell at build time — before any request/nonce exists —
+// and the RSC bootstrap script would ship without a matching nonce,
+// reproducing the same hydration failure this change fixes. See
+// https://nextjs.org/docs/app/guides/content-security-policy#forcing-dynamic-rendering
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({
   children,
 }: Readonly<{

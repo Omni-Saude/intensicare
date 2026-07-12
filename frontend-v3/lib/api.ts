@@ -119,6 +119,13 @@ export interface PatientBedSummary {
   mews?: number;
   news2?: number;
   severity: SeverityLevel;
+  /**
+   * Highest severity among the patient's active alerts, independent of the
+   * aggregate `severity` field above. Backend may send null when there are
+   * no active alerts. (Dim B/D audit: backend field added alongside the
+   * always-present `severity`.)
+   */
+  highest_alert_severity?: string | null;
   last_vital_at?: string;
   active_pathways?: { slug: string; severity: SeverityLevel }[];
   vitals?: {
@@ -160,11 +167,20 @@ export interface AlertListResponse {
 }
 
 export interface UserInfo {
-  id: string;
+  // Backend UserResponse.id is the numeric DB PK (int). Kept as a union
+  // rather than switching fully to `number` because lib/auth.tsx also
+  // synthesizes a UserInfo client-side by decoding the JWT payload, where
+  // `id` is populated from the `sub` claim (the username, a string).
+  id: number | string;
   name: string;
   email: string;
   role: string;
   is_admin: boolean;
+  // Additive fields present on the backend UserResponse but not always
+  // populated by the JWT-decode fallback in lib/auth.tsx.
+  username?: string;
+  display_name?: string | null;
+  is_active?: boolean;
 }
 
 export interface LoginResponse {
@@ -300,7 +316,55 @@ export async function login(username: string, password: string): Promise<LoginRe
 }
 
 export async function logout(): Promise<void> {
+  const token = getToken();
   clearToken();
+
+  // Best-effort server-side revocation: POST /auth/logout blacklists the
+  // JWT in Redis (see src/intensicare/api/v1/auth.py) so it can no longer
+  // authenticate API requests even if leaked/replayed. VERIFIED (curl):
+  // the backend only exposes this route at POST /auth/logout — it is NOT
+  // mounted under /api/v1/auth/logout, so it currently is NOT reachable
+  // through the Next.js rewrite proxy (next.config.js only forwards
+  // /api/v1/:path*). We still call the conventionally-correct, CSP-safe,
+  // same-origin path here (matching every other endpoint in this file) so
+  // revocation activates automatically once that backend routing gap is
+  // closed, without requiring another frontend change. Until then this
+  // call 404s and is swallowed — it must never block client-side logout.
+  if (token) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Network error or 404 (see note above) — non-fatal, session state
+      // is already cleared client-side.
+    }
+  }
+
+  // KNOWN LIMITATION (audit Dim B/D, verified in auth.py
+  // _build_login_response): the `token` and `access_token` cookies set on
+  // login are HttpOnly + Secure-flagged-off-only-for-dev, so client-side JS
+  // cannot read or delete them — `document.cookie` writes to an HttpOnly
+  // cookie are silently ignored by the browser (they are not thrown, they
+  // just do nothing). The line below is therefore a best-effort no-op
+  // against the current backend cookie config, kept for defense-in-depth
+  // (e.g. if a deployment ever sets these non-HttpOnly) and cleared as
+  // requested by the audit. It does NOT solve the underlying issue: the
+  // Next.js middleware (middleware.ts) only checks for the *presence* of
+  // the `token` cookie, so the browser keeps looking "authenticated" for
+  // page-routing purposes for up to ~30 min (cookie max_age=1800) after
+  // logout, even though the JWT itself is blacklisted server-side (once
+  // the call above is reachable). A full fix is out of this task's 3-file
+  // scope: the backend /auth/logout handler must call
+  // `response.delete_cookie(...)` for both cookies (it currently returns a
+  // plain dict, not a Response with Set-Cookie headers), and must be
+  // reachable at /api/v1/auth/logout (or the rewrite proxy extended) for
+  // this client call to reach it in the first place.
+  if (typeof document !== 'undefined') {
+    document.cookie = 'token=; Max-Age=0; path=/';
+    document.cookie = 'access_token=; Max-Age=0; path=/';
+  }
 }
 
 // ---------------------------------------------------------------------------
