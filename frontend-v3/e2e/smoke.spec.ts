@@ -99,6 +99,7 @@ test.describe('IntensiCare v3 — Smoke Tests', () => {
     // Click 2: active pathway card → pathway detail. Only guaranteed with
     // DEMO-seeded data (dev), not necessarily in CI, so skip gracefully.
     const pathwayCards = page.getByRole('button', { name: /^Trilha / });
+    await expect(pathwayCards.first()).toBeVisible({ timeout: 10_000 }).catch(() => null);
     test.skip((await pathwayCards.count()) === 0, 'patient has no active pathway (DEMO seed data not present)');
 
     await pathwayCards.first().click();

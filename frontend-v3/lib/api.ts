@@ -319,17 +319,12 @@ export async function logout(): Promise<void> {
   const token = getToken();
   clearToken();
 
-  // Best-effort server-side revocation: POST /auth/logout blacklists the
-  // JWT in Redis (see src/intensicare/api/v1/auth.py) so it can no longer
-  // authenticate API requests even if leaked/replayed. VERIFIED (curl):
-  // the backend only exposes this route at POST /auth/logout — it is NOT
-  // mounted under /api/v1/auth/logout, so it currently is NOT reachable
-  // through the Next.js rewrite proxy (next.config.js only forwards
-  // /api/v1/:path*). We still call the conventionally-correct, CSP-safe,
-  // same-origin path here (matching every other endpoint in this file) so
-  // revocation activates automatically once that backend routing gap is
-  // closed, without requiring another frontend change. Until then this
-  // call 404s and is swallowed — it must never block client-side logout.
+  // Best-effort server-side revocation: POST /api/v1/auth/logout blacklists
+  // the JWT in Redis (see src/intensicare/api/v1/auth.py) so it can no longer
+  // authenticate API requests even if leaked/replayed. The backend route is
+  // now mounted and reachable via the Next.js rewrite proxy. If the call fails
+  // (network error), it is non-fatal since client-side session state is already
+  // cleared.
   if (token) {
     try {
       await fetch(`${API_BASE}/auth/logout`, {
@@ -443,10 +438,18 @@ export async function escalateAlert(id: number): Promise<AlertInfo> {
   return request<AlertInfo>(`/alerts/${id}/escalate`, { method: 'POST' });
 }
 
-export async function resolveAlert(id: number, resolution: string): Promise<AlertInfo> {
+// Backend enum — src/intensicare/api/v1/alerts.py ResolveRequest.resolution
+// (`valid_resolutions` set); any other value gets a 422.
+export type AlertResolution = 'true_positive' | 'false_positive' | 'intervention_done';
+
+export async function resolveAlert(
+  id: number,
+  resolution: AlertResolution,
+  note?: string,
+): Promise<AlertInfo> {
   return request<AlertInfo>(`/alerts/${id}/resolve`, {
     method: 'POST',
-    body: JSON.stringify({ resolution }),
+    body: JSON.stringify({ resolution, ...(note?.trim() ? { note: note.trim() } : {}) }),
   });
 }
 
