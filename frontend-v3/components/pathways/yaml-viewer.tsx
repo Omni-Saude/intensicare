@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
@@ -119,15 +119,7 @@ export function YamlViewer({
   isLoading,
   error,
 }: YamlViewerProps) {
-  const [yamlText, setYamlText] = useState<string>('');
-
-  useEffect(() => {
-    if (pathway) {
-      setYamlText(pathwayToYaml(pathway));
-    } else {
-      setYamlText('');
-    }
-  }, [pathway]);
+  const yamlText = useMemo(() => (pathway ? pathwayToYaml(pathway) : ''), [pathway]);
 
   if (isLoading) return <YamlLoading />;
   if (error) return <YamlError message={error} />;
