@@ -213,7 +213,7 @@ def build_incremental_query(
         {where_clause}
         ORDER BY {wm_col} ASC
         LIMIT ?
-    """  # noqa: S608
+    """  # nosec B608  # noqa: S608
     return query.strip(), params
 
 
@@ -252,7 +252,7 @@ def build_domain_query(
         {where_clause}
         ORDER BY {wm_col} ASC
         LIMIT ?
-    """  # noqa: S608
+    """  # nosec B608  # noqa: S608
     return query.strip(), params
 
 
