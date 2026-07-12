@@ -27,6 +27,7 @@ import pytest
 import pytest_asyncio
 import redis
 import redis.asyncio as aioredis
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 
@@ -78,6 +79,23 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        # Índice único parcial de migration 0037 (uq_active_enrollment):
+        # não é replayado por Base.metadata.create_all (é DDL bruto de
+        # alembic, não metadata ORM). Criado aqui, uma única vez por sessão
+        # de teste, para que TestActiveEnrollmentUniqueness (test_pathway_
+        # repository.py) não precise emitir DDL + commit() dentro do
+        # SAVEPOINT de um teste individual — isso evita qualquer risco de
+        # o commit()/rollback() de um teste interagir mal com o protocolo
+        # de isolamento (transação externa + SAVEPOINT) do db_session.
+        await conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_active_enrollment
+                ON patient_pathways (mpi_id, pathway_id)
+                WHERE status = 'active'
+                """
+            )
+        )
         # Seed algorithm_registry com as versões usadas pelos scorers.
         # Sem isso, a FK clinical_score.algorithm_version → algorithm_registry
         # causa IntegrityError em qualquer ingestão de vitals.
@@ -89,6 +107,14 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
         _versions = [
             ("MEWS-v1.0", "MEWS", "1.0.0", "mews"),
             ("MEWS-v2.0.0", "MEWS", "2.0.0", "mews"),
+            # MEWS-v3.0.0 (S1.5 bump): RAT-MEWS-SUBBE-2001-R2 temperature band
+            # realignment (see alembic/versions/0039_activate_mews_v3_0_0.py).
+            # intensicare.services.mews.MEWS_VERSION points at this version, so
+            # every vitals ingestion FK's clinical_score.algorithm_version to it
+            # — without this seed row, test_vitals.py and any fixture that
+            # ingests vitals (e.g. demo_patients) fail with an IntegrityError.
+            # MEWS-v2.0.0 is kept seeded too since other tests still reference it.
+            ("MEWS-v3.0.0", "MEWS", "3.0.0", "mews"),
             ("NEWS2-v1.0", "NEWS2", "1.0.0", "news2"),
             ("SOFA-v1.0", "SOFA", "1.0.0", "sofa"),
             ("SOFA-v2.0.0", "SOFA", "2.0.0", "sofa"),
@@ -282,3 +308,27 @@ async def mock_client(mock_db_session: AsyncMock) -> AsyncGenerator[httpx.AsyncC
 def settings_override() -> object:
     """Retorna settings com valores de teste."""
     return get_settings()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Dados sintéticos de demonstração (scripts/dev/seed_demo.py)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# `scripts/` não é um pacote instalado — para que `from scripts.dev.seed_demo
+# import seed` funcione tanto aqui quanto via `python scripts/dev/seed_demo.py`,
+# o próprio seed_demo.py insere a raiz do repo (e `src/`) em sys.path no import.
+# Nenhum __init__.py foi necessário em scripts/dev/.
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def demo_patients(db_session: AsyncSession):
+    """Semeia os 5 pacientes sintéticos MPI-DEMO-001..005 (vitals + pathways).
+
+    Reutiliza os caminhos de produção (mpi_resolver, ingest_vitals,
+    pathway_enrollment) via scripts/dev/seed_demo.py:seed(). Não comita —
+    roda dentro da transação/SAVEPOINT do teste (db_session), revertida no
+    teardown como qualquer outra escrita de teste.
+    """
+    from scripts.dev.seed_demo import seed
+
+    return await seed(db_session, now=datetime.now(timezone.utc))

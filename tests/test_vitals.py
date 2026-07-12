@@ -547,8 +547,8 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient, user_header
     assert data["news2_risk_category"] is not None
 
     # MEWS and NEWS2 use different algorithms, so scores differ
-    # MEWS: hr=110(1) + sbp=95(1) + rr=24(2) + temp=38.5(1) + avpu=V(1) = 6
-    assert data["mews_score"] == 6
+    # MEWS-v3.0.0 (Subbe 2001): HR 110→1, SBP 95→1, RR 24→2, Temp 38.5→2, AVPU V→1 = 7
+    assert data["mews_score"] == 7
     # NEWS2: rr=24(2) + spo2=92(2) + o2=True(2) + sbp=95(2)
     #        + hr=110(1) + avpu=V(3) + temp=38.5(1) = 13
     assert data["news2_score"] == 13
