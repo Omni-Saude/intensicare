@@ -62,18 +62,26 @@ from intensicare.services.trilhas_compiler import PredicateCompiler  # noqa: E40
 CANONICAL_UNITS: dict[str, set[str]] = {
     "vasopressor": {"mcg/kg/min", "mL/h"},
     "temperature": {"°C", "°F"},
-    "respiratory_rate": {"rpm"},
+    "respiratory_rate": {"rpm", "irpm"},
     "oxygen": {"%", "L/min", "FiO2"},
     "pressure": {"mmHg", "cmH2O", "kPa"},
     "heart_rate": {"bpm"},
     "weight": {"kg", "g", "lb"},
     "lab": {"mg/dL", "mmol/L", "mEq/L", "g/dL", "U/L", "ng/mL", "pg/mL"},
-    "volume": {"mL", "L", "mL/kg"},
-    "time": {"h", "min", "s", "days"},
-    "scoring": {"points", "score"},
+    "volume": {"mL", "L", "mL/kg", "mL/kg/h"},
+    "time": {"h", "min", "s", "days", "dias"},
+    "scoring": {"points", "score", "stage"},
     "ratio": {"", "ratio", "ciclos/min/L", "dimensionless"},
     "nutrition": {"g/kg/dia", "kcal/kg/dia", "episódios/dia"},
     "events": {"episodios/dia", "episódios/dia"},
+    # Continuous/intermittent medication dose-rate units (e.g. haloperidol
+    # mg/dia, dexmedetomidina mcg/kg/h, sedative infusion mg/h) — distinct
+    # from the "vasopressor" bucket above, which is specific to
+    # vasopressor titration units.
+    "dose_rate": {"mg/dia", "mcg/kg/h", "mg/h"},
+    # Bedside positioning angle (e.g. cabeceira elevada / head-of-bed
+    # elevation, in degrees) used by prophylaxis bundle criteria.
+    "position": {"graus"},
 }
 
 ALL_CANONICAL: set[str] = {u for units in CANONICAL_UNITS.values() for u in units}
