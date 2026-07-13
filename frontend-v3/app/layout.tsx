@@ -24,7 +24,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" data-theme="dark" className="dark h-full antialiased">
-      <body className="min-h-full bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          attributes like data-new-gr-c-s-check-loaded/data-gr-ext-installed
+          onto <body> before React hydrates; this is the documented API to
+          silence that specific, harmless attribute-only mismatch (does not
+          suppress mismatches in descendants). */}
+      <body
+        suppressHydrationWarning
+        className="min-h-full bg-[var(--surface-canvas)] text-[var(--text-primary)]"
+      >
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-[var(--surface-overlay)] focus:text-[var(--text-primary)] focus:rounded focus:outline-none focus:ring-2 focus:ring-[var(--severity-watch)]"
