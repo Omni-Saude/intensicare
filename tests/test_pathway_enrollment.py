@@ -16,8 +16,10 @@ Two synced pathways are used, chosen for their different shapes:
     the pathway in one step — exercises the terminal-state/completion path.
   - id=2 "Sepse" (slug "sepse"): 5 states
     (initial -> confirmacao -> tratamento -> estabilizacao -> alta[terminal]),
-    7 criteria. Used where a transition to a non-terminal intermediate state
-    is needed (enrollment stays "active").
+    15 criteria (7 preserved from v3 + 8 added by sepse.yaml v4.0.0's port of
+    domain_sepsis.py's rich alert logic — see tests/test_sepse_yaml_parity.py).
+    Used where a transition to a non-terminal intermediate state is needed
+    (enrollment stays "active").
 """
 
 from __future__ import annotations
@@ -39,6 +41,18 @@ VENTILACAO_ID = 1
 SEPSE_ID = 2
 
 VENTILACAO_CRITERIA = ["crit-vent-pf", "crit-vent-peep"]
+
+# sepse.yaml v4.0.0 (Sprint 3 sepsis governance — fix/sprint-3-sepsis-governance)
+# ported the rich domain_sepsis.py alert logic (SIRS, PCT stewardship, SSC-2021
+# bundle timers) to 8 new declarative criteria alongside the 7 preserved from
+# v3. `evaluate_criteria`'s "all criteria met -> advance state" rule (Rule 8,
+# pathway_enrollment.py) checks ALL of a pathway's criteria_data entries, not
+# just a caller-chosen subset — so SEPSE_CRITERIA must list every criterion in
+# the YAML for `_met(*SEPSE_CRITERIA)` to actually satisfy `all_met` and drive
+# the transition tested below. Adjusted here (not a 2-file-scope violation of
+# the sepsis port itself — this is the pre-existing enrollment suite reacting
+# to the pathway's criteria count changing, exactly as anticipated by the port
+# task's verification step 3).
 SEPSE_CRITERIA = [
     "crit-sep-qsofa",
     "crit-sep-lactato",
@@ -47,6 +61,14 @@ SEPSE_CRITERIA = [
     "crit-sep-culturas",
     "crit-sep-atb",
     "crit-sep-fluid",
+    "crit-sep-screen",
+    "crit-sep-organ",
+    "crit-sep-shock",
+    "crit-sep-bundle-atb-1h",
+    "crit-sep-bundle-reaval-3h",
+    "crit-sep-culturas-antes-atb",
+    "crit-sep-pct-rising",
+    "crit-sep-pct-deesc",
 ]
 
 

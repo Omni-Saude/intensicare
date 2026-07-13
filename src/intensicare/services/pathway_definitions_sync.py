@@ -34,6 +34,7 @@ Failure policy:
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 import logging
 
@@ -94,18 +95,25 @@ async def sync_pathway_definitions(db: AsyncSession, engine: TrilhasEngine) -> S
     for pdef in engine.get_pathways():
         try:
             raw = pdef.to_raw()
-            real_hash = compute_content_hash(raw)
+
+            # Compute hash excluding pathway.content_hash to avoid circular dependency:
+            # the hash must be computed from the definition content itself, not from
+            # a field that records the hash. Strip the sha256: prefix from declared
+            # value for comparison (conventions: computed = raw hex, declared = sha256:<hex>).
+            raw_for_hash = copy.deepcopy(raw)
+            if "pathway" in raw_for_hash:
+                raw_for_hash["pathway"].pop("content_hash", None)
+            real_hash = compute_content_hash(raw_for_hash)
 
             declared_hash = (raw.get("pathway") or {}).get("content_hash") or None
-            if declared_hash and declared_hash != real_hash:
+            normalized_declared = declared_hash.replace("sha256:", "") if declared_hash else None
+
+            if normalized_declared and normalized_declared != real_hash:
                 logger.warning(
                     "Pathway '%s' (id=%d): declared pathway.content_hash (%s) does "
                     "not match the computed content hash (%s) — YAML content_hash "
                     "is stale or a placeholder; persisting the computed hash.",
-                    pdef.slug,
-                    pdef.id,
-                    declared_hash,
-                    real_hash,
+                    pdef.slug, pdef.id, declared_hash, real_hash,
                 )
                 report.hash_mismatches.append(pdef.slug)
 
@@ -134,10 +142,7 @@ async def sync_pathway_definitions(db: AsyncSession, engine: TrilhasEngine) -> S
         except Exception as exc:
             logger.error(
                 "Failed to sync pathway definition '%s' (id=%s): %s",
-                pdef.slug,
-                pdef.id,
-                exc,
-                exc_info=True,
+                pdef.slug, pdef.id, exc, exc_info=True,
             )
             report.failed.append(pdef.slug or str(pdef.id))
 

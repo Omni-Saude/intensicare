@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: IntensiCare Legacy /api (non-versioned) endpoints
+  description: 'Rotas legadas montadas sob `/api` (sem `/v1`): reference-ranges (faixas de referência
+    de sinais vitais para o hook useThreshold do frontend) e clinical-forms (variante legada de submissão
+    de formulários clínicos, distinta de `/api/v1/clinical-forms` já coberto por formularios-clinicos-openapi.yaml).
+    Extraído do openapi.json vivo (routers reference_ranges.py, clinical_forms.py) — achado Dim A: endpoints
+    vivos sem contrato.'
+  version: 1.0.0
+servers:
+- url: /api
+  description: IntensiCare API v1
+paths:
+  /reference-ranges:
+    get:
+      tags:
+      - reference-ranges
+      summary: Get Reference Ranges
+      description: 'Return vital thresholds and severity score bands.
+
+
+        Consumed by the frontend ``useThreshold`` hook.
+
+
+        Tries the database first (ThresholdConfig rows); falls back to
+
+        hardcoded medical-literature defaults when no configs are present.'
+      operationId: get_reference_ranges_api_reference_ranges_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Reference Ranges Api Reference Ranges Get
+      security:
+      - HTTPBearer: []
+  /clinical-forms:
+    post:
+      tags:
+      - clinical-forms
+      summary: Submit a clinical assessment form
+      description: Record a clinical assessment (RASS, CAM-ICU, or BPS/NRS) for a patient.
+      operationId: submit_clinical_form_api_clinical_forms_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClinicalFormSubmission'
+        required: true
+      responses:
+        '201':
+          description: Form recorded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicalFormResponse'
+        '401':
+          description: Not authenticated
+        '422':
+          description: Invalid form_type or malformed payload
+      security:
+      - HTTPBearer: []
+components:
+  schemas:
+    ClinicalFormSubmission:
+      properties:
+        formId:
+          type: string
+          title: Formid
+          description: 'Form type: rass | cam-icu | bps-nrs'
+        mpiId:
+          type: string
+          minLength: 1
+          title: Mpiid
+          description: Patient MPI identifier
+        data:
+          additionalProperties: true
+          type: object
+          title: Data
+          description: Form-specific data payload (e.g., score, note)
+      type: object
+      required:
+      - formId
+      - mpiId
+      title: ClinicalFormSubmission
+      description: 'Request body for submitting a clinical assessment form.
+
+
+        Accepts frontend camelCase field names (formId, mpiId) via validation_alias,
+
+        while keeping backend-native names (form_type, patient_mpi_id) internally.'
+    ClinicalFormResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: UUID of the recorded submission
+        status:
+          type: string
+          title: Status
+          description: Submission status
+          default: recorded
+        recorded_at:
+          type: string
+          format: date-time
+          title: Recorded At
+          description: Timestamp of recording (UTC)
+      type: object
+      required:
+      - id
+      - recorded_at
+      title: ClinicalFormResponse
+      description: Response returned after a clinical form is recorded.

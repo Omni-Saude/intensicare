@@ -80,3 +80,52 @@ Menções: WCAG — badge urgente 2.87:1 e logout 3.51:1 (B, CRITICAL/MAJOR dent
 ---
 
 *Relatórios-fonte: `DIM_A_TRACEABILITY.md` (58), `DIM_B_UX.md` (78), `DIM_C_BACKEND.md` (46), `DIM_D_INTEGRATION.md` (72), `DIM_E_INNOVATION.md` (58). Verificação adversarial: 4/5 claims pivotais confirmados, 1 corrigido em precisão (sepse "código morto" → "inalcançável pela superfície de produto").*
+
+---
+
+# ADENDO — VEREDITO REVISADO PÓS-CORREÇÃO (2026-07-12, mesmo dia)
+
+**Contexto:** os gaps automatizáveis do plano aprovado (M7+M8+M9) foram fechados em 3 sprints
+automatizados (PRs #40, #41, #42 empilhados) executados por ~40 agentes especialistas com gates
+independentes. As dimensões C e D foram **formalmente re-auditadas por agentes novos** com os
+protocolos originais (`DIM_C_REAUDIT.md`, `DIM_D_REAUDIT.md`); A, B e E não foram re-medidas
+(seus scores originais são mantidos no cálculo primário, por conservadorismo).
+
+## Scoring revisado (primário — conservador)
+
+| Dimensão | Original | Revisado | Peso | Ponderado |
+|----------|----------|----------|------|-----------|
+| A — Rastreabilidade | 58 | 58 (não re-medida) | 15% | 8.70 |
+| B — UX e Jornada | 78 | 78 (não re-medida) | 30% | 23.40 |
+| C — Backend | 46 | **80** (re-auditada) | 25% | 20.00 |
+| D — Integração | 72 | **93** (re-auditada) | 20% | 18.60 |
+| E — Inovação | 58 | 58 (não re-medida) | 10% | 5.80 |
+| **TOTAL** | **63.8** | | | **76.5** |
+
+## Veredito revisado: 🟡 **GO-WITH-ISSUES** (76.5, faixa 70–84)
+
+Nota: estimativa secundária ~83 se A/B/E fossem re-medidas (sepse dual resolvida, 82/82 contratos,
+contrastes AA, CSP/hidratação, breadcrumb — gaps dessas dimensões materialmente fechados), ainda
+GO-WITH-ISSUES. O NO-GO original foi revertido por evidência independente, não por decreto.
+
+## O que foi fechado (verificado por re-auditoria/gates independentes)
+- MEWS = Subbe 2001 exata (v3.0.0); critérios RASS/BPS vivos e avaliando paciente real
+- Motor de trilhas persistente em Postgres com restart-survival provado; content-hash real 12/12
+- Sepse declarativa v4 em paridade com o oráculo (30/31 vetores + 1 xfail estrito documentado)
+- WebSocket FUNCTIONAL (evento em ~130ms, 4 camadas alinhadas); CSP nonce → hidratação restaurada
+- RBAC efetivo (role real, 403 limpo, backfill); matriz de endpoints 13 FULL_MATCH / 1 PARTIAL / 0 BROKEN
+- 82/82 endpoints contratados + drift-check no CI; severidade derivada nunca-null; WCAG AA nos pares críticos
+
+## Pendências (donos humanos)
+1. **Sign-off clínico** (bloqueador de produção): MEWS v3 (RAT-MEWS-SUBBE-2001-R2), thresholds 0038,
+   sepse.yaml v4, e validação G1/G2 por intensivista real — nenhuma automação substitui isto.
+2. **Aprovação dos PRs #40→#41→#42** (code-owner review obrigatória pela branch protection).
+3. Dívida documentada fora de escopo: estabilização da suíte de testes no CI (~95 falhas pré-existentes,
+   job restaurado a não-bloqueante com documentação), pipeline CDC/ADT (AWS), camada preditiva (roadmap E),
+   residuais MINOR das re-auditorias (stub ventilacao.yaml, inputs órfãos em 5 pathways, MPI-001 no dashboard).
+
+## Nota de processo (flywheel)
+Gates independentes vetaram 3 vezes (G-S1 poluição de schema; G-S2 severidade inflada + enum; G-S3 rótulo
+ambíguo) — todos os vetos eram reais e nenhum sobreviveu ao ciclo de correção. Dois defeitos foram achados
+por acidente instrumentado: hidratação quebrada por CSP (mascarada desde M8) e boot quebrado mascarado por
+`--reload` stale. Regra nova: gates devem incluir **import fresco do app** (o drift-check do CI já o faz).

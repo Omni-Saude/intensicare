@@ -1,0 +1,258 @@
+openapi: 3.1.0
+info:
+  title: IntensiCare Patients (base) API
+  description: 'Endpoints base de consulta de paciente (detalhe, status legado). `/status` está marcado
+    DEPRECATED no código em favor de `/detail`. Extraído do openapi.json vivo (routers patients.py, dashboard.py)
+    — achado Dim A: endpoint vivo sem contrato.'
+  version: 1.0.0
+servers:
+- url: /api/v1
+  description: IntensiCare API v1
+paths:
+  /patients/{mpi_id}:
+    get:
+      tags:
+      - dashboard
+      summary: Patient detail (alias without /detail suffix)
+      description: Alias for /patients/{mpi_id}/detail. Returns detailed patient data with vitals history
+        (24h), score history, and active alerts.
+      operationId: patient_detail_alias_api_v1_patients__mpi_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: mpi_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Mpi Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /patients/{mpi_id}/detail:
+    get:
+      tags:
+      - dashboard
+      summary: Patient detail view
+      description: Returns detailed patient data with vitals history (24h), score history, and active
+        alerts.
+      operationId: patient_detail_api_v1_patients__mpi_id__detail_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: mpi_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Mpi Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /patients/{mpi_id}/status:
+    get:
+      summary: '[DEPRECATED] Status do paciente'
+      description: ⚠️ DEPRECATED — use GET /api/v1/patients/{mpi_id}/detail instead. Retorna dados detalhados
+        do paciente com histórico de sinais vitais (24h), scores (MEWS/NEWS2) e alertas ativos.
+      operationId: patient_status_api_v1_patients__mpi_id__status_get
+      deprecated: true
+      parameters:
+      - name: mpi_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Mpi Id
+      - name: score_type
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 16
+          description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
+          deprecated: true
+          default: MEWS
+          title: Score Type
+        description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
+        deprecated: true
+      - name: enrich
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
+          deprecated: true
+          default: false
+          title: Enrich
+        description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
+        deprecated: true
+      responses:
+        '200':
+          description: Dados detalhados do paciente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientDetailResponse'
+        '404':
+          description: Paciente não encontrado
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    PatientDetailResponse:
+      properties:
+        mpi_id:
+          type: string
+          title: Mpi Id
+        bed:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Bed
+        patient_name:
+          type: string
+          title: Patient Name
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Unit
+        vitals:
+          items:
+            $ref: '#/components/schemas/VitalRecord'
+          type: array
+          title: Vitals
+        scores:
+          items:
+            $ref: '#/components/schemas/ScoreRecord'
+          type: array
+          title: Scores
+        active_pathways_count:
+          type: integer
+          title: Active Pathways Count
+          default: 0
+      type: object
+      required:
+      - mpi_id
+      - patient_name
+      title: PatientDetailResponse
+      description: 'Detailed patient view with vitals history and scores.
+
+
+        Field names match the frontend contract. Backend-internal names
+
+        (bed_id, display_name) are aliases.
+
+
+        Internal-only fields (vitals_history, mews_history, news2_history,
+
+        active_alerts) are excluded from serialization.'
+    VitalRecord:
+      properties:
+        name:
+          type: string
+          title: Name
+        value:
+          type: number
+          title: Value
+        unit:
+          type: string
+          title: Unit
+        measured_at:
+          type: string
+          title: Measured At
+        severity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+      type: object
+      required:
+      - name
+      - value
+      - unit
+      - measured_at
+      title: VitalRecord
+      description: Single vital sign record — shape expected by frontend.
+    ScoreRecord:
+      properties:
+        name:
+          type: string
+          title: Name
+        value:
+          type: number
+          title: Value
+        measured_at:
+          type: string
+          title: Measured At
+        trend:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Trend
+      type: object
+      required:
+      - name
+      - value
+      - measured_at
+      title: ScoreRecord
+      description: Single score record — shape expected by frontend.

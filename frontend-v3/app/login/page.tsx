@@ -29,8 +29,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--surface-canvas)] px-4">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[var(--surface-canvas)] px-4">
       <div className="w-full max-w-sm">
+        {/* Heading (sr-only) */}
+        <h1 className="sr-only">IntensiCare — Acesso</h1>
+
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <Logo variant="full" theme="dark" className="h-12 w-auto mb-3" />
@@ -88,6 +91,6 @@ export default function LoginPage() {
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

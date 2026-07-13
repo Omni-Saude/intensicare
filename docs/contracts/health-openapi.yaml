@@ -1,0 +1,117 @@
+openapi: 3.1.0
+info:
+  title: IntensiCare Health API
+  description: 'Healthcheck do serviço (liveness/readiness, dependências). Extraído do openapi.json vivo
+    (router health.py) — achado Dim A: endpoint vivo sem contrato.'
+  version: 1.0.0
+servers:
+- url: /api/v1
+  description: IntensiCare API v1
+paths:
+  /health:
+    get:
+      tags:
+      - system
+      summary: Health Check
+      description: 'Full readiness check: PostgreSQL, Redis, ARQ, Athena + staleness matrix.
+
+
+        Returns ``healthy`` when all components are ok.
+
+        Returns ``degraded`` when at least one component is in error.
+
+        Returns ``unhealthy`` when critical components (DB + Redis) are both down.
+
+
+        Uses raw engine connections for DB checks so the endpoint gracefully
+
+        reports ``degraded`` instead of returning 500 when the database is down.'
+      operationId: health_check_api_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  schemas:
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: healthy | degraded | unhealthy
+          default: healthy
+        version:
+          type: string
+          title: Version
+          description: Application version
+          default: 0.1.0
+        environment:
+          type: string
+          title: Environment
+          description: deployment environment
+          default: development
+        checks:
+          additionalProperties:
+            $ref: '#/components/schemas/ComponentCheck'
+          type: object
+          title: Checks
+          description: Per-component readiness checks
+        staleness:
+          additionalProperties:
+            additionalProperties:
+              $ref: '#/components/schemas/StalenessEntry'
+            type: object
+          type: object
+          title: Staleness
+          description: Per-(unit, domain) liveness matrix — most recent score per pair
+        watchdog_last_seen:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Watchdog Last Seen
+          description: ISO-8601 of last external watchdog ping
+      type: object
+      title: HealthResponse
+      description: Full health-check response with readiness + liveness matrix.
+    ComponentCheck:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: ok | error | skipped
+          default: skipped
+        latency_ms:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Latency Ms
+          description: Check latency in milliseconds
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+          description: Error or skip reason
+      type: object
+      title: ComponentCheck
+      description: Status of a single infrastructure component.
+    StalenessEntry:
+      properties:
+        last_score_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Score At
+          description: ISO-8601 timestamp of most recent score
+        minutes_stale:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Minutes Stale
+          description: Minutes since last score (null if never scored)
+      type: object
+      title: StalenessEntry
+      description: Per-domain staleness for a single unit.

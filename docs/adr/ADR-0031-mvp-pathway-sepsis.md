@@ -6,6 +6,11 @@
 **Supersedes:** —  
 **Superseded by:** —  
 
+> [Reconciliado em 2026-07-12] "9 trilhas" era a contagem no momento desta ADR;
+> M7 adicionou 3 trilhas (antimicrobiano, desmame, estabilidade), totalizando
+> **12 trilhas YAML** ativas hoje em `_work/alerts/pathways/`. Ver
+> `docs/audit/fullspectrum/DIM_A_TRACEABILITY.md` §4.4.
+
 ---
 
 ## Contexto

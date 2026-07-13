@@ -142,7 +142,13 @@ async def get_dashboard(
     patients = result.scalars().all()
 
     if not patients:
-        return DashboardResponse(patients=[], total=0, critical_count=0, unit_counts={})
+        return DashboardResponse(
+            patients=[],
+            total=0,
+            critical_count=0,
+            active_alerts_total=0,
+            unit_counts={},
+        )
 
     # Load MEWS/NEWS2 severity-band thresholds once per request (cheap,
     # tenant-global scope) — used below to derive a non-null severity per bed.
@@ -287,6 +293,7 @@ async def get_dashboard(
     # Build response
     bed_summaries = []
     unit_counts: dict[str, int] = {}
+    critical_patient_count = 0
 
     for p in patients:
         mews_data = mews_map.get(p.mpi_id)
@@ -343,6 +350,8 @@ async def get_dashboard(
             news2=news2_score,
             thresholds=bed_severity_thresholds,
         )
+        if derived_severity == SeverityLevel.CRITICAL.value:
+            critical_patient_count += 1
 
         bed_summaries.append(
             PatientBedSummary(
@@ -368,7 +377,8 @@ async def get_dashboard(
     return DashboardResponse(
         patients=bed_summaries,
         total=len(bed_summaries),
-        critical_count=total_alerts,
+        critical_count=critical_patient_count,
+        active_alerts_total=total_alerts,
         unit_counts=unit_counts,
     )
 

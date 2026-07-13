@@ -102,15 +102,24 @@ class PatientBedSummary(BaseModel):
 class DashboardResponse(BaseModel):
     """Dashboard response with list of patient bed summaries.
 
-    Field name critical_count matches frontend contract.
-    Backend-internal name active_alerts_total is an alias.
+    Field name critical_count matches frontend contract (StatsBar renders
+    "N críticos"). It MUST be a count of PATIENTS whose derived bed
+    `severity` (see PatientBedSummary.severity) is "critical" — not a count
+    of active alerts, which can vastly exceed the number of critical
+    patients (e.g. one patient with several active alerts). Backend-internal
+    name critical_patient_count is an alias.
+
+    active_alerts_total is a separate, additive field for the total number
+    of currently-active alerts across all patients. It is NOT rendered by
+    the frontend today; kept for future use / diagnostics.
     """
 
     model_config = {"populate_by_name": True}
 
     patients: list[PatientBedSummary] = Field(default_factory=list)
     total: int = 0
-    active_alerts_total: int = Field(default=0, alias="critical_count")
+    critical_patient_count: int = Field(default=0, alias="critical_count")
+    active_alerts_total: int = 0
     unit_counts: dict[str, int] = Field(default_factory=dict)
 
 
