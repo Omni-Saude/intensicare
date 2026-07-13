@@ -196,7 +196,13 @@ async def acknowledge_alert(
     alert.acknowledged_by = current_user.username
 
     await db.flush()
-    await db.refresh(alert)
+    # Scope the refresh to the columns just mutated. A bare db.refresh(alert)
+    # expires *every* attribute — including the eager-loaded `patient`
+    # relationship (lazy="raise", F-CODE-001) — so the subsequent
+    # _to_alert_response() access to alert.patient blows up with
+    # InvalidRequestError. attribute_names limits expiry to the named
+    # columns, leaving the joinedload'd relationship intact.
+    await db.refresh(alert, attribute_names=["status", "acknowledged_at", "acknowledged_by"])
 
     return _to_alert_response(alert)
 
@@ -257,7 +263,10 @@ async def resolve_alert(
     alert.resolution = request_body.resolution
 
     await db.flush()
-    await db.refresh(alert)
+    # See acknowledge_alert() above — scope the refresh to the mutated
+    # columns so the eager-loaded `patient` relationship (lazy="raise")
+    # survives for _to_alert_response().
+    await db.refresh(alert, attribute_names=["status", "resolved_at", "resolution"])
 
     return _to_alert_response(alert)
 
@@ -308,7 +317,10 @@ async def escalate_alert(
     alert.status = "escalated"
 
     await db.flush()
-    await db.refresh(alert)
+    # See acknowledge_alert() above — scope the refresh to the mutated
+    # column so the eager-loaded `patient` relationship (lazy="raise")
+    # survives for _to_alert_response().
+    await db.refresh(alert, attribute_names=["status"])
 
     return _to_alert_response(alert)
 

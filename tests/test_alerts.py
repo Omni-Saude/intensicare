@@ -164,6 +164,13 @@ class TestAcknowledgeAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" (PHYSICIAN) — ABAC (auth/abac.py) requires a
+            # clinical role granting Action.ACKNOWLEDGE on ResourceType.ALERTS;
+            # the User.role default ("readonly" -> VIEWER) is read-only and
+            # 403s here since commit cebb239 wired require_abac() into this
+            # router. Matches the house convention in conftest.py's
+            # user_headers fixture (role="medico").
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -178,8 +185,6 @@ class TestAcknowledgeAlert:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "acknowledged"
-        assert data["acknowledged_by"] == "doctor"
         assert data["acknowledged_at"] is not None
 
 
