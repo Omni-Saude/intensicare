@@ -16,6 +16,10 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from intensicare.models.vital_sign import VitalSign
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -52,10 +56,14 @@ MSH10_PAYLOAD = {
 
 
 @pytest.mark.asyncio
-async def test_drill_duplicate_replay_msh10(client: AsyncClient):
+async def test_drill_duplicate_replay_msh10(client: AsyncClient, user_headers: dict[str, str]):
     """DRILL-DUPLICATE-REPLAY: envia mesma MSH-10 duas vezes → uma linha."""
     idem_key = "msh10-drill-001"
-    headers = {"X-Idempotency-Key": idem_key}
+    # POST /api/v1/vitals requires get_current_user + require_abac(VITALS,
+    # WRITE) since RBAC wiring (fix RBAC audit CRITICAL #6). user_headers
+    # is role="medico" (PHYSICIAN), which has VITALS WRITE in the ABAC
+    # matrix (auth/abac.py) — same convention as test_vitals.py.
+    headers = {**user_headers, "X-Idempotency-Key": idem_key}
 
     # DRILL: primeira ingestão
     resp1 = await client.post(
@@ -86,11 +94,13 @@ async def test_drill_duplicate_replay_msh10(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_drill_duplicate_replay_msh10_different_payload_same_key(client: AsyncClient):
+async def test_drill_duplicate_replay_msh10_different_payload_same_key(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Mesma chave MSH-10 com payload diferente → retorna o primeiro registro
     (o segundo payload é ignorado por idempotência)."""
     idem_key = "msh10-drill-002"
-    headers = {"X-Idempotency-Key": idem_key}
+    headers = {**user_headers, "X-Idempotency-Key": idem_key}
 
     # DRILL: primeiro payload
     resp1 = await client.post(
@@ -118,11 +128,13 @@ async def test_drill_duplicate_replay_msh10_different_payload_same_key(client: A
 
 
 @pytest.mark.asyncio
-async def test_drill_duplicate_replay_msh10_only_one_row_in_db(client: AsyncClient):
+async def test_drill_duplicate_replay_msh10_only_one_row_in_db(
+    client: AsyncClient, user_headers: dict[str, str], db_session: AsyncSession
+):
     """DRILL-DUPLICATE-REPLAY: verifica que há exatamente 1 linha no banco
     após duas requisições com mesma MSH-10."""
     idem_key = "msh10-drill-003"
-    headers = {"X-Idempotency-Key": idem_key}
+    headers = {**user_headers, "X-Idempotency-Key": idem_key}
     mpi_id = "MPI-MSH10-003"
 
     # DRILL
@@ -141,13 +153,15 @@ async def test_drill_duplicate_replay_msh10_only_one_row_in_db(client: AsyncClie
     )
     assert resp2.status_code == 200
 
-    # Verifica que só existe 1 registro no status do paciente
-    status_resp = await client.get(f"/api/v1/patients/{mpi_id}/status")
-    assert status_resp.status_code == 200
-    status_data = status_resp.json()
-    # O trend deve ter no máximo 1 valor (se só houve 1 ingestão real)
-    assert status_data["latest_vitals"] is not None
-    assert len(status_data["trend"]["values"]) == 1
+    # Verifica que só existe 1 registro na tabela vital_signs para este
+    # mpi_id. GET /api/v1/patients/{mpi_id}/status (DEPRECATED) depende de
+    # um PatientCache pré-existente via get_patient_detail() — a ingestão
+    # de vitals não cria esse cache, então esse endpoint 404 mesmo com a
+    # ingestão bem-sucedida (ver mesma lacuna em test_vitals.py). Consulta
+    # direta ao VitalSign é o contrato real para "quantas linhas existem".
+    result = await db_session.execute(select(VitalSign).where(VitalSign.mpi_id == mpi_id))
+    rows = result.scalars().all()
+    assert len(rows) == 1
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -156,21 +170,24 @@ async def test_drill_duplicate_replay_msh10_only_one_row_in_db(client: AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_drill_duplicate_replay_gold_poll_natural_key(client: AsyncClient):
+async def test_drill_duplicate_replay_gold_poll_natural_key(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """DRILL-DUPLICATE-REPLAY via chave natural Gold-poll.
 
     Sem X-Idempotency-Key, o DB UNIQUE (mpi_id, recorded_at, source_system)
     impede duplicação e retorna o registro existente.
     """
-    # DRILL: primeira ingestão SEM idempotency key
-    resp1 = await client.post("/api/v1/vitals", json=GOLD_POLL_PAYLOAD)
+    # DRILL: primeira ingestão SEM idempotency key (mas com auth — POST
+    # /api/v1/vitals exige get_current_user + require_abac(VITALS, WRITE))
+    resp1 = await client.post("/api/v1/vitals", json=GOLD_POLL_PAYLOAD, headers=user_headers)
     assert resp1.status_code == 201
     data1 = resp1.json()
     vital_id1 = data1["id"]
 
     # DUPLICATE: segunda ingestão com mesmos (mpi_id, recorded_at, source_system)
     # sem idempotency key → o DB UNIQUE constraint bloqueia
-    resp2 = await client.post("/api/v1/vitals", json=GOLD_POLL_PAYLOAD)
+    resp2 = await client.post("/api/v1/vitals", json=GOLD_POLL_PAYLOAD, headers=user_headers)
     # Deve retornar 200 (idempotent replay via DB constraint)
     assert resp2.status_code == 200
     data2 = resp2.json()
@@ -182,13 +199,15 @@ async def test_drill_duplicate_replay_gold_poll_natural_key(client: AsyncClient)
 
 
 @pytest.mark.asyncio
-async def test_gold_poll_natural_key_allows_different_sources(client: AsyncClient):
+async def test_gold_poll_natural_key_allows_different_sources(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Mesmo (mpi_id, recorded_at) de fontes diferentes → dois registros."""
     payload_philips = {**GOLD_POLL_PAYLOAD, "source_system": "philips_monitor"}
     payload_gold = {**GOLD_POLL_PAYLOAD, "source_system": "gold_poll"}
 
-    resp1 = await client.post("/api/v1/vitals", json=payload_philips)
-    resp2 = await client.post("/api/v1/vitals", json=payload_gold)
+    resp1 = await client.post("/api/v1/vitals", json=payload_philips, headers=user_headers)
+    resp2 = await client.post("/api/v1/vitals", json=payload_gold, headers=user_headers)
 
     assert resp1.status_code == 201
     assert resp2.status_code == 201
@@ -196,13 +215,15 @@ async def test_gold_poll_natural_key_allows_different_sources(client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_gold_poll_natural_key_allows_different_timestamps(client: AsyncClient):
+async def test_gold_poll_natural_key_allows_different_timestamps(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Mesmo (mpi_id, source_system) com recorded_at diferente → dois registros."""
     payload1 = {**GOLD_POLL_PAYLOAD, "recorded_at": "2026-07-05T10:00:00Z"}
     payload2 = {**GOLD_POLL_PAYLOAD, "recorded_at": "2026-07-05T10:05:00Z"}
 
-    resp1 = await client.post("/api/v1/vitals", json=payload1)
-    resp2 = await client.post("/api/v1/vitals", json=payload2)
+    resp1 = await client.post("/api/v1/vitals", json=payload1, headers=user_headers)
+    resp2 = await client.post("/api/v1/vitals", json=payload2, headers=user_headers)
 
     assert resp1.status_code == 201
     assert resp2.status_code == 201
@@ -210,7 +231,9 @@ async def test_gold_poll_natural_key_allows_different_timestamps(client: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_gold_poll_natural_key_null_source_system(client: AsyncClient):
+async def test_gold_poll_natural_key_null_source_system(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """source_system=NULL não conflita entre si (comportamento SQL padrão)."""
     payload_sem_source = {
         **GOLD_POLL_PAYLOAD,
@@ -218,8 +241,8 @@ async def test_gold_poll_natural_key_null_source_system(client: AsyncClient):
         "source_system": None,
     }
 
-    resp1 = await client.post("/api/v1/vitals", json=payload_sem_source)
-    resp2 = await client.post("/api/v1/vitals", json=payload_sem_source)
+    resp1 = await client.post("/api/v1/vitals", json=payload_sem_source, headers=user_headers)
+    resp2 = await client.post("/api/v1/vitals", json=payload_sem_source, headers=user_headers)
 
     # NULL != NULL em SQL → ambos criam registros novos (sem UNIQUE conflito)
     assert resp1.status_code == 201
@@ -233,14 +256,16 @@ async def test_gold_poll_natural_key_null_source_system(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_store_and_db_unique_together(client: AsyncClient):
+async def test_idempotency_store_and_db_unique_together(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """IdempotencyStore (MSH-10) atua primeiro; DB UNIQUE é safety net.
 
     Com X-Idempotency-Key, o IdempotencyStore captura antes do DB.
     A mensagem de replay vem da camada de aplicação.
     """
     idem_key = "msh10-plus-natural-key"
-    headers = {"X-Idempotency-Key": idem_key}
+    headers = {**user_headers, "X-Idempotency-Key": idem_key}
     payload = {
         **GOLD_POLL_PAYLOAD,
         "mpi_id": "MPI-DEFENSE-01",
@@ -263,7 +288,9 @@ async def test_idempotency_store_and_db_unique_together(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_gold_poll_natural_key_only_one_row_in_db(client: AsyncClient):
+async def test_gold_poll_natural_key_only_one_row_in_db(
+    client: AsyncClient, user_headers: dict[str, str], db_session: AsyncSession
+):
     """DRILL-DUPLICATE-REPLAY: verifica que Gold-poll natural key resulta
     em exatamente 1 linha no banco."""
     mpi_id = "MPI-GOLD-ONEROW"
@@ -271,16 +298,18 @@ async def test_gold_poll_natural_key_only_one_row_in_db(client: AsyncClient):
     payload = {**GOLD_POLL_PAYLOAD, "mpi_id": mpi_id}
 
     # DRILL
-    resp1 = await client.post("/api/v1/vitals", json=payload)
+    resp1 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp1.status_code == 201
 
     # DUPLICATE (sem idempotency key → depende do DB UNIQUE)
-    resp2 = await client.post("/api/v1/vitals", json=payload)
+    resp2 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert resp2.status_code == 200
 
-    # Verifica que há apenas 1 registro
-    status_resp = await client.get(f"/api/v1/patients/{mpi_id}/status")
-    assert status_resp.status_code == 200
-    status_data = status_resp.json()
-    assert status_data["latest_vitals"] is not None
-    assert len(status_data["trend"]["values"]) == 1
+    # Verifica que há apenas 1 registro na tabela vital_signs. Ver
+    # test_drill_duplicate_replay_msh10_only_one_row_in_db acima — o
+    # endpoint de status (DEPRECATED) exige um PatientCache que a
+    # ingestão de vitals não cria, então uma consulta direta ao VitalSign
+    # é o contrato real para verificar dedup de linhas.
+    result = await db_session.execute(select(VitalSign).where(VitalSign.mpi_id == mpi_id))
+    rows = result.scalars().all()
+    assert len(rows) == 1
