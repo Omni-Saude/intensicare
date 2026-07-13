@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import type { PathwayState, StateTransition } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Check, Lock, Circle } from 'lucide-react';
@@ -69,6 +70,26 @@ const STATUS_STYLES: Record<StateStatus, {
 // ---------------------------------------------------------------------------
 
 export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
+  // RF-021 affordance: the fade-out mask only earns its keep when the pill
+  // track actually overflows its container. Measured on the client only
+  // (SSR/first paint default to `false`, i.e. no fade — clinical state stays
+  // fully legible by default) and re-checked whenever the container is
+  // resized (viewport/breakpoint changes) or the state list itself changes.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const checkOverflow = () => setHasOverflow(el.scrollWidth > el.clientWidth);
+    checkOverflow();
+
+    const observer = new ResizeObserver(checkOverflow);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [states]);
+
   if (!states || states.length === 0) {
     return (
       <div
@@ -99,7 +120,11 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
         focus-only theater; this gives it both a purpose and a name.
       */}
       <div
-        className="overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] overflow-fade-gradient"
+        ref={scrollRef}
+        className={cn(
+          'overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)]',
+          hasOverflow && 'overflow-fade-gradient',
+        )}
         tabIndex={0}
         role="region"
         aria-label="Estados da trilha — role horizontalmente para ver todos"
