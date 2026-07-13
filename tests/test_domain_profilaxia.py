@@ -27,7 +27,6 @@ from intensicare.services.domain_profilaxia import (
     get_bundle_catalog,
 )
 
-
 # ===========================================================================
 # BUNDLE_CATALOG constant
 # ===========================================================================
@@ -304,8 +303,7 @@ class TestEvaluateAllBundles:
         bundle_inputs = {}
         for bid in ("lamgd", "tev", "hiperglicemia", "mobilizacao"):
             bundle_inputs[bid] = [
-                {"id": c["id"], "met": True}
-                for c in BUNDLE_CATALOG[bid]["criteria"]
+                {"id": c["id"], "met": True} for c in BUNDLE_CATALOG[bid]["criteria"]
             ]
         # dispositivos stays default (all na)
         result = evaluate_all_bundles(bundle_inputs)
@@ -332,8 +330,7 @@ class TestEvaluateAllBundles:
         bundle_inputs = {}
         for bid in ("lamgd", "tev", "hiperglicemia", "mobilizacao"):
             bundle_inputs[bid] = [
-                {"id": c["id"], "met": False}
-                for c in BUNDLE_CATALOG[bid]["criteria"]
+                {"id": c["id"], "met": False} for c in BUNDLE_CATALOG[bid]["criteria"]
             ]
         # For dispositivos, force na=False too (otherwise it's "na", not "pending")
         bundle_inputs["dispositivos"] = [
@@ -351,10 +348,7 @@ class TestEvaluateAllBundles:
     def test_mixed_complete_and_pending_partial(self):
         """Some bundles complete, some pending → partial."""
         bundle_inputs = {
-            "lamgd": [
-                {"id": c["id"], "met": True}
-                for c in BUNDLE_CATALOG["lamgd"]["criteria"]
-            ],
+            "lamgd": [{"id": c["id"], "met": True} for c in BUNDLE_CATALOG["lamgd"]["criteria"]],
         }
         result = evaluate_all_bundles(bundle_inputs)
         assert result.overall_status == "partial"
@@ -448,7 +442,7 @@ class TestComputeScoreAndStatus:
             CriterionResult(id="b", label="B", met=False),
             CriterionResult(id="c", label="C", met=False),
         ]
-        score, status = compute_score_and_status(criteria)
+        score, _status = compute_score_and_status(criteria)
         assert score == 33
 
     def test_rounding_up(self):
@@ -458,7 +452,7 @@ class TestComputeScoreAndStatus:
             CriterionResult(id="b", label="B", met=True),
             CriterionResult(id="c", label="C", met=False),
         ]
-        score, status = compute_score_and_status(criteria)
+        score, _status = compute_score_and_status(criteria)
         assert score == 67
 
     def test_mixed_na_with_met(self):

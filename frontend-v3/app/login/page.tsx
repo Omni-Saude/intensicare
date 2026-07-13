@@ -3,7 +3,7 @@
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Activity } from 'lucide-react';
+import { Logo, TAGLINE } from '@/components/brand/logo';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -33,12 +33,9 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-[var(--surface-overlay)] border border-[var(--border-default)] mb-4">
-            <Activity className="h-7 w-7 text-[var(--severity-normal)]" />
-          </div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">IntensiCare</h1>
+          <Logo variant="full" theme="dark" className="h-12 w-auto mb-3" />
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Plataforma de acompanhamento intensivo
+            {TAGLINE}
           </p>
         </div>
 

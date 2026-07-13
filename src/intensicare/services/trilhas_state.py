@@ -31,12 +31,24 @@ Contains:
 
 from __future__ import annotations
 
-import logging
-import warnings
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+import logging
+from typing import TYPE_CHECKING, Any, TypedDict
+import warnings
 
 from intensicare.services.trilhas_definitions import _PATHWAY_BY_ID, _ensure_lookups
+
+if TYPE_CHECKING:
+    # domain_trilhas_engine imports from this module at runtime (see module
+    # docstring), so this back-reference must stay TYPE_CHECKING-only to
+    # avoid a circular import. The functions below import these lazily at
+    # call time for the same reason; this satisfies static analysis of the
+    # quoted return-type annotations.
+    from intensicare.services.domain_trilhas_engine import (
+        CriteriaEvaluationResult,
+        PathwayEnrollmentResult,
+        PathwayProgressResult,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +113,7 @@ class PathwayStore:
 
     def __init__(self) -> None:
         warnings.warn(
-            "PathwayStore is deprecated. Use TrilhasEngine instead. "
-            "See ADR-0020.",
+            "PathwayStore is deprecated. Use TrilhasEngine instead. See ADR-0020.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -169,6 +180,7 @@ def enroll_patient(
 
     if store is None:
         from intensicare.services.domain_trilhas_engine import _default_store
+
         store = _default_store
 
     _ensure_lookups()
@@ -205,7 +217,6 @@ def enroll_patient(
 
     # Build criteria_data from pathway criteria definitions + optional initial_criteria
     criteria_data: list[dict[str, Any]] = []
-    pathway_criteria_map: dict[str, dict[str, Any]] = {c["id"]: c for c in pathway["criteria"]}
     initial_map: dict[str, dict[str, Any]] = {}
     if initial_criteria:
         initial_map = {ic["id"]: ic for ic in initial_criteria}
@@ -213,13 +224,17 @@ def enroll_patient(
     for crit_def in pathway["criteria"]:
         cid = crit_def["id"]
         initial = initial_map.get(cid, {})
-        criteria_data.append({
-            "id": cid,
-            "name": crit_def["name"],
-            "met": initial.get("met", False),
-            "value": initial.get("value"),
-            "evaluated_at": enrolled_at_str if (initial.get("met") is not None or initial.get("value")) else None,
-        })
+        criteria_data.append(
+            {
+                "id": cid,
+                "name": crit_def["name"],
+                "met": initial.get("met", False),
+                "value": initial.get("value"),
+                "evaluated_at": enrolled_at_str
+                if (initial.get("met") is not None or initial.get("value"))
+                else None,
+            }
+        )
 
     # Assign auto-increment ID
     pp_id = store._next_pp_id
@@ -250,7 +265,10 @@ def enroll_patient(
 
     logger.info(
         "Patient %s enrolled in pathway %s (%s), pp_id=%d",
-        mpi_id, pathway["name"], pathway["slug"], pp_id,
+        mpi_id,
+        pathway["name"],
+        pathway["slug"],
+        pp_id,
     )
 
     return PathwayEnrollmentResult(
@@ -297,14 +315,15 @@ def evaluate_criteria(
 
     if store is None:
         from intensicare.services.domain_trilhas_engine import _default_store
+
         store = _default_store
 
     _ensure_lookups()
 
     # Find the enrollment
     enrollment: PatientPathwayDict | None = None
-    for pid, pathways in store._patient_pathway_store.items():
-        for pw_id, pp in pathways.items():
+    for _pid, pathways in store._patient_pathway_store.items():
+        for _pw_id, pp in pathways.items():
             if pp["id"] == patient_pathway_id:
                 if pp["mpi_id"] != mpi_id:
                     # This shouldn't happen but guard
@@ -406,12 +425,17 @@ def evaluate_criteria(
                     enrollment["completed_at"] = now_str
                     logger.info(
                         "Patient %s completed pathway %s (pp_id=%d)",
-                        mpi_id, pathway["name"], patient_pathway_id,
+                        mpi_id,
+                        pathway["name"],
+                        patient_pathway_id,
                     )
 
                 logger.info(
                     "State transition for pp_id=%d: %s -> %s (%s)",
-                    patient_pathway_id, current_state_id, new_state, next_state_def["name"],
+                    patient_pathway_id,
+                    current_state_id,
+                    new_state,
+                    next_state_def["name"],
                 )
 
     # ── Rule 10: Severity determination ──
@@ -455,6 +479,7 @@ def get_patient_pathways(
     """
     if store is None:
         from intensicare.services.domain_trilhas_engine import _default_store
+
         store = _default_store
 
     _ensure_lookups()
@@ -465,24 +490,28 @@ def get_patient_pathways(
         if status_filter != "all" and pp.get("status") != status_filter:
             continue
         pathway = _PATHWAY_BY_ID.get(pathway_id)
-        results.append({
-            "id": pp["id"],
-            "mpi_id": pp["mpi_id"],
-            "encounter_id": pp.get("encounter_id", ""),
-            "bed_id": pp.get("bed_id"),
-            "unit": pp.get("unit"),
-            "pathway_id": pp["pathway_id"],
-            "pathway_name": pp.get("pathway_name", pathway["name"] if pathway else "Desconhecido"),
-            "pathway_slug": pp.get("pathway_slug", pathway["slug"] if pathway else ""),
-            "current_state": pp["current_state"],
-            "criteria_data": [dict(c) for c in pp.get("criteria_data", [])],
-            "status": pp["status"],
-            "severity": pp.get("severity", "normal"),
-            "enrolled_at": pp["enrolled_at"],
-            "enrolled_by": pp.get("enrolled_by", ""),
-            "completed_at": pp.get("completed_at"),
-            "updated_at": pp.get("updated_at"),
-        })
+        results.append(
+            {
+                "id": pp["id"],
+                "mpi_id": pp["mpi_id"],
+                "encounter_id": pp.get("encounter_id", ""),
+                "bed_id": pp.get("bed_id"),
+                "unit": pp.get("unit"),
+                "pathway_id": pp["pathway_id"],
+                "pathway_name": pp.get(
+                    "pathway_name", pathway["name"] if pathway else "Desconhecido"
+                ),
+                "pathway_slug": pp.get("pathway_slug", pathway["slug"] if pathway else ""),
+                "current_state": pp["current_state"],
+                "criteria_data": [dict(c) for c in pp.get("criteria_data", [])],
+                "status": pp["status"],
+                "severity": pp.get("severity", "normal"),
+                "enrolled_at": pp["enrolled_at"],
+                "enrolled_by": pp.get("enrolled_by", ""),
+                "completed_at": pp.get("completed_at"),
+                "updated_at": pp.get("updated_at"),
+            }
+        )
     return results
 
 
@@ -510,6 +539,7 @@ def get_pathway_progress(
 
     if store is None:
         from intensicare.services.domain_trilhas_engine import _default_store
+
         store = _default_store
 
     _ensure_lookups()
@@ -517,7 +547,7 @@ def get_pathway_progress(
     # Find the enrollment
     enrollment: PatientPathwayDict | None = None
     pathway: dict[str, Any] | None = None
-    for pid, pathways in store._patient_pathway_store.items():
+    for _pid, pathways in store._patient_pathway_store.items():
         for pw_id, pp in pathways.items():
             if pp["id"] == patient_pathway_id and pp["mpi_id"] == mpi_id:
                 enrollment = pp
@@ -541,8 +571,9 @@ def get_pathway_progress(
             recommendation="Inscrição não localizada. Verifique o ID do pathway.",
         )
 
-    pathway_name = enrollment.get("pathway_name",
-        pathway.get("name", "Desconhecido") if pathway else "Desconhecido")
+    pathway_name = enrollment.get(
+        "pathway_name", pathway.get("name", "Desconhecido") if pathway else "Desconhecido"
+    )
 
     # ── Rule 14: Criteria summary ──
     criteria_data: list[dict[str, Any]] = enrollment.get("criteria_data", [])
@@ -563,7 +594,9 @@ def get_pathway_progress(
     trend = _determine_trend(history)
 
     # Last evaluation timestamp
-    evaluated_times: list[str] = [str(c["evaluated_at"]) for c in criteria_data if c.get("evaluated_at")]
+    evaluated_times: list[str] = [
+        str(c["evaluated_at"]) for c in criteria_data if c.get("evaluated_at")
+    ]
     last_evaluated_at = max(evaluated_times) if evaluated_times else ""
 
     # Current state
@@ -618,12 +651,11 @@ def _determine_severity(met_count: int, total_count: int) -> str:
     ratio = met_count / total_count
     if ratio >= 0.80:
         return "normal"
-    elif ratio >= 0.60:
+    if ratio >= 0.60:
         return "watch"
-    elif ratio >= 0.40:
+    if ratio >= 0.40:
         return "urgent"
-    else:
-        return "critical"
+    return "critical"
 
 
 def _determine_trend(history: list[dict[str, Any]]) -> str:
@@ -647,9 +679,6 @@ def _determine_trend(history: list[dict[str, Any]]) -> str:
     if not history:
         return "none"
 
-    # Get the most recent transitions (last 3)
-    recent = history[-3:]
-
     # Count forward vs backward transitions
     # In this engine, all transitions are forward (Rule 2), but we check by
     # looking at the state order in the pathway definition.
@@ -663,7 +692,6 @@ def _determine_trend(history: list[dict[str, Any]]) -> str:
     # Stable = no recent transitions in last evaluation window
     # We use a simple heuristic: if last transition was within reasonable timeframe
 
-    last = history[-1]
     # If there are transitions, at minimum it's "stable"
     # If the last transition moved toward a terminal/higher state, "improving"
     trend = "stable"
@@ -713,26 +741,26 @@ def _build_recommendation(
                 "Verificar PEEP, driving pressure e relação P/F. Considerar manobras de recrutamento alveolar "
                 "e posição prona se P/F < 150. Acionar fisioterapia respiratória."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios parcialmente atendidos (40-59%). Ajustar parâmetros do ventilador nas próximas 6h. "
                 "Reavaliar PEEP ideal e considerar gasometria de controle. Manter cabeceira elevada 30-45°."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Maioria dos critérios atendidos (60-79%). Manter parâmetros protetores e monitorizar "
                 "tendência da mecânica pulmonar a cada 12h. Avaliar diariamente prontidão para desmame."
             )
-        else:  # normal
-            return (
-                f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-                "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
-                "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
-            )
+        # normal
+        return (
+            f"✓ Dentro das metas — {pathway_name} ({state_name}): "
+            "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
+            "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
+        )
 
-    elif pathway_name == "Sepse":
+    if pathway_name == "Sepse":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
@@ -740,29 +768,29 @@ def _build_recommendation(
                 "Verificar: antibiótico administrado? Culturas coletadas? Ressuscitação volêmica iniciada? "
                 "Lactato >4 mmol/L requer reavaliação em 2-4h. Considerar acesso central e droga vasoativa."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios do bundle de sepse incompletos (40-59%). Completar bundle da 1ª hora: "
                 "coletar culturas, administrar antibiótico, iniciar cristaloide 30 mL/kg. "
                 "Reavaliar lactato em 2-4h."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Bundle de sepse parcialmente completo (60-79%). Verificar itens pendentes e "
                 "reavaliar resposta hemodinâmica. Monitorizar clearance de lactato a cada 6h. "
                 "Avaliar descalonamento antimicrobiano em 48-72h."
             )
-        else:  # normal
-            return (
-                f"✓ Resposta adequada — {pathway_name} ({state_name}): "
-                "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
-                "Manter monitorização e avaliar transição para via oral de antibióticos. "
-                "Reavaliar culturas e possibilidade de descalonamento."
-            )
+        # normal
+        return (
+            f"✓ Resposta adequada — {pathway_name} ({state_name}): "
+            "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
+            "Manter monitorização e avaliar transição para via oral de antibióticos. "
+            "Reavaliar culturas e possibilidade de descalonamento."
+        )
 
-    elif pathway_name == "Desmame":
+    if pathway_name == "Desmame":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
@@ -770,29 +798,29 @@ def _build_recommendation(
                 "Otimizar parâmetros ventilatórios, corrigir distúrbios metabólicos e eletrolíticos. "
                 "Reavaliar em 24h. Manter ventilação mecânica com parâmetros protetores."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios de prontidão para desmame parcialmente atendidos (40-59%). "
                 "Reavaliar força muscular respiratória (NIF) e drive respiratório (RSBI). "
                 "Considerar TRE (Teste de Respiração Espontânea) se Glasgow ≥11 e tosse eficaz."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Maioria dos critérios atendidos (60-79%). Paciente próximo da prontidão para TRE. "
                 "Verificar critérios pendentes e programar teste de respiração espontânea nas próximas 12-24h. "
                 "Manter sedação mínima (RASS -1 a 0)."
             )
-        else:  # normal
-            return (
-                f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
-                "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
-                "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
-                "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
-            )
+        # normal
+        return (
+            f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
+            "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
+            "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
+            "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
+        )
 
-    elif pathway_name == "Nutrição Enteral":
+    if pathway_name == "Nutrição Enteral":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
@@ -801,27 +829,27 @@ def _build_recommendation(
                 "Investigar causas de intolerância (íleo, infecção, isquemia mesentérica). "
                 "Acionar equipe de terapia nutricional."
             )
-        elif severity == "urgent":
+        if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
                 "Critérios nutricionais parcialmente atendidos (40-59%). Aporte calórico-proteico abaixo da meta. "
                 "Avaliar resíduo gástrico e considerar procinético. Ajustar velocidade de infusão e "
                 "concentração da fórmula. Reavaliar em 24h."
             )
-        elif severity == "watch":
+        if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
                 "Maioria dos critérios atendidos (60-79%). Progredir dieta conforme protocolo, "
                 "atingindo meta calórica em até 72h. Monitorizar resíduo gástrico a cada 6h e "
                 "sinais de intolerância. Manter cabeceira elevada."
             )
-        else:  # normal
-            return (
-                f"✓ Meta nutricional — {pathway_name} ({state_name}): "
-                "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
-                "Avaliar transição para dieta via oral conforme melhora clínica. "
-                "Manter monitorização de tolerância e balanço nitrogenado semanal."
-            )
+        # normal
+        return (
+            f"✓ Meta nutricional — {pathway_name} ({state_name}): "
+            "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
+            "Avaliar transição para dieta via oral conforme melhora clínica. "
+            "Manter monitorização de tolerância e balanço nitrogenado semanal."
+        )
 
     # Generic fallback recommendation
     if severity == "critical":
@@ -830,18 +858,17 @@ def _build_recommendation(
             "Menos de 40% dos critérios clínicos atendidos. Requer intervenção imediata. "
             "Reavaliar todos os parâmetros e acionar equipe multidisciplinar."
         )
-    elif severity == "urgent":
+    if severity == "urgent":
         return (
             f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
             "Critérios parcialmente atendidos (40-59%). Priorizar itens pendentes e reavaliar em 6-12h."
         )
-    elif severity == "watch":
+    if severity == "watch":
         return (
             f"Acompanhar — {pathway_name} ({state_name}): "
             "Maioria dos critérios atendidos (60-79%). Verificar pendências e manter monitorização programada."
         )
-    else:
-        return (
-            f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
-        )
+    return (
+        f"✓ Dentro das metas — {pathway_name} ({state_name}): "
+        "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
+    )

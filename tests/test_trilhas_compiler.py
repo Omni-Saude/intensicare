@@ -13,28 +13,24 @@ Covers:
 from __future__ import annotations
 
 import ast
-import operator
 import textwrap
-from typing import Any
 
 import pytest
 
 from intensicare.services.trilhas_compiler import (
     ASTNode,
-    Band,
     BooleanNode,
     CompiledPredicate,
     CompositeNode,
-    EvaluationResult,
     GradedNode,
     PredicateCompiler,
     ThresholdNode,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def compiler() -> PredicateCompiler:
@@ -61,6 +57,7 @@ def patient_data() -> dict:
 # =============================================================================
 # Threshold Predicate Tests
 # =============================================================================
+
 
 class TestThresholdCompilation:
     """Compilation of threshold predicates."""
@@ -259,6 +256,7 @@ class TestThresholdEvaluation:
 # Graded Predicate Tests
 # =============================================================================
 
+
 class TestGradedCompilation:
     """Compilation of graded predicates with band validation."""
 
@@ -315,7 +313,7 @@ class TestGradedCompilation:
                 {"range": [101, None], "severity": "normal", "score": 0},  # gap at 100-101
             ],
         }
-        with pytest.raises(ValueError, match="gap|overlap"):
+        with pytest.raises(ValueError, match=r"gap|overlap"):
             compiler.compile(pred)
 
     def test_overlap_between_bands_raises(self, compiler: PredicateCompiler) -> None:
@@ -329,7 +327,7 @@ class TestGradedCompilation:
                 {"range": [100, None], "severity": "normal", "score": 0},  # overlap 100-150
             ],
         }
-        with pytest.raises(ValueError, match="gap|overlap"):
+        with pytest.raises(ValueError, match=r"gap|overlap"):
             compiler.compile(pred)
 
     def test_last_band_not_null_raises(self, compiler: PredicateCompiler) -> None:
@@ -502,6 +500,7 @@ class TestGradedEvaluation:
 # Boolean Predicate Tests
 # =============================================================================
 
+
 class TestBooleanCompilation:
     """Compilation of boolean predicates."""
 
@@ -571,6 +570,7 @@ class TestBooleanEvaluation:
 # Composite Predicate Tests
 # =============================================================================
 
+
 class TestCompositeCompilation:
     """Compilation of composite predicates."""
 
@@ -604,7 +604,13 @@ class TestCompositeCompilation:
             "combinator": "OR",
             "sub_predicates": [
                 {"type": "threshold", "input": "spo2", "operator": "<", "value": 92, "unit": "%"},
-                {"type": "threshold", "input": "heart_rate", "operator": ">", "value": 120, "unit": "bpm"},
+                {
+                    "type": "threshold",
+                    "input": "heart_rate",
+                    "operator": ">",
+                    "value": 120,
+                    "unit": "bpm",
+                },
             ],
         }
         compiled = compiler.compile(pred)
@@ -643,10 +649,22 @@ class TestCompositeCompilation:
                     "combinator": "AND",
                     "sub_predicates": [
                         {"type": "boolean", "input": "fever"},
-                        {"type": "threshold", "input": "wbc", "operator": ">", "value": 12000, "unit": "/mm3"},
+                        {
+                            "type": "threshold",
+                            "input": "wbc",
+                            "operator": ">",
+                            "value": 12000,
+                            "unit": "/mm3",
+                        },
                     ],
                 },
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 4, "unit": "mmol/L"},
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 4,
+                    "unit": "mmol/L",
+                },
             ],
         }
         compiled = compiler.compile(pred)
@@ -667,7 +685,13 @@ class TestCompositeEvaluation:
             "type": "composite",
             "combinator": "AND",
             "sub_predicates": [
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 2, "unit": "mmol/L"},
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 2,
+                    "unit": "mmol/L",
+                },
                 {"type": "boolean", "input": "suspected_infection"},
             ],
         }
@@ -683,7 +707,13 @@ class TestCompositeEvaluation:
             "type": "composite",
             "combinator": "AND",
             "sub_predicates": [
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 2, "unit": "mmol/L"},
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 2,
+                    "unit": "mmol/L",
+                },
                 {"type": "boolean", "input": "antibiotico_1h"},  # False
             ],
         }
@@ -697,7 +727,13 @@ class TestCompositeEvaluation:
             "type": "composite",
             "combinator": "OR",
             "sub_predicates": [
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 10, "unit": "mmol/L"},  # False
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 10,
+                    "unit": "mmol/L",
+                },  # False
                 {"type": "boolean", "input": "suspected_infection"},  # True
             ],
         }
@@ -711,7 +747,13 @@ class TestCompositeEvaluation:
             "type": "composite",
             "combinator": "OR",
             "sub_predicates": [
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 10, "unit": "mmol/L"},
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 10,
+                    "unit": "mmol/L",
+                },
                 {"type": "boolean", "input": "antibiotico_1h"},
             ],
         }
@@ -740,10 +782,13 @@ class TestCompositeEvaluation:
         }
         # pf_ratio=50 → critical(3), suspected_infection=True → urgent(1)
         compiled = compiler.compile(pred)
-        result = compiler.evaluate(compiled, {
-            "pf_ratio": 50,
-            "suspected_infection": True,
-        })
+        result = compiler.evaluate(
+            compiled,
+            {
+                "pf_ratio": 50,
+                "suspected_infection": True,
+            },
+        )
         assert result.met is True
         assert result.severity == "critical"  # max(critical, urgent) → critical
         assert result.score == 4  # 3 + 1
@@ -752,6 +797,7 @@ class TestCompositeEvaluation:
 # =============================================================================
 # Edge Cases and Error Handling
 # =============================================================================
+
 
 class TestEdgeCases:
     """Edge cases for PredicateCompiler."""
@@ -768,8 +814,10 @@ class TestEdgeCases:
 
     def test_unknown_node_type_in_evaluate(self, compiler: PredicateCompiler) -> None:
         """Unknown AST node type in evaluate raises ValueError."""
+
         class BogusNode(ASTNode):
             pass
+
         bogus = CompiledPredicate(
             ast_node=BogusNode(),
             input_name="x",
@@ -787,9 +835,17 @@ class TestEdgeCases:
         d = {compiled: "test"}
         assert d[compiled] == "test"
 
-    def test_evaluation_result_is_hashable(self, compiler: PredicateCompiler, patient_data: dict) -> None:
+    def test_evaluation_result_is_hashable(
+        self, compiler: PredicateCompiler, patient_data: dict
+    ) -> None:
         """EvaluationResult is frozen/hashable."""
-        pred = {"type": "threshold", "input": "lactate", "operator": ">", "value": 2, "unit": "mmol/L"}
+        pred = {
+            "type": "threshold",
+            "input": "lactate",
+            "operator": ">",
+            "value": 2,
+            "unit": "mmol/L",
+        }
         compiled = compiler.compile(pred)
         result = compiler.evaluate(compiled, patient_data)
         d = {result: "test"}
@@ -797,7 +853,13 @@ class TestEdgeCases:
 
     def test_threshold_infinity_value(self, compiler: PredicateCompiler) -> None:
         """Threshold with float('inf') works."""
-        pred = {"type": "threshold", "input": "x", "operator": "<", "value": float("inf"), "unit": ""}
+        pred = {
+            "type": "threshold",
+            "input": "x",
+            "operator": "<",
+            "value": float("inf"),
+            "unit": "",
+        }
         compiled = compiler.compile(pred)
         result = compiler.evaluate(compiled, {"x": 1e9})
         assert result.met is True
@@ -816,6 +878,7 @@ class TestEdgeCases:
 # =============================================================================
 # End-to-end: YAML-like pathway evaluation
 # =============================================================================
+
 
 class TestEndToEndPathway:
     """Realistic pathway evaluation from YAML-like definitions."""
@@ -869,7 +932,7 @@ class TestEndToEndPathway:
         compiled = compiler.compile(crit["predicate"])
 
         assert compiler.evaluate(compiled, {"peep": 8}).met is True
-        assert compiler.evaluate(compiled, {"peep": 5}).met is True   # boundary
+        assert compiler.evaluate(compiled, {"peep": 5}).met is True  # boundary
         assert compiler.evaluate(compiled, {"peep": 3}).met is False
 
     def test_multiple_criteria_evaluation(self, compiler: PredicateCompiler) -> None:
@@ -913,14 +976,9 @@ class TestEndToEndPathway:
             "suspected_infection": True,
         }
 
-        compiled_criteria = [
-            (c["id"], compiler.compile(c["predicate"])) for c in criteria
-        ]
+        compiled_criteria = [(c["id"], compiler.compile(c["predicate"])) for c in criteria]
 
-        results = {
-            cid: compiler.evaluate(compiled, patient)
-            for cid, compiled in compiled_criteria
-        }
+        results = {cid: compiler.evaluate(compiled, patient) for cid, compiled in compiled_criteria}
 
         assert results["crit-pf"].severity == "urgent"
         assert results["crit-peep"].met is True
@@ -931,12 +989,14 @@ class TestEndToEndPathway:
 # Security: NO eval/exec
 # =============================================================================
 
+
 class TestSecurityNoEvalExec:
     """Verify no eval() or exec() in the compiler module."""
 
     def test_no_eval_in_source(self) -> None:
         """The source file of trilhas_compiler must not contain eval( or exec( calls."""
         import intensicare.services.trilhas_compiler as compiler_mod
+
         source_path = compiler_mod.__file__
         assert source_path is not None
 
@@ -949,22 +1009,19 @@ class TestSecurityNoEvalExec:
             if isinstance(node, ast.Call):
                 func = node.func
                 if isinstance(func, ast.Name) and func.id in ("eval", "exec"):
-                    pytest.fail(
-                        f"eval()/exec() call found at line {node.lineno}"
-                    )
+                    pytest.fail(f"eval()/exec() call found at line {node.lineno}")
                 if (
                     isinstance(func, ast.Attribute)
                     and isinstance(func.value, ast.Name)
                     and func.value.id == "builtins"
                     and func.attr in ("eval", "exec")
                 ):
-                    pytest.fail(
-                        f"builtins.eval()/exec() call found at line {node.lineno}"
-                    )
+                    pytest.fail(f"builtins.eval()/exec() call found at line {node.lineno}")
 
     def test_only_operator_module_for_comparisons(self) -> None:
         """Comparisons should use operator module, not dynamic dispatch."""
         import intensicare.services.trilhas_compiler as compiler_mod
+
         source_path = compiler_mod.__file__
         assert source_path is not None
 
@@ -980,6 +1037,7 @@ class TestSecurityNoEvalExec:
     def test_no_dynamic_attribute_access(self) -> None:
         """The compiler must not use getattr(obj, user_input) patterns."""
         import intensicare.services.trilhas_compiler as compiler_mod
+
         source_path = compiler_mod.__file__
         assert source_path is not None
 
@@ -993,8 +1051,9 @@ class TestSecurityNoEvalExec:
 
     def test_safe_dict_lookup_only(self, compiler: PredicateCompiler) -> None:
         """_lookup only does dict key access via patient_data[input_name]."""
-        import intensicare.services.trilhas_compiler as compiler_mod
         import inspect
+
+        import intensicare.services.trilhas_compiler as compiler_mod
 
         # Parse the AST of the _lookup method to verify no attribute chaining
         lookup_source = inspect.getsource(compiler_mod.PredicateCompiler._lookup)
@@ -1002,13 +1061,12 @@ class TestSecurityNoEvalExec:
 
         # Check for any attribute access on patient_data (except dict operations)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute):
-                if (
-                    isinstance(node.value, ast.Name)
-                    and node.value.id == "patient_data"
-                    and node.attr not in ("keys", "get", "items", "values")
-                ):
-                    pytest.fail(
-                        f"Dangerous attribute access on patient_data: "
-                        f"patient_data.{node.attr} at line {node.lineno}"
-                    )
+            if isinstance(node, ast.Attribute) and (
+                isinstance(node.value, ast.Name)
+                and node.value.id == "patient_data"
+                and node.attr not in ("keys", "get", "items", "values")
+            ):
+                pytest.fail(
+                    f"Dangerous attribute access on patient_data: "
+                    f"patient_data.{node.attr} at line {node.lineno}"
+                )

@@ -13,7 +13,7 @@
 
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from 'react';
 import { getToken } from './api';
 
 // ── Types ──
@@ -87,6 +87,18 @@ function setStatus(status: ConnectionStatus) {
     statusSince = new Date();
     statusListeners.forEach((fn) => fn(status));
   }
+}
+
+// External-store bindings for React's useSyncExternalStore (avoids the
+// render/commit race a plain useState+useEffect subscription can miss).
+function subscribeStatus(callback: () => void): () => void {
+  const handler = () => callback();
+  statusListeners.add(handler);
+  return () => { statusListeners.delete(handler); };
+}
+
+function getStatusSnapshot(): ConnectionStatus {
+  return _connectionStatus;
 }
 
 // ── Polling engine (per-channel) ──
@@ -304,16 +316,12 @@ export function useRealtimeChannel(
     enabled?: boolean;
   },
 ): { status: ConnectionStatus; lastEvent: Date | null } {
-  const [status, setStatusState] = useState<ConnectionStatus>(_connectionStatus);
+  const status = useSyncExternalStore(subscribeStatus, getStatusSnapshot, getStatusSnapshot);
   const [lastEventState, setLastEventState] = useState<Date | null>(null);
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
-
   useEffect(() => {
-    const handler = (s: ConnectionStatus) => setStatusState(s);
-    statusListeners.add(handler);
-    return () => { statusListeners.delete(handler); };
-  }, []);
+    onMessageRef.current = onMessage;
+  });
 
   useEffect(() => {
     const handler = (d: Date | null) => setLastEventState(d);
@@ -344,14 +352,7 @@ export function useConnectionStatus(): {
   since: Date | null;
   reconnect: () => void;
 } {
-  const [status, setStatusState] = useState<ConnectionStatus>(_connectionStatus);
-
-  useEffect(() => {
-    const handler = (s: ConnectionStatus) => setStatusState(s);
-    statusListeners.add(handler);
-    setStatusState(_connectionStatus);
-    return () => { statusListeners.delete(handler); };
-  }, []);
+  const status = useSyncExternalStore(subscribeStatus, getStatusSnapshot, getStatusSnapshot);
 
   const reconnect = useCallback(() => {
     intentionallyDisconnected = false;

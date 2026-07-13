@@ -21,8 +21,9 @@ class CorrelationEvent(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     correlation_key: Mapped[str] = mapped_column(
-        String(64), nullable=False,
-        comment="Chave determinística de correlação (hash de scores + janela)"
+        String(64),
+        nullable=False,
+        comment="Chave determinística de correlação (hash de scores + janela)",
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text)

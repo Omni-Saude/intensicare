@@ -8,15 +8,12 @@ from intensicare.services.domain_documentacao import (
     GLOSA_CRITERIA,
     GLOSA_MAX_SCORE,
     GLOSA_STATUSES,
-    DocumentacaoRecord,
-    GlosaEvaluationResult,
     DocumentacaoListResult,
     create_documentacao,
-    list_documentacao,
     evaluate_glosa,
+    list_documentacao,
     update_glosa_status,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixture — reset the in-memory store before each test
@@ -26,12 +23,8 @@ from intensicare.services.domain_documentacao import (
 @pytest.fixture(autouse=True)
 def _reset_store(monkeypatch):
     """Reset the in-memory documentation store before every test."""
-    monkeypatch.setattr(
-        "intensicare.services.domain_documentacao._documentacao_store", {}
-    )
-    monkeypatch.setattr(
-        "intensicare.services.domain_documentacao._next_documentacao_id", 1
-    )
+    monkeypatch.setattr("intensicare.services.domain_documentacao._documentacao_store", {})
+    monkeypatch.setattr("intensicare.services.domain_documentacao._next_documentacao_id", 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -257,10 +250,7 @@ class TestGlosaEvaluation:
         record = create_documentacao(
             mpi_id="PAT-002",
             type="evolucao",
-            description=(
-                "J18.9 CRM 12345 UTI gasometria "
-                "medicamento justificativa"
-            ),
+            description=("J18.9 CRM 12345 UTI gasometria medicamento justificativa"),
             profissional="Dr. Silva",
         )
         result = evaluate_glosa(record.id)

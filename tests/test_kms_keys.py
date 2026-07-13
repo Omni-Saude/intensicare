@@ -5,15 +5,13 @@ from __future__ import annotations
 import pytest
 
 from intensicare.services.kms_keys import (
+    KMSEngine,
     KMSKeyError,
     KMSNotConfiguredError,
-    KMSEngine,
     TenantDEK,
-    _hmac_sha256,
     _hkdf_expand,
-    get_kms_engine,
+    _hmac_sha256,
 )
-
 
 # ---------------------------------------------------------------------------
 # TenantDEK

@@ -15,28 +15,25 @@ All vasopressor dosing canonical mcg/kg/min.
 
 from __future__ import annotations
 
-import pytest
-
 from intensicare.schemas.severity import SeverityLevel
 from intensicare.services.domain_hemo import (
-    HemoAlertResult,
     HEMO_ALERT_DEFINITIONS,
+    HemoAlertResult,
     evaluate_all,
-    evaluate_shock_index,
-    evaluate_lactate_clearance,
-    evaluate_vaso_escalation,
-    evaluate_refractory_shock,
-    evaluate_fluid_nonresponsive,
     evaluate_antihtn_conflict,
-    evaluate_stability_vaso_negative_balance,
-    evaluate_stability_lactate_sepsis,
-    evaluate_stability_high_norad_without_adjuncts,
-    evaluate_stability_refractory_triple,
-    evaluate_stability_dobutamine_high_norad,
+    evaluate_fluid_nonresponsive,
+    evaluate_lactate_clearance,
+    evaluate_refractory_shock,
+    evaluate_shock_index,
     evaluate_stability_crt_noradrenaline,
+    evaluate_stability_dobutamine_high_norad,
+    evaluate_stability_high_norad_without_adjuncts,
+    evaluate_stability_lactate_sepsis,
+    evaluate_stability_refractory_triple,
+    evaluate_stability_vaso_negative_balance,
+    evaluate_vaso_escalation,
     should_auto_resolve,
 )
-
 
 # ===========================================================================
 # ALERT-HEMO-SHOCK-INDEX-01 — 5 test vectors
@@ -913,7 +910,7 @@ class TestHemoAlertDefinitions:
             "ALERT-HEMO-FLUID-NONRESPONSIVE-05",
             "ALERT-HEMO-ANTIHTN-CONFLICT-06",
         ]
-        for d, expected in zip(HEMO_ALERT_DEFINITIONS, expected_prefixes):
+        for d, expected in zip(HEMO_ALERT_DEFINITIONS, expected_prefixes, strict=False):
             assert d["definition_version"].startswith(expected)
             assert d["semver"] == "1.0.0"
             assert len(d["spec_hash"]) == 16

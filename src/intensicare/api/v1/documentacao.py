@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from intensicare.auth.dependencies import get_current_user
 from intensicare.models.user import User
@@ -114,9 +114,7 @@ async def create_documentacao_endpoint(
         mpi_id=mpi_id,
         type=body.type,
         description=body.description,
-        data_documento=body.data_documento.isoformat()
-        if body.data_documento
-        else "",
+        data_documento=body.data_documento.isoformat() if body.data_documento else "",
         profissional=body.profissional or current_user.username,
         observacoes=body.observacoes,
     )

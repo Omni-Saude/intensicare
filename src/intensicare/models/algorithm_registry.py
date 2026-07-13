@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, UniqueConstraint
 import sqlalchemy as sa
+from sqlalchemy import DateTime, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from intensicare.core.database import Base
@@ -19,9 +19,7 @@ class AlgorithmRegistry(Base):
     """
 
     __tablename__ = "algorithm_registry"
-    __table_args__ = (
-        UniqueConstraint("score_type", "semver"),
-    )
+    __table_args__ = (UniqueConstraint("score_type", "semver"),)
 
     algorithm_version: Mapped[str] = mapped_column(String(32), primary_key=True)
     score_type: Mapped[str] = mapped_column(String(16), nullable=False)

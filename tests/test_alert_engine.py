@@ -15,7 +15,6 @@ from intensicare.services.alert_engine import (
 )
 from intensicare.services.patient_encryption import encrypt_phi
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════

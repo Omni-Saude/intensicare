@@ -61,10 +61,8 @@ async def blacklist_token(token: str, redis_client: aioredis.Redis) -> None:
     if not jti:
         return
     now = datetime.now(timezone.utc).timestamp()
-    if exp and exp > now:
-        ttl = int(exp - now)
-    else:
-        ttl = 3600  # Default 1 hour for tokens without a valid exp
+    # Default 1 hour for tokens without a valid exp
+    ttl = int(exp - now) if exp and exp > now else 3600
     await redis_client.setex(f"blacklist:{jti}", ttl, "1")
 
 

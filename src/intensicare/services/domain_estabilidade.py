@@ -16,12 +16,12 @@ from __future__ import annotations
 __version__ = "3.0.0"
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, date
-from typing import Any
+from datetime import datetime, timezone
 import logging
+from typing import Any
 
-from intensicare.services.domain_hemo import evaluate_all as evaluate_hemo_alerts, HemoAlertResult
-from intensicare.schemas.severity import SeverityLevel
+from intensicare.services.domain_hemo import HemoAlertResult
+from intensicare.services.domain_hemo import evaluate_all as evaluate_hemo_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,6 @@ STABILITY_CRITERIA: list[dict[str, str | None]] = [
         "threshold": "MAP < 65 mmHg + noradrenalina > 1.0 mcg/kg/min",
         "alert_id": "ALERT-HEMO-REFRACTORY-SHOCK-04",
     },
-
     # ===== PERFUSION (5 criteria) =====
     {
         "name": "TEC > 3s em uso de noradrenalina",
@@ -100,7 +99,6 @@ STABILITY_CRITERIA: list[dict[str, str | None]] = [
         "threshold": "Gap PCO2 veno-arterial > 6 mmHg",
         "alert_id": None,
     },
-
     # ===== CARDIAC OUTPUT (4 criteria) =====
     {
         "name": "Índice cardíaco < 2.2 L/min/m²",
@@ -126,7 +124,6 @@ STABILITY_CRITERIA: list[dict[str, str | None]] = [
         "threshold": "Pressão arterial média < 65 mmHg",
         "alert_id": None,
     },
-
     # ===== FLUID BALANCE (5 criteria) =====
     {
         "name": "Não responsivo a fluidos — risco de sobrecarga",
@@ -158,7 +155,6 @@ STABILITY_CRITERIA: list[dict[str, str | None]] = [
         "threshold": "PPV > 13% ou SVV > 13% + ΔVS < 10% pós-volume",
         "alert_id": None,
     },
-
     # ===== LACTATE (4 criteria) =====
     {
         "name": "Clearance de lactato < 10% em 2h",
@@ -184,7 +180,6 @@ STABILITY_CRITERIA: list[dict[str, str | None]] = [
         "threshold": "Lactato > 2 mmol/L mantido após 6h de tratamento",
         "alert_id": None,
     },
-
     # ===== COMBINED (3 criteria) =====
     {
         "name": "Hipoperfusão global (≥ 2 domínios alterados)",
@@ -473,10 +468,9 @@ def _determine_severity(score: int) -> str:
     """
     if score >= 10:
         return "critico"
-    elif score >= 4:
+    if score >= 4:
         return "atencao"
-    else:
-        return "estavel"
+    return "estavel"
 
 
 def _build_stability_recommendation(
@@ -493,19 +487,18 @@ def _build_stability_recommendation(
             f"Critérios disparados: {', '.join(triggered_criteria[:5])}"
             + ("..." if len(triggered_criteria) > 5 else "")
         )
-    elif severity == "atencao":
+    if severity == "atencao":
         return (
             f"ATENÇÃO: {score}/27 critérios de instabilidade ativos. "
             "Reavaliar em 1-2h. Verificar tendência de lactato, balanço hídrico "
             "e dose de vasopressor. Notificar plantonista se piora. "
             f"Principais critérios: {', '.join(triggered_criteria[:3])}"
         )
-    else:
-        return (
-            f"ESTÁVEL: {score}/27 critérios de instabilidade. "
-            "Manter monitorização de rotina. "
-            "Reavaliar a cada 4-6h ou conforme protocolo institucional."
-        )
+    return (
+        f"ESTÁVEL: {score}/27 critérios de instabilidade. "
+        "Manter monitorização de rotina. "
+        "Reavaliar a cada 4-6h ou conforme protocolo institucional."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -702,12 +695,14 @@ def compute_stability_trend(
             date_str = assessed.strftime("%Y-%m-%d")
         else:
             date_str = str(assessed)[:10]
-        trend_points.append({
-            "date": date_str,
-            "score": h.get("score", 0),
-            "severity": h.get("severity", "estavel"),
-            "criteria_triggered": h.get("score", 0),
-        })
+        trend_points.append(
+            {
+                "date": date_str,
+                "score": h.get("score", 0),
+                "severity": h.get("severity", "estavel"),
+                "criteria_triggered": h.get("score", 0),
+            }
+        )
 
     # Determine direction: compare first vs last
     first_score = sorted_history[0].get("score", 0)

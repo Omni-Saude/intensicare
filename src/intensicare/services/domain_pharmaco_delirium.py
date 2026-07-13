@@ -14,12 +14,14 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
+import logging
 import pathlib
 from typing import Any
 
+from maezo.rules.alert_compiler import compile_all_alerts, evaluate_alert_definition
 import yaml
 
-from maezo.rules.alert_compiler import compile_all_alerts, evaluate_alert_definition
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
 # YAML catalog paths (relative to repository root)
@@ -27,7 +29,9 @@ from maezo.rules.alert_compiler import compile_all_alerts, evaluate_alert_defini
 
 REPO_ROOT = pathlib.Path(__file__).parents[3]  # src/maezo/services -> maezo -> src -> repo root
 
-PHARMACO_INTERACTION_CATALOG = REPO_ROOT / "docs" / "plan" / "_work" / "alerts" / "pharmaco-interaction.yaml"
+PHARMACO_INTERACTION_CATALOG = (
+    REPO_ROOT / "docs" / "plan" / "_work" / "alerts" / "pharmaco-interaction.yaml"
+)
 NEURO_SEDATION_CATALOG = REPO_ROOT / "docs" / "plan" / "_work" / "alerts" / "neuro-sedation.yaml"
 
 
@@ -81,15 +85,22 @@ def run_pharmaco_batch(
     for alert in alerts:
         try:
             if evaluate_alert_definition(alert, ctx):
-                firing.append({
-                    "alert_id": alert.get("alert_id", ""),
-                    "name": alert.get("name", ""),
-                    "severity": alert.get("severity", "unknown"),
-                    "condition": alert.get("condition", ""),
-                    "description": alert.get("description", ""),
-                })
+                firing.append(
+                    {
+                        "alert_id": alert.get("alert_id", ""),
+                        "name": alert.get("name", ""),
+                        "severity": alert.get("severity", "unknown"),
+                        "condition": alert.get("condition", ""),
+                        "description": alert.get("description", ""),
+                    }
+                )
         except Exception:
             # Skip alerts that fail to evaluate (missing data, etc.)
+            logger.debug(
+                "Alert evaluation failed for '%s', skipping",
+                alert.get("alert_id", "?"),
+                exc_info=True,
+            )
             continue
 
     return firing
@@ -130,15 +141,22 @@ def run_delirium_batch(
     for alert in alerts:
         try:
             if evaluate_alert_definition(alert, ctx):
-                firing.append({
-                    "alert_id": alert.get("alert_id", ""),
-                    "name": alert.get("name", ""),
-                    "severity": alert.get("severity", "unknown"),
-                    "condition": alert.get("condition", ""),
-                    "description": alert.get("description", ""),
-                })
+                firing.append(
+                    {
+                        "alert_id": alert.get("alert_id", ""),
+                        "name": alert.get("name", ""),
+                        "severity": alert.get("severity", "unknown"),
+                        "condition": alert.get("condition", ""),
+                        "description": alert.get("description", ""),
+                    }
+                )
         except Exception:
             # Skip alerts that fail to evaluate (missing data, etc.)
+            logger.debug(
+                "Alert evaluation failed for '%s', skipping",
+                alert.get("alert_id", "?"),
+                exc_info=True,
+            )
             continue
 
     return firing
@@ -231,17 +249,16 @@ def evaluate_sedation_morning_reduction(
             "sedation_active": True,
             "recommendation": "Redução matinal >= 50% alcançada — manter despertar diário",
         }
-    else:
-        return {
-            "alert_id": "SED-REDUCTION-01",
-            "fired": True,
-            "reduction_pct": reduction_pct,
-            "sedation_active": True,
-            "recommendation": (
-                f"Redução matinal de apenas {reduction_pct}% (< 50%). "
-                "Avaliar interrupção diária da sedação (SAT) conforme PADIS 2018"
-            ),
-        }
+    return {
+        "alert_id": "SED-REDUCTION-01",
+        "fired": True,
+        "reduction_pct": reduction_pct,
+        "sedation_active": True,
+        "recommendation": (
+            f"Redução matinal de apenas {reduction_pct}% (< 50%). "
+            "Avaliar interrupção diária da sedação (SAT) conforme PADIS 2018"
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -321,8 +338,7 @@ def evaluate_sedation_rass_camicu(
         result["fired"] = True
         result["severity"] = "urgent" if rass_val >= 3 else "watch"
         result["recommendations"].append(
-            f"Agitação (RASS {rass_val}). Avaliar dor, delirium e "
-            "necessidade de ajuste de sedação"
+            f"Agitação (RASS {rass_val}). Avaliar dor, delirium e necessidade de ajuste de sedação"
         )
 
     # CAM-ICU delirium

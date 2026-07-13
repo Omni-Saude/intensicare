@@ -11,21 +11,19 @@ Covers:
   - Client IP extraction (including X-Forwarded-For)
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import Request
 from httpx import AsyncClient
+import pytest
 
 from intensicare.core.rate_limit import (
-    RateLimitMiddleware,
+    CRITICAL_PATHS,
+    RATE_LIMITS,
     TokenBucketRateLimiter,
     _get_client_ip,
     _resolve_bucket,
-    RATE_LIMITS,
-    CRITICAL_PATHS,
 )
-
 
 # ─── Client IP extraction ────────────────────────────────────────────────────
 
@@ -88,7 +86,7 @@ class TestTokenBucketRateLimiter:
         mock_redis.eval.return_value = 1
         limiter._redis = mock_redis
 
-        allowed = limiter.is_allowed("10.0.0.1", "api")
+        limiter.is_allowed("10.0.0.1", "api")
         # Can't directly await in a sync test without asyncio.run,
         # but we can patch the method to return immediately.
         # Use pytest-asyncio for proper async test.
@@ -165,7 +163,7 @@ class TestRateLimitMiddleware:
         """The /health endpoint should never be rate-limited."""
         for _ in range(10):
             resp = await client.get("/api/v1/health")
-            assert resp.status_code != 429, f"Health endpoint was rate-limited on request {_+1}"
+            assert resp.status_code != 429, f"Health endpoint was rate-limited on request {_ + 1}"
 
     @pytest.mark.asyncio
     async def test_metrics_path_exempt(self, client: AsyncClient):
@@ -175,7 +173,7 @@ class TestRateLimitMiddleware:
     @pytest.mark.asyncio
     async def test_api_path_includes_rate_limit_headers(self, client: AsyncClient):
         """API responses should include X-RateLimit-Limit header."""
-        resp = await client.get("/api/v1/patients")
+        await client.get("/api/v1/patients")
         # May be 200, 401 (auth), or 429 (rate-limited)
         # But should have rate-limit headers when rate-limited or when API bucket applies
         # Note: we need auth for /api/v1/patients, so it'll likely be 401 with auth header

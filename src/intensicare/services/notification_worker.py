@@ -11,14 +11,14 @@ infrastructure natively.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
+from arq.connections import RedisSettings
 from arq.worker import Retry
 
-from intensicare.core.redis import get_redis
 from intensicare.core.websocket import get_websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,7 @@ async def _dispatch_notification(
 
     for channel in channels:
         if channel == "ws":
-            await ws_manager.broadcast_alert(
-                {"type": "alert_notification", "alert_id": alert_id}
-            )
+            await ws_manager.broadcast_alert({"type": "alert_notification", "alert_id": alert_id})
         elif channel in ("mobile", "sms"):
             logger.warning(
                 "Channel %s not yet wired — placeholder for alert_id=%s",

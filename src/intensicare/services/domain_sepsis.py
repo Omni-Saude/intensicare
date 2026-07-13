@@ -23,9 +23,9 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -319,11 +319,7 @@ def _eval_organ_02(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
                 f"over {delta_hours:.1f}h ({delta_per_hour:.2f}/h) > 0.5/h"
             )
 
-    return False, (
-        f"qSOFA={qsofa} >= 2, "
-        f"lactate={lactate}, "
-        f"neither lactate>2 nor delta>0.5/h met"
-    )
+    return False, (f"qSOFA={qsofa} >= 2, lactate={lactate}, neither lactate>2 nor delta>0.5/h met")
 
 
 def _eval_shock_03(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
@@ -348,9 +344,7 @@ def _eval_shock_03(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
             )
         return False, f"MAP={map_val} < 65 but no vasopressor/fluid bolus"
 
-    return False, (
-        f"Lactate={lactate} < 4 and MAP={map_val} >= 65 or no refractory state"
-    )
+    return False, (f"Lactate={lactate} < 4 and MAP={map_val} >= 65 or no refractory state")
 
 
 def _eval_bundle_overdue_04(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
@@ -393,8 +387,7 @@ def _eval_bundle_overdue_04(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
         )
 
     return False, (
-        f"Item {pkg_label} not yet overdue: "
-        f"{minutes_since_accept} min <= {due_minutes} min"
+        f"Item {pkg_label} not yet overdue: {minutes_since_accept} min <= {due_minutes} min"
     )
 
 
@@ -421,13 +414,10 @@ def _eval_pct_rising_05(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
     delta = pct - pct_prev
     if delta > 0.25:
         return True, (
-            f"PCT rising: {pct_prev} → {pct} (delta={delta:.2f} > 0.25 ng/mL), "
-            f"ATB={atb_hours}h"
+            f"PCT rising: {pct_prev} → {pct} (delta={delta:.2f} > 0.25 ng/mL), ATB={atb_hours}h"
         )
 
-    return False, (
-        f"PCT rising but delta={delta:.2f} <= 0.25 ng/mL"
-    )
+    return False, (f"PCT rising but delta={delta:.2f} <= 0.25 ng/mL")
 
 
 def _eval_pct_deesc_06(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
@@ -461,10 +451,7 @@ def _eval_pct_deesc_06(inputs: SepsisClinicalInputs) -> tuple[bool, str]:
                 f"(>80%), ATB={atb_hours}h, stable"
             )
 
-    return False, (
-        f"PCT={pct} not <0.25 and no >80% drop from peak, "
-        f"or ATB too early"
-    )
+    return False, (f"PCT={pct} not <0.25 and no >80% drop from peak, or ATB too early")
 
 
 # Map alert_id -> evaluation function
@@ -550,12 +537,18 @@ class SepsisDomainService:
 
         # Filter by mode
         if mode == "nrt":
-            nrt_ids = {aid for aid in target_ids
-                       if aid in ("ALERT-SEPSIS-SCREEN-01", "ALERT-SEPSIS-SHOCK-03")}
+            nrt_ids = {
+                aid
+                for aid in target_ids
+                if aid in ("ALERT-SEPSIS-SCREEN-01", "ALERT-SEPSIS-SHOCK-03")
+            }
             target_ids = [aid for aid in target_ids if aid in nrt_ids]
         elif mode == "micro-batch":
-            mb_ids = {aid for aid in target_ids
-                      if aid not in ("ALERT-SEPSIS-SCREEN-01", "ALERT-SEPSIS-SHOCK-03")}
+            mb_ids = {
+                aid
+                for aid in target_ids
+                if aid not in ("ALERT-SEPSIS-SCREEN-01", "ALERT-SEPSIS-SHOCK-03")
+            }
             target_ids = [aid for aid in target_ids if aid in mb_ids]
 
         for alert_id in target_ids:
@@ -564,13 +557,15 @@ class SepsisDomainService:
                 results.append(result)
             except (ValueError, KeyError, TypeError, AttributeError) as exc:
                 errors.append(f"{alert_id}: {exc}")
-                results.append(SepsisAlertResult(
-                    alert_id=alert_id,
-                    alert_name=alert_id,
-                    severity="unknown",
-                    fired=False,
-                    reason=f"Error: {exc}",
-                ))
+                results.append(
+                    SepsisAlertResult(
+                        alert_id=alert_id,
+                        alert_name=alert_id,
+                        severity="unknown",
+                        fired=False,
+                        reason=f"Error: {exc}",
+                    )
+                )
 
         n_fired = sum(1 for r in results if r.fired)
 
@@ -585,19 +580,25 @@ class SepsisDomainService:
         )
 
     def evaluate_screening_only(
-        self, patient_id: str, inputs: SepsisClinicalInputs,
+        self,
+        patient_id: str,
+        inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """NRT screening evaluation — only SCREEN-01."""
         return self._evaluate_single("ALERT-SEPSIS-SCREEN-01", inputs)
 
     def evaluate_organ_only(
-        self, patient_id: str, inputs: SepsisClinicalInputs,
+        self,
+        patient_id: str,
+        inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Organ dysfunction evaluation — only ORGAN-02."""
         return self._evaluate_single("ALERT-SEPSIS-ORGAN-02", inputs)
 
     def evaluate_shock_only(
-        self, patient_id: str, inputs: SepsisClinicalInputs,
+        self,
+        patient_id: str,
+        inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Shock evaluation — only SHOCK-03."""
         return self._evaluate_single("ALERT-SEPSIS-SHOCK-03", inputs)
@@ -607,7 +608,9 @@ class SepsisDomainService:
     # ------------------------------------------------------------------
 
     def _evaluate_single(
-        self, alert_id: str, inputs: SepsisClinicalInputs,
+        self,
+        alert_id: str,
+        inputs: SepsisClinicalInputs,
     ) -> SepsisAlertResult:
         """Evaluate a single alert definition against provided inputs.
 
@@ -701,12 +704,16 @@ def evaluate_sepsis_nrt(
     for ar in result.alerts:
         if ar.alert_id == "ALERT-SEPSIS-SCREEN-01":
             return ar
-    return result.alerts[0] if result.alerts else SepsisAlertResult(
-        alert_id="ALERT-SEPSIS-SCREEN-01",
-        alert_name="Triagem de sepse",
-        severity="urgent",
-        fired=False,
-        reason="No alerts evaluated",
+    return (
+        result.alerts[0]
+        if result.alerts
+        else SepsisAlertResult(
+            alert_id="ALERT-SEPSIS-SCREEN-01",
+            alert_name="Triagem de sepse",
+            severity="urgent",
+            fired=False,
+            reason="No alerts evaluated",
+        )
     )
 
 
@@ -926,6 +933,7 @@ def _piora_score_sato2_dpoc(spo2: float | None) -> tuple[int, str]:
 @dataclass
 class PioraClinicaResult:
     """Result of clinical worsening evaluation."""
+
     fired: bool
     severity: str  # "NEUTRO", "AMARELO", "VERMELHO"
     aggregate_score: int
@@ -951,16 +959,11 @@ def evaluate_clinical_worsening(inputs: SepsisClinicalInputs) -> PioraClinicaRes
     # Evaluate all 9 criteria sub-scores
     criterios: dict[str, tuple[int, str]] = {}
 
-    criterios["c1_fr"] = _piora_score_respiratoria(
-        _num(inputs.get("frequencia_respiratoria")))
-    criterios["c2_temp"] = _piora_score_temperatura(
-        _num(inputs.get("temperatura")))
-    criterios["c3_pas"] = _piora_score_pas(
-        _num(inputs.get("pressao_arterial_sistolica")))
-    criterios["c4_fc"] = _piora_score_fc(
-        _num(inputs.get("frequencia_cardiaca")))
-    criterios["c5_cons"] = _piora_score_consciencia(
-        inputs.get("nivel_consciencia"))
+    criterios["c1_fr"] = _piora_score_respiratoria(_num(inputs.get("frequencia_respiratoria")))
+    criterios["c2_temp"] = _piora_score_temperatura(_num(inputs.get("temperatura")))
+    criterios["c3_pas"] = _piora_score_pas(_num(inputs.get("pressao_arterial_sistolica")))
+    criterios["c4_fc"] = _piora_score_fc(_num(inputs.get("frequencia_cardiaca")))
+    criterios["c5_cons"] = _piora_score_consciencia(inputs.get("nivel_consciencia"))
 
     # Pain: use whichever scale has data
     dor_nrs = _num(inputs.get("escala_dor_numerica"))
@@ -1001,7 +1004,9 @@ def evaluate_clinical_worsening(inputs: SepsisClinicalInputs) -> PioraClinicaRes
 
     if max_single >= 3:
         severity = "VERMELHO"
-        recommendation = "Alto risco de piora clínica — avaliação médica imediata (NEWS2 ≥ 3 em parâmetro único)"
+        recommendation = (
+            "Alto risco de piora clínica — avaliação médica imediata (NEWS2 ≥ 3 em parâmetro único)"
+        )
     elif max_single >= 2 or aggregate >= 5:
         severity = "AMARELO"
         recommendation = "Risco moderado de piora clínica — reavaliar em 1h e notificar plantonista"

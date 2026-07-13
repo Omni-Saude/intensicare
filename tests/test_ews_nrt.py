@@ -10,13 +10,12 @@ Cobre:
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timedelta, timezone
+import time
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.vital_sign import VitalSign
 from intensicare.services.ews_nrt_runner import (
@@ -28,7 +27,6 @@ from intensicare.services.ews_nrt_runner import (
     evaluate_ews_trend_rising_02,
     process_ews_nrt,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -105,9 +103,15 @@ async def _persist_score(
 
 def test_compute_ews_scores_normal():
     """Paciente estável deve ter scores baixos."""
-    vs = _make_vital_sign(heart_rate=75, systolic_bp=120,
-                          respiratory_rate=14, temperature=37.0,
-                          spo2=98, avpu="A", gcs=15)
+    vs = _make_vital_sign(
+        heart_rate=75,
+        systolic_bp=120,
+        respiratory_rate=14,
+        temperature=37.0,
+        spo2=98,
+        avpu="A",
+        gcs=15,
+    )
     snap = _compute_ews_scores(vs)
 
     assert snap.mews_score == 0
@@ -120,10 +124,18 @@ def test_compute_ews_scores_normal():
 def test_compute_ews_scores_septic():
     """Paciente séptico deve ter scores elevados."""
     vs = _make_vital_sign(
-        heart_rate=115, systolic_bp=95, respiratory_rate=28,
-        temperature=38.9, spo2=90, avpu="V", gcs=13,
-        pao2_fio2=250, platelets=120, bilirubin=1.5,
-        map_value=65, creatinine=1.5,
+        heart_rate=115,
+        systolic_bp=95,
+        respiratory_rate=28,
+        temperature=38.9,
+        spo2=90,
+        avpu="V",
+        gcs=13,
+        pao2_fio2=250,
+        platelets=120,
+        bilirubin=1.5,
+        map_value=65,
+        creatinine=1.5,
     )
     snap = _compute_ews_scores(vs)
 
@@ -145,8 +157,13 @@ def test_compute_ews_scores_septic():
 def test_compute_ews_scores_missing_data():
     """Dados ausentes devem resultar em scores zero/baixos."""
     vs = _make_vital_sign(
-        heart_rate=None, systolic_bp=None, respiratory_rate=None,
-        temperature=None, spo2=None, avpu=None, gcs=None,
+        heart_rate=None,
+        systolic_bp=None,
+        respiratory_rate=None,
+        temperature=None,
+        spo2=None,
+        avpu=None,
+        gcs=None,
     )
     snap = _compute_ews_scores(vs)
     assert snap.mews_score == 0
@@ -175,7 +192,7 @@ def test_deterioration_01_medium_band_no_fire():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.news2_score = 6
     snap.news2_score_prev = 5
-    fired, reason = evaluate_ews_deterioration_01(snap)
+    fired, _reason = evaluate_ews_deterioration_01(snap)
     assert not fired
 
 
@@ -184,7 +201,7 @@ def test_deterioration_01_persistent_high_suppressed():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.news2_score = 7
     snap.news2_score_prev = 7
-    fired, reason = evaluate_ews_deterioration_01(snap)
+    fired, _reason = evaluate_ews_deterioration_01(snap)
     assert not fired
 
 
@@ -207,7 +224,7 @@ def test_deterioration_01_persistent_red_suppressed():
     snap.news2_score_prev = 7  # persistent high
     snap.news2_rr_score = 3
     snap.news2_red_params_prev = {"respiratory_rate"}  # already red
-    fired, reason = evaluate_ews_deterioration_01(snap)
+    fired, _reason = evaluate_ews_deterioration_01(snap)
     assert not fired
 
 
@@ -216,7 +233,7 @@ def test_deterioration_01_first_measurement():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.news2_score = 8
     snap.news2_score_prev = None  # first measurement
-    fired, reason = evaluate_ews_deterioration_01(snap)
+    fired, _reason = evaluate_ews_deterioration_01(snap)
     assert fired
 
 
@@ -240,7 +257,7 @@ def test_trend_02_delta_below_threshold_no_fire():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.news2_score = 6
     snap.news2_at_window_start = 5
-    fired, reason = evaluate_ews_trend_rising_02(snap)
+    fired, _reason = evaluate_ews_trend_rising_02(snap)
     assert not fired
 
 
@@ -249,7 +266,7 @@ def test_trend_02_boundary_delta_3_fires():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.news2_score = 7
     snap.news2_at_window_start = 4
-    fired, reason = evaluate_ews_trend_rising_02(snap)
+    fired, _reason = evaluate_ews_trend_rising_02(snap)
     assert fired
 
 
@@ -258,7 +275,7 @@ def test_trend_02_mews_delta_below_no_fire():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.mews_score = 6
     snap.mews_at_window_start = 4
-    fired, reason = evaluate_ews_trend_rising_02(snap)
+    fired, _reason = evaluate_ews_trend_rising_02(snap)
     assert not fired
 
 
@@ -278,7 +295,7 @@ def test_trend_02_no_window_baseline_no_fire():
     snap.news2_score = 7
     snap.news2_at_window_start = None
     snap.mews_at_window_start = None
-    fired, reason = evaluate_ews_trend_rising_02(snap)
+    fired, _reason = evaluate_ews_trend_rising_02(snap)
     assert not fired
 
 
@@ -302,7 +319,7 @@ def test_sofa_03_delta_below_threshold_no_fire():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.sofa_total = 5
     snap.sofa_total_baseline_24h = 4
-    fired, reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
+    fired, _reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
     assert not fired
 
 
@@ -311,7 +328,7 @@ def test_sofa_03_boundary_delta_2_fires():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.sofa_total = 4
     snap.sofa_total_baseline_24h = 2
-    fired, reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
+    fired, _reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
     assert fired
 
 
@@ -320,7 +337,7 @@ def test_sofa_03_no_baseline_no_fire():
     snap = EWSScoreSnapshot(mpi_id="P-001", vital_sign_id=1)
     snap.sofa_total = 10
     snap.sofa_total_baseline_24h = None
-    fired, reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
+    fired, _reason = evaluate_ews_sofa_organ_dysfunction_03(snap)
     assert not fired
 
 
@@ -390,7 +407,8 @@ def test_discharge_04_active_deterioration_no_fire():
     snap.spo2 = 98
     snap.supplemental_o2 = False
     fired, reason = evaluate_ews_discharge_readiness_04(
-        snap, has_active_deterioration=True,
+        snap,
+        has_active_deterioration=True,
     )
     assert not fired
     assert "deterioration" in reason.lower()
@@ -405,7 +423,7 @@ def test_discharge_04_on_ventilator_no_fire():
     snap.mechanical_ventilation = True
     snap.spo2 = 98
     snap.supplemental_o2 = False
-    fired, reason = evaluate_ews_discharge_readiness_04(snap)
+    fired, _reason = evaluate_ews_discharge_readiness_04(snap)
     assert not fired
 
 
@@ -435,20 +453,30 @@ async def test_process_ews_nrt_deterioration_fires_alert(
     """Insert vital_sign with high NEWS2 → edge-triggered alert fires."""
     vs = _make_vital_sign(
         mpi_id="P-NRT-001",
-        heart_rate=130,       # NEWS2 HR=3
-        systolic_bp=85,       # NEWS2 SBP=2
+        heart_rate=130,  # NEWS2 HR=3
+        systolic_bp=85,  # NEWS2 SBP=2
         respiratory_rate=30,  # NEWS2 RR=3
-        temperature=35.0,     # NEWS2 temp=3
-        spo2=88,             # NEWS2 SpO2=3
-        avpu="V",            # NEWS2 cons=3
+        temperature=35.0,  # NEWS2 temp=3
+        spo2=88,  # NEWS2 SpO2=3
+        avpu="V",  # NEWS2 cons=3
         gcs=13,
     )
     # Persist a previous score to create the edge trigger
     await _persist_score(
-        db_session, "P-NRT-001", "NEWS2", 4, "NEWS2-v1.0",
+        db_session,
+        "P-NRT-001",
+        "NEWS2",
+        4,
+        "NEWS2-v1.0",
         calculated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        components={"respiratory_rate": 1, "spo2": 1, "systolic_bp": 1,
-                    "heart_rate": 0, "consciousness": 0, "temperature": 1},
+        components={
+            "respiratory_rate": 1,
+            "spo2": 1,
+            "systolic_bp": 1,
+            "heart_rate": 0,
+            "consciousness": 0,
+            "temperature": 1,
+        },
     )
 
     alerts = await process_ews_nrt(db_session, vs, tenant_id="t-01")
@@ -469,7 +497,11 @@ async def test_process_ews_nrt_sofa_acute_rise_fires(
     # We use v1.0 here for FK compatibility; the version string is opaque
     # to the scoring logic.
     await _persist_score(
-        db_session, "P-NRT-002", "SOFA", 2, "SOFA-v1.0",
+        db_session,
+        "P-NRT-002",
+        "SOFA",
+        2,
+        "SOFA-v1.0",
         calculated_at=datetime.now(timezone.utc) - timedelta(hours=12),
     )
 
@@ -519,20 +551,30 @@ async def test_process_ews_nrt_trend_rising(
 
     # Score at window start (low)
     await _persist_score(
-        db_session, "P-NRT-004", "NEWS2", 3, "NEWS2-v1.0",
+        db_session,
+        "P-NRT-004",
+        "NEWS2",
+        3,
+        "NEWS2-v1.0",
         calculated_at=window_start,
-        components={"respiratory_rate": 1, "spo2": 0, "systolic_bp": 1,
-                    "heart_rate": 0, "consciousness": 0, "temperature": 1},
+        components={
+            "respiratory_rate": 1,
+            "spo2": 0,
+            "systolic_bp": 1,
+            "heart_rate": 0,
+            "consciousness": 0,
+            "temperature": 1,
+        },
     )
 
     vs = _make_vital_sign(
         mpi_id="P-NRT-004",
-        heart_rate=115,       # NEWS2 HR=2
-        systolic_bp=100,      # NEWS2 SBP=1
+        heart_rate=115,  # NEWS2 HR=2
+        systolic_bp=100,  # NEWS2 SBP=1
         respiratory_rate=28,  # NEWS2 RR=3
-        temperature=38.5,     # NEWS2 temp=1
-        spo2=92,             # NEWS2 SpO2=2
-        avpu="A",            # NEWS2 cons=0
+        temperature=38.5,  # NEWS2 temp=1
+        spo2=92,  # NEWS2 SpO2=2
+        avpu="A",  # NEWS2 cons=0
         gcs=15,
     )
 
@@ -563,7 +605,9 @@ async def test_process_ews_nrt_discharge_readiness(
     )
 
     alerts = await process_ews_nrt(
-        db_session, vs, tenant_id="t-01",
+        db_session,
+        vs,
+        tenant_id="t-01",
         admitted_gt_24h=True,
         lactate_arterial=1.5,
     )
@@ -588,10 +632,20 @@ async def test_nrt_latency_below_5s(
     """
     # Persist a prior score for edge-trigger context
     await _persist_score(
-        db_session, "P-NRT-LAT", "NEWS2", 4, "NEWS2-v1.0",
+        db_session,
+        "P-NRT-LAT",
+        "NEWS2",
+        4,
+        "NEWS2-v1.0",
         calculated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        components={"respiratory_rate": 1, "spo2": 1, "systolic_bp": 1,
-                    "heart_rate": 0, "consciousness": 0, "temperature": 1},
+        components={
+            "respiratory_rate": 1,
+            "spo2": 1,
+            "systolic_bp": 1,
+            "heart_rate": 0,
+            "consciousness": 0,
+            "temperature": 1,
+        },
     )
 
     vs = _make_vital_sign(
@@ -610,8 +664,7 @@ async def test_nrt_latency_below_5s(
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0, (
-        f"NRT latency {elapsed:.3f}s exceeds 5s budget. "
-        f"Alerts generated: {len(alerts)}"
+        f"NRT latency {elapsed:.3f}s exceeds 5s budget. Alerts generated: {len(alerts)}"
     )
     # Score computation + DB round-trips + alert creation all under 5s
     assert len(alerts) >= 1, "Expected at least 1 alert to fire"
@@ -623,10 +676,18 @@ async def test_nrt_latency_pure_compute_fast(
 ):
     """Score computation alone (no DB) should be sub-millisecond."""
     vs = _make_vital_sign(
-        heart_rate=130, systolic_bp=85, respiratory_rate=30,
-        temperature=35.0, spo2=88, avpu="V", gcs=13,
-        pao2_fio2=200, platelets=120, bilirubin=1.5,
-        map_value=65, creatinine=1.5,
+        heart_rate=130,
+        systolic_bp=85,
+        respiratory_rate=30,
+        temperature=35.0,
+        spo2=88,
+        avpu="V",
+        gcs=13,
+        pao2_fio2=200,
+        platelets=120,
+        bilirubin=1.5,
+        map_value=65,
+        creatinine=1.5,
     )
 
     start = time.monotonic()

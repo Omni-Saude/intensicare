@@ -17,8 +17,6 @@ Covers all three CI gates with valid-pass and invalid-fail fixtures:
 
 from __future__ import annotations
 
-import pytest
-
 # Import validation functions directly
 from scripts.validate_alerts import (
     ALL_CANONICAL,
@@ -31,10 +29,10 @@ from scripts.validate_alerts import (
     gate_c_facade_predicate,
 )
 
-
 # =============================================================================
 # Gate A — Unit Resolution
 # =============================================================================
+
 
 class TestGateAUnitResolution:
     """Unit resolution: every input.unit and predicate.unit must be canonical."""
@@ -141,6 +139,7 @@ class TestGateAUnitResolution:
 # Gate B — Band Partition
 # =============================================================================
 
+
 class TestGateBBandPartition:
     """Band partition: graded bands must cover domain without gaps or overlaps."""
 
@@ -200,9 +199,10 @@ class TestGateBBandPartition:
         ]
         errors = _validate_bands(bands, "test.yaml", "criteria[0].predicate")
         assert len(errors) > 0, "Expected error about last band not covering to +∞"
-        assert any("+∞" in e or "infinity" in e.lower() or "last" in e.lower() or "cover" in e.lower() for e in errors), (
-            f"Expected last-band-coverage error, got: {errors}"
-        )
+        assert any(
+            "+∞" in e or "infinity" in e.lower() or "last" in e.lower() or "cover" in e.lower()
+            for e in errors
+        ), f"Expected last-band-coverage error, got: {errors}"
 
     def test_invalid_unreachable_band_zero_width_fails(self) -> None:
         """A band with zero width (low == high) should be flagged."""
@@ -269,6 +269,7 @@ class TestGateBBandPartition:
 # =============================================================================
 # Gate C — Facade ≡ Predicate
 # =============================================================================
+
 
 class TestGateCFacadePredicate:
     """Facade ≡ Predicate: rendered rationale must match predicate AST."""
@@ -396,7 +397,13 @@ class TestGateCFacadePredicate:
             "type": "composite",
             "combinator": "AND",
             "sub_predicates": [
-                {"type": "threshold", "input": "lactate", "operator": ">", "value": 2, "unit": "mmol/L"},
+                {
+                    "type": "threshold",
+                    "input": "lactate",
+                    "operator": ">",
+                    "value": 2,
+                    "unit": "mmol/L",
+                },
                 {"type": "boolean", "input": "suspected_infection"},
             ],
         }

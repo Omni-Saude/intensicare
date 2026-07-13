@@ -17,11 +17,11 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
+import contextlib
 from dataclasses import dataclass, field
 from typing import Any
 
 from intensicare.schemas.severity import SeverityLevel
-
 
 # ---------------------------------------------------------------------------
 # Domain models
@@ -91,15 +91,11 @@ def evaluate_shock_index(inputs: dict[str, Any]) -> HemoAlertResult:
     si_computed = None
     msi_computed = None
     if fc is not None and pas is not None:
-        try:
+        with contextlib.suppress(ValueError, TypeError, ZeroDivisionError):
             si_computed = float(fc) / float(pas)
-        except (ValueError, TypeError, ZeroDivisionError):
-            pass
     if fc is not None and pam is not None:
-        try:
+        with contextlib.suppress(ValueError, TypeError, ZeroDivisionError):
             msi_computed = float(fc) / float(pam)
-        except (ValueError, TypeError, ZeroDivisionError):
-            pass
 
     # Use provided indice_choque (SI) if available, else computed
     si_value = indice_choque if indice_choque is not None else si_computed
@@ -309,9 +305,8 @@ def evaluate_refractory_shock(inputs: dict[str, Any]) -> HemoAlertResult:
         return result
 
     # Enrichment: adjunct absence
-    adjuncts_absent = (
-        (dose_vasopressina is None or float(dose_vasopressina) <= 0)
-        and (hidrocortisona is not True)
+    adjuncts_absent = (dose_vasopressina is None or float(dose_vasopressina) <= 0) and (
+        hidrocortisona is not True
     )
 
     result.fired = True
@@ -448,9 +443,8 @@ def evaluate_antihtn_conflict(inputs: dict[str, Any]) -> HemoAlertResult:
 
     # Branch A: deprescribe — antihypertensive + hypotension/vasopressor
     branch_a = False
-    if antihtn is True:
-        if recurrent_hypotension or dose_vaso_f > 0:
-            branch_a = True
+    if antihtn is True and (recurrent_hypotension or dose_vaso_f > 0):
+        branch_a = True
 
     # Branch B: uncontrolled HTN off pressor
     branch_b = False
@@ -617,8 +611,8 @@ def evaluate_stability_high_norad_without_adjuncts(
         return result
 
     # Adjunct absence: either vasopressin missing OR hydrocortisone missing
-    vaso_ausente = (dose_vaso is None or float(dose_vaso) <= 0)
-    hidro_ausente = (not hidrocortisona)
+    vaso_ausente = dose_vaso is None or float(dose_vaso) <= 0
+    hidro_ausente = not hidrocortisona
 
     if not vaso_ausente and not hidro_ausente:
         return result  # Both adjuncts present

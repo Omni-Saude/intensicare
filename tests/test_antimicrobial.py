@@ -15,7 +15,6 @@ from intensicare.services.domain_antimicrobiano import (
     get_criteria_catalog,
 )
 
-
 # ════════════════════════════════════════════════════════════════════════════
 # evaluate_assessment — scoring bands and edge cases
 # ════════════════════════════════════════════════════════════════════════════
@@ -252,7 +251,7 @@ class TestGetCategories:
 
     def test_labels_are_non_empty(self):
         """Every category has a non-empty label."""
-        for key, label in get_categories().items():
+        for _key, label in get_categories().items():
             assert isinstance(label, str)
             assert len(label) > 0
 

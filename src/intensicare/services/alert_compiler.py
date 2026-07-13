@@ -9,11 +9,11 @@ builds a versioned definition registry, and exposes:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import hashlib
 import json
-import re
-from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -50,8 +50,8 @@ class BandEdge:
 class BandScale:
     """A graded scale with ordered bands (e.g., KDIGO stages, severity bands)."""
 
-    severity: str                # primary severity label
-    variable: str                # the input variable name
+    severity: str  # primary severity label
+    variable: str  # the input variable name
     unit: str | None = None
     bands: list[BandEdge] = field(default_factory=list)
     # raw text of the band definition
@@ -62,7 +62,7 @@ class BandScale:
 class FacadeThreshold:
     """A threshold value rendered to clinicians in the alert payload."""
 
-    criterion: str    # e.g., "potassio > 6.5 mmol/L"
+    criterion: str  # e.g., "potassio > 6.5 mmol/L"
     variable: str
     operator: str
     value: float
@@ -99,8 +99,14 @@ class AlertDefinition:
 # ---------------------------------------------------------------------------
 
 DOMAINS = [
-    "sepsis", "aki", "respiratory", "hemodynamics", "neuro-sedation",
-    "electrolyte", "pharmaco-interaction", "early-warning-scores",
+    "sepsis",
+    "aki",
+    "respiratory",
+    "hemodynamics",
+    "neuro-sedation",
+    "electrolyte",
+    "pharmaco-interaction",
+    "early-warning-scores",
     "correlation-engine",
 ]
 
@@ -273,13 +279,15 @@ def extract_facade_thresholds(logic_text: str) -> list[FacadeThreshold]:
         if unit:
             criterion += f" {unit}"
 
-        thresholds.append(FacadeThreshold(
-            criterion=criterion,
-            variable=variable,
-            operator=operator,
-            value=value,
-            unit=unit,
-        ))
+        thresholds.append(
+            FacadeThreshold(
+                criterion=criterion,
+                variable=variable,
+                operator=operator,
+                value=value,
+                unit=unit,
+            )
+        )
 
     return thresholds
 
@@ -311,11 +319,13 @@ class AlertCompiler:
         try:
             data = load_yaml(path)
         except Exception as e:
-            self._errors.append({
-                "gate": "LOAD",
-                "path": str(path),
-                "error": str(e),
-            })
+            self._errors.append(
+                {
+                    "gate": "LOAD",
+                    "path": str(path),
+                    "error": str(e),
+                }
+            )
             return
 
         domain = data.get("domain", path.stem)
@@ -362,7 +372,9 @@ class AlertCompiler:
             self.definitions[alert_id] = ad
 
     def evaluate_alert_definition(
-        self, alert_id: str, inputs: dict[str, Any],
+        self,
+        alert_id: str,
+        inputs: dict[str, Any],
     ) -> bool:
         """Evaluate whether an alert fires given the inputs.
 
@@ -415,13 +427,15 @@ class AlertCompiler:
             declared = {i.name for i in ad.inputs}
             unreferenced = declared - ad.referenced_inputs
             if unreferenced:
-                failures.append({
-                    "alert_id": ad.alert_id,
-                    "unreferenced_inputs": sorted(unreferenced),
-                    "declared": sorted(declared),
-                    "referenced": sorted(ad.referenced_inputs),
-                    "msg": f"Inputs declared but not referenced in logic: {sorted(unreferenced)}",
-                })
+                failures.append(
+                    {
+                        "alert_id": ad.alert_id,
+                        "unreferenced_inputs": sorted(unreferenced),
+                        "declared": sorted(declared),
+                        "referenced": sorted(ad.referenced_inputs),
+                        "msg": f"Inputs declared but not referenced in logic: {sorted(unreferenced)}",
+                    }
+                )
         return len(failures) == 0, failures
 
     # ------------------------------------------------------------------
@@ -443,7 +457,9 @@ class AlertCompiler:
         return len(failures) == 0, failures
 
     def _check_band_partition(
-        self, alert_id: str, scale: BandScale,
+        self,
+        alert_id: str,
+        scale: BandScale,
     ) -> list[dict]:
         """Check a single band scale for gaps/overlaps/unreachable bands.
 
@@ -466,46 +482,52 @@ class AlertCompiler:
         )
 
         for i in range(len(sorted_bands) - 1):
-            b1 = sorted_bands[i]      # higher severity
+            b1 = sorted_bands[i]  # higher severity
             b2 = sorted_bands[i + 1]  # lower severity
 
             # --- Strict-edge gap: b1 uses >X, b2 uses <X at same value ---
             if b1.operator in (">", ">=") and b2.operator in ("<", "<="):
                 if abs(b1.value - b2.value) < 0.001:
                     if b1.operator == ">" and b2.operator == "<":
-                        failures.append({
-                            "alert_id": alert_id,
-                            "variable": scale.variable,
-                            "edge_value": b1.value,
-                            "msg": f"Strict gap at exactly {b1.value}: "
-                                   f"neither >{b1.value} nor <{b2.value} "
-                                   f"covers the edge value",
-                        })
+                        failures.append(
+                            {
+                                "alert_id": alert_id,
+                                "variable": scale.variable,
+                                "edge_value": b1.value,
+                                "msg": f"Strict gap at exactly {b1.value}: "
+                                f"neither >{b1.value} nor <{b2.value} "
+                                f"covers the edge value",
+                            }
+                        )
 
             # --- Inverted severity for upper-bound bands (> or >=) ---
             # Higher severity (b1) should have HIGHER threshold than lower (b2)
             if b1.operator in (">", ">=") and b2.operator in (">", ">="):
                 if b1.value < b2.value:
                     # critical > 5.5 is less restrictive than urgent > 6.0 — wrong!
-                    failures.append({
-                        "alert_id": alert_id,
-                        "variable": scale.variable,
-                        "msg": f"Inverted severity on upper-bound: "
-                               f"{b1.severity} ({b1.operator}{b1.value}) should "
-                               f"be >= {b2.severity} ({b2.operator}{b2.value})",
-                    })
+                    failures.append(
+                        {
+                            "alert_id": alert_id,
+                            "variable": scale.variable,
+                            "msg": f"Inverted severity on upper-bound: "
+                            f"{b1.severity} ({b1.operator}{b1.value}) should "
+                            f"be >= {b2.severity} ({b2.operator}{b2.value})",
+                        }
+                    )
 
             # --- Inverted severity for lower-bound bands (< or <=) ---
             # Higher severity (b1) should have LOWER threshold than lower (b2)
             if b1.operator in ("<", "<=") and b2.operator in ("<", "<="):
                 if b1.value > b2.value:
-                    failures.append({
-                        "alert_id": alert_id,
-                        "variable": scale.variable,
-                        "msg": f"Inverted severity on lower-bound: "
-                               f"{b1.severity} ({b1.operator}{b1.value}) should "
-                               f"be <= {b2.severity} ({b2.operator}{b2.value})",
-                    })
+                    failures.append(
+                        {
+                            "alert_id": alert_id,
+                            "variable": scale.variable,
+                            "msg": f"Inverted severity on lower-bound: "
+                            f"{b1.severity} ({b1.operator}{b1.value}) should "
+                            f"be <= {b2.severity} ({b2.operator}{b2.value})",
+                        }
+                    )
 
         return failures
 
@@ -531,12 +553,44 @@ class AlertCompiler:
                 if len(ft.variable) <= 2 and not ft.variable[0].isalpha():
                     continue
                 if ft.variable.lower() in {
-                    "and", "or", "not", "is", "if", "of", "in", "as", "at",
-                    "the", "for", "any", "all", "be", "by", "to", "on", "no",
-                    "over", "with", "from", "was", "time", "or", "count",
-                    "nora", "noradrenalina",
-                    "si", "msi", "tec", "map", "sbp", "rr", "hr", "pct", "pcr",
-                    "spO2", "fio2", "FiO2",
+                    "and",
+                    "or",
+                    "not",
+                    "is",
+                    "if",
+                    "of",
+                    "in",
+                    "as",
+                    "at",
+                    "the",
+                    "for",
+                    "any",
+                    "all",
+                    "be",
+                    "by",
+                    "to",
+                    "on",
+                    "no",
+                    "over",
+                    "with",
+                    "from",
+                    "was",
+                    "time",
+                    "count",
+                    "nora",
+                    "noradrenalina",
+                    "si",
+                    "msi",
+                    "tec",
+                    "map",
+                    "sbp",
+                    "rr",
+                    "hr",
+                    "pct",
+                    "pcr",
+                    "spO2",
+                    "fio2",
+                    "FiO2",
                 }:
                     continue
                 # Skip entries that look like NEWS2/SOFA scoring tables
@@ -544,8 +598,7 @@ class AlertCompiler:
                     continue
                 # Skip if variable matches a known input (even partially)
                 matched = any(
-                    ft.variable == name or name.startswith(ft.variable)
-                    for name in declared_names
+                    ft.variable == name or name.startswith(ft.variable) for name in declared_names
                 )
                 if not matched:
                     # Also check if it matches a band edge variable
@@ -554,12 +607,14 @@ class AlertCompiler:
                             matched = True
                             break
                 if not matched:
-                    failures.append({
-                        "alert_id": ad.alert_id,
-                        "facade": ft.criterion,
-                        "msg": f"Facade threshold '{ft.criterion}' references "
-                               f"variable '{ft.variable}' not in declared inputs",
-                    })
+                    failures.append(
+                        {
+                            "alert_id": ad.alert_id,
+                            "facade": ft.criterion,
+                            "msg": f"Facade threshold '{ft.criterion}' references "
+                            f"variable '{ft.variable}' not in declared inputs",
+                        }
+                    )
 
         return len(failures) == 0, failures
 
@@ -578,16 +633,22 @@ class AlertCompiler:
                 "domain": ad.domain,
                 "definition_version": ad.definition_version,
                 "content_hash": ad.content_hash,
-                "inputs": [{
-                    "name": i.name,
-                    "type": i.type,
-                    "unit": i.unit,
-                } for i in ad.inputs],
-                "band_scales": [{
-                    "variable": s.variable,
-                    "unit": s.unit,
-                    "band_count": len(s.bands),
-                } for s in ad.band_scales],
+                "inputs": [
+                    {
+                        "name": i.name,
+                        "type": i.type,
+                        "unit": i.unit,
+                    }
+                    for i in ad.inputs
+                ],
+                "band_scales": [
+                    {
+                        "variable": s.variable,
+                        "unit": s.unit,
+                        "band_count": len(s.bands),
+                    }
+                    for s in ad.band_scales
+                ],
             }
         return registry
 

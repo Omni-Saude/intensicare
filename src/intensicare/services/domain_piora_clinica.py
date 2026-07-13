@@ -27,23 +27,22 @@ from __future__ import annotations
 __version__ = "3.0.0"
 
 __all__ = [
+    "DOMAIN_CRITERIA",
     "DeteriorationCriteriaResult",
     "DeteriorationEvaluationResult",
-    "DOMAIN_CRITERIA",
+    "classify_deterioration",
     "evaluate_deterioration",
     "evaluate_deterioration_from_history",
-    "classify_deterioration",
 ]
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 import logging
+from typing import Any
 
-from intensicare.services.domain_respiratory import evaluate_all as evaluate_respiratory
 from intensicare.services.domain_hemo import evaluate_all as evaluate_hemo
-from intensicare.services.domain_sepsis import SepsisDomainService
+from intensicare.services.domain_respiratory import evaluate_all as evaluate_respiratory
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,6 @@ DOMAIN_CRITERIA: list[dict[str, str | None]] = [
         "name": "Taquipneia progressiva (FR > 35 ou ΔFR > 10 em 2h)",
         "threshold": "FR > 35 rpm ou aumento > 10 rpm em 2h",
     },
-
     # ===== HEMODYNAMIC (3 criteria) =====
     {
         "domain": "hemodynamic",
@@ -90,7 +88,6 @@ DOMAIN_CRITERIA: list[dict[str, str | None]] = [
         "name": "Índice de choque com piora (> 1.2 ou ΔSI > 0.3 em 2h)",
         "threshold": "SI > 1.2 ou aumento > 0.3 em 2h",
     },
-
     # ===== SEPSIS (3 criteria) =====
     {
         "domain": "sepsis",
@@ -107,7 +104,6 @@ DOMAIN_CRITERIA: list[dict[str, str | None]] = [
         "name": "Procalcitonina em ascensão (> 0.25 ng/mL em 24h)",
         "threshold": "ΔPCT > 0.25 ng/mL em 24h com ATB ≥ 48h",
     },
-
     # ===== NEUROLOGIC (2 criteria) =====
     {
         "domain": "neurologic",
@@ -119,7 +115,6 @@ DOMAIN_CRITERIA: list[dict[str, str | None]] = [
         "name": "Piora de RASS (agitação ou sedação excessiva)",
         "threshold": "RASS ≥ +2 (agitação) ou RASS ≤ -4 (sedação profunda) com piora",
     },
-
     # ===== RENAL (1 criterion) =====
     {
         "domain": "renal",
@@ -192,7 +187,7 @@ def _eval_spo2_fio2_drop(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         fio2 = fio2 / 100.0
     if spo2 < 90.0 and fio2 > 0.60:
         return True, "critical", f"SpO2={spo2:.0f}%, FiO2={fio2:.2f}"
-    elif spo2 < 92.0 and fio2 > 0.50:
+    if spo2 < 92.0 and fio2 > 0.50:
         return True, "alert", f"SpO2={spo2:.0f}%, FiO2={fio2:.2f}"
     return False, "normal", f"SpO2={spo2:.0f}%, FiO2={fio2:.2f}"
 
@@ -214,7 +209,7 @@ def _eval_pf_worsening(inputs: dict[str, Any]) -> tuple[bool, str, str]:
     delta = current - previous
     if delta < -50 or (previous > 0 and current / previous < 0.80):
         return True, "critical", f"ΔP/F={delta:.0f} (queda > 20%)"
-    elif delta < -25:
+    if delta < -25:
         return True, "alert", f"ΔP/F={delta:.0f} (queda moderada)"
     return False, "normal", f"ΔP/F={delta:.0f}"
 
@@ -240,7 +235,7 @@ def _eval_fio2_escalation(inputs: dict[str, Any]) -> tuple[bool, str, str]:
     if fio2_ratio > 1.30:
         if spo2 is not None and spo2_6h is not None and spo2 <= spo2_6h:
             return True, "critical", f"FiO2 +{(fio2_ratio - 1) * 100:.0f}%, SpO2 sem melhora"
-        elif spo2 is not None and spo2_6h is not None:
+        if spo2 is not None and spo2_6h is not None:
             return True, "alert", f"FiO2 +{(fio2_ratio - 1) * 100:.0f}%, SpO2 melhorou"
     return False, "normal", f"FiO2 variação={(fio2_ratio - 1) * 100:.0f}%"
 
@@ -278,7 +273,7 @@ def _eval_map_drop(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         delta = pam - pam_1h
         if delta < -15.0:
             return True, "critical", f"ΔPAM={delta:.0f} mmHg em 1h"
-        elif delta < -10.0:
+        if delta < -10.0:
             return True, "alert", f"ΔPAM={delta:.0f} mmHg em 1h"
     return False, "normal", f"PAM={pam:.0f} mmHg"
 
@@ -295,9 +290,7 @@ def _eval_vaso_escalation_deterioration(inputs: dict[str, Any]) -> tuple[bool, s
         and dose_vaso_val > 0
         and not inputs.get("vasopressina_previa", False)
     ) or (
-        dose_adr_val is not None
-        and dose_adr_val > 0
-        and not inputs.get("adrenalina_previa", False)
+        dose_adr_val is not None and dose_adr_val > 0 and not inputs.get("adrenalina_previa", False)
     )
 
     if second_agent:
@@ -307,7 +300,7 @@ def _eval_vaso_escalation_deterioration(inputs: dict[str, Any]) -> tuple[bool, s
         ratio = dose / dose_basal
         if ratio > 2.0:
             return True, "critical", f"Dose vasopressor {ratio:.1f}× basal"
-        elif ratio > 1.5:
+        if ratio > 1.5:
             return True, "alert", f"Dose vasopressor {ratio:.1f}× basal"
 
     if dose is not None and dose > 0:
@@ -365,7 +358,11 @@ def _eval_qsofa_increase(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         if qsofa_24h is not None:
             qsofa_24h_val = _num(qsofa_24h)
             if qsofa_24h_val is not None and qsofa_val > qsofa_24h_val:
-                return True, "critical", f"qSOFA={int(qsofa_val)} (aumentou de {int(qsofa_24h_val)})"
+                return (
+                    True,
+                    "critical",
+                    f"qSOFA={int(qsofa_val)} (aumentou de {int(qsofa_24h_val)})",
+                )
         return True, "alert", f"qSOFA={int(qsofa_val)} (≥ 2)"
 
     return False, "normal", f"qSOFA={int(qsofa_val)}"
@@ -390,7 +387,7 @@ def _eval_lactate_rising(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         delta_per_hour = delta_raw / delta_hours
         if delta_per_hour > 0.5:
             return True, "critical", f"Δlactato=+{delta_per_hour:.2f} mmol/L/h"
-        elif delta_per_hour > 0.25:
+        if delta_per_hour > 0.25:
             return True, "alert", f"Δlactato=+{delta_per_hour:.2f} mmol/L/h"
 
     if lac > 2.0:
@@ -413,7 +410,7 @@ def _eval_pct_rising(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         delta = pct - pct_prev
         if delta > 0.5:
             return True, "critical", f"ΔPCT=+{delta:.2f} ng/mL (> 0.5)"
-        elif delta > 0.25:
+        if delta > 0.25:
             return True, "alert", f"ΔPCT=+{delta:.2f} ng/mL (> 0.25)"
 
     if pct > 2.0:
@@ -437,7 +434,7 @@ def _eval_gcs_drop(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         delta = gcs - gcs_24h
         if delta <= -3:
             return True, "critical", f"ΔGCS={int(delta)} em 24h"
-        elif delta <= -2:
+        if delta <= -2:
             return True, "alert", f"ΔGCS={int(delta)} em 24h"
 
     return False, "normal", f"GCS={int(gcs)}"
@@ -454,13 +451,13 @@ def _eval_rass_worsening(inputs: dict[str, Any]) -> tuple[bool, str, str]:
     # Agitation: RASS ≥ +2
     if rass >= 3:
         return True, "critical", f"RASS={int(rass)} (agitação severa)"
-    elif rass >= 2:
+    if rass >= 2:
         return True, "alert", f"RASS={int(rass)} (agitação moderada)"
 
     # Deep sedation: RASS ≤ -4
     if rass <= -5:
         return True, "critical", f"RASS={int(rass)} (sedação profunda — sem resposta)"
-    elif rass <= -4:
+    if rass <= -4:
         # Check if worsening from previous
         if rass_prev is not None and rass < rass_prev:
             return True, "alert", f"RASS={int(rass)} (sedação profunda, piora)"
@@ -480,14 +477,14 @@ def _eval_renal_worsening(inputs: dict[str, Any]) -> tuple[bool, str, str]:
         ratio = creat / creat_basal
         if ratio >= 2.0:
             return True, "critical", f"Creatinina={creat:.2f} ({ratio:.1f}× basal)"
-        elif ratio >= 1.5:
+        if ratio >= 1.5:
             return True, "alert", f"Creatinina={creat:.2f} ({ratio:.1f}× basal)"
 
     # Check urine output
     if diurese is not None:
         if diurese < 0.3:
             return True, "critical", f"Diurese={diurese:.2f} mL/kg/h (< 0.3)"
-        elif diurese < 0.5:
+        if diurese < 0.5:
             return True, "alert", f"Diurese={diurese:.2f} mL/kg/h (< 0.5)"
 
     if creat is not None:
@@ -582,13 +579,10 @@ def _compute_score(
     # Base score from domain count
     if domains == 0:
         base_score = "0"
-        base_domains = 0
     elif domains <= 2:
         base_score = "1"
-        base_domains = 1
     else:
         base_score = "3"
-        base_domains = 3
 
     # Determine trend from previous
     trend = "none"
@@ -608,9 +602,8 @@ def _compute_score(
 
     if trend == "improving":
         return f"{base_score}+", trend
-    else:
-        # worsening, stable, or none → negative sign
-        return f"{base_score}-", trend
+    # worsening, stable, or none → negative sign
+    return f"{base_score}-", trend
 
 
 def _parse_previous_domains(score: str) -> int | None:
@@ -668,13 +661,12 @@ def _build_deterioration_recommendation(
                 "Manter vigilância e reavaliar em 2-4h. "
                 "Notificar plantonista se houver piora."
             )
-        else:
-            return (
-                f"POUCOS DOMÍNIOS AFETADOS — ATENÇÃO: {len(domains)} domínio(s) afetado(s) "
-                f"({domain_str}). Sem evidência de melhora ou em piora. "
-                "Reavaliar em 1h. Considerar ajuste terapêutico nos domínios afetados. "
-                "Notificar plantonista."
-            )
+        return (
+            f"POUCOS DOMÍNIOS AFETADOS — ATENÇÃO: {len(domains)} domínio(s) afetado(s) "
+            f"({domain_str}). Sem evidência de melhora ou em piora. "
+            "Reavaliar em 1h. Considerar ajuste terapêutico nos domínios afetados. "
+            "Notificar plantonista."
+        )
 
     if score.startswith("3"):
         if score.endswith("+"):
@@ -684,13 +676,12 @@ def _build_deterioration_recommendation(
                 "Manter vigilância intensiva. Reavaliar em 1h. "
                 "Avaliar resposta às intervenções em curso."
             )
-        else:
-            return (
-                f"MÚLTIPLOS DOMÍNIOS AFETADOS — CRÍTICO: {len(domains)} domínios afetados "
-                f"({domain_str}). Sem melhora ou em piora. "
-                "AVALIAÇÃO MÉDICA IMEDIATA. Considerar escalonamento de cuidados, "
-                "revisão completa do plano terapêutico e acionamento do time de resposta rápida."
-            )
+        return (
+            f"MÚLTIPLOS DOMÍNIOS AFETADOS — CRÍTICO: {len(domains)} domínios afetados "
+            f"({domain_str}). Sem melhora ou em piora. "
+            "AVALIAÇÃO MÉDICA IMEDIATA. Considerar escalonamento de cuidados, "
+            "revisão completa do plano terapêutico e acionamento do time de resposta rápida."
+        )
 
     return "Reavaliação clínica recomendada."
 
@@ -724,16 +715,14 @@ def evaluate_deterioration(
     # Step 1: Optionally evaluate domain-level services for context
     # These provide enrichment but don't gate the 13 criteria
     try:
-        hemo_alerts = evaluate_hemo(clinical_data)
+        evaluate_hemo(clinical_data)
     except Exception as exc:
         logger.debug("Hemo alert evaluation failed (non-blocking): %s", exc)
-        hemo_alerts = {}
 
     try:
-        resp_alerts = evaluate_respiratory(clinical_data)
+        evaluate_respiratory(clinical_data)
     except Exception as exc:
         logger.debug("Respiratory alert evaluation failed (non-blocking): %s", exc)
-        resp_alerts = {}
 
     # Step 2: Evaluate all 13 deterioration criteria
     criteria_results: list[DeteriorationCriteriaResult] = []
@@ -757,10 +746,10 @@ def evaluate_deterioration(
             continue
 
         try:
-            fired, status, value = evaluator(clinical_data)
+            _fired, status, value = evaluator(clinical_data)
         except Exception as exc:
             logger.warning("Error evaluating deterioration criterion '%s': %s", name, exc)
-            fired, status, value = False, "normal", f"erro: {exc}"
+            _fired, status, value = False, "normal", f"erro: {exc}"
 
         criteria_results.append(
             DeteriorationCriteriaResult(

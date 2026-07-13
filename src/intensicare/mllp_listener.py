@@ -174,7 +174,7 @@ def _parse_timestamp(raw: str | None) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc) - timedelta(seconds=tz_offset)
 
 
-def _parse_obx_value(raw: str | None, field_name: str) -> Any:  # noqa: PLR0911 -- one early return per typed parse branch aids readability
+def _parse_obx_value(raw: str | None, field_name: str) -> Any:
     """Parse an OBX-5 observation value into the appropriate Python type."""
     if raw is None or raw == "":
         return None

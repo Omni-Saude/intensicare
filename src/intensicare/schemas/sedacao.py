@@ -16,9 +16,7 @@ class CAMICUFeaturesSchema(BaseModel):
     feature_1_acute_onset: bool | None = Field(
         None, description="Feature 1: Acute onset or fluctuating course"
     )
-    feature_2_inattention: bool | None = Field(
-        None, description="Feature 2: Inattention"
-    )
+    feature_2_inattention: bool | None = Field(None, description="Feature 2: Inattention")
     feature_3_altered_loc: bool | None = Field(
         None, description="Feature 3: Altered level of consciousness (current RASS != 0)"
     )
@@ -43,25 +41,19 @@ class SedationAssessmentSchema(BaseModel):
         None, description="Human-readable RASS label (e.g. Sonolento, Agitado)"
     )
 
-    bps_score: int | None = Field(
-        None, ge=3, le=12, description="Behavioral Pain Scale (3–12)"
-    )
-    nrs_score: int | None = Field(
-        None, ge=0, le=10, description="Numeric Rating Scale (0–10)"
-    )
+    bps_score: int | None = Field(None, ge=3, le=12, description="Behavioral Pain Scale (3–12)")
+    nrs_score: int | None = Field(None, ge=0, le=10, description="Numeric Rating Scale (0–10)")
 
-    cam_icu_positive: bool | None = Field(
-        None, description="CAM-ICU positive for delirium"
-    )
-    cam_icu_features: dict[str, Any] | None = Field(
-        None, description="CAM-ICU feature details"
-    )
+    cam_icu_positive: bool | None = Field(None, description="CAM-ICU positive for delirium")
+    cam_icu_features: dict[str, Any] | None = Field(None, description="CAM-ICU feature details")
 
     current_sedation: str | None = Field(
         None, description="Current sedation infusion (e.g. Propofol 20mL/h)"
     )
 
-    assessed_by: str = Field(..., description="Healthcare professional who performed the assessment")
+    assessed_by: str = Field(
+        ..., description="Healthcare professional who performed the assessment"
+    )
     assessed_at: datetime = Field(..., description="Assessment timestamp (UTC)")
     notes: str | None = Field(None, max_length=512, description="Additional clinical notes")
 

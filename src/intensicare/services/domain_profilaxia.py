@@ -28,33 +28,73 @@ BUNDLE_CATALOG: dict[str, dict[str, Any]] = {
         "name": "LAMGD — Úlcera de Estresse",
         "criteria": [
             {"id": "lamgd-vm", "label": "Ventilação mecânica > 48h", "na_default": False},
-            {"id": "lamgd-coag", "label": "Coagulopatia (INR > 1.5 ou Plq < 50k)", "na_default": False},
+            {
+                "id": "lamgd-coag",
+                "label": "Coagulopatia (INR > 1.5 ou Plq < 50k)",
+                "na_default": False,
+            },
             {"id": "lamgd-choque", "label": "Choque (vasopressor)", "na_default": False},
-            {"id": "lamgd-cortico", "label": "Corticoterapia (hidrocortisona > 300mg/dia)", "na_default": False},
+            {
+                "id": "lamgd-cortico",
+                "label": "Corticoterapia (hidrocortisona > 300mg/dia)",
+                "na_default": False,
+            },
         ],
     },
     "tev": {
         "name": "TEV — Tromboembolismo Venoso",
         "criteria": [
-            {"id": "tev-heparina", "label": "Heparina não fracionada ou HBPM prescrita", "na_default": False},
-            {"id": "tev-deamb", "label": "Deambulação contraindicada (ajuste de dose)", "na_default": False},
-            {"id": "tev-imc", "label": "Ajuste para IMC > 40 (dose aumentada)", "na_default": False},
-            {"id": "tev-renal", "label": "Ajuste renal (ClCr < 30 — HNF em vez de HBPM)", "na_default": False},
-            {"id": "tev-cpi", "label": "Compressão pneumática intermitente (se contraindicação)", "na_default": False},
+            {
+                "id": "tev-heparina",
+                "label": "Heparina não fracionada ou HBPM prescrita",
+                "na_default": False,
+            },
+            {
+                "id": "tev-deamb",
+                "label": "Deambulação contraindicada (ajuste de dose)",
+                "na_default": False,
+            },
+            {
+                "id": "tev-imc",
+                "label": "Ajuste para IMC > 40 (dose aumentada)",
+                "na_default": False,
+            },
+            {
+                "id": "tev-renal",
+                "label": "Ajuste renal (ClCr < 30 — HNF em vez de HBPM)",
+                "na_default": False,
+            },
+            {
+                "id": "tev-cpi",
+                "label": "Compressão pneumática intermitente (se contraindicação)",
+                "na_default": False,
+            },
         ],
     },
     "hiperglicemia": {
         "name": "Hiperglicemia — Controle Glicêmico",
         "criteria": [
-            {"id": "hg-insulina", "label": "Protocolo de insulina NPH ou escala móvel ativo", "na_default": False},
+            {
+                "id": "hg-insulina",
+                "label": "Protocolo de insulina NPH ou escala móvel ativo",
+                "na_default": False,
+            },
             {"id": "hg-meta", "label": "Meta glicêmica 140-180 mg/dL", "na_default": False},
-            {"id": "hg-monitor", "label": "Monitorização glicêmica a cada 4-6h", "na_default": False},
+            {
+                "id": "hg-monitor",
+                "label": "Monitorização glicêmica a cada 4-6h",
+                "na_default": False,
+            },
         ],
     },
     "mobilizacao": {
         "name": "Mobilização Precoce",
         "criteria": [
-            {"id": "mob-avaliacao", "label": "Avaliação de mobilidade documentada nas últimas 24h", "na_default": False},
+            {
+                "id": "mob-avaliacao",
+                "label": "Avaliação de mobilidade documentada nas últimas 24h",
+                "na_default": False,
+            },
             {"id": "mob-contraindic", "label": "Sem contraindicação absoluta", "na_default": False},
             {"id": "mob-meta", "label": "Meta de saída do leito atingida", "na_default": False},
         ],
@@ -62,11 +102,31 @@ BUNDLE_CATALOG: dict[str, dict[str, Any]] = {
     "dispositivos": {
         "name": "Dispositivos Invasivos",
         "criteria": [
-            {"id": "disp-cvc-barreira", "label": "CVC: inserção com barreira máxima", "na_default": True},
-            {"id": "disp-cvc-curativo", "label": "CVC: curativo transparente (troca a cada 7 dias)", "na_default": True},
-            {"id": "disp-cvc-revisao", "label": "CVC: revisão diária de necessidade", "na_default": True},
-            {"id": "disp-svd", "label": "SVD: sistema fechado, fixação, abaixo do nível da bexiga", "na_default": True},
-            {"id": "disp-tot", "label": "TOT: pressão do cuff 20-30 cmH2O, cabeceira 30-45°", "na_default": True},
+            {
+                "id": "disp-cvc-barreira",
+                "label": "CVC: inserção com barreira máxima",
+                "na_default": True,
+            },
+            {
+                "id": "disp-cvc-curativo",
+                "label": "CVC: curativo transparente (troca a cada 7 dias)",
+                "na_default": True,
+            },
+            {
+                "id": "disp-cvc-revisao",
+                "label": "CVC: revisão diária de necessidade",
+                "na_default": True,
+            },
+            {
+                "id": "disp-svd",
+                "label": "SVD: sistema fechado, fixação, abaixo do nível da bexiga",
+                "na_default": True,
+            },
+            {
+                "id": "disp-tot",
+                "label": "TOT: pressão do cuff 20-30 cmH2O, cabeceira 30-45°",
+                "na_default": True,
+            },
         ],
     },
 }
@@ -248,10 +308,7 @@ def evaluate_all_bundles(
     bundle_ids = list(BUNDLE_CATALOG.keys())
     inputs = bundle_inputs or {}
 
-    bundles = [
-        evaluate_bundle(bid, inputs.get(bid))
-        for bid in bundle_ids
-    ]
+    bundles = [evaluate_bundle(bid, inputs.get(bid)) for bid in bundle_ids]
 
     overall_status, overall_score = compute_overall(bundles)
 

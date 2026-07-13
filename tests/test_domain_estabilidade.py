@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from intensicare.services.domain_estabilidade import (
     STABILITY_CRITERIA,
     StabilityCriterionResult,
@@ -26,10 +24,10 @@ from intensicare.services.domain_estabilidade import (
     evaluate_stability,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: build clinical_data that triggers specific additional criteria
 # ---------------------------------------------------------------------------
+
 
 def _empty_clinical_data() -> dict:
     """Return empty clinical_data dict."""
@@ -177,7 +175,14 @@ class TestCriteriaStructure:
         mock_hemo.return_value = {}
         result = evaluate_stability("MPI-CAT2", _empty_clinical_data())
         categories = {c.category for c in result.criteria}
-        expected = {"vasopressor", "perfusion", "cardiac_output", "fluid_balance", "lactate", "combined"}
+        expected = {
+            "vasopressor",
+            "perfusion",
+            "cardiac_output",
+            "fluid_balance",
+            "lactate",
+            "combined",
+        }
         assert categories == expected
 
     def test_stability_criteria_constant_has_27_items(self):
@@ -329,7 +334,9 @@ class TestStabilityEvaluationResult:
 
     def test_assessed_at_set_after_evaluation(self):
         """After evaluate_stability, assessed_at is populated (ISO format)."""
-        with patch("intensicare.services.domain_estabilidade.evaluate_hemo_alerts", return_value={}):
+        with patch(
+            "intensicare.services.domain_estabilidade.evaluate_hemo_alerts", return_value={}
+        ):
             result = evaluate_stability("MPI-TS", _empty_clinical_data())
         assert result.assessed_at != ""
         assert "T" in result.assessed_at  # ISO format contains 'T'

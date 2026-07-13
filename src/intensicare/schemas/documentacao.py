@@ -9,7 +9,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Documentacao — single record response
 # ---------------------------------------------------------------------------
@@ -50,20 +49,22 @@ class DocumentacaoCreate(BaseModel):
     """
 
     type: str = Field(
-        ..., min_length=1, max_length=32,
+        ...,
+        min_length=1,
+        max_length=32,
         description="Document type: evolucao, prescricao, exame, procedimento",
     )
     description: str = Field(
-        ..., min_length=1, max_length=512,
+        ...,
+        min_length=1,
+        max_length=512,
         description="Document description / content summary",
     )
     data_documento: datetime = Field(..., description="Date/time of the clinical document")
     profissional: str | None = Field(
         None, max_length=255, description="Healthcare professional responsible"
     )
-    observacoes: str | None = Field(
-        None, max_length=1024, description="Additional observations"
-    )
+    observacoes: str | None = Field(None, max_length=1024, description="Additional observations")
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # DeteriorationCriteria
 # ---------------------------------------------------------------------------
@@ -29,7 +28,9 @@ class DeteriorationCriteriaSchema(BaseModel):
     )
     value: str | None = Field(None, description="Current observed value")
     threshold: str | None = Field(None, description="Trigger threshold")
-    alert_id: str | None = Field(None, description="Associated alert ID (ex: ALERT-RESP-DETERIORATION-02)")
+    alert_id: str | None = Field(
+        None, description="Associated alert ID (ex: ALERT-RESP-DETERIORATION-02)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,9 @@ class DeteriorationScoreSchema(BaseModel):
         description="Clinical recommendation (PT-BR)",
     )
     assessed_at: datetime
-    assessed_by: str | None = Field(None, description="User or system that generated the assessment")
+    assessed_by: str | None = Field(
+        None, description="User or system that generated the assessment"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -21,21 +21,15 @@ from intensicare.schemas.registry import (
     EmpresaCreate,
     EmpresaResponse,
     EmpresaUpdate,
-    EstabelecimentoCreate,
     EstabelecimentoResponse,
     RegistryListResponse,
-    SetorCreate,
-    SetorResponse,
 )
 from intensicare.services.domain_tenancy import (
     create_empresa,
-    create_estabelecimento,
     delete_empresa,
     get_empresa,
-    get_estabelecimento,
     list_empresas,
     list_estabelecimentos,
-    list_setores,
     update_empresa,
 )
 
@@ -52,7 +46,9 @@ router = APIRouter(prefix="/api/v1", tags=["registry"])
     response_model=RegistryListResponse,
 )
 async def list_empresas_endpoint(
-    search: str | None = Query(None, description="Termo de busca (nome fantasia, razão social ou CNPJ)"),
+    search: str | None = Query(
+        None, description="Termo de busca (nome fantasia, razão social ou CNPJ)"
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -127,7 +123,7 @@ async def update_empresa_endpoint(
     update_data = body.model_dump(exclude_unset=True)
 
     # Check CNPJ uniqueness if changing CNPJ
-    if "cnpj" in update_data and update_data["cnpj"]:
+    if update_data.get("cnpj"):
         existing_items, _ = await list_empresas(db, search=update_data["cnpj"], limit=2)
         conflicts = [e for e in existing_items if e.id != empresa_id]
         if conflicts:

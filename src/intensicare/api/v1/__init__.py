@@ -8,8 +8,8 @@ from .admin import router as admin_router
 from .alert_routing import router as alert_routing_router
 from .alerts import router as alerts_router
 from .antimicrobial import router as antimicrobial_router
-from .auth import router as auth_router
 from .auth import api_v1_auth_router
+from .auth import router as auth_router
 from .dashboard import router as dashboard_router
 from .deterioration import router as deterioration_router
 from .documentacao import router as documentacao_router
@@ -34,8 +34,8 @@ __all__ = [
     "alert_routing_router",
     "alerts_router",
     "antimicrobial_router",
-    "auth_router",
     "api_v1_auth_router",
+    "auth_router",
     "dashboard_router",
     "deterioration_router",
     "documentacao_router",
@@ -46,8 +46,8 @@ __all__ = [
     "health_router",
     "indicators_router",
     "movimentacao_router",
-    "patients_router",
     "pathways_router",
+    "patients_router",
     "prescricao_router",
     "prophylaxis_router",
     "registry_router",

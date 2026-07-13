@@ -15,9 +15,9 @@ Fallback local:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from enum import Enum
+import logging
 from typing import Any, Protocol
 
 from intensicare.config import settings
@@ -33,13 +33,17 @@ logger = logging.getLogger(__name__)
 class ClinicalRole(str, Enum):
     """Roles clínicos usados nas políticas ABAC."""
 
-    PHYSICIAN = "physician"       # Médico — acesso pleno aos pacientes do tenant
-    NURSE = "nurse"               # Enfermeiro — leitura + escrita de vitals
-    PHARMACIST = "pharmacist"     # Farmacêutico — somente domínio pharmaco
-    LAB_TECH = "lab_tech"         # Técnico de laboratório — somente lab results
-    ADMIN = "admin"               # Administrador — acesso global (multi-tenant)
-    VIEWER = "viewer"             # Visualizador — somente leitura, dashboards
-    AUDITOR = "auditor"           # Auditor — somente audit_trail, sem PHI
+    PHYSICIAN = "physician"  # Médico — acesso pleno aos pacientes do tenant
+    NURSE = "nurse"  # Enfermeiro — leitura + escrita de vitals
+    PHARMACIST = "pharmacist"  # Farmacêutico — somente domínio pharmaco
+    LAB_TECH = "lab_tech"  # Técnico de laboratório — somente lab results
+    ADMIN = "admin"  # Administrador — acesso global (multi-tenant)
+    VIEWER = "viewer"  # Visualizador — somente leitura, dashboards
+    AUDITOR = "auditor"  # Auditor — somente audit_trail, sem PHI
+    PHYSIOTHERAPIST = "physiotherapist"  # Fisioterapeuta — sem equivalente EN direto;
+    # políticas espelham NURSE (ver fix RBAC #6)
+    NUTRITIONIST = "nutritionist"  # Nutricionista — sem equivalente EN direto;
+    # políticas espelham NURSE (ver fix RBAC #6)
 
 
 class ResourceType(str, Enum):
@@ -123,7 +127,6 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.DASHBOARD,
         allowed_actions={Action.READ},
     ),
-
     # Nurse: leitura + escrita de vitals, leitura de scores/labs
     ABACPolicy(
         role=ClinicalRole.NURSE,
@@ -155,7 +158,70 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.DASHBOARD,
         allowed_actions={Action.READ},
     ),
-
+    # Physiotherapist: sem equivalente EN na matriz original — políticas
+    # espelham NURSE (leitura/escrita de vitals, leitura de scores/labs).
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.VITALS,
+        allowed_actions={Action.READ, Action.WRITE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.CLINICAL_SCORES,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.LAB_RESULTS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.PATIENT_DEMOGRAPHICS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.ALERTS,
+        allowed_actions={Action.READ, Action.ACKNOWLEDGE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.PHYSIOTHERAPIST,
+        resource=ResourceType.DASHBOARD,
+        allowed_actions={Action.READ},
+    ),
+    # Nutritionist: sem equivalente EN na matriz original — políticas
+    # espelham NURSE (leitura/escrita de vitals, leitura de scores/labs).
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.VITALS,
+        allowed_actions={Action.READ, Action.WRITE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.CLINICAL_SCORES,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.LAB_RESULTS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.PATIENT_DEMOGRAPHICS,
+        allowed_actions={Action.READ},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.ALERTS,
+        allowed_actions={Action.READ, Action.ACKNOWLEDGE},
+    ),
+    ABACPolicy(
+        role=ClinicalRole.NUTRITIONIST,
+        resource=ResourceType.DASHBOARD,
+        allowed_actions={Action.READ},
+    ),
     # Pharmacist: somente domínio pharmaco
     ABACPolicy(
         role=ClinicalRole.PHARMACIST,
@@ -172,7 +238,6 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.ALERTS,
         allowed_actions={Action.READ},
     ),
-
     # Lab Tech: somente lab results
     ABACPolicy(
         role=ClinicalRole.LAB_TECH,
@@ -184,7 +249,6 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.DASHBOARD,
         allowed_actions={Action.READ},
     ),
-
     # Admin: acesso global multi-tenant
     ABACPolicy(
         role=ClinicalRole.ADMIN,
@@ -243,7 +307,6 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.TENANT,
         allowed_actions={Action.READ, Action.WRITE, Action.DELETE, Action.ADMIN},
     ),
-
     # Viewer: somente leitura
     ABACPolicy(
         role=ClinicalRole.VIEWER,
@@ -260,7 +323,6 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
         resource=ResourceType.ALERTS,
         allowed_actions={Action.READ},
     ),
-
     # Auditor: somente audit_trail, sem PHI
     ABACPolicy(
         role=ClinicalRole.AUDITOR,
@@ -281,20 +343,25 @@ _ABAC_POLICY_MATRIX: list[ABACPolicy] = [
 
 
 class LakeFormationClient(Protocol):
-    """Interface para o cliente AWS Lake Formation (produção: boto3)."""
+    """Interface para o cliente AWS Lake Formation (produção: boto3).
+
+    Parâmetros em PascalCase pois refletem literalmente a API do boto3
+    (que preserva os nomes de parâmetro da API AWS Lake Formation
+    GrantPermissions/RevokePermissions, não convertidos para snake_case).
+    """
 
     async def grant_permissions(
         self,
-        principal: str,
-        resource: dict[str, Any],
-        permissions: list[str],
+        Principal: dict[str, Any],
+        Resource: dict[str, Any],
+        Permissions: list[str],
     ) -> None: ...
 
     async def revoke_permissions(
         self,
-        principal: str,
-        resource: dict[str, Any],
-        permissions: list[str],
+        Principal: dict[str, Any],
+        Resource: dict[str, Any],
+        Permissions: list[str],
     ) -> None: ...
 
 
@@ -315,7 +382,8 @@ class _LFGrantEngine:
             return
         if settings.lake_formation_data_catalog_id:
             try:
-                import boto3  # type: ignore[import-untyped]
+                import boto3
+
                 self._lf_client = boto3.client(
                     "lakeformation",
                     region_name=settings.iam_region,
@@ -344,7 +412,10 @@ class _LFGrantEngine:
         if self._lf_client is None:
             logger.debug(
                 "LF grant skipped (no client): %s → %s.%s [%s]",
-                principal_arn, database, table, permissions,
+                principal_arn,
+                database,
+                table,
+                permissions,
             )
             return
 
@@ -362,7 +433,10 @@ class _LFGrantEngine:
             )
             logger.info(
                 "LF grant: %s → %s.%s [%s]",
-                principal_arn, database, table, permissions,
+                principal_arn,
+                database,
+                table,
+                permissions,
             )
         except Exception as exc:
             logger.error("LF grant failed: %s", exc)
@@ -377,6 +451,28 @@ async def get_lf_grant_engine() -> _LFGrantEngine:
     """Retorna o motor de grants Lake Formation (inicializado lazy)."""
     await _lf_grants.initialize()
     return _lf_grants
+
+
+# ---------------------------------------------------------------------------
+# Alinhamento de vocabulário — CLINICAL_ROLES (PT-BR, auth/dependencies.py)
+# → ClinicalRole (EN, ABAC) — fix RBAC audit CRITICAL #6
+# ---------------------------------------------------------------------------
+
+ROLE_ALIASES: dict[str, str] = {
+    # CLINICAL_ROLES em auth/dependencies.py usa vocabulário PT-BR; a matriz
+    # ABAC (ClinicalRole) usa EN. Sem este mapeamento, todo role PT-BR
+    # desconhecido do enum caía silenciosamente em VIEWER (ver evaluate_abac).
+    "admin": ClinicalRole.ADMIN.value,
+    "medico": ClinicalRole.PHYSICIAN.value,
+    "enfermeiro": ClinicalRole.NURSE.value,
+    "farmacia": ClinicalRole.PHARMACIST.value,
+    # fisioterapeuta/nutricao não têm equivalente EN direto na matriz
+    # original — mapeados para roles próprios com políticas espelhando
+    # NURSE (ver _ABAC_POLICY_MATRIX acima).
+    "fisioterapeuta": ClinicalRole.PHYSIOTHERAPIST.value,
+    "nutricao": ClinicalRole.NUTRITIONIST.value,
+    "readonly": ClinicalRole.VIEWER.value,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +510,8 @@ def evaluate_abac(
     """Avalia se uma ação é permitida pelas políticas ABAC.
 
     Args:
-        role_str: Role clínico do usuário (string; mapeado para ClinicalRole).
+        role_str: Role clínico do usuário (string; PT-BR ou EN — ver
+            ROLE_ALIASES — mapeado para ClinicalRole).
         resource: Tipo de recurso acessado.
         action: Ação solicitada.
         tenant_id: Tenant do usuário autenticado.
@@ -423,10 +520,19 @@ def evaluate_abac(
     Returns:
         True se a ação é permitida, False caso contrário.
     """
+    normalized_role = ROLE_ALIASES.get(role_str, role_str)
     try:
-        role = ClinicalRole(role_str)
+        role = ClinicalRole(normalized_role)
     except ValueError:
-        logger.warning("Unknown clinical role: %r — defaulting to VIEWER", role_str)
+        # Fallback seguro (somente leitura) — mas auditável: role
+        # desconhecido é logado para investigação (dado inconsistente de
+        # usuário/seed, typo, ou vocabulário novo não mapeado em
+        # ROLE_ALIASES).
+        logger.warning(
+            "Unknown clinical role: %r (normalized=%r) — defaulting to VIEWER",
+            role_str,
+            normalized_role,
+        )
         role = ClinicalRole.VIEWER
 
     # Admin tem acesso cross-tenant
@@ -440,7 +546,8 @@ def evaluate_abac(
     if tenant_id != resource_tenant:
         logger.debug(
             "ABAC tenant mismatch: user=%s, resource=%s",
-            tenant_id, resource_tenant,
+            tenant_id,
+            resource_tenant,
         )
         return False
 

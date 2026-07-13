@@ -7,19 +7,17 @@ import pytest
 from intensicare.services.gold_schema import (
     DOMAIN_CADENCE,
     DOMAIN_WATERMARK_COLUMN,
-    FactAlert,
-    FactPatientScore,
-    GoldColumn,
-    GoldTableSchema,
     LAB_RESULT_SCHEMA,
     MEDICATION_SCHEMA,
     VITAL_SIGN_SCHEMA,
+    FactAlert,
+    FactPatientScore,
+    GoldColumn,
+    _domain_columns,
+    _domain_to_table,
     build_domain_query,
     build_incremental_query,
-    _domain_to_table,
-    _domain_columns,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constantes de domínio
@@ -143,7 +141,9 @@ class TestBuildIncrementalQuery:
 
     def test_incremental_with_watermark(self):
         query, params = build_incremental_query(
-            "sepsis", "tenant-1", "2026-01-01T00:00:00",
+            "sepsis",
+            "tenant-1",
+            "2026-01-01T00:00:00",
         )
         assert "ingested_at > TIMESTAMP ?" in query
         assert "tenant_id = ?" in query
@@ -190,7 +190,9 @@ class TestBuildDomainQuery:
 
     def test_includes_watermark_filter(self):
         query, params = build_domain_query(
-            "hemodynamics", "t1", "2026-06-01T00:00:00",
+            "hemodynamics",
+            "t1",
+            "2026-06-01T00:00:00",
         )
         assert "ingested_at > TIMESTAMP ?" in query
         assert params == ["t1", "2026-06-01T00:00:00", "10000"]
@@ -209,7 +211,9 @@ class TestFactModels:
         args = FactPatientScore.__table_args__
         assert args is not None
         # Should have a UniqueConstraint on source_score_id
-        assert any("source_score_id" in str(c) for c in (args if isinstance(args, tuple) else [args]))
+        assert any(
+            "source_score_id" in str(c) for c in (args if isinstance(args, tuple) else [args])
+        )
 
     def test_fact_alert_tablename(self):
         assert FactAlert.__tablename__ == "fact_alert"
@@ -217,4 +221,6 @@ class TestFactModels:
     def test_fact_alert_has_unique_constraint(self):
         args = FactAlert.__table_args__
         assert args is not None
-        assert any("source_alert_id" in str(c) for c in (args if isinstance(args, tuple) else [args]))
+        assert any(
+            "source_alert_id" in str(c) for c in (args if isinstance(args, tuple) else [args])
+        )

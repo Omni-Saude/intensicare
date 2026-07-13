@@ -36,37 +36,39 @@ class AlertRoutingRule(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, index=True,
-        comment="Tenant proprietário da regra"
+        String(64), nullable=False, index=True, comment="Tenant proprietário da regra"
     )
     name: Mapped[str] = mapped_column(
-        String(255), nullable=False,
-        comment="Nome descritivo da regra"
+        String(255), nullable=False, comment="Nome descritivo da regra"
     )
     conditions: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list,
-        comment="Lista de condições (field, operator, value) em JSONB"
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Lista de condições (field, operator, value) em JSONB",
     )
     actions: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list,
-        comment="Lista de ações (type, channel, target, etc.) em JSONB"
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Lista de ações (type, channel, target, etc.) em JSONB",
     )
     enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True,
-        comment="Se a regra está ativa"
+        Boolean, nullable=False, default=True, comment="Se a regra está ativa"
     )
     priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0,
-        comment="Prioridade da regra (maior = mais prioritário)"
+        Integer, nullable=False, default=0, comment="Prioridade da regra (maior = mais prioritário)"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
+        DateTime(timezone=True),
+        nullable=False,
         default=lambda: datetime.now(timezone.utc),
-        comment="Timestamp de criação"
+        comment="Timestamp de criação",
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
+        DateTime(timezone=True),
+        nullable=False,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
-        comment="Timestamp da última atualização"
+        comment="Timestamp da última atualização",
     )

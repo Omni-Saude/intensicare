@@ -11,13 +11,11 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from arq.worker import Retry
+import pytest
 
 from intensicare.services.notification_worker import (
     BACKOFF_SCHEDULE,
-    DEDUP_PREFIX,
-    DEDUP_TTL,
     DLQ_ALERT_CHANNEL,
     DLQ_KEY,
     MAX_RETRIES,
@@ -25,7 +23,6 @@ from intensicare.services.notification_worker import (
     _move_to_dlq,
     send_alert_notification,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -159,14 +156,14 @@ class TestRetryBackoff:
         for try_idx, expected_delay in enumerate(BACKOFF_SCHEDULE, start=1):
             ctx = _make_ctx(redis_client, job_id=f"retry-test-{try_idx}", job_try=try_idx)
 
-            with patch(
-                "intensicare.services.notification_worker._dispatch_notification",
-                side_effect=ConnectionError("simulated failure"),
+            with (
+                patch(
+                    "intensicare.services.notification_worker._dispatch_notification",
+                    side_effect=ConnectionError("simulated failure"),
+                ),
+                pytest.raises(Retry) as exc_info,
             ):
-                with pytest.raises(Retry) as exc_info:
-                    await send_alert_notification(
-                        ctx, alert_id="alert-retry", channels=["ws"]
-                    )
+                await send_alert_notification(ctx, alert_id="alert-retry", channels=["ws"])
 
             assert exc_info.value.defer_score == expected_delay * 1000, (
                 f"job_try={try_idx}: expected defer={expected_delay}s, "
@@ -268,7 +265,7 @@ class TestDeadLetterQueue:
                 )
 
             # Read the published message (non-blocking with short timeout)
-            message = await pubsub.get_message(timeout=2.0)
+            await pubsub.get_message(timeout=2.0)
             # The first message is the subscription confirmation; the second
             # is the actual publish.
             messages: list[dict[str, object]] = []
@@ -281,8 +278,7 @@ class TestDeadLetterQueue:
             # Find the actual data message (type == "message")
             data_messages = [m for m in messages if m.get("type") == "message"]
             assert len(data_messages) >= 1, (
-                f"Expected at least one pub/sub message on {DLQ_ALERT_CHANNEL}, "
-                f"got {messages}"
+                f"Expected at least one pub/sub message on {DLQ_ALERT_CHANNEL}, got {messages}"
             )
 
             payload = json.loads(str(data_messages[0]["data"]))

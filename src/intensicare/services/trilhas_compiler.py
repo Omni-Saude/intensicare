@@ -13,11 +13,11 @@ Reference schema: /_work/alerts/schema/pathway.schema.json
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import logging
 import operator
-from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ def compute_content_hash(definition: dict) -> str:
     canonical = json.dumps(definition, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+
 # ---------------------------------------------------------------------------
 # AST Nodes
 # ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ def compute_content_hash(definition: dict) -> str:
 
 class ASTNode:
     """Base class for predicate AST nodes."""
+
     __slots__ = ()
 
 
@@ -82,6 +84,7 @@ class Band:
     lower: inclusive lower bound
     upper: exclusive upper bound (None = +∞)
     """
+
     lower: float
     upper: float | None
     severity: str
@@ -92,14 +95,13 @@ class Band:
         """Check if value falls within this band: lower ≤ value < upper."""
         if value < self.lower:
             return False
-        if self.upper is not None and value >= self.upper:
-            return False
-        return True
+        return not (self.upper is not None and value >= self.upper)
 
 
 @dataclass(frozen=True)
 class ThresholdNode(ASTNode):
     """Threshold predicate: single value comparison."""
+
     input_name: str
     operator: str
     value: float
@@ -112,6 +114,7 @@ class GradedNode(ASTNode):
 
     Bands are stored sorted by lower bound.
     """
+
     input_name: str
     bands: tuple[Band, ...]
     unit: str
@@ -120,6 +123,7 @@ class GradedNode(ASTNode):
 @dataclass(frozen=True)
 class BooleanNode(ASTNode):
     """Boolean predicate: check truthiness of a data field."""
+
     input_name: str
 
 
@@ -129,6 +133,7 @@ class CompositeNode(ASTNode):
 
     Each sub_predicate is a CompiledPredicate instance.
     """
+
     combinator: str  # "AND" or "OR"
     sub_predicates: tuple[CompiledPredicate, ...]
 
@@ -155,6 +160,7 @@ class EvaluationResult:
         unit: Canonical unit string.
         band_label: Optional human-readable band label (graded only).
     """
+
     met: bool
     severity: str = "normal"
     score: int = 0
@@ -170,6 +176,7 @@ class CompiledPredicate:
 
     Holds the AST node plus metadata needed for evaluation.
     """
+
     ast_node: ASTNode
     input_name: str
     unit: str
@@ -214,18 +221,15 @@ class PredicateCompiler:
 
         if ptype == "threshold":
             return self._compile_threshold(predicate)
-        elif ptype == "graded":
+        if ptype == "graded":
             return self._compile_graded(predicate)
-        elif ptype == "boolean":
+        if ptype == "boolean":
             return self._compile_boolean(predicate)
-        elif ptype == "composite":
+        if ptype == "composite":
             return self._compile_composite(predicate)
-        else:
-            raise ValueError(f"Unknown predicate type: {ptype}")
+        raise ValueError(f"Unknown predicate type: {ptype}")
 
-    def evaluate(
-        self, compiled: CompiledPredicate, patient_data: dict
-    ) -> EvaluationResult:
+    def evaluate(self, compiled: CompiledPredicate, patient_data: dict) -> EvaluationResult:
         """Evaluate a compiled predicate against patient data.
 
         Args:
@@ -242,14 +246,13 @@ class PredicateCompiler:
 
         if isinstance(node, ThresholdNode):
             return self._evaluate_threshold(node, patient_data)
-        elif isinstance(node, GradedNode):
+        if isinstance(node, GradedNode):
             return self._evaluate_graded(node, patient_data)
-        elif isinstance(node, BooleanNode):
+        if isinstance(node, BooleanNode):
             return self._evaluate_boolean(node, patient_data)
-        elif isinstance(node, CompositeNode):
+        if isinstance(node, CompositeNode):
             return self._evaluate_composite(node, patient_data)
-        else:
-            raise ValueError(f"Unknown AST node type: {type(node).__name__}")
+        raise ValueError(f"Unknown AST node type: {type(node).__name__}")
 
     # ── Compile helpers ────────────────────────────────────────────────
 
@@ -305,30 +308,28 @@ class PredicateCompiler:
         for i, bd in enumerate(raw_bands):
             rng: list = bd.get("range", [])
             if len(rng) != 2:
-                raise ValueError(
-                    f"Band {i} range must have exactly 2 elements [lower, upper]"
-                )
+                raise ValueError(f"Band {i} range must have exactly 2 elements [lower, upper]")
 
             lower = float(rng[0])
             upper_raw = rng[1]
             upper: float | None = None if upper_raw is None else float(upper_raw)
 
             if upper is not None and lower >= upper:
-                raise ValueError(
-                    f"Band {i} has invalid range: lower ({lower}) >= upper ({upper})"
-                )
+                raise ValueError(f"Band {i} has invalid range: lower ({lower}) >= upper ({upper})")
 
             severity = bd.get("severity", "normal")
             score = int(bd.get("score", 0))
             label = bd.get("label")
 
-            bands.append(Band(
-                lower=lower,
-                upper=upper,
-                severity=severity,
-                score=score,
-                label=label,
-            ))
+            bands.append(
+                Band(
+                    lower=lower,
+                    upper=upper,
+                    severity=severity,
+                    score=score,
+                    label=label,
+                )
+            )
 
         # Validate band continuity (Gate B logic inlined for efficiency)
         sorted_bands = sorted(bands, key=lambda b: b.lower)
@@ -347,9 +348,7 @@ class PredicateCompiler:
                 )
 
         if sorted_bands[-1].upper is not None:
-            raise ValueError(
-                "Last band must have null upper bound (cover to +∞)"
-            )
+            raise ValueError("Last band must have null upper bound (cover to +∞)")
 
         node = GradedNode(
             input_name=input_name,
@@ -385,9 +384,7 @@ class PredicateCompiler:
         """
         combinator = pred.get("combinator", "AND")
         if combinator not in ("AND", "OR"):
-            raise ValueError(
-                f"Composite combinator must be 'AND' or 'OR', got '{combinator}'"
-            )
+            raise ValueError(f"Composite combinator must be 'AND' or 'OR', got '{combinator}'")
 
         sub_preds: list[dict] = pred.get("sub_predicates", [])
         if not sub_preds:
@@ -398,9 +395,7 @@ class PredicateCompiler:
             try:
                 compiled_subs.append(self.compile(sp))
             except ValueError as exc:
-                raise ValueError(
-                    f"sub_predicate[{i}]: {exc}"
-                ) from exc
+                raise ValueError(f"sub_predicate[{i}]: {exc}") from exc
 
         node = CompositeNode(
             combinator=combinator,
@@ -415,9 +410,7 @@ class PredicateCompiler:
 
     # ── Evaluate helpers ───────────────────────────────────────────────
 
-    def _evaluate_threshold(
-        self, node: ThresholdNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_threshold(self, node: ThresholdNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a threshold node against patient data."""
         actual_value = self._lookup(node.input_name, patient_data)
         op_func = _OPS[node.operator]
@@ -428,7 +421,10 @@ class PredicateCompiler:
             # Non-numeric comparison attempt — treat as not met
             logger.warning(
                 "Cannot compare %r %s %r for input '%s'",
-                actual_value, node.operator, node.value, node.input_name,
+                actual_value,
+                node.operator,
+                node.value,
+                node.input_name,
             )
             met = False
 
@@ -444,9 +440,7 @@ class PredicateCompiler:
             unit=node.unit,
         )
 
-    def _evaluate_graded(
-        self, node: GradedNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_graded(self, node: GradedNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a graded node against patient data.
 
         Finds the band containing the actual value. If no band matches
@@ -496,9 +490,7 @@ class PredicateCompiler:
             band_label=matched_band.label,
         )
 
-    def _evaluate_boolean(
-        self, node: BooleanNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_boolean(self, node: BooleanNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a boolean node against patient data."""
         actual_value = self._lookup(node.input_name, patient_data)
         met = bool(actual_value)
@@ -514,9 +506,7 @@ class PredicateCompiler:
             input_name=node.input_name,
         )
 
-    def _evaluate_composite(
-        self, node: CompositeNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_composite(self, node: CompositeNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a composite (AND/OR) node.
 
         For AND: all sub-predicates must be met.

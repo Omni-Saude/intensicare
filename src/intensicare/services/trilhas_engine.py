@@ -6,17 +6,29 @@ YAML-driven evaluation engine per ADR-0020.
 Pipeline:  YAML definitions → Compiler → Predicate AST → Evaluator → Alert instances
 
 Public API:
-  - evaluate(mpi_id, patient_data) → list[AlertFiring]
+  - evaluate(mpi_id, patient_data) → list[AlertFiring]  (async — awaits the
+    underlying TrilhasEvaluator.evaluate_and_build)
   - get_pathways() → list[PathwayDefinition]
   - get_pathway(pathway_id) → PathwayDefinition
   - get_patient_pathways(mpi_id) → list  (delegates to legacy store)
+
+Load-failure policy (fail-fast, hybrid — see ADR-0020 addendum):
+  - If ANY predicate of a pathway fails to compile, the WHOLE pathway is
+    marked inactive in memory (never partial evaluation of a clinical
+    pathway). The failure is logged at ERROR level and recorded in the
+    public ``load_failures`` attribute (list of dicts with pathway slug,
+    criterion id, and error message) so it can later be surfaced via
+    /health.
+  - If ZERO pathways load with at least one active definition, engine
+    construction raises RuntimeError — this is a deploy defect and boot
+    must fail loudly rather than serve an engine with no active pathways.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +37,6 @@ import yaml
 from intensicare.services.trilhas_compiler import PredicateCompiler, compute_content_hash
 from intensicare.services.trilhas_evaluator import (
     AlertFiring,
-    CriterionFiring,
     TrilhasEvaluator,
 )
 
@@ -83,7 +94,12 @@ class TrilhasEngine:
     Usage::
 
         engine = TrilhasEngine()
-        alerts = engine.evaluate("patient-123", {"pf_ratio": 150, "peep": 8})
+        alerts = await engine.evaluate("patient-123", {"pf_ratio": 150, "peep": 8})
+
+    Attributes:
+        load_failures: Public list of dicts (slug, criterion_id, error) for
+            every pathway that had at least one predicate fail to compile.
+            Such pathways are loaded but marked ``active=False``.
     """
 
     def __init__(
@@ -106,6 +122,7 @@ class TrilhasEngine:
         self._evaluator = evaluator or TrilhasEvaluator(compiler=self._compiler)
         self._definitions: dict[int, PathwayDefinition] = {}
         self._definitions_by_slug: dict[str, PathwayDefinition] = {}
+        self.load_failures: list[dict[str, str]] = []
 
         # Resolve and load definitions
         if definitions_path is not None:
@@ -113,12 +130,27 @@ class TrilhasEngine:
         else:
             self._load_from_default_dirs()
 
+        # Fail-fast: an engine with zero active pathways is a deploy defect
+        # (missing/corrupt YAML, or every pathway failed predicate
+        # compilation). Boot must fail loudly rather than silently serve
+        # an engine that can never fire an alert.
+        if not any(pdef.active for pdef in self._definitions.values()):
+            raise RuntimeError(
+                "TrilhasEngine loaded zero active pathway definitions "
+                f"(loaded={len(self._definitions)}, "
+                f"load_failures={len(self.load_failures)}). "
+                "Refusing to boot with an engine that cannot fire any alert. "
+                f"load_failures={self.load_failures!r}"
+            )
+
     # ── Public API ───────────────────────────────────────────────────────
 
-    def evaluate(
-        self, mpi_id: str, patient_data: dict[str, Any]
-    ) -> list[AlertFiring]:
+    async def evaluate(self, mpi_id: str, patient_data: dict[str, Any]) -> list[AlertFiring]:
         """Evaluate all pathway definitions for a patient. Stateless.
+
+        NOTE: async — ``TrilhasEvaluator.evaluate_and_build`` is a coroutine
+        (it awaits suppression/cooldown checks), so this method must be
+        awaited by callers.
 
         Args:
             mpi_id: Patient identifier.
@@ -136,8 +168,10 @@ class TrilhasEngine:
             if not pdef.active:
                 continue
 
-            alert = self._evaluator.evaluate_and_build(
-                pdef.to_raw(), mpi_id, patient_data,
+            alert = await self._evaluator.evaluate_and_build(
+                pdef.to_raw(),
+                mpi_id,
+                patient_data,
             )
 
             # Only include pathways that actually fired
@@ -193,16 +227,15 @@ class TrilhasEngine:
             from intensicare.services.domain_trilhas_engine import (
                 get_patient_pathways as legacy_get,
             )
+
             return legacy_get(mpi_id, status_filter="all")
         except ImportError:
-            logger.warning(
-                "Legacy domain_trilhas_engine not available for get_patient_pathways"
-            )
+            logger.warning("Legacy domain_trilhas_engine not available for get_patient_pathways")
             return []
 
-    def reset_suppression(self) -> None:
+    async def reset_suppression(self) -> None:
         """Reset in-memory suppression state (useful for tests)."""
-        self._evaluator.reset_suppression()
+        await self._evaluator.reset_suppression()
 
     # ── Internal: YAML loading ──────────────────────────────────────────
 
@@ -233,7 +266,8 @@ class TrilhasEngine:
 
         logger.info(
             "TrilhasEngine loaded %d pathway definitions from %s",
-            len(self._definitions), full_path,
+            len(self._definitions),
+            full_path,
         )
 
     def _load_file(self, filepath: str) -> None:
@@ -280,21 +314,43 @@ class TrilhasEngine:
         inputs: list[dict[str, Any]] = evaluation.get("inputs", [])
         evaluation_mode: str = evaluation.get("mode", "micro-batch")
 
-        # Pre-compile predicates for each criterion (warn but continue on
-        # individual failures)
+        # Pre-compile predicates for each criterion. Fail-fast hybrid policy:
+        # if ANY predicate fails to compile, the whole pathway is marked
+        # inactive in memory — never partial evaluation of a clinical
+        # pathway. Every other criterion is still attempted (for accurate
+        # compiled_count / diagnostics), but the pathway as a whole cannot
+        # be trusted and is deactivated.
         compiled_count = 0
+        compile_failed = False
         for criterion in criteria:
             pred_dict = criterion.get("predicate", {})
             if not pred_dict:
                 continue
+            criterion_id = criterion.get("id", "?")
             try:
                 self._compiler.compile(pred_dict)
                 compiled_count += 1
             except ValueError as exc:
-                logger.warning(
-                    "Failed to compile predicate for criterion %s in pathway %s (%s): %s",
-                    criterion.get("id", "?"), name, filepath, exc,
+                compile_failed = True
+                logger.error(
+                    "Failed to compile predicate for criterion %s in pathway "
+                    "%s (%s): %s — deactivating pathway (fail-fast, no partial "
+                    "evaluation of a clinical pathway)",
+                    criterion_id,
+                    slug or name,
+                    filepath,
+                    exc,
                 )
+                self.load_failures.append(
+                    {
+                        "slug": slug,
+                        "criterion_id": str(criterion_id),
+                        "error": str(exc),
+                    }
+                )
+
+        if compile_failed:
+            active = False
 
         pdef = PathwayDefinition(
             id=pathway_id,
@@ -319,7 +375,10 @@ class TrilhasEngine:
 
         logger.debug(
             "Loaded pathway '%s' (id=%d, %d/%d criteria compiled)",
-            name, pathway_id, compiled_count, len(criteria),
+            name,
+            pathway_id,
+            compiled_count,
+            len(criteria),
         )
 
     def _load_from_default_dirs(self) -> None:
@@ -334,9 +393,7 @@ class TrilhasEngine:
                 loaded_any = True
 
         if not loaded_any:
-            logger.warning(
-                "No YAML pathway directories found. Engine has zero definitions."
-            )
+            logger.warning("No YAML pathway directories found. Engine has zero definitions.")
 
     @staticmethod
     def _find_repo_root() -> str:

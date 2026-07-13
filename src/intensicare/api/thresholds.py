@@ -3,8 +3,8 @@
 REQ-INV-1-2: toda mutação (create/update/delete) gera entrada em audit_trail.
 """
 
-import json
 from datetime import datetime, timezone
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select

@@ -9,7 +9,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ── ClinicalFormType (form definition catalog) ────────────────────────────
 
 
@@ -17,7 +16,9 @@ class FieldDefinitionSchema(BaseModel):
     """Campo individual que compõe um formulário clínico."""
 
     name: str = Field(..., description="Nome interno do campo", examples=["nivel_consciencia"])
-    label: str = Field(..., description="Rótulo de exibição do campo", examples=["Nível de Consciência"])
+    label: str = Field(
+        ..., description="Rótulo de exibição do campo", examples=["Nível de Consciência"]
+    )
     type: str = Field(
         ...,
         description="Tipo do campo: text, number, select, boolean",

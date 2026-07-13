@@ -146,18 +146,10 @@ class PatientDetailResponse(BaseModel):
     unit: str | None = None
 
     # Internal fields — used by service, excluded from serialization
-    vitals_history: list[VitalsHistoryPoint] = Field(
-        default_factory=list, exclude=True
-    )
-    mews_history: list[ScoreHistoryPoint] = Field(
-        default_factory=list, exclude=True
-    )
-    news2_history: list[ScoreHistoryPoint] = Field(
-        default_factory=list, exclude=True
-    )
-    active_alerts: list[dict[str, Any]] = Field(
-        default_factory=list, exclude=True
-    )
+    vitals_history: list[VitalsHistoryPoint] = Field(default_factory=list, exclude=True)
+    mews_history: list[ScoreHistoryPoint] = Field(default_factory=list, exclude=True)
+    news2_history: list[ScoreHistoryPoint] = Field(default_factory=list, exclude=True)
+    active_alerts: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
     # Frontend-facing fields
     vitals: list[VitalRecord] = Field(default_factory=list)

@@ -10,20 +10,18 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from intensicare.clients.athena_client import AthenaClient, AthenaQueryResult
 from intensicare.services.gold_reader import (
     AthenaPoller,
-    BackpressureError,
     DomainConfigError,
     poll_all_domains,
 )
 from intensicare.services.gold_schema import DOMAIN_CADENCE
-from intensicare.services.units_normalizer import normalize_value, UnitNormalizationError
-
+from intensicare.services.units_normalizer import UnitNormalizationError, normalize_value
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -132,8 +130,14 @@ class TestHighWatermark:
 
         mock_athena_client.execute_query.return_value = AthenaQueryResult(
             rows=sample_rows,
-            column_names=["id", "patient_id", "parameter", "value",
-                          "unit_canonical", "ingested_at"],
+            column_names=[
+                "id",
+                "patient_id",
+                "parameter",
+                "value",
+                "unit_canonical",
+                "ingested_at",
+            ],
             total_rows=3,
             query_execution_id="test-exec-001",
         )
@@ -150,9 +154,7 @@ class TestHighWatermark:
         assert stored_watermark == "2026-07-05T10:06:00Z"
 
     @pytest.mark.asyncio
-    async def test_watermark_unchanged_on_empty_poll(
-        self, mock_athena_client: AthenaClient
-    ):
+    async def test_watermark_unchanged_on_empty_poll(self, mock_athena_client: AthenaClient):
         """Poll sem resultados não deve alterar o watermark."""
         from intensicare.core.redis import get_redis
 
@@ -243,9 +245,7 @@ class TestHighWatermark:
         )
 
         poller = AthenaPoller(athena_client=mock_athena_client)
-        result = await poller.poll_domain(
-            domain, tenant_id, force_full_load=True
-        )
+        result = await poller.poll_domain(domain, tenant_id, force_full_load=True)
 
         assert result["status"] == "ok"
         # O watermark nos resultados é 10:05, deve avançar
@@ -276,6 +276,7 @@ class TestBackpressure:
 
         # Simula poll concorrente: adquire o lock manualmente antes
         from intensicare.core.redis import get_redis
+
         redis = get_redis()
         lock_key = "gold:lock:austa:ventilation"
         await redis.set(lock_key, "1", ex=60)
@@ -309,6 +310,7 @@ class TestBackpressure:
 
         # Bloqueia apenas o domínio "ventilation"
         from intensicare.core.redis import get_redis
+
         redis = get_redis()
         lock_key_vent = "gold:lock:austa:ventilation"
         await redis.set(lock_key_vent, "1", ex=60)
@@ -339,6 +341,7 @@ class TestBackpressure:
 
         # Bloqueia tenant "austa"
         from intensicare.core.redis import get_redis
+
         redis = get_redis()
         lock_key_austa = "gold:lock:austa:ventilation"
         await redis.set(lock_key_austa, "1", ex=60)
@@ -474,14 +477,20 @@ class TestUnitNormalization:
         """Poll deve normalizar unidades nos resultados (fio2 percent→fraction, lactato mg/dL→mmol/L)."""
         from intensicare.core.redis import get_redis
 
-        redis = get_redis()
+        get_redis()
         tenant_id = "austa"
         domain = "sepsis"
 
         mock_athena_client.execute_query.return_value = AthenaQueryResult(
             rows=sample_rows_with_conversion,
-            column_names=["id", "patient_id", "parameter", "value",
-                          "unit_canonical", "ingested_at"],
+            column_names=[
+                "id",
+                "patient_id",
+                "parameter",
+                "value",
+                "unit_canonical",
+                "ingested_at",
+            ],
             total_rows=2,
             query_execution_id="test-exec-norm",
         )
@@ -497,9 +506,7 @@ class TestUnitNormalization:
         mock_athena_client.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_normalization_error_counted(
-        self, mock_athena_client: AthenaClient
-    ):
+    async def test_normalization_error_counted(self, mock_athena_client: AthenaClient):
         """Erros de normalização devem ser contados mas não devem quebrar o poll."""
         bad_rows = [
             {
@@ -515,8 +522,14 @@ class TestUnitNormalization:
 
         mock_athena_client.execute_query.return_value = AthenaQueryResult(
             rows=bad_rows,
-            column_names=["id", "patient_id", "parameter", "value",
-                          "unit_canonical", "ingested_at"],
+            column_names=[
+                "id",
+                "patient_id",
+                "parameter",
+                "value",
+                "unit_canonical",
+                "ingested_at",
+            ],
             total_rows=1,
             query_execution_id="test-exec-err",
         )
@@ -540,8 +553,15 @@ class TestDomainConfig:
     def test_valid_domains(self):
         """Domínios padrão devem ser reconhecidos."""
         poller = AthenaPoller(athena_client=mock_athena_client)
-        for domain in ["sepsis", "electrolytes", "aki", "ventilation",
-                        "hemodynamics", "neurology", "medication"]:
+        for domain in [
+            "sepsis",
+            "electrolytes",
+            "aki",
+            "ventilation",
+            "hemodynamics",
+            "neurology",
+            "medication",
+        ]:
             cadence = poller.get_cadence(domain)
             assert cadence > 0, f"Domain {domain} should have positive cadence"
 
@@ -553,9 +573,7 @@ class TestDomainConfig:
             poller.get_cadence("invalid_domain")
 
     @pytest.mark.asyncio
-    async def test_invalid_domain_poll_raises_error(
-        self, mock_athena_client: AthenaClient
-    ):
+    async def test_invalid_domain_poll_raises_error(self, mock_athena_client: AthenaClient):
         """Poll em domínio inválido deve levantar DomainConfigError."""
         poller = AthenaPoller(athena_client=mock_athena_client)
 
@@ -575,9 +593,9 @@ class TestDomainConfig:
 
     def test_cadence_values(self):
         """Verifica cadências padrão documentadas."""
-        assert DOMAIN_CADENCE["sepsis"] == 300     # 5 min
+        assert DOMAIN_CADENCE["sepsis"] == 300  # 5 min
         assert DOMAIN_CADENCE["electrolytes"] == 120  # 2 min (expedited)
-        assert DOMAIN_CADENCE["aki"] == 3600       # 1 h
+        assert DOMAIN_CADENCE["aki"] == 3600  # 1 h
 
 
 # ---------------------------------------------------------------------------
@@ -589,9 +607,7 @@ class TestAthenaErrorHandling:
     """Verifica tratamento de erros do Athena durante o poll."""
 
     @pytest.mark.asyncio
-    async def test_athena_error_returns_status_error(
-        self, mock_athena_client: AthenaClient
-    ):
+    async def test_athena_error_returns_status_error(self, mock_athena_client: AthenaClient):
         """Erro do Athena não deve quebrar o poll, apenas reportar status=error."""
         mock_athena_client.execute_query.side_effect = RuntimeError("Athena indisponível")
 
@@ -622,9 +638,9 @@ class TestPollAllDomains:
             query_execution_id="test-exec-all",
         )
 
-        results = await poll_all_domains("austa", poller=AthenaPoller(
-            athena_client=mock_athena_client
-        ))
+        results = await poll_all_domains(
+            "austa", poller=AthenaPoller(athena_client=mock_athena_client)
+        )
 
         # Todos os domínios devem estar no resultado
         for domain in DOMAIN_CADENCE:
@@ -674,9 +690,7 @@ class TestWatermarkEdgeCases:
     """Edge cases para watermark."""
 
     @pytest.mark.asyncio
-    async def test_rows_without_watermark_column(
-        self, mock_athena_client: AthenaClient
-    ):
+    async def test_rows_without_watermark_column(self, mock_athena_client: AthenaClient):
         """Se as linhas não tiverem a coluna de watermark, mantém watermark atual."""
         from intensicare.core.redis import get_redis
 

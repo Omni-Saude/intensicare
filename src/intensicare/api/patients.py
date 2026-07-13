@@ -57,9 +57,7 @@ async def patient_status(
     # Add deprecation headers (RFC 8594)
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "Sat, 01 Nov 2026 00:00:00 GMT"
-    response.headers["Link"] = (
-        f'</api/v1/patients/{mpi_id}/detail>; rel="successor-version"'
-    )
+    response.headers["Link"] = f'</api/v1/patients/{mpi_id}/detail>; rel="successor-version"'
 
     result = await get_patient_detail(db=db, mpi_id=mpi_id)
     if result is None:

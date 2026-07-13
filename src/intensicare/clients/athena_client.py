@@ -9,8 +9,8 @@ Fornece:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
-from dataclasses import dataclass, field
 from typing import Any
 
 import boto3
@@ -131,17 +131,13 @@ class AthenaClient:
         wg = workgroup or self.workgroup
 
         # Inicia a execução com retry em throttling
-        query_execution_id = await self._start_query_execution(
-            query, db, wg, parameters
-        )
+        query_execution_id = await self._start_query_execution(query, db, wg, parameters)
 
         # Aguarda conclusão com timeout
         await self._wait_for_completion(query_execution_id)
 
         # Coleta resultados paginados
-        rows, column_names = await self._collect_results(
-            query_execution_id, max_rows
-        )
+        rows, column_names = await self._collect_results(query_execution_id, max_rows)
 
         return AthenaQueryResult(
             rows=rows,
@@ -158,9 +154,7 @@ class AthenaClient:
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self._client.get_query_execution(
-                QueryExecutionId=query_execution_id
-            ),
+            lambda: self._client.get_query_execution(QueryExecutionId=query_execution_id),
         )
         return response["QueryExecution"]["Status"]["State"]
 
@@ -169,7 +163,10 @@ class AthenaClient:
     # ------------------------------------------------------------------
 
     async def _start_query_execution(
-        self, query: str, database: str, workgroup: str,
+        self,
+        query: str,
+        database: str,
+        workgroup: str,
         parameters: list[str] | None = None,
     ) -> str:
         """Inicia a execução de uma query com retry em throttling."""
@@ -186,13 +183,14 @@ class AthenaClient:
                 if parameters:
                     kwargs["ExecutionParameters"] = parameters
                 if self.output_location:
-                    kwargs["ResultConfiguration"] = {
-                        "OutputLocation": self.output_location
-                    }
+                    kwargs["ResultConfiguration"] = {"OutputLocation": self.output_location}
 
+                # kwargs is rebuilt fresh each retry iteration and this lambda
+                # is awaited (not stored/escaped) before the next iteration
+                # reassigns it — the late-binding closure is safe here.
                 response = await loop.run_in_executor(
                     None,
-                    lambda: self._client.start_query_execution(**kwargs),
+                    lambda: self._client.start_query_execution(**kwargs),  # noqa: B023
                 )
                 return response["QueryExecutionId"]
 
@@ -242,16 +240,10 @@ class AthenaClient:
                 loop = asyncio.get_running_loop()
                 response = await loop.run_in_executor(
                     None,
-                    lambda: self._client.get_query_execution(
-                        QueryExecutionId=query_execution_id
-                    ),
+                    lambda: self._client.get_query_execution(QueryExecutionId=query_execution_id),
                 )
-                reason = response["QueryExecution"]["Status"].get(
-                    "StateChangeReason", "Unknown"
-                )
-                raise RuntimeError(
-                    f"Athena query {status}: {reason}"
-                )
+                reason = response["QueryExecution"]["Status"].get("StateChangeReason", "Unknown")
+                raise RuntimeError(f"Athena query {status}: {reason}")
 
             await asyncio.sleep(self.poll_interval)
             elapsed += self.poll_interval
@@ -278,9 +270,12 @@ class AthenaClient:
             if next_token:
                 kwargs["NextToken"] = next_token
 
+            # kwargs is rebuilt fresh each poll iteration and this lambda is
+            # awaited (not stored/escaped) before the next iteration
+            # reassigns it — the late-binding closure is safe here.
             response = await loop.run_in_executor(
                 None,
-                lambda: self._client.get_query_results(**kwargs),
+                lambda: self._client.get_query_results(**kwargs),  # noqa: B023
             )
 
             result_set = response["ResultSet"]
@@ -303,9 +298,7 @@ class AthenaClient:
             for row_data in data_rows[start:]:
                 row: dict[str, Any] = {}
                 for i, col in enumerate(row_data.get("Data", [])):
-                    col_name = (
-                        column_names[i] if i < len(column_names) else f"col_{i}"
-                    )
+                    col_name = column_names[i] if i < len(column_names) else f"col_{i}"
                     row[col_name] = col.get("VarCharValue")
                 rows.append(row)
 

@@ -30,7 +30,8 @@ from intensicare.services.mews import (
     [
         (None, 0),
         (30, 2),  # bradicardia severa (Subbe 2001)
-        (40, 2),  # limite bradicardia severa (Subbe 2001)
+        (39, 2),  # limite bradicardia severa (Subbe 2001, < 40)
+        (40, 1),  # bradicardia moderada — boundary corrigido (Subbe 2001: 40-50 -> 1)
         (41, 1),  # bradicardia moderada (Subbe 2001)
         (50, 1),  # limite bradicardia moderada (Subbe 2001)
         (51, 0),  # normal
@@ -116,21 +117,20 @@ def test_score_respiratory_rate(value, expected):
     "value,expected",
     [
         (None, 0),
-        (33.0, 2),  # hipotermia (Subbe 2001)
-        (35.0, 2),  # limite hipotermia (Subbe 2001)
-        (35.1, 1),  # temperatura baixa
-        (36.0, 1),  # temperatura baixa (limite)
-        (36.1, 0),  # normal
-        (37.0, 0),  # normal
-        (38.0, 0),  # normal (limite)
-        (38.1, 1),  # febre leve
-        (38.5, 1),  # febre leve (limite)
+        (33.0, 2),  # hipotermia (Subbe 2001, < 35.0)
+        (34.9, 2),  # hipotermia — logo abaixo do limite (Subbe 2001)
+        (35.0, 0),  # limite inferior da faixa normal (Subbe 2001: 35.0-38.4 -> 0)
+        (35.1, 0),  # normal
+        (36.0, 0),  # normal
+        (38.0, 0),  # normal
+        (38.4, 0),  # limite superior da faixa normal (Subbe 2001)
+        (38.5, 2),  # febre — limite inferior da faixa de febre (Subbe 2001)
         (38.6, 2),  # febre
         (40.0, 2),  # febre
     ],
 )
 def test_score_temperature(value, expected):
-    """Cada faixa de temperatura deve retornar o score correto."""
+    """Cada faixa de temperatura deve retornar o score correto (Subbe 2001, 3 bandas)."""
     result = _score_temperature(value)
     assert result["temperature"] == expected
 
@@ -191,9 +191,10 @@ def test_calculate_mews_septic_patient():
         heart_rate=115,  # 2 pts (111-129)
         systolic_bp=95,  # 1 pt (81-100)
         respiratory_rate=28,  # 2 pts (21-29)
-        temperature=38.9,  # 2 pts (≥38.6)
+        temperature=38.9,  # 2 pts (≥38.5, Subbe 2001)
         avpu="V",  # 1 pt
     )
+    # Recalculado com as tabelas Subbe 2001 (RAT-MEWS-SUBBE-2001-R2): 2+1+2+2+1 = 8
     assert score == 8  # 2 + 1 + 2 + 2 + 1
     assert components["heart_rate"] == 2
     assert components["systolic_bp"] == 1
@@ -205,13 +206,15 @@ def test_calculate_mews_septic_patient():
 def test_calculate_mews_critical_patient():
     """Paciente crítico: todos os scores nos máximos corrigidos (Subbe 2001)."""
     score, _ = calculate_mews(
-        heart_rate=35,  # 2 pts (≤40, Subbe 2001)
+        heart_rate=35,  # 2 pts (<40, Subbe 2001)
         systolic_bp=65,  # 3 pts (≤70)
         respiratory_rate=6,  # 2 pts (≤8, Subbe 2001)
-        temperature=34.0,  # 2 pts (≤35.0, Subbe 2001)
+        temperature=34.0,  # 2 pts (<35.0, Subbe 2001)
         avpu="U",  # 3 pts
     )
-    assert score == 12  # 2 + 3 + 2 + 2 + 3 (Subbe 2001 corrigido)
+    # Recalculado com as tabelas Subbe 2001 (RAT-MEWS-SUBBE-2001-R2):
+    # HR 35 -> 2, SBP 65 -> 3, RR 6 -> 2, Temp 34.0 -> 2, AVPU U -> 3 => 2+3+2+2+3 = 12
+    assert score == 12  # 2 + 3 + 2 + 2 + 3 (Subbe 2001, tabela clássica)
 
 
 def test_calculate_mews_missing_components():
@@ -259,10 +262,10 @@ def test_calculate_mews_boundary_values():
         heart_rate=101,  # taquicardia leve
         systolic_bp=200,  # hipertensão severa
         respiratory_rate=15,  # taquipneia leve
-        temperature=38.1,  # febre leve
+        temperature=38.5,  # febre — limite mínimo da faixa anormal (Subbe 2001)
         avpu="V",  # voz
     )
-    assert score2 == 1 + 2 + 1 + 1 + 1
+    assert score2 == 1 + 2 + 1 + 2 + 1
 
 
 def test_calculate_mews_is_deterministic():
@@ -282,22 +285,23 @@ def test_calculate_mews_is_deterministic():
 
 def test_calculate_mews_with_floats():
     """Temperatura como float deve ser tratada corretamente (com arredondamento)."""
-    # 35.05 rounds to 35.0 (banker's rounding) → <= 35.0 → 2 pts
-    score, comp = calculate_mews(temperature=35.05)
-    assert score == 2
-    assert comp["temperature"] == 2
+    # 34.95 rounds to 35.0 -> crosses out of hypothermia into the normal band -> 0 pts
+    score, comp = calculate_mews(temperature=34.95)
+    assert score == 0
+    assert comp["temperature"] == 0
 
-    # 35.15 > 35.0 after rounding → falls to <= 36.0 → 1 pt
-    score2, comp2 = calculate_mews(temperature=35.15)
-    assert score2 == 1
-    assert comp2["temperature"] == 1
+    # 38.45 rounds to 38.5 -> crosses into the fever band (Subbe 2001: >= 38.5) -> 2 pts
+    score2, comp2 = calculate_mews(temperature=38.45)
+    assert score2 == 2
+    assert comp2["temperature"] == 2
 
 
 def test_temperature_float_boundary_rounding():
     """F-CLIN-010: Float boundary — 35.0000000001 rounds to 35.0 and scores same."""
     result1 = _score_temperature(35.0000000001)
     result2 = _score_temperature(35.0)
-    assert result1["temperature"] == result2["temperature"] == 2
+    # Subbe 2001: 35.0 is the inclusive lower bound of the normal band -> 0 pts.
+    assert result1["temperature"] == result2["temperature"] == 0
     # Also verify the rounding doesn't break normal values
     result3 = _score_temperature(38.0000000001)
     result4 = _score_temperature(38.0)

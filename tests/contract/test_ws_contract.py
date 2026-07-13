@@ -112,7 +112,7 @@ def test_bed_grid_updated():
 
     bed_grid = spec["components"]["messages"]["BedGridUpdated"]
     data_props = bed_grid["payload"]["properties"]["data"]["properties"]
-    required_data = bed_grid["payload"]["properties"]["data"].get("required", [])
+    bed_grid["payload"]["properties"]["data"].get("required", [])
 
     assert "bed_id" in data_props, "bed_grid must carry bed_id"
     assert "occupied" in data_props, "bed_grid must carry occupied flag"
@@ -130,8 +130,9 @@ def test_severity_consistent_with_rest():
     async_severity = set(async_spec["components"]["schemas"]["Severity"]["enum"])
     rest_severity = set(rest_spec["components"]["schemas"]["Severity"]["enum"])
 
-    assert async_severity == rest_severity, \
+    assert async_severity == rest_severity, (
         f"Severity mismatch: async={async_severity} vs rest={rest_severity}"
+    )
 
 
 def test_reconnect_backoff_policy():

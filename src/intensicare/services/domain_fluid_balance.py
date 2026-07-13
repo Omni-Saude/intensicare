@@ -24,9 +24,9 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import math
 from typing import Any
 
 import pytz
@@ -110,10 +110,7 @@ def get_nursing_day_window(reference: datetime | None = None) -> NursingDayWindo
         reference = datetime.now(tz)
 
     # Normalize to local timezone
-    if reference.tzinfo is None:
-        reference = tz.localize(reference)
-    else:
-        reference = reference.astimezone(tz)
+    reference = tz.localize(reference) if reference.tzinfo is None else reference.astimezone(tz)
 
     # Determine which day's 07:00 starts the window
     if reference.hour < NURSING_DAY_HOUR:
@@ -323,16 +320,10 @@ def compute_2h_buckets(
 
     if reference is None:
         reference = datetime.now(tz)
-    if reference.tzinfo is None:
-        reference = tz.localize(reference)
-    else:
-        reference = reference.astimezone(tz)
+    reference = tz.localize(reference) if reference.tzinfo is None else reference.astimezone(tz)
 
     # The grid anchor date: if before 08:00, use previous day
-    if reference.hour < 8:
-        anchor_date = reference.date() - timedelta(days=1)
-    else:
-        anchor_date = reference.date()
+    anchor_date = reference.date() - timedelta(days=1) if reference.hour < 8 else reference.date()
 
     # Build 12 two-hour bucket edges starting at 08:00 on anchor_date
     bucket_edges: list[tuple[datetime, datetime, str]] = []

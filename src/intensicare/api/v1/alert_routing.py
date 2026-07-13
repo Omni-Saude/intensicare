@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/v1", tags=["alert-routing"])
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _rule_to_response(rule: AlertRoutingRule) -> AlertRoutingRuleResponse:
     """Converte uma instância ORM AlertRoutingRule para o schema de resposta."""
     return AlertRoutingRuleResponse(
@@ -42,6 +43,7 @@ def _rule_to_response(rule: AlertRoutingRule) -> AlertRoutingRuleResponse:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/alert-routing", response_model=AlertRoutingRulesListResponse)
 async def list_alert_routing_rules(
@@ -66,10 +68,14 @@ async def list_alert_routing_rules(
     total = total_result.scalar() or 0
 
     # Data
-    data_query = base_query.order_by(
-        AlertRoutingRule.priority.desc(),
-        AlertRoutingRule.created_at.desc(),
-    ).offset(offset).limit(limit)
+    data_query = (
+        base_query.order_by(
+            AlertRoutingRule.priority.desc(),
+            AlertRoutingRule.created_at.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    )
     result = await db.execute(data_query)
     rules = result.scalars().all()
 
@@ -79,7 +85,9 @@ async def list_alert_routing_rules(
     )
 
 
-@router.post("/alert-routing", response_model=AlertRoutingRuleResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/alert-routing", response_model=AlertRoutingRuleResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_alert_routing_rule(
     body: AlertRoutingRuleCreate,
     db: AsyncSession = Depends(get_db),
@@ -110,9 +118,7 @@ async def get_alert_routing_rule(
     current_user: User = Depends(get_current_user),
 ) -> AlertRoutingRuleResponse:
     """Obtém uma regra de roteamento específica pelo ID."""
-    result = await db.execute(
-        select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id)
-    )
+    result = await db.execute(select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id))
     rule = result.scalar_one_or_none()
 
     if rule is None:
@@ -132,9 +138,7 @@ async def update_alert_routing_rule(
     current_user: User = Depends(get_current_user),
 ) -> AlertRoutingRuleResponse:
     """Atualiza uma regra de roteamento (partial update)."""
-    result = await db.execute(
-        select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id)
-    )
+    result = await db.execute(select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id))
     rule = result.scalar_one_or_none()
 
     if rule is None:
@@ -162,9 +166,7 @@ async def delete_alert_routing_rule(
     current_user: User = Depends(get_current_user),
 ) -> None:
     """Remove uma regra de roteamento de alertas."""
-    result = await db.execute(
-        select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id)
-    )
+    result = await db.execute(select(AlertRoutingRule).where(AlertRoutingRule.id == rule_id))
     rule = result.scalar_one_or_none()
 
     if rule is None:

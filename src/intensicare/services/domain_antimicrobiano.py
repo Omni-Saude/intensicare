@@ -262,17 +262,17 @@ def _build_recommendation(score: int, severity: str) -> str:
             "Prescrição antimicrobiana dentro dos parâmetros adequados. "
             "Manter monitorização de rotina e reavaliar em 72h."
         )
-    elif severity == "AMARELO":
+    if severity == "AMARELO":
         return (
             f"Foram identificados {score} critério(s) que requerem atenção. "
             "Recomenda-se revisão estruturada e descalonamento nas próximas 24-48h."
         )
-    else:  # VERMELHO
-        return (
-            f"INTERVENÇÃO IMEDIATA necessária — {score} critérios críticos "
-            "identificados. Acionar equipe de stewardship e reavaliar todos os "
-            "antimicrobianos em até 12h."
-        )
+    # VERMELHO
+    return (
+        f"INTERVENÇÃO IMEDIATA necessária — {score} critérios críticos "
+        "identificados. Acionar equipe de stewardship e reavaliar todos os "
+        "antimicrobianos em até 12h."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -308,4 +308,4 @@ def get_categories() -> dict[str, str]:
     Returns:
         Dict mapping category keys to human-readable labels.
     """
-    return {k: v for k, v in CATEGORY_LABELS.items()}
+    return dict(CATEGORY_LABELS.items())

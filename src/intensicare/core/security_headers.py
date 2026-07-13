@@ -51,12 +51,7 @@ DEFAULT_SECURITY_HEADERS: dict[str, str] = {
     "Content-Security-Policy": _DEFAULT_CSP,
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": (
-        "camera=(), "
-        "microphone=(), "
-        "geolocation=(), "
-        "interest-cohort=()"
-    ),
+    "Permissions-Policy": ("camera=(), microphone=(), geolocation=(), interest-cohort=()"),
 }
 
 
@@ -83,9 +78,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
 
         # Start from the strict defaults …
-        self._headers: dict[str, str] = (
-            dict(headers) if headers else dict(DEFAULT_SECURITY_HEADERS)
-        )
+        self._headers: dict[str, str] = dict(headers) if headers else dict(DEFAULT_SECURITY_HEADERS)
 
         # … then apply environment-specific overrides.
         self._apply_environment_overrides()
@@ -95,9 +88,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # --- CSP override from settings (allow per-env customisation) ---
         if hasattr(settings, "security_csp_header") and settings.security_csp_header:
-            self._headers["Content-Security-Policy"] = (
-                settings.security_csp_header
-            )
+            self._headers["Content-Security-Policy"] = settings.security_csp_header
 
         # --- HSTS relaxed in development (no HTTPS on localhost) ---
         if settings.environment == "development":

@@ -178,7 +178,7 @@ async def create_patient_evolution(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_evolution_response(record)
 

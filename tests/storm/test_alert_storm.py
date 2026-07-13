@@ -9,10 +9,9 @@ Tests:
 
 from __future__ import annotations
 
-import asyncio
-import time
 from datetime import datetime, timezone
 from statistics import mean, quantiles
+import time
 
 import pytest
 from sqlalchemy import func, select
@@ -55,9 +54,7 @@ class TestAlertStormL6:
     """L6: Alert storm drill — sustained >500 alerts/min."""
 
     @pytest.mark.asyncio
-    async def test_high_volume_alert_generation_no_loss(
-        self, db_session: AsyncSession
-    ):
+    async def test_high_volume_alert_generation_no_loss(self, db_session: AsyncSession):
         """
         Generate a storm of alerts at >500/min rate and verify:
         - All generated events are persisted (zero lost alerts)
@@ -91,9 +88,7 @@ class TestAlertStormL6:
         await db_session.flush()
 
         # Count alerts before storm
-        count_before_result = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        count_before_result = await db_session.execute(select(func.count()).select_from(Alert))
         count_before = count_before_result.scalar() or 0
 
         # Generate storm: sequential workers producing scores
@@ -110,7 +105,7 @@ class TestAlertStormL6:
             for mpi_id in mpi_list:
                 score = create_clinical_score(mpi_id, score_value=8)
                 t0 = time.perf_counter()
-                alert = await process_clinical_score(db_session, score)
+                await process_clinical_score(db_session, score)
                 elapsed_ms = (time.perf_counter() - t0) * 1000
                 latencies_ms.append(elapsed_ms)
                 total_generated += 1
@@ -120,9 +115,7 @@ class TestAlertStormL6:
         storm_elapsed = time.perf_counter() - storm_start
 
         # Count alerts after storm
-        count_after_result = await db_session.execute(
-            select(func.count()).select_from(Alert)
-        )
+        count_after_result = await db_session.execute(select(func.count()).select_from(Alert))
         count_after = count_after_result.scalar() or 0
         alerts_created = count_after - count_before
 
@@ -130,27 +123,25 @@ class TestAlertStormL6:
 
         # Effective rate
         effective_rate = total_generated / storm_elapsed * 60
-        print(f"\nStorm drill results:")
+        print("\nStorm drill results:")
         print(f"  Generated: {total_generated} scores")
         print(f"  Alerts created: {alerts_created}")
         print(f"  Duration: {storm_elapsed:.2f}s")
         print(f"  Effective rate: {effective_rate:.0f}/min")
-        print(f"  Latencies: min={min(latencies_ms):.1f}ms, "
-              f"p50={quantiles(latencies_ms, n=2)[0]:.1f}ms, "
-              f"p95={quantiles(latencies_ms, n=20)[18]:.1f}ms")
+        print(
+            f"  Latencies: min={min(latencies_ms):.1f}ms, "
+            f"p50={quantiles(latencies_ms, n=2)[0]:.1f}ms, "
+            f"p95={quantiles(latencies_ms, n=20)[18]:.1f}ms"
+        )
 
         # Zero lost: every generated score should either create an alert
         # or be rate-limited (not lost). Rate-limited events are acceptable.
         # At minimum, we should see significant alert generation.
         assert alerts_created > 0, "No alerts were created during storm"
-        assert effective_rate >= 50, (
-            f"Effective rate {effective_rate:.0f}/min below minimum 50/min"
-        )
+        assert effective_rate >= 50, f"Effective rate {effective_rate:.0f}/min below minimum 50/min"
 
     @pytest.mark.asyncio
-    async def test_p95_latency_under_budget(
-        self, db_session: AsyncSession
-    ):
+    async def test_p95_latency_under_budget(self, db_session: AsyncSession):
         """
         Verify that p95 latency stays under the defined budget during storm load.
         """
@@ -201,9 +192,7 @@ class TestAlertStormL6:
         )
 
     @pytest.mark.asyncio
-    async def test_backpressure_redis_rate_limit(
-        self, db_session: AsyncSession
-    ):
+    async def test_backpressure_redis_rate_limit(self, db_session: AsyncSession):
         """
         Verify the rate-limit backpressure works: when Redis rate-limit
         is saturated, the engine gracefully returns None instead of crashing.
@@ -248,15 +237,11 @@ class TestAlertStormL6:
         print(f"\nBackpressure results: alerts_created={alerts_created}, errors={errors}")
 
         # At most 1 alert (rate limited); zero errors
-        assert alerts_created <= 1, (
-            f"Rate limit violated: {alerts_created} alerts instead of ≤1"
-        )
+        assert alerts_created <= 1, f"Rate limit violated: {alerts_created} alerts instead of ≤1"
         assert errors == 0, f"Backpressure caused {errors} unexpected errors"
 
     @pytest.mark.asyncio
-    async def test_storm_with_mixed_severities(
-        self, db_session: AsyncSession
-    ):
+    async def test_storm_with_mixed_severities(self, db_session: AsyncSession):
         """
         Storm with mixed severities — verify P0-10 highest-severity-wins
         semantics still hold under load.

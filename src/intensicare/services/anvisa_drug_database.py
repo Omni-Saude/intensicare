@@ -45,8 +45,6 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 # =============================================================================
 # Configuration
@@ -55,7 +53,7 @@ from typing import Optional
 # Toggle to switch between local stub and real ANVISA API.
 # Set to True when ANVISA_API_KEY and ANVISA_API_BASE_URL are provisioned.
 ANVISA_ENABLED: bool = False
-ANVISA_API_KEY: str | None = None       # Provision via environment: ANVISA_API_KEY
+ANVISA_API_KEY: str | None = None  # Provision via environment: ANVISA_API_KEY
 ANVISA_API_BASE_URL: str = "https://api.anvisa.gov.br/v2"
 
 
@@ -71,16 +69,16 @@ class ANVISADrugInfo:
     Mirrors the expected response from ANVISA's drug registry API.
     """
 
-    registro_anvisa: str                     # e.g. "1.0047.0123.001-1"
-    principio_ativo: str                     # Active ingredient (DCB name)
-    nome_comercial: str                      # Brand name
-    apresentacao: str                        # Dosage form (e.g. "Pó para solução injetável 500mg")
-    classe_terapeutica: str                  # Therapeutic class
+    registro_anvisa: str  # e.g. "1.0047.0123.001-1"
+    principio_ativo: str  # Active ingredient (DCB name)
+    nome_comercial: str  # Brand name
+    apresentacao: str  # Dosage form (e.g. "Pó para solução injetável 500mg")
+    classe_terapeutica: str  # Therapeutic class
     via_administracao: list[str] = field(default_factory=list)
-    categoria_risco_gestacao: str = ""       # Pregnancy risk category (A, B, C, D, X)
-    necessita_receita: bool = True           # Prescription required
-    tarja: str = ""                          # "preta", "vermelha", or ""
-    data_vencimento_registro: str = ""       # Registration expiry date
+    categoria_risco_gestacao: str = ""  # Pregnancy risk category (A, B, C, D, X)
+    necessita_receita: bool = True  # Prescription required
+    tarja: str = ""  # "preta", "vermelha", or ""
+    data_vencimento_registro: str = ""  # Registration expiry date
     fabricante: str = ""
 
 
@@ -93,7 +91,7 @@ class ANVISAInteractionResult:
 
     drug_a: str
     drug_b: str
-    severity: str            # "contraindicated", "severe", "moderate", "minor"
+    severity: str  # "contraindicated", "severe", "moderate", "minor"
     description: str
     mechanism: str | None = None
     recommendation: str | None = None
@@ -117,15 +115,11 @@ class AbstractDrugDatabase:
         """Look up a drug by name (princípio ativo or nome comercial)."""
         raise NotImplementedError
 
-    async def check_interaction(
-        self, drug_a: str, drug_b: str
-    ) -> ANVISAInteractionResult | None:
+    async def check_interaction(self, drug_a: str, drug_b: str) -> ANVISAInteractionResult | None:
         """Check for interaction between two drugs."""
         raise NotImplementedError
 
-    async def check_interactions_bulk(
-        self, drugs: list[str]
-    ) -> list[ANVISAInteractionResult]:
+    async def check_interactions_bulk(self, drugs: list[str]) -> list[ANVISAInteractionResult]:
         """Check all pairwise interactions in a drug list."""
         raise NotImplementedError
 
@@ -285,9 +279,7 @@ class LocalDrugDatabase(AbstractDrugDatabase):
         key = drug_name.lower().replace(" ", "_")
         return self._drugs.get(key)
 
-    async def check_interaction(
-        self, drug_a: str, drug_b: str
-    ) -> ANVISAInteractionResult | None:
+    async def check_interaction(self, drug_a: str, drug_b: str) -> ANVISAInteractionResult | None:
         """Check pairwise interaction using local knowledge base.
 
         In production, this would call:
@@ -304,7 +296,7 @@ class LocalDrugDatabase(AbstractDrugDatabase):
 
         pair = (key_a, key_b)
         if pair in DRUG_INTERACTIONS:
-            severity, itype, desc = DRUG_INTERACTIONS[pair]
+            severity, _itype, desc = DRUG_INTERACTIONS[pair]
             return ANVISAInteractionResult(
                 drug_a=drug_a,
                 drug_b=drug_b,
@@ -315,9 +307,7 @@ class LocalDrugDatabase(AbstractDrugDatabase):
             )
         return None
 
-    async def check_interactions_bulk(
-        self, drugs: list[str]
-    ) -> list[ANVISAInteractionResult]:
+    async def check_interactions_bulk(self, drugs: list[str]) -> list[ANVISAInteractionResult]:
         """Check all pairwise interactions in a drug list.
 
         In production, this would call:
@@ -327,7 +317,7 @@ class LocalDrugDatabase(AbstractDrugDatabase):
         """
         results: list[ANVISAInteractionResult] = []
         for i, drug_a in enumerate(drugs):
-            for drug_b in drugs[i + 1:]:
+            for drug_b in drugs[i + 1 :]:
                 result = await self.check_interaction(drug_a, drug_b)
                 if result:
                     results.append(result)
@@ -382,9 +372,7 @@ class ANVISADrugAPIClient(AbstractDrugDatabase):
 
         Production implementation::
 
-            response = await self._client.get(
-                "/drugs", params={"q": drug_name}
-            )
+            response = await self._client.get("/drugs", params={"q": drug_name})
             response.raise_for_status()
             data = response.json()
             if data["results"]:
@@ -396,9 +384,7 @@ class ANVISADrugAPIClient(AbstractDrugDatabase):
             "Set ANVISA_API_KEY and ANVISA_API_BASE_URL to activate."
         )
 
-    async def check_interaction(
-        self, drug_a: str, drug_b: str
-    ) -> ANVISAInteractionResult | None:
+    async def check_interaction(self, drug_a: str, drug_b: str) -> ANVISAInteractionResult | None:
         """Check pairwise interaction via ANVISA API.
 
         Production implementation::
@@ -411,13 +397,9 @@ class ANVISADrugAPIClient(AbstractDrugDatabase):
             data = response.json()
             return ANVISAInteractionResult(**data)
         """
-        raise NotImplementedError(
-            "ANVISA API client not yet implemented."
-        )
+        raise NotImplementedError("ANVISA API client not yet implemented.")
 
-    async def check_interactions_bulk(
-        self, drugs: list[str]
-    ) -> list[ANVISAInteractionResult]:
+    async def check_interactions_bulk(self, drugs: list[str]) -> list[ANVISAInteractionResult]:
         """Check all pairwise interactions via ANVISA API.
 
         Production implementation::
@@ -429,9 +411,7 @@ class ANVISADrugAPIClient(AbstractDrugDatabase):
             response.raise_for_status()
             return [ANVISAInteractionResult(**r) for r in response.json()["interactions"]]
         """
-        raise NotImplementedError(
-            "ANVISA API client not yet implemented."
-        )
+        raise NotImplementedError("ANVISA API client not yet implemented.")
 
     async def is_available(self) -> bool:
         """Check if ANVISA API is reachable.

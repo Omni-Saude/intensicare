@@ -13,7 +13,6 @@ Covers 12 legacy clinical rules:
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,15 +23,7 @@ from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
 from intensicare.models.user import User
 from intensicare.services.domain_eficiencia import (
-    FrailtyScale,
-    RestraintStatus,
     assess_efficiency,
-    evaluate_frailty,
-    evaluate_los,
-    evaluate_restraint,
-    evaluate_transfusion_criteria,
-    get_transfusion_categories,
-    get_transfusion_criteria_catalog,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["efficiency"])
@@ -47,9 +38,7 @@ class TransfusionCriterionSchema(BaseModel):
     """One of the 12 legacy transfusion-appropriateness criteria."""
 
     code: str = Field(..., description="Short code for the criterion", example="TF-001")
-    description: str = Field(
-        ..., description="Human-readable description of the criterion"
-    )
+    description: str = Field(..., description="Human-readable description of the criterion")
     met: bool = Field(
         ..., description="Whether this criterion was satisfied for the current transfusion event"
     )
@@ -61,15 +50,9 @@ class TransfusionCriterionSchema(BaseModel):
 class RestraintDetailsSchema(BaseModel):
     """Additional mechanical-restraint context."""
 
-    initiated_at: datetime | None = Field(
-        None, description="When restraint was initiated"
-    )
-    last_reviewed_at: datetime | None = Field(
-        None, description="Last restraint-review timestamp"
-    )
-    indication: str | None = Field(
-        None, description="Clinical indication for restraint"
-    )
+    initiated_at: datetime | None = Field(None, description="When restraint was initiated")
+    last_reviewed_at: datetime | None = Field(None, description="Last restraint-review timestamp")
+    indication: str | None = Field(None, description="Clinical indication for restraint")
 
 
 class EfficiencyAssessmentResponse(BaseModel):
@@ -87,9 +70,7 @@ class EfficiencyAssessmentResponse(BaseModel):
         default_factory=list,
         description="Transfusion appropriateness evaluation (12 criteria)",
     )
-    restraint_status: str = Field(
-        ..., description="Current mechanical-restraint monitoring status"
-    )
+    restraint_status: str = Field(..., description="Current mechanical-restraint monitoring status")
     restraint_details: RestraintDetailsSchema | None = Field(
         None, description="Additional mechanical-restraint context"
     )
@@ -97,23 +78,15 @@ class EfficiencyAssessmentResponse(BaseModel):
         None,
         description="Validated frailty score (CFS 1-9, mFI 0-1, or FRAIL 0-5)",
     )
-    frailty_scale: str | None = Field(
-        None, description="Frailty instrument used (CFS, mFI, FRAIL)"
-    )
-    icu_los_days: float = Field(
-        ..., description="Current ICU length-of-stay in decimal days"
-    )
+    frailty_scale: str | None = Field(None, description="Frailty instrument used (CFS, mFI, FRAIL)")
+    icu_los_days: float = Field(..., description="Current ICU length-of-stay in decimal days")
     icu_los_benchmark: float | None = Field(
         None,
         description="Expected/benchmark ICU LOS for this patient's DRG and severity, in days",
     )
-    icu_admission_at: datetime | None = Field(
-        None, description="ICU admission date-time"
-    )
+    icu_admission_at: datetime | None = Field(None, description="ICU admission date-time")
     notes: str | None = Field(None, description="Free-text stewardship notes")
-    assessed_at: datetime = Field(
-        ..., description="Timestamp of this assessment computation"
-    )
+    assessed_at: datetime = Field(..., description="Timestamp of this assessment computation")
     assessed_by: str | None = Field(
         None, description="System or user that triggered the assessment"
     )
@@ -122,9 +95,7 @@ class EfficiencyAssessmentResponse(BaseModel):
 class EfficiencyErrorResponse(BaseModel):
     """Error response per OpenAPI contract."""
 
-    error: dict[str, Any] = Field(
-        ..., description="Error object with code and message"
-    )
+    error: dict[str, Any] = Field(..., description="Error object with code and message")
 
 
 # ============================================================================
@@ -192,7 +163,9 @@ def _build_efficiency_response(
     # LOS
     los = result.los
     icu_los_days = float(los.get("days", 0))
-    icu_los_benchmark = float(los["expected_days"]) if los.get("expected_days") is not None else None
+    icu_los_benchmark = (
+        float(los["expected_days"]) if los.get("expected_days") is not None else None
+    )
     icu_admission_at = los.get("admission_at")
 
     # Generate assessment ID
@@ -289,7 +262,7 @@ async def get_efficiency_assessment(
             detail={
                 "error": {
                     "code": "INTERNAL_ERROR",
-                    "message": f"An unexpected error occurred: {str(exc)}",
+                    "message": f"An unexpected error occurred: {exc!s}",
                 }
             },
         ) from exc

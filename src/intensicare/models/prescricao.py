@@ -49,20 +49,14 @@ class Prescricao(Base):
         nullable=False,
         comment="QID, TID, BID, QD, QOD, PRN, continuous, ou personalizada ex: 8/8h",
     )
-    start_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    end_time: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16),
         default="active",
         comment="State: draft, active, completed, discontinued, suspended (ADR-027)",
     )
-    version: Mapped[int] = mapped_column(
-        Integer, default=1, comment="Optimistic locking version"
-    )
+    version: Mapped[int] = mapped_column(Integer, default=1, comment="Optimistic locking version")
     prescribed_by: Mapped[str] = mapped_column(String(255), nullable=False)
     notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -187,20 +181,14 @@ class AgendaPrescricao(Base):
         nullable=False,
         index=True,
     )
-    scheduled_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(
         String(16),
         default="pending",
         comment="pending, administered, missed, refused",
     )
-    administered_by: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
-    )
-    administered_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    administered_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    administered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     prescricao: Mapped["Prescricao"] = relationship(back_populates="agenda")

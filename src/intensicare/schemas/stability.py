@@ -1,14 +1,20 @@
 """Pydantic schemas for Hemodynamic Stability API."""
-from datetime import datetime, date
+
+from datetime import date, datetime
+
 from pydantic import BaseModel, Field
+
 
 class StabilityCriterionSchema(BaseModel):
     name: str
     value: str
     threshold: str
     status: str = Field(..., description="normal, warning, critical")
-    category: str = Field(..., description="vasopressor, perfusion, cardiac_output, fluid_balance, lactate, combined")
+    category: str = Field(
+        ..., description="vasopressor, perfusion, cardiac_output, fluid_balance, lactate, combined"
+    )
     alert_id: str | None = None
+
 
 class StabilityStatusSchema(BaseModel):
     mpi_id: str
@@ -18,11 +24,13 @@ class StabilityStatusSchema(BaseModel):
     recommendation: str | None = None
     assessed_at: datetime
 
+
 class StabilityTrendPointSchema(BaseModel):
     date: date
     score: int = Field(..., ge=0, le=27)
     severity: str
     criteria_triggered: int
+
 
 class StabilityTrendSchema(BaseModel):
     mpi_id: str

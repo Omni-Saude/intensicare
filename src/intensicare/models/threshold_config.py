@@ -19,8 +19,7 @@ class ThresholdConfig(Base):
 
     __tablename__ = "threshold_config"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "unit", "bed_id", "score_type",
-                         name="uq_threshold_scope"),
+        UniqueConstraint("tenant_id", "unit", "bed_id", "score_type", name="uq_threshold_scope"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

@@ -80,9 +80,7 @@ class TestSeededVersions:
         from sqlalchemy import select
 
         for version in SEEDED_VERSIONS:
-            stmt = select(AlgorithmRegistry).where(
-                AlgorithmRegistry.algorithm_version == version
-            )
+            stmt = select(AlgorithmRegistry).where(AlgorithmRegistry.algorithm_version == version)
             result = await db_session.execute(stmt)
             row = result.scalar_one_or_none()
             assert row is not None, f"Version {version} not found in algorithm_registry"
@@ -91,7 +89,7 @@ class TestSeededVersions:
 
     async def test_registry_row_count(self, db_session: AsyncSession):
         """Deve haver exatamente 4 versões (uma por score_type)."""
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
 
         stmt = select(func.count()).select_from(AlgorithmRegistry)
         result = await db_session.execute(stmt)
@@ -189,9 +187,7 @@ class TestForeignKeyConstraint:
         with pytest.raises(IntegrityError):
             await db_session.flush()
 
-    async def test_delete_registry_version_while_referenced_fails(
-        self, db_session: AsyncSession
-    ):
+    async def test_delete_registry_version_while_referenced_fails(self, db_session: AsyncSession):
         """Não deve ser possível deletar uma versão do registry que está em uso."""
         # First insert a score referencing a version
         score = ClinicalScore(
@@ -207,16 +203,12 @@ class TestForeignKeyConstraint:
         # Try to delete the referenced version
         from sqlalchemy import delete
 
-        stmt = delete(AlgorithmRegistry).where(
-            AlgorithmRegistry.algorithm_version == "qSOFA-v1.0"
-        )
+        stmt = delete(AlgorithmRegistry).where(AlgorithmRegistry.algorithm_version == "qSOFA-v1.0")
         with pytest.raises(IntegrityError):
             await db_session.execute(stmt)
             await db_session.flush()
 
-    async def test_all_four_types_accept_valid_versions(
-        self, db_session: AsyncSession
-    ):
+    async def test_all_four_types_accept_valid_versions(self, db_session: AsyncSession):
         """Todas as combinações válidas score_type ↔ version devem funcionar."""
         pairs = [
             ("MEWS", "MEWS-v1.0"),
@@ -244,9 +236,7 @@ class TestForeignKeyConstraint:
 class TestRegistryImmutability:
     """O algorithm_registry é imutável — version strings não podem ser alteradas."""
 
-    async def test_update_version_string_should_fail_in_practice(
-        self, db_session: AsyncSession
-    ):
+    async def test_update_version_string_should_fail_in_practice(self, db_session: AsyncSession):
         """Atualizar algorithm_version (PK) deve ser tratado como erro de design.
 
         O registry é imutável. Em vez de UPDATE, deve-se INSERT nova versão
@@ -269,9 +259,7 @@ class TestRegistryImmutability:
         # Verify it was inserted
         from sqlalchemy import select
 
-        stmt = select(AlgorithmRegistry).where(
-            AlgorithmRegistry.algorithm_version == "qSOFA-v1.1"
-        )
+        stmt = select(AlgorithmRegistry).where(AlgorithmRegistry.algorithm_version == "qSOFA-v1.1")
         result = await db_session.execute(stmt)
         assert result.scalar_one_or_none() is not None
 

@@ -76,7 +76,7 @@ if settings.environment == "development":
     from sqlalchemy.orm import Session, raiseload
 
     @event.listens_for(Session, "do_orm_execute")
-    def _dev_raiseload(orm_execute_state):  # noqa: E306
+    def _dev_raiseload(orm_execute_state):
         """Apply raiseload('*') to every ORM query in development.
 
         This catches accidental lazy loads at the point they occur,
@@ -84,9 +84,7 @@ if settings.environment == "development":
         """
         if orm_execute_state.execution_options.get("_raiseload_applied"):
             return
-        orm_execute_state.statement = orm_execute_state.statement.options(
-            raiseload("*")
-        )
+        orm_execute_state.statement = orm_execute_state.statement.options(raiseload("*"))
         orm_execute_state.update_execution_options(_raiseload_applied=True)
 
 

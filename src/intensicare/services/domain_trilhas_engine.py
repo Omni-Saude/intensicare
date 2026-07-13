@@ -69,33 +69,40 @@ __version__ = "3.0.0"
 from dataclasses import dataclass, field
 from typing import Any
 
-# ── Re-exports from new stateless engine (M4) ───────────────────────────
-from intensicare.services.trilhas_engine import (  # noqa: F401
-    PathwayDefinition,
-    TrilhasEngine,
-)
-
 # ── Import definitions (PATHWAY_SEEDS, catalog functions) ──────────────
-from intensicare.services.trilhas_definitions import (  # noqa: F401
+from intensicare.services.trilhas_definitions import (
     PATHWAY_SEEDS,
     get_pathway_by_id,
     get_pathway_catalog,
 )
 
+# ── Re-exports from new stateless engine (M4) ───────────────────────────
+from intensicare.services.trilhas_engine import (
+    PathwayDefinition,
+    TrilhasEngine,
+)
+
 # ── Import state management (PathwayStore, factory, transition functions) ──
 from intensicare.services.trilhas_state import (  # noqa: F401
-    PatientPathwayDict,
     PathwayStore,
+    PatientPathwayDict,
     _build_recommendation,
     _determine_severity,
     _determine_trend,
     create_pathway_store,
+)
+from intensicare.services.trilhas_state import (
     enroll_patient as _enroll_patient,
+)
+from intensicare.services.trilhas_state import (
     evaluate_criteria as _evaluate_criteria,
-    get_patient_pathways as _get_patient_pathways,
+)
+from intensicare.services.trilhas_state import (
     get_pathway_progress as _get_pathway_progress,
 )
-
+from intensicare.services.trilhas_state import (
+    get_patient_pathways as _get_patient_pathways,
+)
 
 # ============================================================================
 # Default PathwayStore (backward-compatible module-level singleton)
@@ -120,6 +127,7 @@ def _reset_stores() -> None:
 @dataclass
 class PathwayEligibilityResult:
     """Result of checking whether a patient is eligible for a pathway."""
+
     eligible: bool
     reason: str = ""
     matching_criteria: list[str] = field(default_factory=list)
@@ -128,6 +136,7 @@ class PathwayEligibilityResult:
 @dataclass
 class PathwayEnrollmentResult:
     """Result of enrolling a patient in a pathway."""
+
     patient_pathway_id: int | None = None
     mpi_id: str = ""
     pathway_id: int = 0
@@ -141,6 +150,7 @@ class PathwayEnrollmentResult:
 @dataclass
 class CriteriaEvaluationResult:
     """Result of updating criteria evaluation for a pathway enrollment."""
+
     patient_pathway_id: int
     mpi_id: str
     criteria: list[dict[str, Any]]  # [{id, name, met, value, evaluated_at}]
@@ -153,6 +163,7 @@ class CriteriaEvaluationResult:
 @dataclass
 class PathwayProgressResult:
     """Detailed progress for a patient in a specific pathway."""
+
     patient_pathway_id: int
     mpi_id: str
     pathway_name: str
@@ -239,11 +250,14 @@ def check_pathway_eligibility(
         required_cats = {"oxigenacao", "parametros"}
         if patient_data:
             data_keys = set(patient_data.keys())
-            has_oxigenacao = bool(data_keys & {"oxigenacao", "pf_ratio", "PaO2_FiO2", "crit-vent-pf"})
+            has_oxigenacao = bool(
+                data_keys & {"oxigenacao", "pf_ratio", "PaO2_FiO2", "crit-vent-pf"}
+            )
             has_parametros = bool(data_keys & {"parametros", "peep", "vc", "plat", "drive"})
             if has_oxigenacao and has_parametros:
-                matching_criteria = [c["id"] for c in pathway["criteria"]
-                                     if c["category"] in required_cats]
+                matching_criteria = [
+                    c["id"] for c in pathway["criteria"] if c["category"] in required_cats
+                ]
                 return PathwayEligibilityResult(
                     eligible=True,
                     reason="Paciente com dados de ventilação e oxigenação adequados para o pathway de Ventilação Mecânica.",
@@ -264,9 +278,11 @@ def check_pathway_eligibility(
             if has_triagem or has_labs:
                 matching_ids: list[str] = []
                 for c in pathway["criteria"]:
-                    if c["category"] in required_cats:
-                        matching_ids.append(c["id"])
-                    elif c["id"] in data_keys or c["category"] in data_keys:
+                    if (
+                        c["category"] in required_cats
+                        or c["id"] in data_keys
+                        or c["category"] in data_keys
+                    ):
                         matching_ids.append(c["id"])
                 return PathwayEligibilityResult(
                     eligible=True,
@@ -286,8 +302,9 @@ def check_pathway_eligibility(
             has_mec = bool(data_keys & {"mecanica", "rsbi", "nif", "crit-des-frvt", "crit-des-nif"})
             has_neuro = bool(data_keys & {"neurologico", "glasgow", "crit-des-glasgow"})
             if has_mec or has_neuro:
-                matching_ids = [c["id"] for c in pathway["criteria"]
-                                if c["category"] in required_cats]
+                matching_ids = [
+                    c["id"] for c in pathway["criteria"] if c["category"] in required_cats
+                ]
                 return PathwayEligibilityResult(
                     eligible=True,
                     reason="Paciente com critérios de avaliação de prontidão para desmame presentes.",
@@ -304,10 +321,13 @@ def check_pathway_eligibility(
         if patient_data:
             data_keys = set(patient_data.keys())
             has_triagem = bool(data_keys & {"triagem", "nrs", "crit-nut-triagem"})
-            has_nut = bool(data_keys & {"nutricional", "calorias", "proteinas", "crit-nut-calorias"})
+            has_nut = bool(
+                data_keys & {"nutricional", "calorias", "proteinas", "crit-nut-calorias"}
+            )
             if has_triagem or has_nut:
-                matching_ids = [c["id"] for c in pathway["criteria"]
-                                if c["category"] in required_cats]
+                matching_ids = [
+                    c["id"] for c in pathway["criteria"] if c["category"] in required_cats
+                ]
                 return PathwayEligibilityResult(
                     eligible=True,
                     reason="Paciente com dados de triagem nutricional ou monitorização de dieta enteral.",
@@ -412,28 +432,28 @@ def get_pathway_progress(
 # ============================================================================
 
 __all__ = [
+    # Definitions / catalog
+    "PATHWAY_SEEDS",
+    "CriteriaEvaluationResult",
+    "PathwayDefinition",
     # Dataclasses
     "PathwayEligibilityResult",
     "PathwayEnrollmentResult",
-    "CriteriaEvaluationResult",
     "PathwayProgressResult",
-    # TypedDicts
-    "PatientPathwayDict",
     # Store
     "PathwayStore",
-    "create_pathway_store",
-    "_reset_stores",
-    # Definitions / catalog
-    "PATHWAY_SEEDS",
-    "get_pathway_catalog",
-    "get_pathway_by_id",
-    # Core engine
-    "check_pathway_eligibility",
-    "enroll_patient",
-    "evaluate_criteria",
-    "get_patient_pathways",
-    "get_pathway_progress",
+    # TypedDicts
+    "PatientPathwayDict",
     # New engine (M4)
     "TrilhasEngine",
-    "PathwayDefinition",
+    "_reset_stores",
+    # Core engine
+    "check_pathway_eligibility",
+    "create_pathway_store",
+    "enroll_patient",
+    "evaluate_criteria",
+    "get_pathway_by_id",
+    "get_pathway_catalog",
+    "get_pathway_progress",
+    "get_patient_pathways",
 ]

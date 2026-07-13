@@ -5,11 +5,11 @@ Inicializa a aplicação, registra rotas, middlewares e handlers de ciclo de vid
 """
 
 from contextlib import asynccontextmanager
+import logging
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from intensicare.api.clinical_forms import router as clinical_forms_router
 from intensicare.api.reference_ranges import router as reference_ranges_router
@@ -19,8 +19,8 @@ from intensicare.api.v1 import (
     alert_routing_router,
     alerts_router,
     antimicrobial_router,
-    auth_router,
     api_v1_auth_router,
+    auth_router,
     dashboard_router,
     deterioration_router,
     documentacao_router,
@@ -44,6 +44,8 @@ from intensicare.api.v1 import (
 )
 from intensicare.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -53,7 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     - Startup: inicializa conexões com banco e Redis.
     - Shutdown: fecha conexões gracefulmente.
     """
-    from intensicare.core.database import dispose_engine, get_engine
+    from intensicare.core.database import AsyncSessionLocal, dispose_engine, get_engine
     from intensicare.core.redis import close_redis, get_redis
 
     # Startup
@@ -66,6 +68,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from intensicare.core.telemetry import init_telemetry
 
     init_telemetry()
+
+    # Trilhas Engine (YAML-based care pathways, ADR-0020/ADR-0021) + boot-time
+    # sync of the compiled definitions into Postgres. The engine itself
+    # fails fast (RuntimeError) if it loads zero active pathway definitions
+    # — that is a deploy defect and is allowed to propagate and abort boot.
+    # A failure limited to the DB sync step (e.g. a transient DB hiccup)
+    # must NOT prevent boot — the engine still serves evaluation from the
+    # in-memory YAML definitions either way.
+    from intensicare.services.pathway_definitions_sync import sync_pathway_definitions
+    from intensicare.services.trilhas_engine import TrilhasEngine
+
+    trilhas_engine = TrilhasEngine()
+    app.state.trilhas_engine = trilhas_engine
+
+    try:
+        async with AsyncSessionLocal() as session:
+            sync_report = await sync_pathway_definitions(session, trilhas_engine)
+            await session.commit()
+        logger.info(
+            "Pathway definitions sync: synced=%d skipped=%d failed=%s hash_mismatches=%s",
+            sync_report.synced,
+            sync_report.skipped,
+            sync_report.failed,
+            sync_report.hash_mismatches,
+        )
+    except Exception:
+        logger.error(
+            "Pathway definitions sync failed at boot; continuing with the "
+            "in-memory TrilhasEngine only (DB-backed pathway reads may be "
+            "stale until the next successful sync).",
+            exc_info=True,
+        )
 
     app.state.started = True
 
@@ -100,10 +134,12 @@ def create_app() -> FastAPI:
 
     # Security headers — OWASP-recommended headers (HSTS, CSP, X-Frame-Options, …)
     from intensicare.core.security_headers import SecurityHeadersMiddleware
+
     app.add_middleware(SecurityHeadersMiddleware)
 
     # Rate limiting — prevents brute-force attacks on auth endpoints
     from intensicare.core.rate_limit import RateLimitMiddleware
+
     app.add_middleware(RateLimitMiddleware)
 
     # Health check — redirect /health to /api/v1/health for backward compat

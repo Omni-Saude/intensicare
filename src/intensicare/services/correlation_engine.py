@@ -24,8 +24,9 @@ PPV budget: fleet floor >= 0.60; each correlation has its own target.
 
 from __future__ import annotations
 
-import logging
+import contextlib
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -57,19 +58,19 @@ EFFICIENCY_CORRELATIONS = [
 
 # Temporal join windows (ISO 8601 duration -> hours)
 JOIN_WINDOWS: dict[str, float] = {
-    "ALERT-CORR-SEPSIS-AKI-01": 72.0,   # PT72H
-    "ALERT-CORR-RESP-HEMO-02": 6.0,     # PT6H
-    "ALERT-CORR-QTC-ELEC-03": 24.0,     # PT24H
+    "ALERT-CORR-SEPSIS-AKI-01": 72.0,  # PT72H
+    "ALERT-CORR-RESP-HEMO-02": 6.0,  # PT6H
+    "ALERT-CORR-QTC-ELEC-03": 24.0,  # PT24H
     "ALERT-CORR-EXAM-REDUND-04": 720.0,  # PT720H (max window for exam history)
 }
 
 # Per-class reassessment windows for exam redundancy (hours)
 EXAM_CLASS_WINDOWS: dict[str, float] = {
-    "hemograma": 120.0,              # PT120H = 5 days
-    "bioquimica_rotina": 168.0,      # PT168H = 7 days
-    "rx_torax_rotina": 336.0,        # PT336H = 14 days
-    "marcadores_tireoide": 504.0,    # PT504H = 21 days
-    "sorologias": 720.0,             # PT720H = 30 days
+    "hemograma": 120.0,  # PT120H = 5 days
+    "bioquimica_rotina": 168.0,  # PT168H = 7 days
+    "rx_torax_rotina": 336.0,  # PT336H = 14 days
+    "marcadores_tireoide": 504.0,  # PT504H = 21 days
+    "sorologias": 720.0,  # PT720H = 30 days
 }
 
 # PPV budget per correlation
@@ -189,17 +190,12 @@ def _evaluate_sepsis_aki(
         missing.append("sepsis_event")
 
     # Check AKI member
+    # KDIGO stage >=1 alone is sufficient (supporting evidence such as
+    # creatinine or urine output, when present, corroborates but is not
+    # required — set by domain).
     aki_active = False
-    if kdigo_stage is not None and isinstance(kdigo_stage, (int, float)):
-        if kdigo_stage >= 1:
-            # Also check supporting evidence (creatinine or urine output)
-            creatinina = inputs.get("creatinina")
-            debito_urinario = inputs.get("debito_urinario_horario")
-            if creatinina is not None or debito_urinario is not None:
-                aki_active = True
-            else:
-                # KDIGO stage >=1 alone is sufficient if set by domain
-                aki_active = True
+    if kdigo_stage is not None and isinstance(kdigo_stage, (int, float)) and kdigo_stage >= 1:
+        aki_active = True
     if kdigo_stage is None:
         missing.append("kdigo_stage")
 
@@ -228,12 +224,8 @@ def _evaluate_sepsis_aki(
         "sepsis_event": sepsis_event,
     }
     if sepsis_onset is not None and aki_onset is not None:
-        try:
-            extra["causal_lag_h"] = (
-                float(aki_onset) - float(sepsis_onset)
-            ) / 3600.0
-        except (ValueError, TypeError):
-            pass
+        with contextlib.suppress(ValueError, TypeError):
+            extra["causal_lag_h"] = (float(aki_onset) - float(sepsis_onset)) / 3600.0
 
     reason = ""
     if fired:
@@ -322,10 +314,7 @@ def _evaluate_resp_hemo(
 
     reason = ""
     if fired:
-        reason = (
-            f"Cardiopulmonary failure correlation: ARDS={ards_sev}"
-            f" (P/F={pf_ratio}) + shock"
-        )
+        reason = f"Cardiopulmonary failure correlation: ARDS={ards_sev} (P/F={pf_ratio}) + shock"
     else:
         parts = []
         if not ards_moderate_or_severe:
@@ -469,9 +458,7 @@ def _evaluate_exam_redundant(
     extra: dict[str, Any] = {
         "exam_class": exam_class,
         "hours_since_prior": hours_since,
-        "reassessment_window_h": (
-            EXAM_CLASS_WINDOWS.get(str(exam_class)) if exam_class else None
-        ),
+        "reassessment_window_h": (EXAM_CLASS_WINDOWS.get(str(exam_class)) if exam_class else None),
     }
 
     reason = ""
@@ -586,12 +573,14 @@ class CorrelationEngine:
             except Exception as e:
                 logger.error("Error evaluating %s: %s", corr_id, e, exc_info=True)
                 errors.append(f"{corr_id}: {e}")
-                results.append(CorrelationAlertResult(
-                    alert_id=corr_id,
-                    name=CORRELATION_NAMES.get(corr_id, corr_id),
-                    fired=False,
-                    reason=f"Evaluation error: {e}",
-                ))
+                results.append(
+                    CorrelationAlertResult(
+                        alert_id=corr_id,
+                        name=CORRELATION_NAMES.get(corr_id, corr_id),
+                        fired=False,
+                        reason=f"Evaluation error: {e}",
+                    )
+                )
 
         n_fired = sum(1 for r in results if r.fired)
 
@@ -653,18 +642,14 @@ class CorrelationEngine:
 
     def get_fleet_ppv_summary(self) -> dict[str, Any]:
         """Return fleet-level PPV budget summary."""
-        total_volume = sum(
-            b["est_volume_per_100_beds_day"] for b in PPV_BUDGET.values()
-        )
+        total_volume = sum(b["est_volume_per_100_beds_day"] for b in PPV_BUDGET.values())
         # Clinical correlations (1)(2)(3) net-suppress member pushes
         clinical_volume = sum(
-            PPV_BUDGET[cid]["est_volume_per_100_beds_day"]
-            for cid in CLINICAL_CORRELATIONS
+            PPV_BUDGET[cid]["est_volume_per_100_beds_day"] for cid in CLINICAL_CORRELATIONS
         )
         # Efficiency (4) is net-additive
         efficiency_volume = sum(
-            PPV_BUDGET[cid]["est_volume_per_100_beds_day"]
-            for cid in EFFICIENCY_CORRELATIONS
+            PPV_BUDGET[cid]["est_volume_per_100_beds_day"] for cid in EFFICIENCY_CORRELATIONS
         )
 
         return {
@@ -708,9 +693,7 @@ class CorrelationEngine:
         severity = SeverityLevel(severity_str)
 
         # Determine source alerts and suppressed members
-        source_alerts, suppressed_ids = self._resolve_source_alerts(
-            correlation_id, inputs
-        )
+        source_alerts, suppressed_ids = self._resolve_source_alerts(correlation_id, inputs)
 
         return CorrelationAlertResult(
             alert_id=correlation_id,
@@ -726,7 +709,9 @@ class CorrelationEngine:
         )
 
     def _resolve_source_alerts(
-        self, correlation_id: str, inputs: dict[str, Any],
+        self,
+        correlation_id: str,
+        inputs: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], list[str]]:
         """Resolve which domain alerts triggered this correlation.
 
@@ -738,85 +723,104 @@ class CorrelationEngine:
         if correlation_id == "ALERT-CORR-SEPSIS-AKI-01":
             sepsis_event = inputs.get("sepsis_event", "")
             if "shock" in str(sepsis_event):
-                source_alerts.append({
-                    "domain": "sepsis",
-                    "alert_id": "ALERT-SEPSIS-SHOCK-03",
-                    "event_type": sepsis_event,
-                })
+                source_alerts.append(
+                    {
+                        "domain": "sepsis",
+                        "alert_id": "ALERT-SEPSIS-SHOCK-03",
+                        "event_type": sepsis_event,
+                    }
+                )
                 suppressed.append("ALERT-SEPSIS-SHOCK-03")
             elif "organ_dysfunction" in str(sepsis_event):
-                source_alerts.append({
-                    "domain": "sepsis",
-                    "alert_id": "ALERT-SEPSIS-ORGAN-02",
-                    "event_type": sepsis_event,
-                })
+                source_alerts.append(
+                    {
+                        "domain": "sepsis",
+                        "alert_id": "ALERT-SEPSIS-ORGAN-02",
+                        "event_type": sepsis_event,
+                    }
+                )
                 suppressed.append("ALERT-SEPSIS-ORGAN-02")
             kdigo = inputs.get("kdigo_stage")
             if kdigo is not None and int(kdigo) >= 1:
                 aki_id = f"ALERT-AKI-KDIGO-STAGE-{int(kdigo):02d}"
-                source_alerts.append({
-                    "domain": "aki",
-                    "alert_id": aki_id,
-                    "kdigo_stage": kdigo,
-                })
+                source_alerts.append(
+                    {
+                        "domain": "aki",
+                        "alert_id": aki_id,
+                        "kdigo_stage": kdigo,
+                    }
+                )
                 suppressed.append(aki_id)
 
         elif correlation_id == "ALERT-CORR-RESP-HEMO-02":
             if inputs.get("ards_severity") in ("moderada", "grave"):
-                source_alerts.append({
-                    "domain": "respiratory",
-                    "alert_id": "ALERT-RESP-ARDS-MODERATE-01",
-                    "severity": inputs.get("ards_severity"),
-                })
+                source_alerts.append(
+                    {
+                        "domain": "respiratory",
+                        "alert_id": "ALERT-RESP-ARDS-MODERATE-01",
+                        "severity": inputs.get("ards_severity"),
+                    }
+                )
                 suppressed.append("ALERT-RESP-ARDS-MODERATE-01")
             if inputs.get("shock_event") or (
                 inputs.get("pressao_arterial_media") is not None
                 and float(inputs.get("pressao_arterial_media", 100)) < 65
             ):
-                source_alerts.append({
-                    "domain": "hemodynamics",
-                    "alert_id": "ALERT-HEMO-SHOCK-01",
-                    "map": inputs.get("pressao_arterial_media"),
-                })
+                source_alerts.append(
+                    {
+                        "domain": "hemodynamics",
+                        "alert_id": "ALERT-HEMO-SHOCK-01",
+                        "map": inputs.get("pressao_arterial_media"),
+                    }
+                )
                 suppressed.append("ALERT-HEMO-SHOCK-01")
 
         elif correlation_id == "ALERT-CORR-QTC-ELEC-03":
-            source_alerts.append({
-                "domain": "pharmaco-interaction",
-                "alert_id": "ALERT-DDX-QTC-PROLONGED-01",
-                "qtc_ms": inputs.get("qtc"),
-                "drug_count": inputs.get("qt_prolonging_drug_count"),
-            })
+            source_alerts.append(
+                {
+                    "domain": "pharmaco-interaction",
+                    "alert_id": "ALERT-DDX-QTC-PROLONGED-01",
+                    "qtc_ms": inputs.get("qtc"),
+                    "drug_count": inputs.get("qt_prolonging_drug_count"),
+                }
+            )
             suppressed.append("ALERT-DDX-QTC-PROLONGED-01")
             if inputs.get("potassio") is not None:
-                source_alerts.append({
-                    "domain": "electrolyte",
-                    "alert_id": "ALERT-ELY-POTASSIUM-01",
-                    "potassio": inputs.get("potassio"),
-                })
+                source_alerts.append(
+                    {
+                        "domain": "electrolyte",
+                        "alert_id": "ALERT-ELY-POTASSIUM-01",
+                        "potassio": inputs.get("potassio"),
+                    }
+                )
                 suppressed.append("ALERT-ELY-POTASSIUM-01")
             if inputs.get("magnesio") is not None:
-                source_alerts.append({
-                    "domain": "electrolyte",
-                    "alert_id": "ALERT-ELY-MAGNESIUM-01",
-                    "magnesio": inputs.get("magnesio"),
-                })
+                source_alerts.append(
+                    {
+                        "domain": "electrolyte",
+                        "alert_id": "ALERT-ELY-MAGNESIUM-01",
+                        "magnesio": inputs.get("magnesio"),
+                    }
+                )
                 suppressed.append("ALERT-ELY-MAGNESIUM-01")
 
         elif correlation_id == "ALERT-CORR-EXAM-REDUND-04":
             # Standalone — no member alerts to suppress
-            source_alerts.append({
-                "domain": "efficiency-stewardship",
-                "alert_id": "ALERT-CORR-EXAM-REDUND-04",
-                "exam_class": inputs.get("exam_class"),
-                "lineage": "RULE-EFICIENCIA-007 (ADAPT)",
-            })
+            source_alerts.append(
+                {
+                    "domain": "efficiency-stewardship",
+                    "alert_id": "ALERT-CORR-EXAM-REDUND-04",
+                    "exam_class": inputs.get("exam_class"),
+                    "lineage": "RULE-EFICIENCIA-007 (ADAPT)",
+                }
+            )
             # Explicitly NO suppression — standalone, net-additive
 
         return source_alerts, suppressed
 
     def _compute_ppv_summary(
-        self, results: list[CorrelationAlertResult],
+        self,
+        results: list[CorrelationAlertResult],
     ) -> dict[str, Any]:
         """Compute fleet PPV summary from correlation results."""
         fired_by_correlation: dict[str, bool] = {}
@@ -853,7 +857,10 @@ def evaluate_correlations(
     """Convenience: evaluate all correlations for a patient."""
     engine = CorrelationEngine()
     return engine.evaluate(
-        patient_id, encounter_id, inputs, correlation_ids=correlation_ids,
+        patient_id,
+        encounter_id,
+        inputs,
+        correlation_ids=correlation_ids,
     )
 
 

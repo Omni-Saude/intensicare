@@ -113,9 +113,7 @@ class FHIRMedicationOrder:
     ordered_at: datetime | None = None
 
     @classmethod
-    def from_medication_request(
-        cls, mpi_id: str, resource: dict[str, Any]
-    ) -> FHIRMedicationOrder:
+    def from_medication_request(cls, mpi_id: str, resource: dict[str, Any]) -> FHIRMedicationOrder:
         """Parse a FHIR MedicationRequest resource."""
         # Medication name via medicationCodeableConcept
         med_cc = resource.get("medicationCodeableConcept", {})

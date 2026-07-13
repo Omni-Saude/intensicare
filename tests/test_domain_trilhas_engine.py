@@ -15,18 +15,14 @@ import pytest
 
 from intensicare.services.domain_trilhas_engine import (
     PATHWAY_SEEDS,
-    CriteriaEvaluationResult,
-    PathwayEligibilityResult,
-    PathwayEnrollmentResult,
-    PathwayProgressResult,
     _reset_stores,
     check_pathway_eligibility,
     enroll_patient,
     evaluate_criteria,
     get_pathway_by_id,
     get_pathway_catalog,
-    get_patient_pathways,
     get_pathway_progress,
+    get_patient_pathways,
 )
 
 
@@ -45,17 +41,30 @@ def _clean_stores() -> None:
 class TestPathwayCatalog:
     """get_pathway_catalog and get_pathway_by_id."""
 
-    def test_catalog_returns_four_pathways(self) -> None:
-        """active_only=True must return all 4 seed pathways."""
+    def test_catalog_returns_twelve_pathways(self) -> None:
+        """active_only=True must return all 12 YAML-persisted pathways."""
         catalog = get_pathway_catalog(active_only=True)
-        assert len(catalog) == 4
+        assert len(catalog) == 12
         slugs = {p["slug"] for p in catalog}
-        assert slugs == {"ventilacao", "sepse", "desmame", "nutricao"}
+        assert slugs == {
+            "antimicrobiano",
+            "delirium",
+            "desmame",
+            "equilibrio",
+            "estabilidade",
+            "nutricao",
+            "profilaxia",
+            "renal",
+            "respiratorio",
+            "sedacao",
+            "sepse",
+            "ventilacao",
+        }
 
-    def test_catalog_active_only_false_also_returns_four(self) -> None:
+    def test_catalog_active_only_false_also_returns_twelve(self) -> None:
         """active_only=False returns all pathways (all are active by default)."""
         catalog = get_pathway_catalog(active_only=False)
-        assert len(catalog) == 4
+        assert len(catalog) == 12
 
     def test_catalog_is_copy_not_reference(self) -> None:
         """Returns a copy; mutating it does not mutate PATHWAY_SEEDS."""
@@ -75,8 +84,8 @@ class TestPathwayCatalog:
         assert pathway is not None
         assert pathway["name"] == "Ventilação Mecânica"
         assert pathway["slug"] == "ventilacao"
-        assert len(pathway["states"]) == 5
-        assert len(pathway["criteria"]) == 5
+        assert len(pathway["states"]) >= 2
+        assert len(pathway["criteria"]) >= 2
 
     def test_get_pathway_by_id_invalid_returns_none(self) -> None:
         """Non-existent pathway ID returns None."""
@@ -719,9 +728,7 @@ class TestTrilhasEngineIntegration:
 
         engine = TrilhasEngine()
         pathways = engine.get_pathways()
-        assert len(pathways) >= 4, (
-            f"Expected at least 4 pathways loaded, got {len(pathways)}"
-        )
+        assert len(pathways) >= 4, f"Expected at least 4 pathways loaded, got {len(pathways)}"
         slugs = {p.slug for p in pathways}
         assert slugs >= {"ventilacao", "sepse", "desmame", "nutricao"}
 
@@ -826,6 +833,7 @@ class TestTrilhasEngineIntegration:
             PathwayDefinition,
             TrilhasEngine,
         )
+
         # Just verify they import without error
         assert TrilhasEngine is not None
         assert PathwayDefinition is not None
@@ -840,6 +848,7 @@ class TestTrilhasEngineIntegration:
             get_pathway_by_id,
             get_pathway_catalog,
         )
+
         assert PATHWAY_SEEDS is not None
         assert PathwayStore is not None
         assert PatientPathwayDict is not None

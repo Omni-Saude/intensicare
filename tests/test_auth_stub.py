@@ -33,7 +33,9 @@ def _import_auth_stub():
     # Caminho absoluto para o stub (relativo à raiz do projeto)
     stub_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "src", "intensicare", "auth.py",
+        "src",
+        "intensicare",
+        "auth.py",
     )
 
     spec = importlib.util.spec_from_file_location(
@@ -122,9 +124,7 @@ class TestAuthStubProduction:
     @pytest.mark.asyncio
     async def test_stub_blocked_in_production(self, auth_stub):
         """Em produção, get_current_user deve levantar 403."""
-        with patch.object(
-            auth_stub.settings, "environment", "production"
-        ):
+        with patch.object(auth_stub.settings, "environment", "production"):
             request = FakeRequest("Bearer any-token")
             with pytest.raises(HTTPException) as exc_info:
                 await auth_stub.get_current_user(request)
@@ -134,9 +134,7 @@ class TestAuthStubProduction:
     @pytest.mark.asyncio
     async def test_stub_blocked_in_staging(self, auth_stub):
         """Em staging, get_current_user também deve levantar 403."""
-        with patch.object(
-            auth_stub.settings, "environment", "staging"
-        ):
+        with patch.object(auth_stub.settings, "environment", "staging"):
             request = FakeRequest("Bearer any-token")
             with pytest.raises(HTTPException) as exc_info:
                 await auth_stub.get_current_user(request)
@@ -145,9 +143,7 @@ class TestAuthStubProduction:
     @pytest.mark.asyncio
     async def test_require_admin_blocked_in_production(self, auth_stub):
         """Em produção, require_admin também deve levantar 403."""
-        with patch.object(
-            auth_stub.settings, "environment", "production"
-        ):
+        with patch.object(auth_stub.settings, "environment", "production"):
             # require_admin é uma dependência FastAPI que chama get_current_user
             # antes — mas o bloqueio acontece em require_admin também.
             with pytest.raises(HTTPException) as exc_info:
@@ -157,9 +153,7 @@ class TestAuthStubProduction:
     @pytest.mark.asyncio
     async def test_stub_allowed_in_testing(self, auth_stub):
         """Em ambiente 'testing', o stub funciona normalmente."""
-        with patch.object(
-            auth_stub.settings, "environment", "testing"
-        ):
+        with patch.object(auth_stub.settings, "environment", "testing"):
             request = FakeRequest("Bearer test-token:admin")
             user = await auth_stub.get_current_user(request)
             assert user["sub"] == "test-token"
@@ -198,7 +192,9 @@ class TestRealAuthJWT:
     def test_jwt_expired_token(self):
         """Token expirado deve ser rejeitado."""
         from datetime import datetime, timedelta, timezone
+
         from jose import jwt
+
         from intensicare.config import settings
 
         # Cria token já expirado
@@ -211,6 +207,7 @@ class TestRealAuthJWT:
         )
 
         from intensicare.auth.jwt import verify_token
+
         payload = verify_token(token)
         assert payload is None  # Expirado → None
 

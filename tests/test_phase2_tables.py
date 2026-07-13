@@ -15,12 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.fhir.client import (
     FHIRClient,
     FHIRLabResult,
-    FHIRMedicationAdministration,
     FHIRMedicationOrder,
     FHIRPatientContext,
 )
@@ -90,7 +90,7 @@ class TestLabResultIdempotency:
             ingested_at=_NOW,
         )
         db_session.add(lab2)
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             await db_session.flush()
 
     @pytest.mark.anyio
@@ -166,9 +166,7 @@ class TestLabResultIdempotency:
         db_session.add(lab2)
         await db_session.flush()
 
-        result = await db_session.execute(
-            select(LabResult).where(LabResult.fhir_id == fhir_id)
-        )
+        result = await db_session.execute(select(LabResult).where(LabResult.fhir_id == fhir_id))
         rows = result.scalars().all()
         assert len(rows) == 2
 
@@ -182,9 +180,7 @@ class TestMedicationFKChain:
     """Garante que a FK chain entre medication_order e medication_administration funciona."""
 
     @pytest.mark.anyio
-    async def test_order_to_administration_fk_chain(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_order_to_administration_fk_chain(self, db_session: AsyncSession) -> None:
         """Ordem → administração com FK válida."""
         await _ensure_patient(db_session, "MPI-MED-001")
 
@@ -225,9 +221,7 @@ class TestMedicationFKChain:
         assert admin_row.mpi_id == "MPI-MED-001"
 
     @pytest.mark.anyio
-    async def test_administration_without_order_allowed(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_administration_without_order_allowed(self, db_session: AsyncSession) -> None:
         """Administração sem order_id (NULL) é permitida (FK ondelete SET NULL)."""
         await _ensure_patient(db_session, "MPI-MED-002")
 
@@ -252,9 +246,7 @@ class TestMedicationFKChain:
         assert admin_row.order_id is None
 
     @pytest.mark.anyio
-    async def test_order_cascade_on_patient_delete(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_order_cascade_on_patient_delete(self, db_session: AsyncSession) -> None:
         """Ao deletar patient_cache, medication_order é removido em cascata."""
         await _ensure_patient(db_session, "MPI-MED-003")
 
@@ -282,9 +274,7 @@ class TestMedicationFKChain:
         assert result.scalar_one_or_none() is None
 
     @pytest.mark.anyio
-    async def test_multiple_administrations_per_order(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_multiple_administrations_per_order(self, db_session: AsyncSession) -> None:
         """Múltiplas administrações para a mesma ordem."""
         await _ensure_patient(db_session, "MPI-MED-004")
 
@@ -307,9 +297,7 @@ class TestMedicationFKChain:
                 mpi_id="MPI-MED-004",
                 fhir_id=f"medadmin-004-{i}",
                 order_id=order_id,
-                administered_at=datetime(
-                    2026, 7, 5, 8 + i, 0, 0, tzinfo=timezone.utc
-                ),
+                administered_at=datetime(2026, 7, 5, 8 + i, 0, 0, tzinfo=timezone.utc),
                 dose_given="10 units",
                 route="Subcutaneous",
                 ingested_at=_NOW,
@@ -318,9 +306,7 @@ class TestMedicationFKChain:
         await db_session.flush()
 
         result = await db_session.execute(
-            select(MedicationAdministration).where(
-                MedicationAdministration.order_id == order_id
-            )
+            select(MedicationAdministration).where(MedicationAdministration.order_id == order_id)
         )
         admins = result.scalars().all()
         assert len(admins) == 3
@@ -334,10 +320,23 @@ MOCK_LAB_OBSERVATION = {
     "resourceType": "Observation",
     "id": "obs-lab-100",
     "status": "final",
-    "category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "laboratory"}]}],
+    "category": [
+        {
+            "coding": [
+                {
+                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                    "code": "laboratory",
+                }
+            ]
+        }
+    ],
     "code": {
         "coding": [
-            {"system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin [Mass/volume] in Blood"}
+            {
+                "system": "http://loinc.org",
+                "code": "718-7",
+                "display": "Hemoglobin [Mass/volume] in Blood",
+            }
         ]
     },
     "subject": {"reference": "Patient/MPI-FHIR-001"},
@@ -347,7 +346,16 @@ MOCK_LAB_OBSERVATION = {
     "referenceRange": [
         {"low": {"value": 12.0, "unit": "g/dL"}, "high": {"value": 16.0, "unit": "g/dL"}}
     ],
-    "interpretation": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation", "code": "N"}]}],
+    "interpretation": [
+        {
+            "coding": [
+                {
+                    "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                    "code": "N",
+                }
+            ]
+        }
+    ],
 }
 
 MOCK_MEDICATION_REQUEST = {
@@ -357,9 +365,13 @@ MOCK_MEDICATION_REQUEST = {
     "intent": "order",
     "medicationCodeableConcept": {
         "coding": [
-            {"system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": "6918", "display": "Metoprolol Tartrate 50 MG Oral Tablet"}
+            {
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                "code": "6918",
+                "display": "Metoprolol Tartrate 50 MG Oral Tablet",
+            }
         ],
-        "text": "Metoprolol 50 mg"
+        "text": "Metoprolol 50 mg",
     },
     "subject": {"reference": "Patient/MPI-FHIR-001"},
     "authoredOn": "2026-07-05T08:00:00Z",
@@ -367,10 +379,28 @@ MOCK_MEDICATION_REQUEST = {
         {
             "text": "50 mg oral BID",
             "timing": {
-                "code": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation", "code": "BID", "display": "BID"}]}
+                "code": {
+                    "coding": [
+                        {
+                            "system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation",
+                            "code": "BID",
+                            "display": "BID",
+                        }
+                    ]
+                }
             },
-            "route": {"coding": [{"system": "http://snomed.info/sct", "code": "26643006", "display": "Oral route"}]},
-            "doseAndRate": [{"doseQuantity": {"value": 50, "unit": "mg", "system": "http://unitsofmeasure.org"}}],
+            "route": {
+                "coding": [
+                    {
+                        "system": "http://snomed.info/sct",
+                        "code": "26643006",
+                        "display": "Oral route",
+                    }
+                ]
+            },
+            "doseAndRate": [
+                {"doseQuantity": {"value": 50, "unit": "mg", "system": "http://unitsofmeasure.org"}}
+            ],
         }
     ],
 }
@@ -380,14 +410,24 @@ MOCK_MEDICATION_ADMINISTRATION = {
     "id": "medadmin-100",
     "status": "completed",
     "medicationCodeableConcept": {
-        "coding": [{"system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": "6918", "display": "Metoprolol Tartrate"}]
+        "coding": [
+            {
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                "code": "6918",
+                "display": "Metoprolol Tartrate",
+            }
+        ]
     },
     "subject": {"reference": "Patient/MPI-FHIR-001"},
     "request": {"reference": "MedicationRequest/medreq-100"},
     "effectiveDateTime": "2026-07-05T09:00:00Z",
     "dosage": {
         "dose": {"value": 50, "unit": "mg"},
-        "route": {"coding": [{"system": "http://snomed.info/sct", "code": "26643006", "display": "Oral route"}]},
+        "route": {
+            "coding": [
+                {"system": "http://snomed.info/sct", "code": "26643006", "display": "Oral route"}
+            ]
+        },
     },
 }
 

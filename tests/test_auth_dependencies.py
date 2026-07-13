@@ -11,15 +11,14 @@ Covers:
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+import pytest
 
 from intensicare.api.v1.auth import hash_password
 from intensicare.auth.dependencies import get_current_user, require_admin
 from intensicare.auth.jwt import create_access_token
 from intensicare.models.user import User
-
 
 # ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -167,18 +166,19 @@ class TestGetCurrentUserWithIAM:
         db_session.add(user)
         await db_session.flush()
 
-        token = "fake-iam-token"
+        token = "fake-iam-token"  # noqa: S105
         cred = _make_cred(token)
 
         mock_identity = MagicMock()
         mock_identity.username = "iam_user"
 
-        with patch(
-            "intensicare.auth.dependencies.settings.iam_enabled", True
-        ), patch(
-            "intensicare.auth.dependencies.validate_iam_token",
-            new_callable=AsyncMock,
-        ) as mock_validate:
+        with (
+            patch("intensicare.auth.dependencies.settings.iam_enabled", True),
+            patch(
+                "intensicare.auth.dependencies.validate_iam_token",
+                new_callable=AsyncMock,
+            ) as mock_validate,
+        ):
             mock_validate.return_value = mock_identity
             result = await get_current_user(credentials=cred, db=db_session)
             assert result.username == "iam_user"
@@ -194,12 +194,13 @@ class TestGetCurrentUserWithIAM:
         jwt_token = create_access_token({"sub": "jwt_fallback_user", "user_id": user.id})
         cred = _make_cred(jwt_token)
 
-        with patch(
-            "intensicare.auth.dependencies.settings.iam_enabled", True
-        ), patch(
-            "intensicare.auth.dependencies.validate_iam_token",
-            new_callable=AsyncMock,
-        ) as mock_validate:
+        with (
+            patch("intensicare.auth.dependencies.settings.iam_enabled", True),
+            patch(
+                "intensicare.auth.dependencies.validate_iam_token",
+                new_callable=AsyncMock,
+            ) as mock_validate,
+        ):
             mock_validate.side_effect = Exception("IAM unavailable")
 
             with patch(

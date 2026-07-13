@@ -10,28 +10,23 @@ Covers:
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 import pytest
 
 from intensicare.services import domain_evolucoes as mod
 from intensicare.services.domain_evolucoes import (
-    CLINICAL_ROLES,
-    EVOLUTION_TYPES,
-    EvolutionRecord,
     EvolutionListResult,
+    EvolutionRecord,
+    _compute_content_hash,
     create_evolution,
     get_evolution,
     get_template_catalog,
     list_evolutions,
-    _compute_content_hash,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _reset_store() -> None:
     """Reset in-memory stores to ensure test isolation."""
@@ -54,6 +49,7 @@ def _valid_sbar_sections() -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test Template Catalog
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTemplateCatalog:
     """Tests for get_template_catalog function."""
@@ -87,6 +83,7 @@ class TestTemplateCatalog:
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test Create Evolution
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestCreateEvolution:
     """Tests for create_evolution function."""
@@ -372,6 +369,7 @@ class TestCreateEvolution:
 # Test List Evolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestListEvolutions:
     """Tests for list_evolutions function."""
 
@@ -434,6 +432,7 @@ class TestListEvolutions:
 # Test Get Evolution
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestGetEvolution:
     """Tests for get_evolution function."""
 
@@ -467,6 +466,7 @@ class TestGetEvolution:
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers for seeding test data
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _seed_evolutions() -> None:
     """Create a few evolutions for MPI-100 to test listing."""

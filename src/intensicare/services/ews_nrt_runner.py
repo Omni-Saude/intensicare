@@ -24,7 +24,15 @@ from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.vital_sign import VitalSign
 from intensicare.services.mews import calculate_mews
-from intensicare.services.news2 import calculate_news2, score_consciousness, score_heart_rate, score_respiratory_rate, score_spo2, score_systolic_bp, score_temperature
+from intensicare.services.news2 import (
+    calculate_news2,
+    score_consciousness,
+    score_heart_rate,
+    score_respiratory_rate,
+    score_spo2,
+    score_systolic_bp,
+    score_temperature,
+)
 from intensicare.services.qsofa import calculate_qsofa
 from intensicare.services.sofa import calculate_sofa
 
@@ -301,9 +309,7 @@ def evaluate_ews_deterioration_01(
     current_red = _get_red_params(snapshot)
     new_red = current_red - snapshot.news2_red_params_prev
     if new_red:
-        reasons.append(
-            f"New red parameter(s): {', '.join(sorted(new_red))} scored 3"
-        )
+        reasons.append(f"New red parameter(s): {', '.join(sorted(new_red))} scored 3")
 
     if reasons:
         return True, "; ".join(reasons)
@@ -326,21 +332,23 @@ def evaluate_ews_trend_rising_02(
     reasons: list[str] = []
 
     # NEWS2 trend
-    if (snapshot.news2_at_window_start is not None
-            and snapshot.news2_score - snapshot.news2_at_window_start >= 3):
+    if (
+        snapshot.news2_at_window_start is not None
+        and snapshot.news2_score - snapshot.news2_at_window_start >= 3
+    ):
         delta = snapshot.news2_score - snapshot.news2_at_window_start
         reasons.append(
-            f"NEWS2 rising: {snapshot.news2_at_window_start} -> "
-            f"{snapshot.news2_score} (Δ+{delta})"
+            f"NEWS2 rising: {snapshot.news2_at_window_start} -> {snapshot.news2_score} (Δ+{delta})"
         )
 
     # MEWS trend
-    if (snapshot.mews_at_window_start is not None
-            and snapshot.mews_score - snapshot.mews_at_window_start >= 3):
+    if (
+        snapshot.mews_at_window_start is not None
+        and snapshot.mews_score - snapshot.mews_at_window_start >= 3
+    ):
         delta = snapshot.mews_score - snapshot.mews_at_window_start
         reasons.append(
-            f"MEWS rising: {snapshot.mews_at_window_start} -> "
-            f"{snapshot.mews_score} (Δ+{delta})"
+            f"MEWS rising: {snapshot.mews_at_window_start} -> {snapshot.mews_score} (Δ+{delta})"
         )
 
     if reasons:
@@ -397,11 +405,8 @@ def evaluate_ews_discharge_readiness_04(
     elif snapshot.gcs is None:
         failures.append("GCS unavailable")
 
-    if (snapshot.vasopressor_dose is not None
-            and snapshot.vasopressor_dose > 0):
-        failures.append(
-            f"vasopressor dose {snapshot.vasopressor_dose} > 0"
-        )
+    if snapshot.vasopressor_dose is not None and snapshot.vasopressor_dose > 0:
+        failures.append(f"vasopressor dose {snapshot.vasopressor_dose} > 0")
 
     if snapshot.map_value is not None and snapshot.map_value < 65:
         failures.append(f"MAP {snapshot.map_value} < 65")
@@ -409,8 +414,7 @@ def evaluate_ews_discharge_readiness_04(
     if snapshot.mechanical_ventilation:
         failures.append("mechanical ventilation active")
 
-    if (snapshot.spo2 is not None and snapshot.spo2 < 92
-            and not snapshot.supplemental_o2):
+    if snapshot.spo2 is not None and snapshot.spo2 < 92 and not snapshot.supplemental_o2:
         failures.append(f"SpO2 {snapshot.spo2} < 92% on room air")
 
     if failures:
@@ -462,15 +466,24 @@ async def process_ews_nrt(
 
     # 2. Fetch previous scores for edge/trend/baseline
     snapshot.news2_score_prev, _ = await _fetch_previous_score(
-        db, vs.mpi_id, "NEWS2", now,
+        db,
+        vs.mpi_id,
+        "NEWS2",
+        now,
     )
     snapshot.mews_score_prev, _ = await _fetch_previous_score(
-        db, vs.mpi_id, "MEWS", now,
+        db,
+        vs.mpi_id,
+        "MEWS",
+        now,
     )
 
     # SOFA 24h baseline
     sofa_prev_val, _ = await _fetch_previous_score(
-        db, vs.mpi_id, "SOFA", now,
+        db,
+        vs.mpi_id,
+        "SOFA",
+        now,
         window=timedelta(hours=24),
     )
     if sofa_prev_val is not None:
@@ -478,29 +491,41 @@ async def process_ews_nrt(
 
     # Previous NEWS2 red parameters
     prev_news2_comps = await _fetch_previous_news2_components(
-        db, vs.mpi_id, now,
+        db,
+        vs.mpi_id,
+        now,
     )
     snapshot.news2_red_params_prev = {
-        name for name, score in prev_news2_comps.items()
-        if score == 3
+        name for name, score in prev_news2_comps.items() if score == 3
     }
 
     # Window-start scores for trend (8h window)
     window_ago = now - timedelta(hours=8)
     snapshot.news2_at_window_start, _ = await _fetch_previous_score(
-        db, vs.mpi_id, "NEWS2", now,
+        db,
+        vs.mpi_id,
+        "NEWS2",
+        now,
         window=timedelta(hours=8),
     )
     # If we have a recent enough score within window, use it as baseline
     # Otherwise, the earliest score in the window becomes the reference
     news2_in_window = await _fetch_scores_in_window(
-        db, vs.mpi_id, "NEWS2", window_ago, now,
+        db,
+        vs.mpi_id,
+        "NEWS2",
+        window_ago,
+        now,
     )
     if news2_in_window:
         snapshot.news2_at_window_start = news2_in_window[0].score_value
 
     mews_in_window = await _fetch_scores_in_window(
-        db, vs.mpi_id, "MEWS", window_ago, now,
+        db,
+        vs.mpi_id,
+        "MEWS",
+        window_ago,
+        now,
     )
     if mews_in_window:
         snapshot.mews_at_window_start = mews_in_window[0].score_value
@@ -511,41 +536,47 @@ async def process_ews_nrt(
     # ── ALERT-EWS-NEWS2-DETERIORATION-01 ──
     fired_01, reason_01 = evaluate_ews_deterioration_01(snapshot)
     if fired_01:
-        alerts.append(_build_alert(
-            alert_id="ALERT-EWS-NEWS2-DETERIORATION-01",
-            name="Deterioração clínica — NEWS2 alto (novo cruzamento >=7 ou parâmetro vermelho)",
-            severity="urgent",
-            snapshot=snapshot,
-            reason=reason_01,
-            tenant_id=tenant_id,
-            unit=unit,
-        ))
+        alerts.append(
+            _build_alert(
+                alert_id="ALERT-EWS-NEWS2-DETERIORATION-01",
+                name="Deterioração clínica — NEWS2 alto (novo cruzamento >=7 ou parâmetro vermelho)",
+                severity="urgent",
+                snapshot=snapshot,
+                reason=reason_01,
+                tenant_id=tenant_id,
+                unit=unit,
+            )
+        )
 
     # ── ALERT-EWS-TREND-RISING-02 ──
     fired_02, reason_02 = evaluate_ews_trend_rising_02(snapshot)
     if fired_02:
-        alerts.append(_build_alert(
-            alert_id="ALERT-EWS-TREND-RISING-02",
-            name="Tendência de piora — escore de alerta precoce em elevação",
-            severity="watch",
-            snapshot=snapshot,
-            reason=reason_02,
-            tenant_id=tenant_id,
-            unit=unit,
-        ))
+        alerts.append(
+            _build_alert(
+                alert_id="ALERT-EWS-TREND-RISING-02",
+                name="Tendência de piora — escore de alerta precoce em elevação",
+                severity="watch",
+                snapshot=snapshot,
+                reason=reason_02,
+                tenant_id=tenant_id,
+                unit=unit,
+            )
+        )
 
     # ── ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03 ──
     fired_03, reason_03 = evaluate_ews_sofa_organ_dysfunction_03(snapshot)
     if fired_03:
-        alerts.append(_build_alert(
-            alert_id="ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03",
-            name="Disfunção orgânica aguda — aumento de SOFA >=2",
-            severity="urgent",
-            snapshot=snapshot,
-            reason=reason_03,
-            tenant_id=tenant_id,
-            unit=unit,
-        ))
+        alerts.append(
+            _build_alert(
+                alert_id="ALERT-EWS-SOFA-ACUTE-ORGAN-DYSFUNCTION-03",
+                name="Disfunção orgânica aguda — aumento de SOFA >=2",
+                severity="urgent",
+                snapshot=snapshot,
+                reason=reason_03,
+                tenant_id=tenant_id,
+                unit=unit,
+            )
+        )
 
     # ── ALERT-EWS-DISCHARGE-READINESS-04 ──
     # The discharge-readiness check requires extra context:
@@ -554,24 +585,24 @@ async def process_ews_nrt(
     # - no active deterioration
     fired_04 = False
     reason_04 = ""
-    if admitted_gt_24h and (
-        lactate_arterial is None or lactate_arterial < 2.0
-    ):
+    if admitted_gt_24h and (lactate_arterial is None or lactate_arterial < 2.0):
         fired_04, reason_04 = evaluate_ews_discharge_readiness_04(
             snapshot,
             has_active_deterioration=has_active_deterioration,
         )
 
     if fired_04:
-        alerts.append(_build_alert(
-            alert_id="ALERT-EWS-DISCHARGE-READINESS-04",
-            name="Prontidão para alta/step-down da UTI",
-            severity="normal",
-            snapshot=snapshot,
-            reason=reason_04,
-            tenant_id=tenant_id,
-            unit=unit,
-        ))
+        alerts.append(
+            _build_alert(
+                alert_id="ALERT-EWS-DISCHARGE-READINESS-04",
+                name="Prontidão para alta/step-down da UTI",
+                severity="normal",
+                snapshot=snapshot,
+                reason=reason_04,
+                tenant_id=tenant_id,
+                unit=unit,
+            )
+        )
 
     # 4. Persist alerts
     for alert in alerts:
@@ -606,8 +637,8 @@ def _build_alert(
         f"Alert: {alert_id} — {name}",
         f"Severity: {severity}",
         f"Reason: {reason}",
-        f"",
-        f"Scores:",
+        "",
+        "Scores:",
         f"  MEWS:  {snapshot.mews_score}",
         f"  NEWS2: {snapshot.news2_score}",
         f"  qSOFA: {snapshot.qsofa_score}",
@@ -616,9 +647,7 @@ def _build_alert(
     if snapshot.news2_score_prev is not None:
         body_lines.append(f"  NEWS2 prev: {snapshot.news2_score_prev}")
     if snapshot.sofa_total_baseline_24h is not None:
-        body_lines.append(
-            f"  SOFA 24h baseline: {snapshot.sofa_total_baseline_24h}"
-        )
+        body_lines.append(f"  SOFA 24h baseline: {snapshot.sofa_total_baseline_24h}")
     if tenant_id:
         body_lines.append(f"Tenant: {tenant_id}")
     if unit:

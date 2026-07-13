@@ -27,9 +27,9 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -178,9 +178,14 @@ def _evaluate_cam_icu(features: dict | CAMICUFeatures) -> tuple[bool, CAMICUFeat
     Returns:
         Tuple of (is_positive: bool, CAMICUFeatures dataclass)
 
-    >>> _evaluate_cam_icu({"inicio_agudo": True, "desatencao": True,
-    ...                     "pensamento_desorganizado": False,
-    ...                     "nivel_consciencia_alterado": True})
+    >>> _evaluate_cam_icu(
+    ...     {
+    ...         "inicio_agudo": True,
+    ...         "desatencao": True,
+    ...         "pensamento_desorganizado": False,
+    ...         "nivel_consciencia_alterado": True,
+    ...     }
+    ... )
     (True, CAMICUFeatures(inicio_agudo=True, desatencao=True, ...))
     """
     if isinstance(features, CAMICUFeatures):
@@ -243,25 +248,16 @@ def assess_sedation_pure(
         ValueError: If any score is outside the valid range.
     """
     # Validate RASS
-    if rass_score is not None:
-        if not _validate_rass(rass_score):
-            raise ValueError(
-                f"RASS score {rass_score} outside valid range [-5, +4]"
-            )
+    if rass_score is not None and not _validate_rass(rass_score):
+        raise ValueError(f"RASS score {rass_score} outside valid range [-5, +4]")
 
     # Validate BPS
-    if bps_score is not None:
-        if not _validate_bps(bps_score):
-            raise ValueError(
-                f"BPS score {bps_score} outside valid range [3, 12]"
-            )
+    if bps_score is not None and not _validate_bps(bps_score):
+        raise ValueError(f"BPS score {bps_score} outside valid range [3, 12]")
 
     # Validate NRS
-    if nrs_score is not None:
-        if not _validate_nrs(nrs_score):
-            raise ValueError(
-                f"NRS score {nrs_score} outside valid range [0, 10]"
-            )
+    if nrs_score is not None and not _validate_nrs(nrs_score):
+        raise ValueError(f"NRS score {nrs_score} outside valid range [0, 10]")
 
     # Compute RASS label
     rass_label = None
@@ -284,8 +280,12 @@ def assess_sedation_pure(
             cam_features_obj = CAMICUFeatures(
                 inicio_agudo=bool(cam_icu_features.get("inicio_agudo", False)),
                 desatencao=bool(cam_icu_features.get("desatencao", False)),
-                pensamento_desorganizado=bool(cam_icu_features.get("pensamento_desorganizado", False)),
-                nivel_consciencia_alterado=bool(cam_icu_features.get("nivel_consciencia_alterado", False)),
+                pensamento_desorganizado=bool(
+                    cam_icu_features.get("pensamento_desorganizado", False)
+                ),
+                nivel_consciencia_alterado=bool(
+                    cam_icu_features.get("nivel_consciencia_alterado", False)
+                ),
             )
         else:
             cam_icu_positive, cam_features_obj = _evaluate_cam_icu(cam_icu_features)
@@ -395,10 +395,7 @@ async def list_sedation_history(
     offset = max(0, offset)
 
     # Get total count
-    count_stmt = (
-        select(SedationAssessment)
-        .where(SedationAssessment.mpi_id == mpi_id)
-    )
+    count_stmt = select(SedationAssessment).where(SedationAssessment.mpi_id == mpi_id)
     count_result = await db.execute(count_stmt)
     total = len(count_result.scalars().all())
 
@@ -523,10 +520,17 @@ def assess_sedation_sync(
     Does NOT write to the database. Use the async assess_sedation(db, ...)
     for full persistence.
 
-    >>> record = assess_sedation_sync("P001", rass_score=-2, bps_score=4,
-    ...     cam_icu_features={"inicio_agudo": False, "desatencao": False,
-    ...                        "pensamento_desorganizado": False,
-    ...                        "nivel_consciencia_alterado": False})
+    >>> record = assess_sedation_sync(
+    ...     "P001",
+    ...     rass_score=-2,
+    ...     bps_score=4,
+    ...     cam_icu_features={
+    ...         "inicio_agudo": False,
+    ...         "desatencao": False,
+    ...         "pensamento_desorganizado": False,
+    ...         "nivel_consciencia_alterado": False,
+    ...     },
+    ... )
     >>> record.rass_label
     'Sedação leve'
     >>> record.cam_icu_positive

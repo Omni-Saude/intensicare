@@ -10,7 +10,7 @@ Covers:
   - compute_mrn_bidx consistency (same input → same output)
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -21,7 +21,6 @@ from intensicare.services.patient_encryption import (
     decrypt_phi,
     encrypt_phi,
 )
-
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -215,11 +214,9 @@ class TestComputeMrnBidx:
     @pytest.mark.asyncio
     async def test_different_inputs_produce_different_outputs(self, mock_db):
         """Different MRNs → different blind indices."""
-        results = {}
 
         def side_effect(*args, **kwargs):
             # Extract the data parameter from the call
-            call_args = args[0] if args else {}
             data = kwargs.get("params", {}).get("data", "") if kwargs.get("params") else ""
             return_value = f"idx-{data}".encode().ljust(32, b"\x00")
             mock_result = MagicMock()

@@ -1,12 +1,12 @@
 """Tests for Clinical Forms domain service — scoring engines for SOFA, RASS,
 CAM-ICU, Glasgow, BPS/NRS.
 """
+
 from __future__ import annotations
 
 import pytest
 
 from intensicare.services.domain_formularios import (
-    FORM_DEFINITIONS,
     FormListResult,
     FormSubmissionResult,
     FormTypeInfo,
@@ -16,7 +16,6 @@ from intensicare.services.domain_formularios import (
     list_submissions,
     submit_form,
 )
-
 
 # ============================================================================
 # get_form_types
@@ -316,10 +315,10 @@ class TestCalculateScoreEdgeCases:
 
     def test_rass_clamped_to_range(self):
         """RASS values outside -5..+4 are clamped."""
-        score, severity = calculate_score("rass", {"nivel": 10})
+        score, _severity = calculate_score("rass", {"nivel": 10})
         assert score == 4.0
 
-        score, severity = calculate_score("rass", {"nivel": -10})
+        score, _severity = calculate_score("rass", {"nivel": -10})
         assert score == -5.0
 
     def test_nrs_out_of_range_clamped(self):
@@ -334,12 +333,15 @@ class TestCalculateScoreEdgeCases:
 
     def test_bps_missing_components_default_min(self):
         """Missing BPS components default to 1 each (score = 3)."""
-        score, severity = calculate_score("bps-nrs", {
-            "tipo": "bps",
-            "expressao_facial": 1,
-            "membros_superiores": 1,
-            "ventilacao_mecanica_indicador": 1,
-        })
+        score, severity = calculate_score(
+            "bps-nrs",
+            {
+                "tipo": "bps",
+                "expressao_facial": 1,
+                "membros_superiores": 1,
+                "ventilacao_mecanica_indicador": 1,
+            },
+        )
         assert score == 3.0
         assert severity == "sem_dor"
 

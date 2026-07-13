@@ -163,8 +163,16 @@ async def test_idempotency_duplicate_request(client: AsyncClient, user_headers: 
 @pytest.mark.asyncio
 async def test_idempotency_different_keys(client: AsyncClient, user_headers: dict[str, str]):
     """Chaves de idempotência diferentes devem criar registros distintos."""
-    payload1 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:00:00Z"}
-    payload2 = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-IDEM-02", "recorded_at": "2026-06-26T10:01:00Z"}
+    payload1 = {
+        **VALID_VITALS_PAYLOAD,
+        "mpi_id": "MPI-IDEM-02",
+        "recorded_at": "2026-06-26T10:00:00Z",
+    }
+    payload2 = {
+        **VALID_VITALS_PAYLOAD,
+        "mpi_id": "MPI-IDEM-02",
+        "recorded_at": "2026-06-26T10:01:00Z",
+    }
 
     resp1 = await client.post(
         "/api/v1/vitals",
@@ -202,7 +210,9 @@ async def test_idempotency_without_key(client: AsyncClient, user_headers: dict[s
 
 
 @pytest.mark.asyncio
-async def test_validation_missing_required_fields(client: AsyncClient, user_headers: dict[str, str]):
+async def test_validation_missing_required_fields(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Campos obrigatórios (mpi_id, recorded_at) devem ser validados."""
     # Sem mpi_id
     resp = await client.post(
@@ -238,7 +248,9 @@ async def test_validation_avpu_case_insensitive(client: AsyncClient, user_header
 
 
 @pytest.mark.asyncio
-async def test_validation_out_of_range_heart_rate(client: AsyncClient, user_headers: dict[str, str]):
+async def test_validation_out_of_range_heart_rate(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Heart rate > 300 deve ser rejeitado."""
     payload = {**VALID_VITALS_PAYLOAD, "heart_rate": 350}
     resp = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
@@ -301,7 +313,9 @@ async def test_patient_status_after_ingestion(client: AsyncClient, user_headers:
 
 
 @pytest.mark.asyncio
-async def test_patient_status_trend_multiple_scores(client: AsyncClient, user_headers: dict[str, str]):
+async def test_patient_status_trend_multiple_scores(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Após múltiplas ingestões, tendência deve refletir os últimos 5 scores."""
     mpi_id = "MPI-TREND-01"
 
@@ -448,7 +462,9 @@ async def test_news2_high_risk(client: AsyncClient, user_headers: dict[str, str]
 
 
 @pytest.mark.asyncio
-async def test_news2_supplemental_o2_adds_two_points(client: AsyncClient, user_headers: dict[str, str]):
+async def test_news2_supplemental_o2_adds_two_points(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """NEWS2: uso de O2 suplementar deve adicionar 2 pontos."""
     # Sem O2
     payload_no_o2 = {
@@ -501,7 +517,9 @@ async def test_news2_default_hypercapnic_false(client: AsyncClient, user_headers
 
 
 @pytest.mark.asyncio
-async def test_news2_avpu_scores_three_for_altered(client: AsyncClient, user_headers: dict[str, str]):
+async def test_news2_avpu_scores_three_for_altered(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """NEWS2: qualquer estado alterado de consciência (C/V/P/U) = 3 pontos."""
     for avpu_val in ("C", "V", "P", "U"):
         payload = {
@@ -547,8 +565,8 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient, user_header
     assert data["news2_risk_category"] is not None
 
     # MEWS and NEWS2 use different algorithms, so scores differ
-    # MEWS: hr=110(1) + sbp=95(1) + rr=24(2) + temp=38.5(1) + avpu=V(1) = 6
-    assert data["mews_score"] == 6
+    # MEWS-v3.0.0 (Subbe 2001): HR 110→1, SBP 95→1, RR 24→2, Temp 38.5→2, AVPU V→1 = 7
+    assert data["mews_score"] == 7
     # NEWS2: rr=24(2) + spo2=92(2) + o2=True(2) + sbp=95(2)
     #        + hr=110(1) + avpu=V(3) + temp=38.5(1) = 13
     assert data["news2_score"] == 13
@@ -556,7 +574,9 @@ async def test_dual_scoring_both_scores_present(client: AsyncClient, user_header
 
 
 @pytest.mark.asyncio
-async def test_dual_scoring_idempotent_replay_returns_both_scores(client: AsyncClient, user_headers: dict[str, str]):
+async def test_dual_scoring_idempotent_replay_returns_both_scores(
+    client: AsyncClient, user_headers: dict[str, str]
+):
     """Replay idempotente deve retornar ambos MEWS e NEWS2."""
     payload = {
         "mpi_id": "MPI-DUAL-IDEM",

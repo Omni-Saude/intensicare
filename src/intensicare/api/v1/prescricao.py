@@ -30,13 +30,12 @@ from intensicare.services.domain_prescricao import (
     ConcurrencyError,
     InteractionAlert,
     PrescriptionRecord,
-    PrescriptionStateMachine,
+    _transition_state,
     create_prescription,
     get_prescription,
     get_state_machine,
     list_prescriptions,
     update_prescription,
-    _transition_state,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["prescricao"])
@@ -202,7 +201,7 @@ async def create_patient_prescription(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_prescription_response(result.prescription)
 
@@ -308,17 +307,17 @@ async def update_single_prescription(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prescription {prescription_id} not found",
-        )
+        ) from None
     except ConcurrencyError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_prescription_response(rx)
 
@@ -374,7 +373,7 @@ async def transition_prescription_state(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     # Persist the state change to DB via update_prescription
     try:
@@ -392,16 +391,16 @@ async def transition_prescription_state(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prescription {prescription_id} not found",
-        )
+        ) from None
     except ConcurrencyError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     return _to_prescription_response(persisted_rx)

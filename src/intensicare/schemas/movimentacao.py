@@ -9,7 +9,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # PatientMovement — request & response
 # ---------------------------------------------------------------------------
@@ -19,18 +18,14 @@ class RegisterMovementRequest(BaseModel):
     """Request body for POST /patients/{mpi_id}/movements."""
 
     mpi_id: str = Field(..., min_length=1, max_length=64, description="Patient MPI identifier")
-    type: str = Field(
-        ..., description="Movement type: admission, transfer, discharge"
-    )
+    type: str = Field(..., description="Movement type: admission, transfer, discharge")
     from_unit: str | None = Field(
         None, max_length=128, description="Origin unit (null on admission)"
     )
     to_unit: str | None = Field(
         None, max_length=128, description="Destination unit (null on discharge)"
     )
-    from_bed: str | None = Field(
-        None, max_length=32, description="Origin bed (null on admission)"
-    )
+    from_bed: str | None = Field(None, max_length=32, description="Origin bed (null on admission)")
     to_bed: str | None = Field(
         None, max_length=32, description="Destination bed (null on discharge)"
     )
@@ -74,12 +69,8 @@ class BedSchema(BaseModel):
 
     id: str = Field(..., description="Bed identifier (ex: 'UTI-A-01')")
     unit: str = Field(..., description="Unit this bed belongs to")
-    status: str = Field(
-        ..., description="Bed status: free, occupied, blocked, cleaning"
-    )
-    current_patient_mpi_id: str | None = Field(
-        None, description="MPI ID of occupying patient"
-    )
+    status: str = Field(..., description="Bed status: free, occupied, blocked, cleaning")
+    current_patient_mpi_id: str | None = Field(None, description="MPI ID of occupying patient")
     last_updated: datetime = Field(..., description="Last status update timestamp")
 
 
@@ -139,9 +130,7 @@ class PatientLocationCurrentSchema(BaseModel):
     admitted_to_unit_at: datetime | None = Field(
         None, description="When patient arrived at current unit"
     )
-    last_movement_at: datetime | None = Field(
-        None, description="Timestamp of most recent movement"
-    )
+    last_movement_at: datetime | None = Field(None, description="Timestamp of most recent movement")
     source_cdc_offset: int | None = Field(
         None, description="CDC offset of the latest event applied"
     )
@@ -166,9 +155,7 @@ class DischargeSummarySchema(BaseModel):
     )
     destination: str | None = Field(None, description="Post-discharge destination")
     discharge_diagnosis: str | None = Field(None, description="CID-10 at discharge")
-    follow_up_scheduled: bool = Field(
-        default=False, description="Whether follow-up was scheduled"
-    )
+    follow_up_scheduled: bool = Field(default=False, description="Whether follow-up was scheduled")
     continuity_medication_prescribed: bool = Field(
         default=False, description="Medication continuity at discharge"
     )

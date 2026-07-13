@@ -18,27 +18,25 @@ import pytest
 
 from intensicare.schemas.severity import SeverityLevel
 from intensicare.services.domain_respiratory import (
-    RespiratoryAlertResult,
     RESPIRATORY_ALERT_DEFINITIONS,
-    _ensure_fio2_fraction,
-    _compute_sf_ratio,
+    RespiratoryAlertResult,
     _compute_pf_ratio,
+    _compute_sf_ratio,
+    _ensure_fio2_fraction,
     evaluate_all,
     evaluate_ards_staging,
-    evaluate_deterioration,
     evaluate_asynchrony,
-    evaluate_weaning_ready,
-    evaluate_prolonged_intubation,
+    evaluate_deterioration,
+    evaluate_extubation_readiness_bundle,
     # WAVE 3A ventilation RATIFY
     evaluate_high_pplat_tidal,
     evaluate_peep_fio2_moderate,
     evaluate_peep_fio2_severe,
     evaluate_prolonged_covid_intubation,
-    evaluate_extubation_readiness_bundle,
-    evaluate_pain_assessment,
+    evaluate_prolonged_intubation,
+    evaluate_weaning_ready,
     should_auto_resolve,
 )
-
 
 # ===========================================================================
 # FiO2 fraction enforcement tests (CANON_PINS)
@@ -748,20 +746,24 @@ class TestHighPplatTidal:
 
     def test_fire_vc_high_pbw(self):
         """VC 500 + altura 160cm male -> PBW=56.9, VC/PBW=8.78 > 8 -> fire."""
-        result = evaluate_high_pplat_tidal({
-            "volume_corrente": 500,
-            "altura_cm": 160,
-            "sexo": "M",
-        })
+        result = evaluate_high_pplat_tidal(
+            {
+                "volume_corrente": 500,
+                "altura_cm": 160,
+                "sexo": "M",
+            }
+        )
         assert result.fired is True
 
     def test_no_fire_vc_normal_pbw(self):
         """VC 400 + altura 170cm female -> PBW=61.5, VC/PBW=6.50 < 8 -> no fire."""
-        result = evaluate_high_pplat_tidal({
-            "volume_corrente": 400,
-            "altura_cm": 170,
-            "sexo": "F",
-        })
+        result = evaluate_high_pplat_tidal(
+            {
+                "volume_corrente": 400,
+                "altura_cm": 170,
+                "sexo": "F",
+            }
+        )
         assert result.fired is False
 
 
@@ -770,21 +772,25 @@ class TestPeepFio2Moderate:
 
     def test_fire_moderate_mismatch(self):
         """P/F 250 (moderate), FiO2 0.5, PEEP 5 (too low) -> fire."""
-        result = evaluate_peep_fio2_moderate({
-            "pao2": 125,  # 125/0.5 = 250
-            "fio2": 0.50,
-            "peep": 5,
-        })
+        result = evaluate_peep_fio2_moderate(
+            {
+                "pao2": 125,  # 125/0.5 = 250
+                "fio2": 0.50,
+                "peep": 5,
+            }
+        )
         assert result.fired is True
         assert result.band == "watch"
 
     def test_no_fire_adequate_peep(self):
         """P/F 250, FiO2 0.5, PEEP 8 (adequate) -> no fire."""
-        result = evaluate_peep_fio2_moderate({
-            "pao2": 125,
-            "fio2": 0.50,
-            "peep": 8,
-        })
+        result = evaluate_peep_fio2_moderate(
+            {
+                "pao2": 125,
+                "fio2": 0.50,
+                "peep": 8,
+            }
+        )
         assert result.fired is False
 
 
@@ -793,21 +799,25 @@ class TestPeepFio2Severe:
 
     def test_fire_severe_mismatch(self):
         """P/F 150 (severe), FiO2 0.7, PEEP 8 (too low) -> fire."""
-        result = evaluate_peep_fio2_severe({
-            "pao2": 105,  # 105/0.7 = 150
-            "fio2": 0.70,
-            "peep": 8,
-        })
+        result = evaluate_peep_fio2_severe(
+            {
+                "pao2": 105,  # 105/0.7 = 150
+                "fio2": 0.70,
+                "peep": 8,
+            }
+        )
         assert result.fired is True
         assert result.band == "urgent"
 
     def test_no_fire_not_severe(self):
         """P/F 250 (not severe) -> no fire."""
-        result = evaluate_peep_fio2_severe({
-            "pao2": 100,
-            "fio2": 0.40,
-            "peep": 5,
-        })
+        result = evaluate_peep_fio2_severe(
+            {
+                "pao2": 100,
+                "fio2": 0.40,
+                "peep": 5,
+            }
+        )
         assert result.fired is False
 
 
@@ -816,29 +826,35 @@ class TestProlongedCovidIntubation:
 
     def test_fire_covid_14_days(self):
         """COVID patient, TOT, 14 days -> fire."""
-        result = evaluate_prolonged_covid_intubation({
-            "dispositivo_via_aerea": "TOT",
-            "dias_em_ventilacao_mecanica": 14,
-            "covid19_ativo": True,
-        })
+        result = evaluate_prolonged_covid_intubation(
+            {
+                "dispositivo_via_aerea": "TOT",
+                "dias_em_ventilacao_mecanica": 14,
+                "covid19_ativo": True,
+            }
+        )
         assert result.fired is True
 
     def test_no_fire_covid_12_days(self):
         """COVID patient, TOT, 12 days (< 14) -> no fire."""
-        result = evaluate_prolonged_covid_intubation({
-            "dispositivo_via_aerea": "TOT",
-            "dias_em_ventilacao_mecanica": 12,
-            "covid19_ativo": True,
-        })
+        result = evaluate_prolonged_covid_intubation(
+            {
+                "dispositivo_via_aerea": "TOT",
+                "dias_em_ventilacao_mecanica": 12,
+                "covid19_ativo": True,
+            }
+        )
         assert result.fired is False
 
     def test_no_fire_non_covid(self):
         """Non-COVID patient -> this alert should not fire."""
-        result = evaluate_prolonged_covid_intubation({
-            "dispositivo_via_aerea": "TOT",
-            "dias_em_ventilacao_mecanica": 15,
-            "covid19_ativo": False,
-        })
+        result = evaluate_prolonged_covid_intubation(
+            {
+                "dispositivo_via_aerea": "TOT",
+                "dias_em_ventilacao_mecanica": 15,
+                "covid19_ativo": False,
+            }
+        )
         assert result.fired is False
 
 
@@ -847,36 +863,42 @@ class TestExtubationBundle:
 
     def test_fire_all_criteria_met(self):
         """All 5 criteria met -> fire (ready for SBT)."""
-        result = evaluate_extubation_readiness_bundle({
-            "fio2": 0.35,
-            "peep": 5,
-            "pao2": 90,  # 90/0.35 = 257 >= 150
-            "glasgow": 14,
-            "dose_vasopressor": 0,
-        })
+        result = evaluate_extubation_readiness_bundle(
+            {
+                "fio2": 0.35,
+                "peep": 5,
+                "pao2": 90,  # 90/0.35 = 257 >= 150
+                "glasgow": 14,
+                "dose_vasopressor": 0,
+            }
+        )
         assert result.fired is True
         assert result.band == "normal"
 
     def test_no_fire_fio2_too_high(self):
         """FiO2 0.50 > 0.40 -> no fire."""
-        result = evaluate_extubation_readiness_bundle({
-            "fio2": 0.50,
-            "peep": 5,
-            "pao2": 100,
-            "glasgow": 14,
-            "dose_vasopressor": 0,
-        })
+        result = evaluate_extubation_readiness_bundle(
+            {
+                "fio2": 0.50,
+                "peep": 5,
+                "pao2": 100,
+                "glasgow": 14,
+                "dose_vasopressor": 0,
+            }
+        )
         assert result.fired is False
 
     def test_no_fire_pf_too_low(self):
         """P/F 120 < 150 -> no fire."""
-        result = evaluate_extubation_readiness_bundle({
-            "fio2": 0.30,
-            "peep": 5,
-            "pao2": 36,  # 36/0.30 = 120
-            "glasgow": 14,
-            "dose_vasopressor": 0,
-        })
+        result = evaluate_extubation_readiness_bundle(
+            {
+                "fio2": 0.30,
+                "peep": 5,
+                "pao2": 36,  # 36/0.30 = 120
+                "glasgow": 14,
+                "dose_vasopressor": 0,
+            }
+        )
         assert result.fired is False
 
 
@@ -915,7 +937,7 @@ class TestRespiratoryAlertDefinitions:
             "ALERT-RESP-WEANING-READY-04",
             "ALERT-RESP-PROLONGED-INTUB-05",
         ]
-        for d, expected in zip(RESPIRATORY_ALERT_DEFINITIONS, expected_prefixes):
+        for d, expected in zip(RESPIRATORY_ALERT_DEFINITIONS, expected_prefixes, strict=False):
             assert d["definition_version"].startswith(expected)
             assert d["semver"] == "3.0.0"
             assert len(d["spec_hash"]) == 16

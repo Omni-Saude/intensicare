@@ -10,9 +10,8 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 from httpx import AsyncClient
-
+import pytest
 
 # ═══════════════════════════════════════════════════════════════════════════
 # GET /api/v1/indicators — list catalogue
@@ -41,9 +40,7 @@ async def test_list_indicators_filter_by_category(
     admin_headers: dict[str, str],
 ) -> None:
     """Filtering by category='TLP' must return only TLP indicators (3 items)."""
-    resp = await client.get(
-        "/api/v1/indicators", headers=admin_headers, params={"category": "TLP"}
-    )
+    resp = await client.get("/api/v1/indicators", headers=admin_headers, params={"category": "TLP"})
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["data"]) == 3
@@ -129,8 +126,15 @@ async def test_list_indicators_item_structure(
     data = resp.json()
     first = data["data"][0]
     expected_fields = [
-        "id", "name", "category", "description",
-        "current_value", "target", "unit", "trend", "updated_at",
+        "id",
+        "name",
+        "category",
+        "description",
+        "current_value",
+        "target",
+        "unit",
+        "trend",
+        "updated_at",
     ]
     for field in expected_fields:
         assert field in first, f"Missing field: {field}"
@@ -148,9 +152,7 @@ async def test_get_indicator_by_id_exists(
     admin_headers: dict[str, str],
 ) -> None:
     """GET /api/v1/indicators/ind-tlp-001 must return full detail with history."""
-    resp = await client.get(
-        "/api/v1/indicators/ind-tlp-001", headers=admin_headers
-    )
+    resp = await client.get("/api/v1/indicators/ind-tlp-001", headers=admin_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "ind-tlp-001"
@@ -186,9 +188,7 @@ async def test_get_indicators_summary_structure(
     admin_headers: dict[str, str],
 ) -> None:
     """The summary endpoint must return the correct aggregated structure."""
-    resp = await client.get(
-        "/api/v1/indicators/summary", headers=admin_headers
-    )
+    resp = await client.get("/api/v1/indicators/summary", headers=admin_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert "total_indicators" in data
@@ -210,15 +210,21 @@ async def test_summary_categories_are_ordered(
     admin_headers: dict[str, str],
 ) -> None:
     """Categories in the summary must be returned in the contract order."""
-    resp = await client.get(
-        "/api/v1/indicators/summary", headers=admin_headers
-    )
+    resp = await client.get("/api/v1/indicators/summary", headers=admin_headers)
     assert resp.status_code == 200
     data = resp.json()
     category_names = [c["category"] for c in data["categories"]]
     expected_order = [
-        "TLP", "Ocupação", "Sedação", "Ventilação", "Hemodinâmica",
-        "Nutrição", "Infecção", "Segurança", "Mobilidade", "Outros",
+        "TLP",
+        "Ocupação",
+        "Sedação",
+        "Ventilação",
+        "Hemodinâmica",
+        "Nutrição",
+        "Infecção",
+        "Segurança",
+        "Mobilidade",
+        "Outros",
     ]
     assert category_names == expected_order
 

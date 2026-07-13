@@ -52,7 +52,9 @@ class VitalSignCreate(BaseModel):
     # ── Lab values for SOFA scoring (all optional) ─────────────────
     pao2_fio2: float | None = Field(None, ge=0, le=800, description="PaO2/FiO2 ratio (mmHg)")
     mechanical_ventilation: bool = Field(False, description="Paciente em ventilação mecânica")
-    platelets: float | None = Field(None, ge=0, description="Plaquetas (×10³/µL)")  # noqa: RUF001  # multiplication sign is intended unit notation for platelet count
+    platelets: float | None = Field(
+        None, ge=0, description="Plaquetas (×10³/µL)"
+    )  # multiplication sign is intended unit notation for platelet count
     bilirubin: float | None = Field(None, ge=0, description="Bilirrubina total (mg/dL)")
     map_value: float | None = Field(
         None, ge=0, le=250, description="Pressão arterial média — MAP (mmHg)"

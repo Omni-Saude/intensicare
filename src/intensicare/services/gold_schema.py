@@ -8,21 +8,20 @@ Define:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Domínios suportados e suas cadências padrão
 # ---------------------------------------------------------------------------
 
 DOMAIN_CADENCE: dict[str, int] = {
-    "sepsis": 300,          # 5 minutos — alta criticidade
-    "electrolytes": 120,    # 2 minutos — expedited (visão §3.6)
-    "aki": 3600,            # 1 hora — menor criticidade
-    "ventilation": 600,     # 10 minutos
-    "hemodynamics": 300,    # 5 minutos
-    "neurology": 900,       # 15 minutos
-    "medication": 1800,     # 30 minutos
+    "sepsis": 300,  # 5 minutos — alta criticidade
+    "electrolytes": 120,  # 2 minutos — expedited (visão §3.6)
+    "aki": 3600,  # 1 hora — menor criticidade
+    "ventilation": 600,  # 10 minutos
+    "hemodynamics": 300,  # 5 minutos
+    "neurology": 900,  # 15 minutos
+    "medication": 1800,  # 30 minutos
 }
 
 # Coluna usada como watermark incremental por domínio
@@ -40,24 +39,27 @@ DOMAIN_WATERMARK_COLUMN: dict[str, str] = {
 # Allowlists para defesa em profundidade (F-INT-001)
 # ---------------------------------------------------------------------------
 
-_ALLOWED_TABLES: frozenset[str] = frozenset({
-    "gold_vital_sign",
-    "gold_lab_result",
-    "gold_medication",
-})
+_ALLOWED_TABLES: frozenset[str] = frozenset(
+    {
+        "gold_vital_sign",
+        "gold_lab_result",
+        "gold_medication",
+    }
+)
 
-_ALLOWED_WATERMARK_COLUMNS: frozenset[str] = frozenset({
-    "ingested_at",
-    "administered_at",
-})
+_ALLOWED_WATERMARK_COLUMNS: frozenset[str] = frozenset(
+    {
+        "ingested_at",
+        "administered_at",
+    }
+)
 
 
 def _validate_table(table_name: str) -> str:
     """Valida que o nome da tabela está na allowlist (defesa em profundidade)."""
     if table_name not in _ALLOWED_TABLES:
         raise ValueError(
-            f"Table name '{table_name}' not in allowlist. "
-            f"Allowed: {sorted(_ALLOWED_TABLES)}"
+            f"Table name '{table_name}' not in allowlist. Allowed: {sorted(_ALLOWED_TABLES)}"
         )
     return table_name
 
@@ -110,10 +112,14 @@ VITAL_SIGN_SCHEMA = GoldTableSchema(
         GoldColumn("unit", "VARCHAR", nullable=True, description="UTI unit"),
         GoldColumn("parameter", "VARCHAR", nullable=False, description="Canonical parameter name"),
         GoldColumn("value", "DOUBLE", nullable=False, description="Canonical numeric value"),
-        GoldColumn("unit_canonical", "VARCHAR", nullable=False, description="Canonical unit string"),
+        GoldColumn(
+            "unit_canonical", "VARCHAR", nullable=False, description="Canonical unit string"
+        ),
         GoldColumn("recorded_at", "TIMESTAMP", nullable=False, description="Clinical timestamp"),
         GoldColumn("ingested_at", "TIMESTAMP", nullable=False, description="Ingestion watermark"),
-        GoldColumn("source_system", "VARCHAR", nullable=True, description="Origem (HL7, FHIR, etc.)"),
+        GoldColumn(
+            "source_system", "VARCHAR", nullable=True, description="Origem (HL7, FHIR, etc.)"
+        ),
     ],
 )
 
@@ -198,13 +204,16 @@ def build_incremental_query(
 
     params.append(str(limit))
 
+    # tbl/wm_col are allowlist-validated identifiers (_validate_table /
+    # _validate_watermark_column above); actual values are bound via `?`
+    # params below — not string-interpolated.
     query = f"""
         SELECT *
         FROM {tbl}
         {where_clause}
         ORDER BY {wm_col} ASC
         LIMIT ?
-    """
+    """  # nosec B608  # noqa: S608
     return query.strip(), params
 
 
@@ -222,9 +231,7 @@ def build_domain_query(
     """
     tbl = _validate_table(_domain_to_table(domain))
     columns = _domain_columns(domain)
-    wm_col = _validate_watermark_column(
-        DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at")
-    )
+    wm_col = _validate_watermark_column(DOMAIN_WATERMARK_COLUMN.get(domain, "ingested_at"))
 
     params: list[str] = [tenant_id]
 
@@ -236,13 +243,16 @@ def build_domain_query(
 
     params.append(str(limit))
 
+    # tbl/wm_col/columns are allowlist-validated / hardcoded identifiers
+    # (_validate_table / _validate_watermark_column / _domain_columns above);
+    # actual values are bound via `?` params below — not string-interpolated.
     query = f"""
-        SELECT {', '.join(columns)}
+        SELECT {", ".join(columns)}
         FROM {tbl}
         {where_clause}
         ORDER BY {wm_col} ASC
         LIMIT ?
-    """
+    """  # nosec B608  # noqa: S608
     return query.strip(), params
 
 
@@ -267,21 +277,28 @@ def _domain_to_table(domain: str) -> str:
 
 def _domain_columns(domain: str) -> list[str]:
     """Retorna colunas relevantes para um domínio clínico."""
-    common = ["id", "patient_id", "tenant_id", "unit", "parameter",
-              "value", "unit_canonical"]
+    common = ["id", "patient_id", "tenant_id", "unit", "parameter", "value", "unit_canonical"]
 
     domain_extra: dict[str, list[str]] = {
-        "sepsis": common + ["collected_at", "resulted_at", "ingested_at"],
-        "electrolytes": common + ["collected_at", "resulted_at", "ingested_at"],
-        "aki": common + ["collected_at", "resulted_at", "ingested_at"],
-        "ventilation": common + ["recorded_at", "ingested_at"],
-        "hemodynamics": common + ["recorded_at", "ingested_at"],
-        "neurology": common + ["recorded_at", "ingested_at"],
-        "medication": ["id", "patient_id", "tenant_id", "unit",
-                        "drug_name", "dose", "dose_unit",
-                        "administered_at", "ingested_at"],
+        "sepsis": [*common, "collected_at", "resulted_at", "ingested_at"],
+        "electrolytes": [*common, "collected_at", "resulted_at", "ingested_at"],
+        "aki": [*common, "collected_at", "resulted_at", "ingested_at"],
+        "ventilation": [*common, "recorded_at", "ingested_at"],
+        "hemodynamics": [*common, "recorded_at", "ingested_at"],
+        "neurology": [*common, "recorded_at", "ingested_at"],
+        "medication": [
+            "id",
+            "patient_id",
+            "tenant_id",
+            "unit",
+            "drug_name",
+            "dose",
+            "dose_unit",
+            "administered_at",
+            "ingested_at",
+        ],
     }
-    return domain_extra.get(domain, common + ["ingested_at"])
+    return domain_extra.get(domain, [*common, "ingested_at"])
 
 
 # ---------------------------------------------------------------------------
@@ -306,18 +323,14 @@ class FactPatientScore(Base):
     """
 
     __tablename__ = "fact_patient_score"
-    __table_args__ = (
-        UniqueConstraint("source_score_id", name="uq_fact_score_source"),
-    )
+    __table_args__ = (UniqueConstraint("source_score_id", name="uq_fact_score_source"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     score_type: Mapped[str] = mapped_column(String(16), nullable=False)
     score_value: Mapped[int] = mapped_column(Integer, nullable=False)
     algorithm_version: Mapped[str] = mapped_column(String(32), nullable=False)
-    calculated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source_score_id: Mapped[int] = mapped_column(
         BigInteger, nullable=False, comment="FK para clinical_score.id — idempotência"
     )
@@ -333,9 +346,7 @@ class FactAlert(Base):
     """
 
     __tablename__ = "fact_alert"
-    __table_args__ = (
-        UniqueConstraint("source_alert_id", name="uq_fact_alert_source"),
-    )
+    __table_args__ = (UniqueConstraint("source_alert_id", name="uq_fact_alert_source"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     mpi_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -349,9 +360,7 @@ class FactAlert(Base):
         nullable=False,
         comment="Versão do catálogo de definição de alerta (ex: ALERT-AKI-KDIGO-STAGE-01-abc123)",
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source_alert_id: Mapped[int] = mapped_column(
         BigInteger, nullable=False, comment="FK para alert.id — idempotência"
     )

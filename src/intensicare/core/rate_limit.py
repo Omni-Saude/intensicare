@@ -23,8 +23,8 @@ from intensicare.core.redis import get_redis
 
 # (max_tokens, refill_interval_seconds) — token bucket parameters
 RATE_LIMITS: dict[str, tuple[int, float]] = {
-    "auth": (5, 60.0),      # 5 attempts per minute (login brute-force)
-    "api": (100, 60.0),      # 100 requests per minute default
+    "auth": (5, 60.0),  # 5 attempts per minute (login brute-force)
+    "api": (100, 60.0),  # 100 requests per minute default
 }
 
 # Endpoints that are NEVER rate-limited

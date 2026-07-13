@@ -413,7 +413,7 @@ class TestPatientServiceFHIREnrichment:
         # Deliberately deferred: a module-level import of intensicare.services.patients
         # breaks collection of this file, because intensicare.models does not re-export
         # ClinicalScore/VitalSign (pre-existing, out of scope for this test-only change).
-        from intensicare.services.patients import _enrich_from_fhir  # noqa: PLC0415
+        from intensicare.services.patients import _enrich_from_fhir
 
         # Patch settings so fhir_base_url is empty
         with patch("intensicare.services.patients.settings") as mock_settings:
@@ -425,7 +425,7 @@ class TestPatientServiceFHIREnrichment:
     async def test_get_patient_status_without_enrich(self, mock_db_session: AsyncMock) -> None:
         """When enrich=False, fhir field stays None."""
         # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.
-        from intensicare.services.patients import get_patient_status  # noqa: PLC0415
+        from intensicare.services.patients import get_patient_status
 
         result = await get_patient_status(
             db=mock_db_session, mpi_id="MPI-12345", score_type="MEWS", enrich=False
@@ -438,7 +438,7 @@ class TestPatientServiceFHIREnrichment:
     async def test_get_patient_status_with_enrich_success(self, mock_db_session: AsyncMock) -> None:
         """When enrich=True and FHIR returns data, fhir field is populated."""
         # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.
-        from intensicare.services.patients import get_patient_status  # noqa: PLC0415
+        from intensicare.services.patients import get_patient_status
 
         with patch(
             "intensicare.services.patients._enrich_from_fhir",

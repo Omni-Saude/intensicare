@@ -22,7 +22,6 @@ import pytest_asyncio
 from intensicare.services.trilhas_compiler import PredicateCompiler
 from intensicare.services.trilhas_evaluator import (
     AlertFiring,
-    CriterionFiring,
     SuppressionTracker,
     TrilhasEvaluator,
 )
@@ -263,8 +262,9 @@ class TestRealYamlDefinitions:
     @pytest.fixture(scope="class")
     def real_ventilacao(self) -> dict[str, Any]:
         """Load the real ventilacao.yaml from disk."""
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         repo_root = Path(__file__).resolve().parent.parent
         yaml_path = repo_root / "_work" / "alerts" / "pathways" / "ventilacao.yaml"
@@ -276,8 +276,9 @@ class TestRealYamlDefinitions:
     @pytest.fixture(scope="class")
     def real_sepse(self) -> dict[str, Any]:
         """Load the real sepse.yaml from disk."""
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         repo_root = Path(__file__).resolve().parent.parent
         yaml_path = repo_root / "_work" / "alerts" / "pathways" / "sepse.yaml"
@@ -292,14 +293,16 @@ class TestRealYamlDefinitions:
         """PF ratio 150 → graded(urgent), PEEP 8 → threshold(met)."""
         patient_data = {"pf_ratio": 150.0, "peep": 8}
         firings = await evaluator.evaluate_pathway(
-            real_ventilacao, "patient-real-1", patient_data,
+            real_ventilacao,
+            "patient-real-1",
+            patient_data,
             apply_suppression=False,
         )
 
         assert len(firings) == 2
 
         # Check PF ratio firing
-        pf_firing = [f for f in firings if f.criterion_id == "crit-vent-pf"][0]
+        pf_firing = next(f for f in firings if f.criterion_id == "crit-vent-pf")
         assert pf_firing.result.met is True
         assert pf_firing.result.severity == "urgent"
         assert pf_firing.result.score == 2
@@ -307,7 +310,7 @@ class TestRealYamlDefinitions:
         assert pf_firing.content_hash.startswith("sha256:")
 
         # Check PEEP firing
-        peep_firing = [f for f in firings if f.criterion_id == "crit-vent-peep"][0]
+        peep_firing = next(f for f in firings if f.criterion_id == "crit-vent-peep")
         assert peep_firing.result.met is True
 
     async def test_ventilacao_normal_no_firing(
@@ -316,7 +319,9 @@ class TestRealYamlDefinitions:
         """Normal PF ratio (350) → not met. PEEP < 5 → not met. Zero firings."""
         patient_data = {"pf_ratio": 350.0, "peep": 3}
         firings = await evaluator.evaluate_pathway(
-            real_ventilacao, "patient-normal", patient_data,
+            real_ventilacao,
+            "patient-normal",
+            patient_data,
             apply_suppression=False,
         )
         assert len(firings) == 0
@@ -335,7 +340,9 @@ class TestRealYamlDefinitions:
             "fluid_volume": 15,
         }
         firings = await evaluator.evaluate_pathway(
-            real_sepse, "patient-sep-1", patient_data,
+            real_sepse,
+            "patient-sep-1",
+            patient_data,
             apply_suppression=False,
         )
 
@@ -353,7 +360,9 @@ class TestRealYamlDefinitions:
         """Build an AlertFiring from evaluated criteria with real YAML."""
         patient_data = {"pf_ratio": 150.0, "peep": 8}
         firings = await evaluator.evaluate_pathway(
-            real_ventilacao, "patient-alert-1", patient_data,
+            real_ventilacao,
+            "patient-alert-1",
+            patient_data,
             apply_suppression=False,
         )
         alert = evaluator.build_alert("patient-alert-1", real_ventilacao, firings)
@@ -381,7 +390,9 @@ class TestThresholdThroughEvaluator:
     ) -> None:
         """PEEP >= 5 with peep=8 → met, severity=urgent, score=1."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 350.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 350.0, "peep": 8},
             apply_suppression=False,
         )
 
@@ -399,7 +410,9 @@ class TestThresholdThroughEvaluator:
     ) -> None:
         """PEEP >= 5 with peep=3 → not met → no firing."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 350.0, "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 350.0, "peep": 3},
             apply_suppression=False,
         )
         peep_firings = [f for f in firings if f.criterion_id == "crit-vent-peep"]
@@ -410,7 +423,9 @@ class TestThresholdThroughEvaluator:
     ) -> None:
         """PEEP >= 5 with peep=5 → met (boundary inclusive)."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 350.0, "peep": 5},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 350.0, "peep": 5},
             apply_suppression=False,
         )
         peep_firings = [f for f in firings if f.criterion_id == "crit-vent-peep"]
@@ -421,7 +436,9 @@ class TestThresholdThroughEvaluator:
     ) -> None:
         """Missing 'peep' in patient_data → criterion skipped, no firing."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 350.0},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 350.0},
             apply_suppression=False,
         )
         # PF ratio is normal (350 in [300, None) → not met)
@@ -442,7 +459,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """PF ratio 50 → band [0, 100) → critical, score=3."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 50.0, "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 50.0, "peep": 3},
             apply_suppression=False,
         )
         pf_firings = [f for f in firings if f.criterion_id == "crit-vent-pf"]
@@ -459,7 +478,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """PF ratio 150 → band [100, 200) → urgent, score=2."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 3},
             apply_suppression=False,
         )
         pf_firings = [f for f in firings if f.criterion_id == "crit-vent-pf"]
@@ -472,7 +493,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """PF ratio 250 → band [200, 300) → watch, score=1."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 250.0, "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 250.0, "peep": 3},
             apply_suppression=False,
         )
         pf_firings = [f for f in firings if f.criterion_id == "crit-vent-pf"]
@@ -485,7 +508,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """PF ratio 350 → band [300, None) → normal → no firing."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 350.0, "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 350.0, "peep": 3},
             apply_suppression=False,
         )
         pf_firings = [f for f in firings if f.criterion_id == "crit-vent-pf"]
@@ -496,7 +521,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """qSOFA ≥ 2: qsofa_score=2.5 → band [2, 3) → urgent."""
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi", {"qsofa_score": 2.5, "lactato": 1.0, "culturas_status": False},
+            sepse_yaml,
+            "test-mpi",
+            {"qsofa_score": 2.5, "lactato": 1.0, "culturas_status": False},
             apply_suppression=False,
         )
         qsofa_firings = [f for f in firings if f.criterion_id == "crit-sep-qsofa"]
@@ -508,7 +535,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """Lactate 4.5 → band [4.0, None) → critical."""
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi", {"qsofa_score": 1.0, "lactato": 4.5, "culturas_status": False},
+            sepse_yaml,
+            "test-mpi",
+            {"qsofa_score": 1.0, "lactato": 4.5, "culturas_status": False},
             apply_suppression=False,
         )
         lac_firings = [f for f in firings if f.criterion_id == "crit-sep-lactato"]
@@ -521,7 +550,9 @@ class TestGradedThroughEvaluator:
     ) -> None:
         """Non-numeric PF ratio → no band match → no firing."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": "unknown", "peep": 3},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": "unknown", "peep": 3},
             apply_suppression=False,
         )
         pf_firings = [f for f in firings if f.criterion_id == "crit-vent-pf"]
@@ -541,7 +572,8 @@ class TestBooleanThroughEvaluator:
     ) -> None:
         """culturas_status=True → boolean met → fires with severity=urgent."""
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi",
+            sepse_yaml,
+            "test-mpi",
             {"qsofa_score": 1.0, "lactato": 1.0, "culturas_status": True},
             apply_suppression=False,
         )
@@ -556,7 +588,8 @@ class TestBooleanThroughEvaluator:
     ) -> None:
         """culturas_status=False → boolean not met → no firing."""
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi",
+            sepse_yaml,
+            "test-mpi",
             {"qsofa_score": 1.0, "lactato": 1.0, "culturas_status": False},
             apply_suppression=False,
         )
@@ -568,7 +601,8 @@ class TestBooleanThroughEvaluator:
     ) -> None:
         """Truthy non-boolean value (1) also fires."""
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi",
+            sepse_yaml,
+            "test-mpi",
             {"qsofa_score": 1.0, "lactato": 1.0, "culturas_status": 1},
             apply_suppression=False,
         )
@@ -589,7 +623,8 @@ class TestCompositeThroughEvaluator:
     ) -> None:
         """fever >= 38 AND tachycardia >= 90 → both met → fires."""
         firings = await evaluator.evaluate_pathway(
-            composite_yaml, "test-mpi",
+            composite_yaml,
+            "test-mpi",
             {"fever": 39.0, "tachycardia": 100},
             apply_suppression=False,
         )
@@ -602,7 +637,8 @@ class TestCompositeThroughEvaluator:
     ) -> None:
         """fever >= 38 AND tachycardia >= 90 → fever not met → no firing."""
         firings = await evaluator.evaluate_pathway(
-            composite_yaml, "test-mpi",
+            composite_yaml,
+            "test-mpi",
             {"fever": 37.0, "tachycardia": 100},
             apply_suppression=False,
         )
@@ -617,7 +653,8 @@ class TestCompositeThroughEvaluator:
         or_yaml["criteria"][0]["predicate"]["combinator"] = "OR"
 
         firings = await evaluator.evaluate_pathway(
-            or_yaml, "test-mpi",
+            or_yaml,
+            "test-mpi",
             {"fever": 37.0, "tachycardia": 100},
             apply_suppression=False,
         )
@@ -633,7 +670,8 @@ class TestCompositeThroughEvaluator:
         or_yaml["criteria"][0]["predicate"]["combinator"] = "OR"
 
         firings = await evaluator.evaluate_pathway(
-            or_yaml, "test-mpi",
+            or_yaml,
+            "test-mpi",
             {"fever": 37.0, "tachycardia": 80},
             apply_suppression=False,
         )
@@ -654,13 +692,13 @@ class TestVersionAndHashStamping:
     ) -> None:
         """Every CriterionFiring must include definition_version and content_hash."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         for f in firings:
-            assert f.definition_version == "3.0.0", (
-                f"Missing/invalid version in {f.criterion_id}"
-            )
+            assert f.definition_version == "3.0.0", f"Missing/invalid version in {f.criterion_id}"
             assert f.content_hash.startswith("sha256:"), (
                 f"Missing/invalid content_hash in {f.criterion_id}: {f.content_hash}"
             )
@@ -670,7 +708,9 @@ class TestVersionAndHashStamping:
     ) -> None:
         """AlertFiring includes definition_version and content_hash."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         alert = evaluator.build_alert("test-mpi", ventilacao_yaml, firings)
@@ -700,40 +740,66 @@ class TestSuppression:
     async def test_suppression_tracker_cooldown(self, suppression: SuppressionTracker) -> None:
         """First fire allowed; second within cooldown is suppressed."""
         allowed1, reason1 = await suppression.check_and_record(
-            "mpi-A", 1, "crit-1", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-A",
+            1,
+            "crit-1",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         assert allowed1 is True
         assert reason1 == ""
 
         # Immediate second fire — should be suppressed
         allowed2, reason2 = await suppression.check_and_record(
-            "mpi-A", 1, "crit-1", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-A",
+            1,
+            "crit-1",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         assert allowed2 is False
         assert "Cooldown" in reason2
         assert "30" in reason2
 
     async def test_suppression_different_criteria_not_affected(
-        self, suppression: SuppressionTracker,
+        self,
+        suppression: SuppressionTracker,
     ) -> None:
         """Cooldown on crit-1 doesn't affect crit-2."""
         await suppression.check_and_record(
-            "mpi-A", 1, "crit-1", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-A",
+            1,
+            "crit-1",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         allowed, _ = await suppression.check_and_record(
-            "mpi-A", 1, "crit-2", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-A",
+            1,
+            "crit-2",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         assert allowed is True
 
     async def test_suppression_different_patients_not_affected(
-        self, suppression: SuppressionTracker,
+        self,
+        suppression: SuppressionTracker,
     ) -> None:
         """Cooldown on patient-A doesn't affect patient-B."""
         await suppression.check_and_record(
-            "mpi-A", 1, "crit-1", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-A",
+            1,
+            "crit-1",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         allowed, _ = await suppression.check_and_record(
-            "mpi-B", 1, "crit-1", cooldown_minutes=30, rate_limit_per_hour=100,
+            "mpi-B",
+            1,
+            "crit-1",
+            cooldown_minutes=30,
+            rate_limit_per_hour=100,
         )
         assert allowed is True
 
@@ -741,12 +807,20 @@ class TestSuppression:
         """Rate limit of 2/hour — 3rd fire suppressed."""
         for i in range(2):
             allowed, _ = await suppression.check_and_record(
-                "mpi-A", 1, "crit-1", cooldown_minutes=0, rate_limit_per_hour=2,
+                "mpi-A",
+                1,
+                "crit-1",
+                cooldown_minutes=0,
+                rate_limit_per_hour=2,
             )
             assert allowed is True, f"Fire {i} should be allowed"
 
         allowed3, reason3 = await suppression.check_and_record(
-            "mpi-A", 1, "crit-1", cooldown_minutes=0, rate_limit_per_hour=2,
+            "mpi-A",
+            1,
+            "crit-1",
+            cooldown_minutes=0,
+            rate_limit_per_hour=2,
         )
         assert allowed3 is False
         assert "Rate limit" in reason3
@@ -757,7 +831,9 @@ class TestSuppression:
         """apply_suppression=False always allows firings."""
         for i in range(10):
             firings = await evaluator.evaluate_pathway(
-                ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+                ventilacao_yaml,
+                "test-mpi",
+                {"pf_ratio": 150.0, "peep": 8},
                 apply_suppression=False,
             )
             assert len(firings) == 2, f"Iteration {i}: expected 2 firings"
@@ -772,7 +848,10 @@ class TestSuppression:
 
         # First evaluation — both should fire
         firings1 = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-supp", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-supp",
+            patient_data,
+            apply_suppression=True,
         )
         assert len(firings1) == 2
         for f in firings1:
@@ -780,7 +859,10 @@ class TestSuppression:
 
         # Second evaluation within cooldown — pf_ratio suppressed
         firings2 = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-supp", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-supp",
+            patient_data,
+            apply_suppression=True,
         )
         assert len(firings2) == 2  # still 2 firings, but some suppressed
         suppressed = [f for f in firings2 if f.suppressed]
@@ -795,13 +877,19 @@ class TestSuppression:
 
         # Fire once
         await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-reset", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-reset",
+            patient_data,
+            apply_suppression=True,
         )
         # Reset
         await evaluator.reset_suppression()
         # Should fire again without suppression
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-reset", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-reset",
+            patient_data,
+            apply_suppression=True,
         )
         assert len(firings) == 2
         for f in firings:
@@ -821,7 +909,9 @@ class TestAlertAggregation:
     ) -> None:
         """PF(urgent) + PEEP(urgent) → overall severity = urgent."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         alert = evaluator.build_alert("test-mpi", ventilacao_yaml, firings)
@@ -832,7 +922,9 @@ class TestAlertAggregation:
     ) -> None:
         """PF(critical) + PEEP(urgent) → overall severity = critical."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 50.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 50.0, "peep": 8},
             apply_suppression=False,
         )
         alert = evaluator.build_alert("test-mpi", ventilacao_yaml, firings)
@@ -843,7 +935,9 @@ class TestAlertAggregation:
     ) -> None:
         """PF(score=2) + PEEP(score=1) → total_score = 3."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         alert = evaluator.build_alert("test-mpi", ventilacao_yaml, firings)
@@ -857,11 +951,17 @@ class TestAlertAggregation:
 
         # Fire once
         await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-sc", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-sc",
+            patient_data,
+            apply_suppression=True,
         )
         # Fire again — pf_ratio will be suppressed
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi-sc", patient_data, apply_suppression=True,
+            ventilacao_yaml,
+            "test-mpi-sc",
+            patient_data,
+            apply_suppression=True,
         )
         alert = evaluator.build_alert("test-mpi-sc", ventilacao_yaml, firings)
 
@@ -876,7 +976,9 @@ class TestAlertAggregation:
     ) -> None:
         """Recommendations from evidence.recommendations are included."""
         firings = await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         alert = evaluator.build_alert("test-mpi", ventilacao_yaml, firings)
@@ -906,7 +1008,9 @@ class TestEvaluateAndBuild:
     ) -> None:
         """evaluate_and_build returns AlertFiring directly."""
         alert = await evaluator.evaluate_and_build(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=False,
         )
         assert isinstance(alert, AlertFiring)
@@ -924,30 +1028,41 @@ class TestEdgeCases:
     """Edge case handling in the evaluator."""
 
     async def test_pathway_with_no_criteria(
-        self, evaluator: TrilhasEvaluator,
+        self,
+        evaluator: TrilhasEvaluator,
     ) -> None:
         """Pathway with empty criteria list → no firings."""
         empty_yaml = {
             "pathway": {
-                "id": 99, "name": "Empty", "slug": "empty",
-                "version": "1.0.0", "content_hash": "sha256:" + "aa" * 64,
+                "id": 99,
+                "name": "Empty",
+                "slug": "empty",
+                "version": "1.0.0",
+                "content_hash": "sha256:" + "aa" * 64,
             },
             "criteria": [],
             "states": [],
         }
         firings = await evaluator.evaluate_pathway(
-            empty_yaml, "test-mpi", {}, apply_suppression=False,
+            empty_yaml,
+            "test-mpi",
+            {},
+            apply_suppression=False,
         )
         assert len(firings) == 0
 
     async def test_criterion_with_no_predicate(
-        self, evaluator: TrilhasEvaluator,
+        self,
+        evaluator: TrilhasEvaluator,
     ) -> None:
         """Criterion without a predicate dict → skipped gracefully."""
         yaml_def = {
             "pathway": {
-                "id": 99, "name": "Test", "slug": "test",
-                "version": "1.0.0", "content_hash": "sha256:" + "bb" * 64,
+                "id": 99,
+                "name": "Test",
+                "slug": "test",
+                "version": "1.0.0",
+                "content_hash": "sha256:" + "bb" * 64,
             },
             "criteria": [
                 {"id": "crit-no-pred", "name": "No Pred", "category": "test"},
@@ -955,22 +1070,31 @@ class TestEdgeCases:
             "states": [],
         }
         firings = await evaluator.evaluate_pathway(
-            yaml_def, "test-mpi", {}, apply_suppression=False,
+            yaml_def,
+            "test-mpi",
+            {},
+            apply_suppression=False,
         )
         assert len(firings) == 0
 
     async def test_invalid_predicate_skipped(
-        self, evaluator: TrilhasEvaluator,
+        self,
+        evaluator: TrilhasEvaluator,
     ) -> None:
         """Invalid predicate (unknown type) → logged warning, no crash."""
         yaml_def = {
             "pathway": {
-                "id": 99, "name": "Test", "slug": "test",
-                "version": "1.0.0", "content_hash": "sha256:" + "cc" * 64,
+                "id": 99,
+                "name": "Test",
+                "slug": "test",
+                "version": "1.0.0",
+                "content_hash": "sha256:" + "cc" * 64,
             },
             "criteria": [
                 {
-                    "id": "crit-bad", "name": "Bad", "category": "test",
+                    "id": "crit-bad",
+                    "name": "Bad",
+                    "category": "test",
                     "predicate": {"type": "nonexistent", "input": "x", "unit": ""},
                 },
             ],
@@ -978,23 +1102,31 @@ class TestEdgeCases:
         }
         # Should not raise — just skip the bad predicate
         firings = await evaluator.evaluate_pathway(
-            yaml_def, "test-mpi", {"x": 5}, apply_suppression=False,
+            yaml_def,
+            "test-mpi",
+            {"x": 5},
+            apply_suppression=False,
         )
         assert len(firings) == 0
 
     async def test_multiple_pathways_independent_suppression(
-        self, evaluator: TrilhasEvaluator,
-        ventilacao_yaml: dict[str, Any], sepse_yaml: dict[str, Any],
+        self,
+        evaluator: TrilhasEvaluator,
+        ventilacao_yaml: dict[str, Any],
+        sepse_yaml: dict[str, Any],
     ) -> None:
         """Suppression tracks per-pathway; firing in one doesn't suppress another."""
         # Fire ventilacao
         await evaluator.evaluate_pathway(
-            ventilacao_yaml, "test-mpi", {"pf_ratio": 150.0, "peep": 8},
+            ventilacao_yaml,
+            "test-mpi",
+            {"pf_ratio": 150.0, "peep": 8},
             apply_suppression=True,
         )
         # Fire sepse — different pathway, should not be suppressed
         firings = await evaluator.evaluate_pathway(
-            sepse_yaml, "test-mpi",
+            sepse_yaml,
+            "test-mpi",
             {"qsofa_score": 2.5, "lactato": 4.5, "culturas_status": True},
             apply_suppression=True,
         )

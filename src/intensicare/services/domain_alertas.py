@@ -15,7 +15,6 @@ __version__ = "3.0.0"
 
 from typing import Any
 
-
 # ── RULE-ALERTAS-001: Count triggered criteria ─────────────────────────────
 # Cluster: alertas | Type: formula | Status: OK | Verdict: UNVERIFIABLE
 # Confidence: high | Clinical impact: n/a

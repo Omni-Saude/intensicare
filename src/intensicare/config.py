@@ -2,8 +2,8 @@
 Configuração centralizada da aplicação usando pydantic-settings.
 """
 
-import logging
 from functools import lru_cache
+import logging
 from typing import Literal
 
 from pydantic import PostgresDsn, SecretStr, computed_field, model_validator
@@ -178,9 +178,8 @@ class Settings(BaseSettings):
             )
         return url
 
-
-    @model_validator(mode='after')
-    def _validate_production_secrets(self) -> 'Settings':
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
         """Block production startup with default/insecure secrets."""
         if self.environment == "production":
             if self.secret_key.get_secret_value() == "change-me-in-production":

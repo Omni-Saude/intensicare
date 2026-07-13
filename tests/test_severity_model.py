@@ -191,8 +191,7 @@ class TestP0MostSeverityWins:
         # Caso 2: watch + urgent → urgent (ordem inversa)
         result = max_severity("watch", "urgent")
         assert result == "urgent", (
-            f"P0-10 VIOLATION: watch + urgent retornou '{result}' "
-            f"(possível last-writer-wins)"
+            f"P0-10 VIOLATION: watch + urgent retornou '{result}' (possível last-writer-wins)"
         )
 
         # Caso 3: urgent + watch + normal → urgent

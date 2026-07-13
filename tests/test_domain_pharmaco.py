@@ -11,11 +11,10 @@ from __future__ import annotations
 import pathlib
 from typing import Any
 
-import pytest
-import yaml
-
 from maezo.rules.alert_compiler import evaluate_alert_definition
 from maezo.services.domain_runners import run_pharmaco_batch
+import pytest
+import yaml
 
 REPO_ROOT = pathlib.Path(__file__).parents[2]
 PHARMACO_YAML = REPO_ROOT / "docs" / "plan" / "_work" / "alerts" / "pharmaco-interaction.yaml"
