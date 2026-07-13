@@ -1,6 +1,7 @@
 """Alert engine — checks clinical scores against thresholds and creates alerts."""
 
 from datetime import datetime, timezone
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,8 @@ from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.threshold_config import ThresholdConfig
 from intensicare.schemas.severity import CANONICAL_SEVERITIES
+
+logger = logging.getLogger(__name__)
 
 
 async def check_score_against_thresholds(
@@ -109,7 +112,56 @@ async def check_score_against_thresholds(
         pipe.setex(cooldown_key, config.cooldown_minutes * 60, "1")
     await pipe.execute()
 
+    # Publish alert.raised on the WebSocket (BUG-F7-03 — this is the single
+    # convergence point for live alert creation: check_score_against_thresholds
+    # is the only place that constructs Alert() on the request path, called
+    # via process_clinical_score for MEWS/NEWS2/SOFA/qSOFA). Best-effort: a
+    # WS/serialization failure must never roll back or fail the alert that
+    # was already flushed above.
+    await _publish_alert_raised(alert)
+
     return alert
+
+
+# ============================================================================
+# WebSocket notification (best-effort, non-fatal)
+# ============================================================================
+
+
+async def _publish_alert_raised(alert: Alert) -> None:
+    """Publish an ``alert.raised`` WebSocket event after alert creation.
+
+    Mirrors the pattern established by
+    ``pathway_enrollment._publish_pathway_updated``: lazy import of the WS
+    manager (avoids a circular import at module-load time) and a non-fatal
+    try/except so a WS/serialization failure never rolls back or fails the
+    alert that already committed.
+
+    Payload carries the identifying fields a consumer would need
+    (alert_id, mpi_id, severity) even though today's frontend subscribers
+    (frontend-v3/app/page.tsx, app/alerts/page.tsx,
+    app/patient/[mpi_id]/page.tsx) only call SWR's ``mutate()``/
+    ``mutateAlerts()`` on receipt and don't read the payload.
+    """
+    try:
+        from intensicare.api.v1.ws import get_ws_manager
+
+        manager = get_ws_manager()
+        await manager.publish(
+            "alert.raised",
+            {
+                "alert_id": alert.id,
+                "mpi_id": alert.mpi_id,
+                "severity": alert.severity,
+            },
+        )
+    except Exception:
+        logger.warning(
+            "Failed to publish alert.raised event for alert_id=%s "
+            "(non-fatal, alert already committed)",
+            alert.id,
+            exc_info=True,
+        )
 
 
 async def process_clinical_score(
