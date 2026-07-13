@@ -167,7 +167,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           <Filter className="h-3.5 w-3.5" aria-hidden="true" />
           Filtros
           {hasActiveFilters && (
-            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--severity-urgent)] text-[10px] text-[#0a0e14]">
+            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--severity-urgent)] text-2xs text-[#0a0e14]">
               !
             </span>
           )}
@@ -192,7 +192,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           {/* Unidade */}
           <div className="flex-1 min-w-[140px]">
             <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)]"
+              className="mb-1 block text-2xs font-medium uppercase tracking-wider text-[var(--text-secondary)]"
               htmlFor="filter-unit"
             >
               Unidade
@@ -220,7 +220,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           {/* Trilha */}
           <div className="flex-1 min-w-[140px]">
             <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)]"
+              className="mb-1 block text-2xs font-medium uppercase tracking-wider text-[var(--text-secondary)]"
               htmlFor="filter-pathway"
             >
               Trilha
