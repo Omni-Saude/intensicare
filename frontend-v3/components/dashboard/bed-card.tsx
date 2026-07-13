@@ -53,7 +53,14 @@ export function BedCard({ patient, onClick }: BedCardProps) {
         }
       }}
       className={cn(
-        'flex flex-col gap-3 p-4 rounded-[var(--radius-lg)] cursor-pointer',
+        // RF-019 — bed-grid's `minmax(280px, 1fr)` auto-fill track collapses
+        // to a single column around ~512px (clinical split-screen), which
+        // stretches the card to ~488-512px of line length with no cap
+        // (Nielsen #8, responsive-ux-review §2). `max-w-md` (Tailwind's
+        // 28rem/448px scale step, not a new hardcoded value) keeps the card
+        // from growing past a readable width; below that breakpoint the
+        // grid cell is already narrower than 448px so this is a no-op.
+        'flex flex-col gap-3 p-4 max-w-md rounded-[var(--radius-lg)] cursor-pointer',
         'transition-colors hover:border-opacity-80',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-canvas)]',
       )}
@@ -106,7 +113,7 @@ export function BedCard({ patient, onClick }: BedCardProps) {
       {staleness && (
         <div className="flex justify-end">
           <span
-            className="text-[10px] font-medium"
+            className="text-2xs font-medium"
             style={{ color: staleness.color }}
             aria-label={`Último vital registrado ${staleness.shortLabel}`}
           >
