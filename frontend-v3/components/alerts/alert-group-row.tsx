@@ -208,7 +208,52 @@ export function AlertGroupRow({
           )}
         </button>
 
-        <SeverityBadge severity={group.max_severity} />
+        {/*
+          GK-RESP NOVO A — color-contrast (serious): SeverityBadge's default
+          "wash" rendering is a translucent tint (config.washVar, ~16% alpha)
+          set via *inline* style, so no external className can override it.
+          When the row is also escalating (this container adds its own
+          severity-critical-wash background — see className above), the
+          badge's wash paints a SECOND time on top of the row's wash,
+          double-compositing #FF7077 at 16% alpha twice over
+          --surface-canvas. That crushes text-on-background contrast for the
+          "Crítico" badge to ~4.48:1 (WCAG AA text requires >=4.5:1):
+            layer1 = 0.16*(255,112,119) + 0.84*(10,14,20)   = (49,30,36)
+            layer2 = 0.16*(255,112,119) + 0.84*(49,30,36)   = (82,43,49)
+            contrast(#FF7077, #522b31) = 4.483:1  -- FAIL
+          Fix (ADR-0039 §3, mirrors filter-bar.tsx's solid-severity-bg +
+          #0a0e14 text pattern): only for the escalating+critical case,
+          render an opaque critical-colored badge instead of the wash
+          variant — solid bg is immune to the row's wash sitting behind it,
+          and dark text on the solid critical color also reads as a
+          stronger "escalating to critical" signal.
+            contrast(#0a0e14, #FF7077 solid) = 7.217:1  -- PASS
+          Non-escalating rows, and escalating rows whose max_severity isn't
+          'critical', are untouched — SeverityBadge already passes contrast
+          there, so this stays scoped to the one flagged case rather than
+          risking severity-badge.tsx's other three call sites.
+        */}
+        {group.escalating && group.max_severity === 'critical' ? (
+          <span
+            role="status"
+            aria-label={`Severidade: ${SEVERITY_LABEL[group.max_severity]}`}
+            className="severity-critical-pulse inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap"
+            style={{
+              backgroundColor: 'var(--severity-critical)',
+              color: '#0a0e14',
+              border: '1px solid var(--severity-critical)',
+            }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: '#0a0e14' }}
+              aria-hidden="true"
+            />
+            {SEVERITY_LABEL[group.max_severity]}
+          </span>
+        ) : (
+          <SeverityBadge severity={group.max_severity} />
+        )}
 
         <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
           Paciente
@@ -247,16 +292,32 @@ export function AlertGroupRow({
 
         {/*
           Escalation badge — ADR-0039 §3: never suppressed, always rendered
-          in the collapsed summary (not gated behind expand). No
-          --severity-critical-ring token exists yet in app/globals.css, so
-          this reuses the existing critical color/wash pair plus the
-          already-defined `severity-critical-pulse` animation (the same one
-          SeverityBadge applies to critical badges) for emphasis, per the
-          "senão tokens existentes" fallback.
+          in the collapsed summary (not gated behind expand).
+
+          GK-RESP NOVO A — color-contrast (serious): this badge used to set
+          its OWN severity-critical-wash (~16% alpha) as background, but it
+          renders as a direct child of the row container, which *also* gets
+          severity-critical-wash as background while escalating (see
+          className on the outer <div> above). Two 16%-alpha washes stacked
+          double-composite #FF7077 over --surface-canvas, crushing
+          text-on-background contrast to ~4.48:1 (axe-confirmed live:
+          "foreground #ff7077, background #522b31" — same math as the
+          SeverityBadge case above):
+            layer1 = 0.16*(255,112,119) + 0.84*(10,14,20) = (49,30,36)
+            layer2 = 0.16*(255,112,119) + 0.84*(49,30,36) = (82,43,49) = #522b31
+            contrast(#FF7077, #522b31) = 4.483:1  -- FAIL (< 4.5 AA)
+          Fix: solid critical background + #0a0e14 text (opaque, so the
+          row's wash sitting behind it no longer matters) — same pattern as
+          filter-bar.tsx's solid-severity-bg + dark-text badges, and the
+          same fix applied to the SeverityBadge case above:
+            contrast(#0a0e14, #FF7077 solid) = 7.217:1  -- PASS
+          `severity-critical-pulse` (the same animation SeverityBadge
+          applies to critical badges) is kept for emphasis.
         */}
         {group.escalating && (
           <span
-            className="severity-critical-pulse inline-flex items-center gap-1 rounded-full border border-[var(--severity-critical)] bg-[var(--severity-critical-wash)] px-2 py-0.5 text-xs font-semibold text-[var(--severity-critical)]"
+            className="severity-critical-pulse inline-flex items-center gap-1 rounded-full border border-[var(--severity-critical)] px-2 py-0.5 text-xs font-semibold"
+            style={{ backgroundColor: 'var(--severity-critical)', color: '#0a0e14' }}
             role="status"
             aria-label="Em escalação: a severidade subiu desde o alerta ativo mais antigo deste grupo"
           >
