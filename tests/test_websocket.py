@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.core.websocket import (
@@ -25,6 +26,20 @@ from intensicare.core.websocket import (
 )
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.threshold_config import ThresholdConfig
+from intensicare.services.patient_encryption import encrypt_phi
+
+# Fixed test key for the ``app.encryption_key`` GUC — mirrors the pattern in
+# test_mpi_resolver.py / test_patient_encryption.py. pgcrypto's
+# pgp_sym_encrypt/decrypt read this per-session GUC; it is not set by
+# default on a plain db_session, so it must be set before encrypt_phi().
+_TEST_ENCRYPTION_KEY = "ws-test-encryption-key-32bytes!"
+
+
+async def _ensure_encryption_ready(db: AsyncSession) -> None:
+    """Enable pgcrypto and set the session's encryption key GUC."""
+    await db.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA public"))
+    sanitized = _TEST_ENCRYPTION_KEY.replace("'", "''")
+    await db.execute(text(f"SET app.encryption_key = '{sanitized}'"))
 
 
 async def create_test_patient(
@@ -34,10 +49,16 @@ async def create_test_patient(
     unit: str = "ICU",
 ) -> PatientCache:
     """Create a test patient in the patient cache."""
+    # display_name is PHI, stored as pgcrypto-encrypted BYTEA (LargeBinary) —
+    # see models/patient_cache.py. Encrypt it the same way mpi_resolver.py
+    # does (services/mpi_resolver.py:107) instead of writing a plain str,
+    # which raises a DataError against the LargeBinary/BYTEA column.
+    await _ensure_encryption_ready(db)
+    encrypted_display_name = await encrypt_phi(db, f"Test Patient {mpi_id}")
     patient = PatientCache(
         mpi_id=mpi_id,
         tenant_id=tenant_id,
-        display_name=f"Test Patient {mpi_id}",
+        display_name=encrypted_display_name,
         unit=unit,
         is_active=True,
     )
@@ -277,6 +298,7 @@ class TestAlertBroadcastAfterIngestion:
         self,
         client,
         db_session: AsyncSession,
+        user_headers: dict[str, str],
     ):
         """After vitals ingestion that exceeds thresholds, alerts should be
         broadcast to connected WebSocket clients via the manager."""
@@ -309,7 +331,9 @@ class TestAlertBroadcastAfterIngestion:
             "supplemental_o2": True,
         }
 
-        response = await client.post("/api/v1/vitals", json=vitals_payload)
+        response = await client.post(
+            "/api/v1/vitals", json=vitals_payload, headers=user_headers
+        )
         assert response.status_code in (200, 201)
 
         # Verify that the WebSocket client received at least one alert
@@ -336,6 +360,7 @@ class TestAlertBroadcastAfterIngestion:
         self,
         client,
         db_session: AsyncSession,
+        user_headers: dict[str, str],
     ):
         """When a client subscribes to a specific patient, they should only
         receive alerts for that patient after ingestion."""
@@ -369,7 +394,9 @@ class TestAlertBroadcastAfterIngestion:
             "spo2": 88,
             "supplemental_o2": True,
         }
-        resp1 = await client.post("/api/v1/vitals", json=vitals_high)
+        resp1 = await client.post(
+            "/api/v1/vitals", json=vitals_high, headers=user_headers
+        )
         assert resp1.status_code in (200, 201)
 
         # Should have received alerts for MPI-WS-SUB
@@ -391,7 +418,9 @@ class TestAlertBroadcastAfterIngestion:
             "spo2": 88,
             "supplemental_o2": True,
         }
-        resp2 = await client.post("/api/v1/vitals", json=vitals_other)
+        resp2 = await client.post(
+            "/api/v1/vitals", json=vitals_other, headers=user_headers
+        )
         assert resp2.status_code in (200, 201)
 
         # Since client only subscribed to MPI-WS-SUB, should NOT receive
