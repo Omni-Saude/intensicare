@@ -190,7 +190,7 @@ interface AlertGroupTableProps {
   error: string | null;
   onAlertUpdate: (updated: AlertInfo) => void;
   onError: (message: string) => void;
-  onGroupAcknowledged: () => void;
+  onGroupAcknowledged: (succeeded: AlertInfo[]) => void;
 }
 
 export function AlertGroupTable({

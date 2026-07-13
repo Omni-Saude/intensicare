@@ -33,11 +33,55 @@ function isGroupResponse(
   return !!data && 'groups' in data;
 }
 
+// Folds one or more just-confirmed alert updates (ack/resolve/escalate
+// responses, already authoritative — the request already round-tripped)
+// directly into a *copy* of the current SWR cache value. Used as the
+// updater passed to `mutate(key, updater, { revalidate: false })` from an
+// action handler below, so a member's new state lands in the single source
+// of truth (the SWR cache) synchronously, with no separate "optimistic"
+// state and no follow-up GET that could race a concurrently-triggered
+// WebSocket revalidation and overwrite it with an in-flight, older
+// snapshot (GK-RESP achado C).
+//
+// Deliberately does NOT drop a member that no longer matches the active
+// status filter (e.g. an just-acknowledged alert while filters.status ===
+// 'active') or recompute group aggregates (count/max_severity/escalating)
+// — those stay exactly as the server last computed them, same as before
+// this fix, until the next real revalidation (WS event / focus / 30s
+// interval) reconciles them. Recomputing aggregates client-side would risk
+// exactly the "backend-computed aggregate stays truthful" invariant the
+// existing grouped-view filtering comment below already protects.
+function applyAlertUpdates(
+  current: AlertListResponse | AlertGroupListResponse | undefined,
+  updates: AlertInfo[],
+): AlertListResponse | AlertGroupListResponse | undefined {
+  if (!current || updates.length === 0) return current;
+  const byId = new Map(updates.map((u) => [u.id, u]));
+
+  if (isGroupResponse(current)) {
+    return {
+      ...current,
+      groups: current.groups.map((g) => ({
+        ...g,
+        members: g.members.map((m) => {
+          const patch = byId.get(m.id);
+          return patch ? { ...m, ...patch } : m;
+        }),
+      })),
+    };
+  }
+
+  return {
+    ...current,
+    items: current.items.map((a) => {
+      const patch = byId.get(a.id);
+      return patch ? { ...a, ...patch } : a;
+    }),
+  };
+}
+
 export default function AlertsPage() {
   const [filters, setFilters] = useState<AlertFilterValues>(INITIAL_FILTERS);
-  const [optimisticUpdates, setOptimisticUpdates] = useState<
-    Map<number, AlertInfo>
-  >(new Map());
 
   // Default view is "Por paciente/sinal" (grouped) — ADR-0039/FASE 2B.1:
   // grouping is the alerts page's default; the flat list is the fallback,
@@ -97,7 +141,10 @@ export default function AlertsPage() {
 
   // Realtime: WebSocket + polling fallback (ADR-0034). Bound to the single
   // `mutate` above, so a new/reactivated group appears in the grouped view
-  // without a reload, exactly as it already does for the flat view.
+  // without a reload, exactly as it already does for the flat view. This is
+  // a real GET revalidation (unlike the action handlers below) — that's
+  // correct here, since a raised/updated alert this client didn't cause
+  // itself is genuinely unknown data that only the server can supply.
   useRealtimeChannel('alert.raised', () => mutate(), { fallbackInterval: 30_000 });
   useRealtimeChannel('alert.updated', () => mutate(), { fallbackInterval: 30_000 });
 
@@ -107,10 +154,6 @@ export default function AlertsPage() {
     if (view !== 'flat' || !data || isGroupResponse(data)) return [];
 
     let items = data.items;
-
-    for (const [id, updated] of optimisticUpdates) {
-      items = items.map((a) => (a.id === id ? { ...a, ...updated } : a));
-    }
 
     if (filters.unit) {
       const unitLower = filters.unit.toLowerCase();
@@ -127,13 +170,16 @@ export default function AlertsPage() {
     }
 
     return items;
-  }, [data, view, optimisticUpdates, filters.unit, filters.pathway]);
+  }, [data, view, filters.unit, filters.pathway]);
 
   // Same client-side filters, applied at group granularity — grouped view.
   // A group is kept if it (or one of its members, for the pathway filter)
   // matches; member arrays are never pruned by these FE-only filters, so a
   // rendered group's count/severity badge always matches its expanded
-  // member list (the backend-computed aggregate stays truthful).
+  // member list (the backend-computed aggregate stays truthful). Per-member
+  // ack/resolve/escalate patches are no longer applied here — `data` itself
+  // already carries them, written straight into the SWR cache by the action
+  // handlers below via `applyAlertUpdates`.
   const groups = useMemo(() => {
     if (view !== 'grouped' || !data || !isGroupResponse(data)) return [];
 
@@ -151,37 +197,46 @@ export default function AlertsPage() {
       );
     }
 
-    // Apply optimistic per-member updates (ack/resolve/escalate from within
-    // an expanded group) so member rows reflect them immediately.
-    return gs.map((g) => ({
-      ...g,
-      members: g.members.map((m) => {
-        const patch = optimisticUpdates.get(m.id);
-        return patch ? { ...m, ...patch } : m;
-      }),
-    }));
-  }, [data, view, optimisticUpdates, filters.unit, filters.pathway]);
+    return gs;
+  }, [data, view, filters.unit, filters.pathway]);
 
+  // Single-alert actions (ack/resolve/escalate, both views). The API call
+  // already happened and already succeeded by the time this fires (see
+  // QuickActions) — `updated` is the server's own authoritative response,
+  // not a guess — so this writes it straight into the SWR cache
+  // (`populateCache: true`) and explicitly skips the automatic follow-up
+  // GET (`revalidate: false`). That follow-up GET was the actual race (GK-
+  // RESP achado C): a concurrent WebSocket-triggered revalidation (e.g.
+  // another patient's `alert.raised`) could be in flight and get deduped
+  // with this call's own revalidation, so this call could "win" the mutate
+  // but silently receive that OTHER, older in-flight response instead of a
+  // fresh one — overwriting the just-applied update with stale data. There
+  // is no longer a second network round-trip for this call to race against.
   const handleAlertUpdate = useCallback(
     (updated: AlertInfo) => {
-      // Optimistic update
-      setOptimisticUpdates((prev) => {
-        const next = new Map(prev);
-        next.set(updated.id, updated);
-        return next;
+      mutate((current) => applyAlertUpdates(current, [updated]), {
+        revalidate: false,
+        populateCache: true,
+        rollbackOnError: true,
       });
-
-      // Revalidate in background
-      mutate();
     },
     [mutate],
   );
 
-  // Group acknowledge (ADR-0039 §4) revalidates once at the end of its own
-  // sequential run — see AlertGroupRow — rather than per-member.
-  const handleGroupAcknowledged = useCallback(() => {
-    mutate();
-  }, [mutate]);
+  // Group acknowledge (ADR-0039 §4): AlertGroupRow runs its N sequential
+  // acknowledges itself and hands back every one that actually succeeded
+  // (partial failures are reported separately via onError) — folded into
+  // the cache in one `mutate` call, same non-racing pattern as above.
+  const handleGroupAcknowledged = useCallback(
+    (succeeded: AlertInfo[]) => {
+      mutate((current) => applyAlertUpdates(current, succeeded), {
+        revalidate: false,
+        populateCache: true,
+        rollbackOnError: true,
+      });
+    },
+    [mutate],
+  );
 
   const [globalError, setGlobalError] = useState<string | null>(null);
   const handleError = useCallback((message: string) => {
