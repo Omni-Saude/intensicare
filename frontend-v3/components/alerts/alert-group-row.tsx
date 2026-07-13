@@ -29,11 +29,14 @@ interface AlertGroupRowProps {
   onError: (message: string) => void;
   /**
    * Called exactly once after the sequential group-acknowledge run
-   * finishes (success or partial failure) — triggers a single SWR
-   * revalidation of the currently active alerts query (ADR-0039 §4:
-   * "revalidação SWR ao final", not per-member).
+   * finishes (success or partial failure), with every member that was
+   * actually acknowledged (ADR-0039 §4: one call at the end, not
+   * per-member). The caller folds these straight into the SWR cache — see
+   * app/alerts/page.tsx's `applyAlertUpdates` — rather than issuing a
+   * fresh GET, so this never races a concurrent WebSocket-triggered
+   * revalidation (GK-RESP achado C).
    */
-  onGroupAcknowledged: () => void;
+  onGroupAcknowledged: (succeeded: AlertInfo[]) => void;
 }
 
 // Local label map — mirrors SeverityBadge's private SEVERITY_CONFIG labels
@@ -140,12 +143,13 @@ export function AlertGroupRow({
     setAcking(true);
     setProgress({ done: 0, total: eligibleMembers.length });
     const failures: { id: number; message: string }[] = [];
+    const succeeded: AlertInfo[] = [];
 
     // Sequential by design (ADR-0039 §4) — no bulk endpoint exists; each
     // acknowledge is its own state transition, audited individually.
     for (const member of eligibleMembers) {
       try {
-        await acknowledgeAlert(member.id);
+        succeeded.push(await acknowledgeAlert(member.id));
       } catch (err) {
         failures.push({ id: member.id, message: describeAckError(err) });
       }
@@ -157,15 +161,15 @@ export function AlertGroupRow({
     setProgress(null);
 
     if (failures.length > 0) {
-      const succeeded = eligibleMembers.length - failures.length;
       onError(
-        `Reconhecidos ${succeeded} de ${eligibleMembers.length} alertas de ${groupLabel}. ` +
+        `Reconhecidos ${succeeded.length} de ${eligibleMembers.length} alertas de ${groupLabel}. ` +
           `Falhas: ${failures.map((f) => `#${f.id} (${f.message})`).join('; ')}`,
       );
     }
 
-    // Revalidate once at the end, not per-member — see prop doc above.
-    onGroupAcknowledged();
+    // Fold every member that actually succeeded into the cache once, at the
+    // end, not per-member — see prop doc above.
+    onGroupAcknowledged(succeeded);
   };
 
   return (
