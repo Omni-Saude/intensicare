@@ -119,7 +119,11 @@ async def test_create_vitals_critical_patient(client: AsyncClient, user_headers:
 
     response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
     assert response.status_code == 201
-    assert response.json()["mews_score"] == 15
+    # MEWS-v3.0.0 (RAT-MEWS-SUBBE-2001-R2, services/mews.py — Subbe et al.
+    # 2001 classic 3-band temperature table): hr=35(<=39 -> 2) +
+    # sbp=65(<=70 -> 3) + rr=6(<=8 -> 2) + temp=34.0(<35.0 -> 2) +
+    # avpu=U(3) = 12.
+    assert response.json()["mews_score"] == 12
     # NEWS2: rr=6(3) + spo2=None(0) + o2=None(0) + sbp=65(3)
     #        + hr=35(3) + avpu=U(3) + temp=34.0(3) = 15
     assert response.json()["news2_score"] == 15
@@ -194,16 +198,31 @@ async def test_idempotency_different_keys(client: AsyncClient, user_headers: dic
 
 @pytest.mark.asyncio
 async def test_idempotency_without_key(client: AsyncClient, user_headers: dict[str, str]):
-    """Sem chave de idempotência, cada requisição deve criar novo registro."""
+    """Sem X-Idempotency-Key, o dedup por chave natural ainda se aplica.
+
+    services/vitals.py:179-213 adicionou uma defesa em profundidade: quando
+    ``source_system`` é informado, uma requisição com a MESMA chave natural
+    (mpi_id, recorded_at, source_system) de um registro já existente é
+    tratada como replay idempotente (200, mesmo id) mesmo sem
+    X-Idempotency-Key. Uma medição nova de fato (recorded_at diferente)
+    sempre cria um registro novo (201, id diferente).
+    """
     payload = {**VALID_VITALS_PAYLOAD, "mpi_id": "MPI-NOKEY-01"}
 
     resp1 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
-    resp2 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
-
     assert resp1.status_code == 201
-    assert resp2.status_code == 201
-    # IDs diferentes — dois registros criados
-    assert resp1.json()["id"] != resp2.json()["id"]
+
+    # Repetir a MESMA requisição (mesma chave natural) — replay idempotente
+    # via UNIQUE/lookup por chave natural, não um novo registro.
+    resp2 = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
+    assert resp2.status_code == 200
+    assert resp2.json()["id"] == resp1.json()["id"]
+
+    # recorded_at diferente = medição nova → sempre cria registro novo.
+    payload_new_reading = {**payload, "recorded_at": "2026-06-26T10:05:00Z"}
+    resp3 = await client.post("/api/v1/vitals", json=payload_new_reading, headers=user_headers)
+    assert resp3.status_code == 201
+    assert resp3.json()["id"] != resp1.json()["id"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -215,8 +234,13 @@ async def test_idempotency_without_key(client: AsyncClient, user_headers: dict[s
 async def test_validation_missing_required_fields(
     client: AsyncClient, user_headers: dict[str, str]
 ):
-    """Campos obrigatórios (mpi_id, recorded_at) devem ser validados."""
-    # Sem mpi_id
+    """mpi_id é o único campo verdadeiramente obrigatório.
+
+    ``recorded_at`` ganhou ``default_factory=lambda: datetime.now(timezone.utc)``
+    (schemas/vitals.py:28-31) — sem ele, a requisição não é mais rejeitada
+    pelo Pydantic; ela é aceita e datada com o instante do request.
+    """
+    # Sem mpi_id — ainda obrigatório, continua 422.
     resp = await client.post(
         "/api/v1/vitals",
         json={"recorded_at": "2026-06-26T10:00:00Z"},
@@ -224,13 +248,14 @@ async def test_validation_missing_required_fields(
     )
     assert resp.status_code == 422
 
-    # Sem recorded_at
+    # Sem recorded_at — tem default_factory, então é aceito (201), não 422.
     resp = await client.post(
         "/api/v1/vitals",
         json={"mpi_id": "MPI-001"},
         headers=user_headers,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 201
+    assert resp.json()["recorded_at"] is not None
 
 
 @pytest.mark.asyncio
