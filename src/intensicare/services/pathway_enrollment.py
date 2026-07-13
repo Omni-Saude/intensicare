@@ -549,6 +549,7 @@ async def get_pathway_progress(
         current_state=current_state_id,
         severity=severity,
         states=(pathway.states if pathway and pathway.states else []),
+        criteria_summary=criteria_summary,
     )
 
     return PathwayProgressResult(
@@ -807,33 +808,54 @@ def _build_recommendation(
     current_state: str,
     severity: str,
     states: list[dict[str, Any]] | None = None,
+    criteria_summary: dict[str, int] | None = None,
 ) -> str:
     """Generate PT-BR clinical recommendation based on pathway, state, and severity.
 
     Rule 12: Recommendations are generated in PT-BR.
 
+    Note (G-S2 fix — band-based severity): Severity is derived from the YAML
+    severity bands of *evaluated* criteria (not a ratio of met/total). This
+    function now reports the count of evaluated vs. pending criteria to make
+    the severity classification transparent and clinically coherent.
+
     Args:
         pathway_name: Human-readable pathway name.
         current_state: Current state identifier.
-        severity: Severity level (normal, watch, urgent, critical).
+        severity: Severity level (normal, watch, urgent, critical) — derived
+            from band classification of evaluated criteria, not a ratio.
         states: Optional list of state definitions for context.
+        criteria_summary: Optional dict with keys total/met/not_met/pending.
+            Used to report how many criteria have been evaluated (met +
+            not_met) vs. pending. If None, defaults to empty dict.
 
     Returns:
         Recommendation string in Portuguese (BR).
     """
     if states is None:
         states = []
+    if criteria_summary is None:
+        criteria_summary = {}
 
     # Build state name lookup.
     state_name_map: dict[str, str] = {s["id"]: s["name"] for s in states}
     state_name = state_name_map.get(current_state, current_state)
+
+    # Compute evaluated vs. pending for coherent clinical messaging.
+    total = criteria_summary.get("total", 0)
+    evaluated = criteria_summary.get("met", 0) + criteria_summary.get("not_met", 0)
+    eval_str = (
+        f"{evaluated} de {total} critérios avaliados"
+        if total > 0
+        else "nenhum critério avaliado"
+    )
 
     # Pathway-specific recommendations.
     if pathway_name == "Ventilação Mecânica":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Reavaliar parâmetros "
+                f"{eval_str}; faixa crítica detectada. Reavaliar parâmetros "
                 "ventilatórios IMEDIATAMENTE. Verificar PEEP, driving pressure e "
                 "relação P/F. Considerar manobras de recrutamento alveolar "
                 "e posição prona se P/F < 150. Acionar fisioterapia respiratória."
@@ -841,14 +863,14 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios parcialmente atendidos (40-59%). Ajustar parâmetros "
+                f"{eval_str}; faixa urgente. Ajustar parâmetros "
                 "do ventilador nas próximas 6h. Reavaliar PEEP ideal e "
                 "considerar gasometria de controle. Manter cabeceira elevada 30-45°."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Manter parâmetros protetores e "
+                f"{eval_str}; faixa de cuidado. Manter parâmetros protetores e "
                 "monitorizar "
                 "tendência da mecânica pulmonar a cada 12h. Avaliar diariamente prontidão para "
                 "desmame."
@@ -856,7 +878,7 @@ def _build_recommendation(
         # normal
         return (
             f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-            "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
+            f"{eval_str}; faixa normal. Manter estratégia atual e "
             "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
         )
 
@@ -864,7 +886,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. ACIONAR PROTOCOLO DE SEPSE IMEDIATAMENTE. "
+                f"{eval_str}; critério em faixa crítica. ACIONAR PROTOCOLO DE SEPSE IMEDIATAMENTE. "
                 "Verificar: antibiótico administrado? Culturas coletadas? Ressuscitação volêmica "
                 "iniciada? "
                 "Lactato >4 mmol/L requer reavaliação em 2-4h. Considerar acesso central e droga "
@@ -873,21 +895,21 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios do bundle de sepse incompletos (40-59%). Completar bundle da 1ª hora: "
+                f"{eval_str}; critério em faixa urgente. Completar bundle da 1ª hora: "
                 "coletar culturas, administrar antibiótico, iniciar cristaloide 30 mL/kg. "
                 "Reavaliar lactato em 2-4h."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Bundle de sepse parcialmente completo (60-79%). Verificar itens pendentes e "
+                f"{eval_str}; monitorização de cuidado recomendada. Verificar itens pendentes e "
                 "reavaliar resposta hemodinâmica. Monitorizar clearance de lactato a cada 6h. "
                 "Avaliar descalonamento antimicrobiano em 48-72h."
             )
         # normal
         return (
             f"✓ Resposta adequada — {pathway_name} ({state_name}): "
-            "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
+            f"{eval_str}; todos em faixa normal. Paciente com boa evolução. "
             "Manter monitorização e avaliar transição para via oral de antibióticos. "
             "Reavaliar culturas e possibilidade de descalonamento."
         )
@@ -896,7 +918,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios de desmame atendidos. Paciente NÃO está pronto para "
+                f"{eval_str}; critério em faixa crítica. Paciente NÃO está pronto para "
                 "desmame. "
                 "Otimizar parâmetros ventilatórios, corrigir distúrbios metabólicos e "
                 "eletrolíticos. "
@@ -905,14 +927,14 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios de prontidão para desmame parcialmente atendidos (40-59%). "
+                f"{eval_str}; critério em faixa urgente para desmame. "
                 "Reavaliar força muscular respiratória (NIF) e drive respiratório (RSBI). "
                 "Considerar TRE (Teste de Respiração Espontânea) se Glasgow ≥11 e tosse eficaz."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Paciente próximo da prontidão para TRE. "
+                f"{eval_str}; proximidade com prontidão para TRE monitorada. "
                 "Verificar critérios pendentes e programar teste de respiração espontânea nas "
                 "próximas 12-24h. "
                 "Manter sedação mínima (RASS -1 a 0)."
@@ -920,7 +942,8 @@ def _build_recommendation(
         # normal
         return (
             f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
+            f"{eval_str}; paciente em faixa adequada. "
+            "REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
             "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
             "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
         )
@@ -929,7 +952,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Intolerância grave à dieta ou desnutrição "
+                f"{eval_str}; critério em faixa crítica. Intolerância grave à dieta ou desnutrição "
                 "severa. "
                 "Reavaliar via de acesso nutricional, considerar nutrição parenteral suplementar. "
                 "Investigar causas de intolerância (íleo, infecção, isquemia mesentérica). "
@@ -938,7 +961,7 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios nutricionais parcialmente atendidos (40-59%). Aporte calórico-proteico "
+                f"{eval_str}; critério em faixa urgente. Aporte calórico-proteico "
                 "abaixo da meta. "
                 "Avaliar resíduo gástrico e considerar procinético. Ajustar velocidade de infusão "
                 "e "
@@ -947,14 +970,14 @@ def _build_recommendation(
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Progredir dieta conforme protocolo, "
+                f"{eval_str}; progresso em nível de cuidado. Progredir dieta conforme protocolo, "
                 "atingindo meta calórica em até 72h. Monitorizar resíduo gástrico a cada 6h e "
                 "sinais de intolerância. Manter cabeceira elevada."
             )
         # normal
         return (
             f"✓ Meta nutricional — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
+            f"{eval_str}; meta adequada. Aporte calórico e proteico adequados. "
             "Avaliar transição para dieta via oral conforme melhora clínica. "
             "Manter monitorização de tolerância e balanço nitrogenado semanal."
         )
@@ -963,22 +986,23 @@ def _build_recommendation(
     if severity == "critical":
         return (
             f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-            "Menos de 40% dos critérios clínicos atendidos. Requer intervenção imediata. "
+            f"{eval_str}; critério em faixa crítica. Requer intervenção imediata. "
             "Reavaliar todos os parâmetros e acionar equipe multidisciplinar."
         )
     if severity == "urgent":
         return (
             f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-            "Critérios parcialmente atendidos (40-59%). Priorizar itens pendentes e reavaliar em "
+            f"{eval_str}; critério em faixa urgente. Priorizar itens pendentes e reavaliar em "
             "6-12h."
         )
     if severity == "watch":
         return (
             f"Acompanhar — {pathway_name} ({state_name}): "
-            "Maioria dos critérios atendidos (60-79%). Verificar pendências e manter "
+            f"{eval_str}; monitorização recomendada. Verificar pendências e manter "
             "monitorização programada."
         )
     return (
         f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-        "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
+        f"{eval_str}; dentro dos limites normais. "
+        "Manter conduta atual e reavaliar conforme protocolo."
     )
