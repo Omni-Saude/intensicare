@@ -15,7 +15,7 @@ import { AlertTable } from '@/components/alerts/alert-table';
 
 const INITIAL_FILTERS: AlertFilterValues = {
   severity: '',
-  status: 'all',
+  status: 'active',
   unit: '',
   pathway: '',
   period: 'all',
@@ -27,25 +27,17 @@ export default function AlertsPage() {
     Map<number, AlertInfo>
   >(new Map());
 
-  // Build API params from filters
+  // Build API params from filters. AlertFilterValues.status mirrors the
+  // backend's AlertStatusFilter contract 1:1 (active/acknowledged/
+  // escalated/resolved/all), so it passes straight through — including
+  // 'all', which is what lets the user review already-processed alerts
+  // that the default 'active' view would otherwise hide.
   const apiParams: AlertFilters = useMemo(() => {
-    const params: AlertFilters = { limit: 50 };
+    const params: AlertFilters = { limit: 50, status: filters.status };
 
     if (filters.severity) {
       params.severity = filters.severity as SeverityLevel;
     }
-
-    if (filters.status === 'acknowledged') {
-      params.acknowledged = true;
-      params.resolved = false;
-    } else if (filters.status === 'resolved') {
-      params.resolved = true;
-      params.acknowledged = true;
-    } else if (filters.status === 'pending') {
-      params.acknowledged = false;
-      params.resolved = false;
-    }
-    // 'all' → no filter on acknowledged/resolved
 
     return params;
   }, [filters]);
