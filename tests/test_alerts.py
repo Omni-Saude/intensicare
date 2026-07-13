@@ -81,9 +81,7 @@ class TestListAlerts:
         await create_test_alert(db_session, status="active")
         headers = await _reader_headers(db_session, "reader-mpi-filter")
 
-        response = await client.get(
-            "/api/v1/alerts?status=active&mpi_id=MPI-1001", headers=headers
-        )
+        response = await client.get("/api/v1/alerts?status=active&mpi_id=MPI-1001", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -118,9 +116,7 @@ class TestListAlerts:
         await db_session.flush()
         headers = await _reader_headers(db_session, "reader-list-limit")
 
-        response = await client.get(
-            "/api/v1/alerts?status=active&limit=2", headers=headers
-        )
+        response = await client.get("/api/v1/alerts?status=active&limit=2", headers=headers)
 
         assert response.status_code == 200
         data = response.json()

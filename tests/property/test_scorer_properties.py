@@ -292,9 +292,7 @@ class TestQSOFAProperties:
         """
         from intensicare.services.qsofa import calculate_qsofa
 
-        result = calculate_qsofa(
-            respiratory_rate=respiratory_rate, systolic_bp=systolic_bp, gcs=15
-        )
+        result = calculate_qsofa(respiratory_rate=respiratory_rate, systolic_bp=systolic_bp, gcs=15)
         assert result.total_score == 0, (
             f"Normal vitals (RR={respiratory_rate}, SBP={systolic_bp}, GCS=15) "
             f"scored qSOFA={result.total_score}, expected 0. "

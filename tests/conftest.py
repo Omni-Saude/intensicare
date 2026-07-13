@@ -120,7 +120,8 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
                 """
                 CREATE OR REPLACE FUNCTION audit_trail_no_mutation() RETURNS trigger AS $$
                 BEGIN
-                    RAISE EXCEPTION 'audit_trail is append-only (INV-1 / CON-0066): % blocked', TG_OP;
+                    RAISE EXCEPTION
+                        'audit_trail is append-only (INV-1 / CON-0066): % blocked', TG_OP;
                 END;
                 $$ LANGUAGE plpgsql
                 """

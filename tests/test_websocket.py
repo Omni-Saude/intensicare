@@ -331,9 +331,7 @@ class TestAlertBroadcastAfterIngestion:
             "supplemental_o2": True,
         }
 
-        response = await client.post(
-            "/api/v1/vitals", json=vitals_payload, headers=user_headers
-        )
+        response = await client.post("/api/v1/vitals", json=vitals_payload, headers=user_headers)
         assert response.status_code in (200, 201)
 
         # Verify that the WebSocket client received at least one alert
@@ -394,9 +392,7 @@ class TestAlertBroadcastAfterIngestion:
             "spo2": 88,
             "supplemental_o2": True,
         }
-        resp1 = await client.post(
-            "/api/v1/vitals", json=vitals_high, headers=user_headers
-        )
+        resp1 = await client.post("/api/v1/vitals", json=vitals_high, headers=user_headers)
         assert resp1.status_code in (200, 201)
 
         # Should have received alerts for MPI-WS-SUB
@@ -418,9 +414,7 @@ class TestAlertBroadcastAfterIngestion:
             "spo2": 88,
             "supplemental_o2": True,
         }
-        resp2 = await client.post(
-            "/api/v1/vitals", json=vitals_other, headers=user_headers
-        )
+        resp2 = await client.post("/api/v1/vitals", json=vitals_other, headers=user_headers)
         assert resp2.status_code in (200, 201)
 
         # Since client only subscribed to MPI-WS-SUB, should NOT receive

@@ -67,6 +67,7 @@ def _fake_otel_modules(*, trace_module: MagicMock | None = None) -> dict[str, Ma
         "opentelemetry.sdk.trace.sampling": MagicMock(ALWAYS_ON=MagicMock()),
     }
 
+
 # ─── Fixture to guard global state ───────────────────────────────────────────
 
 
