@@ -238,6 +238,16 @@ export type AlertStatusFilter =
 export interface AlertFilters {
   status?: AlertStatusFilter;
   severity?: SeverityLevel;
+  /**
+   * Server-side patient scope — GET /alerts already accepts this (backend
+   * api/v1/alerts.py `_apply_alert_filters`), applied BEFORE grouping when
+   * combined with fetchAlertGroups (ADR-0039 §2: "filtros existentes
+   * aplicam-se aos membros"). Callers that need a single patient's alerts
+   * must set this rather than paginating the global list and filtering
+   * client-side — the latter can silently drop the patient's own alerts
+   * once a busy tenant's global page fills up before reaching them.
+   */
+  mpi_id?: string;
   limit?: number;
   offset?: number;
 }
@@ -597,6 +607,7 @@ export async function fetchAlerts(params: AlertFilters = {}): Promise<AlertListR
   const searchParams = new URLSearchParams();
   if (params.status) searchParams.set('status', params.status);
   if (params.severity) searchParams.set('severity', params.severity);
+  if (params.mpi_id) searchParams.set('mpi_id', params.mpi_id);
   if (params.limit) searchParams.set('limit', String(params.limit));
   if (params.offset) searchParams.set('offset', String(params.offset));
 
@@ -616,6 +627,7 @@ export async function fetchAlertGroups(
   searchParams.set('group_by', 'signal');
   if (params.status) searchParams.set('status', params.status);
   if (params.severity) searchParams.set('severity', params.severity);
+  if (params.mpi_id) searchParams.set('mpi_id', params.mpi_id);
   if (params.limit) searchParams.set('limit', String(params.limit));
   if (params.offset) searchParams.set('offset', String(params.offset));
 
