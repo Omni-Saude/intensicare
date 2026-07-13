@@ -78,3 +78,17 @@ Resultado: o intensivista vendo a trilha de sepse na UI v3 recebe uma avaliaçã
 - `docs/audit/fullspectrum/` (auditoria full-spectrum)
 - ADR-0030 (arquitetura pathway-centric do frontend v3)
 - ADR-0037 (política fail-fast de pathways — Gate B de CI)
+
+
+---
+
+## Correção pós-re-auditoria (2026-07-12, mesma data)
+
+A re-auditoria da Dimensão A verificou que a afirmação de que `domain_sepsis.py` permanece
+alcançável via `/deterioration` ficou DESATUALIZADA: o import de `SepsisDomainService` em
+`domain_piora_clinica.py` foi removido durante a normalização de lint do Sprint 1 (F401),
+tornando `domain_sepsis.py` inalcançável em runtime. Status corrigido: `domain_sepsis.py` é
+hoje **oráculo de teste apenas** (tests/test_sepse_yaml_parity.py) — consistente com o destino
+final desta ADR (deprecação após 1 release), apenas antecipado. A superfície de produto serve
+exclusivamente o declarativo `sepse.yaml` v4. Adicionalmente, o elo de avaliação automática
+(`build_sepsis_inputs` → ingestão) está sendo ligado em `pathway_auto_evaluation` (mesmo ciclo).
