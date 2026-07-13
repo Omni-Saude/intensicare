@@ -51,10 +51,14 @@ export function AlertTrace({ alert }: AlertTraceProps) {
       role="region"
       aria-label="Rastreabilidade do alerta"
     >
-      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
         Rastreabilidade
-      </h4>
-      <div className="flex flex-wrap items-start gap-2">
+      </h2>
+      <div
+        className="flex flex-wrap items-start gap-2"
+        role="list"
+        aria-label="Etapas de rastreabilidade do alerta"
+      >
         {traceSteps.map((step, i) => (
           <div key={i} className="flex items-center gap-0">
             <div

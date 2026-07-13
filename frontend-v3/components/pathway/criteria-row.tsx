@@ -59,7 +59,7 @@ export function CriteriaRow({ criterion, isExpanded, onToggle }: CriteriaRowProp
   };
 
   return (
-    <div className="border-b border-[var(--border-default)] last:border-b-0">
+    <div className="border-b border-[var(--border-default)] last:border-b-0" role="listitem">
       {/* Collapsible header */}
       <button
         type="button"
