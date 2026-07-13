@@ -13,10 +13,25 @@ export default function DashboardPage() {
   const router = useRouter();
   const [unit, setUnit] = useState<string | null>(null);
 
+  // RF-020: a chave SWR muda a cada troca do filtro de unidade. Sem
+  // `keepPreviousData`, a UI cai num re-render vazio/skeleton intermediário
+  // enquanto o novo fetch está em voo, colapsando a altura da página e
+  // perdendo a posição de scroll do intensivista (Nielsen #3 — User Control
+  // and Freedom). Manter os dados anteriores visíveis até a nova página
+  // chegar resolve na raiz, sem precisar restaurar scroll artificialmente.
   const { data, error, isLoading, mutate } = useSWR(
     ['dashboard', unit],
     () => fetchDashboard(unit ?? undefined),
+    { keepPreviousData: true },
   );
+
+  // `isLoading` do SWR é por-chave: ele volta a `true` a cada troca de
+  // unidade mesmo com `keepPreviousData`, porque a nova chave ainda não tem
+  // cache próprio — só `data` (via `laggyDataRef`) continua com o valor
+  // anterior. Gatear o skeleton por "ainda não há dado nenhum" (em vez do
+  // `isLoading` cru) é o que efetivamente mantém a grade anterior visível
+  // durante o refetch do filtro.
+  const showSkeleton = isLoading && !data;
 
   // Realtime: WebSocket + polling fallback (ADR-0034)
   useRealtimeChannel('bed_grid.updated', () => mutate(), { fallbackInterval: 30_000 });
@@ -50,7 +65,7 @@ export default function DashboardPage() {
       <BedGrid
         patients={data?.patients ?? []}
         onSelect={(mpiId) => router.push(`/patient/${mpiId}`)}
-        isLoading={isLoading}
+        isLoading={showSkeleton}
         error={error}
         onRetry={() => mutate()}
       />

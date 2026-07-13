@@ -1,6 +1,7 @@
 'use client';
 
-import type { PatientBedSummary } from '@/lib/api';
+import { useMemo } from 'react';
+import type { PatientBedSummary, SeverityLevel } from '@/lib/api';
 import { BedCard } from './bed-card';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -10,6 +11,23 @@ interface BedGridProps {
   isLoading?: boolean;
   error?: Error | null;
   onRetry?: () => void;
+}
+
+// RF-007: hierarquia de criticidade — leitos críticos primeiro, para que o
+// intensivista não precise fazer scroll manual pela grade inteira em 320px
+// para localizar os pacientes que mais precisam de atenção imediata.
+const SEVERITY_RANK: Record<SeverityLevel, number> = {
+  critical: 0,
+  urgent: 1,
+  watch: 2,
+  normal: 3,
+};
+
+function bySeverityThenBed(a: PatientBedSummary, b: PatientBedSummary): number {
+  const rankDiff = SEVERITY_RANK[a.severity ?? 'normal'] - SEVERITY_RANK[b.severity ?? 'normal'];
+  if (rankDiff !== 0) return rankDiff;
+  // Empate de severidade: ordem estável e previsível por leito.
+  return a.bed.localeCompare(b.bed, undefined, { numeric: true });
 }
 
 function SkeletonCard() {
@@ -56,6 +74,10 @@ export function BedGrid({
   error = null,
   onRetry,
 }: BedGridProps) {
+  // RF-007: ordena por hierarquia de criticidade antes de renderizar (hook
+  // incondicional, antes dos early-returns, para respeitar Rules of Hooks).
+  const sortedPatients = useMemo(() => [...patients].sort(bySeverityThenBed), [patients]);
+
   // Error state
   if (error) {
     return (
@@ -125,7 +147,7 @@ export function BedGrid({
   }
 
   // Empty state
-  if (!patients || patients.length === 0) {
+  if (!sortedPatients || sortedPatients.length === 0) {
     return (
       <div
         className="flex flex-col items-center justify-center gap-2 py-16 px-4 rounded-[var(--radius-lg)]"
@@ -156,7 +178,7 @@ export function BedGrid({
       role="list"
       aria-label="Lista de pacientes"
     >
-      {patients.map((patient) => (
+      {sortedPatients.map((patient) => (
         <div key={patient.mpi_id} role="listitem">
           <BedCard
             patient={patient}
