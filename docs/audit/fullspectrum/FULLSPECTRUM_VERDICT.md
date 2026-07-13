@@ -129,3 +129,47 @@ Gates independentes vetaram 3 vezes (G-S1 poluição de schema; G-S2 severidade 
 ambíguo) — todos os vetos eram reais e nenhum sobreviveu ao ciclo de correção. Dois defeitos foram achados
 por acidente instrumentado: hidratação quebrada por CSP (mascarada desde M8) e boot quebrado mascarado por
 `--reload` stale. Regra nova: gates devem incluir **import fresco do app** (o drift-check do CI já o faz).
+
+---
+
+# ADENDO 2 — VEREDITO FINAL COM 5 DIMENSÕES RE-MEDIDAS + ONDA DE UPLIFT (2026-07-13)
+
+## Scoring final (5/5 dimensões re-auditadas por agentes independentes novos)
+
+| Dimensão | Original | Re-medida | Peso | Ponderado | Relatório |
+|----------|----------|-----------|------|-----------|-----------|
+| A — Rastreabilidade | 58 | **65** | 15% | 9.75 | DIM_A_REAUDIT.md |
+| B — UX e Jornada | 78 | **79** | 30% | 23.70 | DIM_B_REAUDIT.md |
+| C — Backend | 46 | **80** | 25% | 20.00 | DIM_C_REAUDIT.md |
+| D — Integração | 72 | **93** | 20% | 18.60 | DIM_D_REAUDIT.md |
+| E — Inovação | 58 | **72** | 10% | 7.20 | DIM_E_REAUDIT.md |
+| **TOTAL** | **63.8 (NO-GO)** | | | **79.25** | |
+
+## Veredito: 🟡 **GO-WITH-ISSUES (79.25)** — medido, não estimado
+
+## Onda de uplift PÓS-re-medição (14 entregas, todas no PR #41, cada uma com prova)
+Os scores acima NÃO incluem a onda final de correções, que fechou os principais achados
+das próprias re-auditorias (uma futura re-medição deve capturá-los):
+- **Dim A #1 (o mais grave)**: `build_sepsis_inputs` sem callers → **avaliação automática de
+  pathways ligada à ingestão de vitais** (pathway_auto_evaluation; prova antes/depois com PAM real).
+- **Dim A #2**: CLINICAL_SIGNOFF committado com nota honesta de identidade; ADR-0035 corrigido.
+- **Dim B C2**: sessão sobrevive a F5/deep-link (refresh via cookie HttpOnly; logout blacklista
+  refresh — sem ressurreição); **Dim B M3/M4/M5**: breadcrumb com nomes no nível pathway,
+  atalhos globais (g d/a/t, ?), tooltips clínicos.
+- **Dim E -8 (parcial)**: projeção determinística de deterioração com lead-time
+  (GET /patients/{id}/deterioration-trend; regressão linear explicável, R², confiança, pontos
+  auditáveis; slope fisiológico 1.35 pts/h após fix de fidelidade temporal calculated_at=recorded_at).
+- **Dim E -4 (parcial)**: **CDS Hooks 2.0** (discovery + patient-view cards) — interoperabilidade
+  HL7 real; 85/85 endpoints contratados.
+- **Dim E -6**: ADR-0038 escopo de cobertura consciente (investigação real do schema; Padua 1/11
+  dados disponíveis) com roadmap de inclusão.
+- **Defeitos de produção descobertos e fechados na onda**: PHI cifrada sem decrypt em
+  dashboard+alerts (dual-schema safe via resolve_display_name), eager-load perdido no
+  acknowledge (lazy=raise), copy de recomendação incoerente com severidade por bandas,
+  ABAC granular aplicado aos 4 routers clínicos (22 testes).
+
+## Pendências (donos humanos) — inalteradas em natureza
+1. Aprovação do PR #41 (code-owner) — CI required 100% verde no head final.
+2. Contra-assinatura clínica formal (CRM/instituição) + validação estatística para submissão SaMD.
+3. Gaps estruturais documentados: preditivo-ML real (roadmap), wiring de session-encryption-key
+  em rotas (fallback não-fatal ativo), estabilização da suíte completa em CI, CDC/ADT (AWS).
