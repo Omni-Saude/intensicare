@@ -5,9 +5,12 @@ import useSWR from 'swr';
 import {
   fetchPathwayProgress,
   fetchPatientDetail,
+  fetchPatientPathways,
   type PathwayProgress,
   type PathwayState,
   type PatientDetailResponse,
+  type PatientPathway,
+  type SeverityLevel,
 } from '@/lib/api';
 import { useRealtimeChannel } from '@/lib/websocket';
 import { useSetBreadcrumbLabel } from '@/lib/breadcrumb-context';
@@ -57,6 +60,20 @@ export default function PathwayViewPage() {
   const { data: patient } = useSWR<PatientDetailResponse>(
     mpiId ? `patient-${mpiId}` : null,
     () => fetchPatientDetail(mpiId!),
+    { revalidateOnFocus: false },
+  );
+
+  // Active pathways list: fetched under the same SWR key the patient page
+  // uses (`patient-pathways-${mpiId}`), so navigating from /patient/{mpi_id}
+  // is an instant cache hit here. This call exists purely to recover the
+  // backend's real, YAML-band-driven severity for THIS pp_id (BUG-F4-01):
+  // `PathwayProgress` (the /progress endpoint below) carries no severity
+  // field at all — only `/patients/{mpi_id}/pathways` does, via
+  // `PatientPathway.severity`, computed by
+  // `pathway_enrollment._determine_severity`.
+  const { data: pathwaysData } = useSWR<{ items: PatientPathway[]; total: number }>(
+    mpiId ? `patient-pathways-${mpiId}` : null,
+    () => fetchPatientPathways(mpiId!, 'active'),
     { revalidateOnFocus: false },
   );
 
@@ -228,22 +245,39 @@ export default function PathwayViewPage() {
         .filter(Boolean)
     : undefined;
 
-  // Derive pathway severity from criteria summary (ADR-0033: data-driven)
-  const notMetRatio = criteriaSummary.total > 0 
-    ? criteriaSummary.not_met / criteriaSummary.total 
-    : 0;
-  const pathwaySeverity: import('@/lib/api').SeverityLevel = 
-    notMetRatio >= 0.5 ? 'critical' :
-    notMetRatio >= 0.3 ? 'urgent' :
-    notMetRatio > 0 ? 'watch' :
-    'normal';
+  // Pathway severity (BUG-F4-01): source the backend's real, YAML-band-driven
+  // severity (pathway_enrollment._determine_severity) via the active-pathways
+  // list fetched above, matched by pp_id. This is the SAME severity the
+  // dashboard and patient page display for this pathway, so the header can no
+  // longer contradict the recommendations panel / dashboard the way a locally
+  // recomputed ratio did.
+  //
+  // Fallback: only used when this pp_id isn't present in the 'active'-status
+  // list (e.g. list still loading, or this pathway is completed/archived) —
+  // a crude not-met-ratio heuristic, deliberately inferior to the backend's
+  // band-based calculation and kept only so the header never renders with no
+  // severity at all.
+  const matchedPathway = pathwaysData?.items.find((p) => p.id === ppId);
+  let pathwaySeverity: SeverityLevel;
+  if (matchedPathway?.severity) {
+    pathwaySeverity = matchedPathway.severity;
+  } else {
+    const notMetRatio = criteriaSummary.total > 0
+      ? criteriaSummary.not_met / criteriaSummary.total
+      : 0;
+    pathwaySeverity =
+      notMetRatio >= 0.5 ? 'critical' :
+      notMetRatio >= 0.3 ? 'urgent' :
+      notMetRatio > 0 ? 'watch' :
+      'normal';
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <PathwayHeader
         pathwayName={pathwayName}
-        patientName={`Paciente ${mpiId}`}
+        patientName={patient?.patient_name ?? `Paciente ${mpiId}`}
         mpiId={mpiId}
         currentState={currentState.name}
         severity={pathwaySeverity}
