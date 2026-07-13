@@ -167,7 +167,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           <Filter className="h-3.5 w-3.5" aria-hidden="true" />
           Filtros
           {hasActiveFilters && (
-            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--severity-urgent)] text-2xs text-[#0a0e14]">
+            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--severity-urgent)] text-2xs text-[var(--surface-canvas)]">
               !
             </span>
           )}

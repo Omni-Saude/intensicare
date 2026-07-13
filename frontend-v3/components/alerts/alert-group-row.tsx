@@ -244,13 +244,13 @@ export function AlertGroupRow({
             className="severity-critical-pulse inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap"
             style={{
               backgroundColor: 'var(--severity-critical)',
-              color: '#0a0e14',
+              color: 'var(--surface-canvas)',
               border: '1px solid var(--severity-critical)',
             }}
           >
             <span
               className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: '#0a0e14' }}
+              style={{ backgroundColor: 'var(--surface-canvas)' }}
               aria-hidden="true"
             />
             {SEVERITY_LABEL[group.max_severity]}
@@ -321,7 +321,7 @@ export function AlertGroupRow({
         {group.escalating && (
           <span
             className="severity-critical-pulse inline-flex items-center gap-1 rounded-full border border-[var(--severity-critical)] px-2 py-0.5 text-xs font-semibold"
-            style={{ backgroundColor: 'var(--severity-critical)', color: '#0a0e14' }}
+            style={{ backgroundColor: 'var(--severity-critical)', color: 'var(--surface-canvas)' }}
             role="status"
             aria-label="Em escalação: a severidade subiu desde o alerta ativo mais antigo deste grupo"
           >

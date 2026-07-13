@@ -258,7 +258,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => { logout(); setConfirmLogout(false); }}
-                      className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-[#0a0e14] font-medium hover:opacity-90 transition-opacity"
+                      className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-[var(--surface-canvas)] font-medium hover:opacity-90 transition-opacity"
                       aria-label="Confirmar saída"
                     >
                       Sair

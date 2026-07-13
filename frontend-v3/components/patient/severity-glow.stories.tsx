@@ -7,7 +7,7 @@ function SeverityGlowDemo() {
   const levels = ['normal', 'watch', 'urgent', 'critical'] as const;
 
   return (
-    <div className="flex flex-wrap gap-6 p-8" style={{ backgroundColor: 'var(--surface-base, #0a0e14)' }}>
+    <div className="flex flex-wrap gap-6 p-8" style={{ backgroundColor: 'var(--surface-canvas)' }}>
       {levels.map((sev) => (
         <div
           key={sev}
