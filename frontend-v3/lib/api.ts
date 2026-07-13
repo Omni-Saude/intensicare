@@ -579,6 +579,51 @@ export async function fetchUsers(): Promise<{ items: UserInfo[]; total: number }
   return request<{ items: UserInfo[]; total: number }>('/admin/users');
 }
 
+// Backend enum — src/intensicare/auth/dependencies.py CLINICAL_ROLES; the
+// UserCreate.role validator in src/intensicare/api/v1/admin.py rejects any
+// other value with 422. Keep this list in sync with the backend.
+export type ClinicalRole =
+  | 'admin'
+  | 'medico'
+  | 'enfermeiro'
+  | 'fisioterapeuta'
+  | 'farmacia'
+  | 'nutricao'
+  | 'readonly';
+
+export const CLINICAL_ROLE_OPTIONS: { value: ClinicalRole; label: string }[] = [
+  { value: 'admin', label: 'Administrador' },
+  { value: 'medico', label: 'Médico' },
+  { value: 'enfermeiro', label: 'Enfermeiro' },
+  { value: 'fisioterapeuta', label: 'Fisioterapeuta' },
+  { value: 'farmacia', label: 'Farmácia' },
+  { value: 'nutricao', label: 'Nutrição' },
+  { value: 'readonly', label: 'Somente leitura' },
+];
+
+export interface UserCreatePayload {
+  username: string;
+  email: string;
+  password: string;
+  display_name?: string;
+  is_admin: boolean;
+  is_active: boolean;
+  role: ClinicalRole;
+}
+
+// POST /admin/users — 201 UserOut on success (shape matches UserInfo). 409
+// on duplicate username, 422 on validation failure (see UserCreate in
+// src/intensicare/api/v1/admin.py) — ApiError.detail carries the FastAPI
+// `detail` payload, which for 422s is a Pydantic error array rather than a
+// string; callers must not render it directly (see formatApiErrorDetail
+// in components/admin/user-manager.tsx).
+export async function createUser(payload: UserCreatePayload): Promise<UserInfo> {
+  return request<UserInfo>('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
