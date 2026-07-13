@@ -29,6 +29,25 @@ async def create_test_alert(db: AsyncSession, status="active", severity="watch")
     return alert
 
 
+async def _reader_headers(db: AsyncSession, username: str = "alerts-reader") -> dict[str, str]:
+    """Auth headers for a role='readonly' user — VIEWER has ALERTS/READ in the
+    ABAC matrix (see test_abac_clinical.py::test_readonly_can_list_alerts,
+    and TestAlertsPHIDecryption's _phi_reader_headers below, same pattern)."""
+    user = User(
+        username=username,
+        email=f"{username}@test.com",
+        hashed_password=hash_password("test-fixture-secret"),
+        role="readonly",
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    token = create_access_token({"sub": user.username, "user_id": user.id})
+    return {"Authorization": f"Bearer {token}"}
+
+
 class TestListAlerts:
     """Tests for GET /api/v1/alerts (AUDIT-007: {alerts, total} response)."""
 
@@ -94,6 +113,121 @@ class TestListAlerts:
         assert len(data["alerts"]) <= 2
         # total should be the unfiltered count
         assert data["total"] >= 5
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_status_resolved_filters_only_resolved(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """BUG-F5-01: status=resolved should return only resolved alerts —
+        before the fix, `status` was declared but the frontend's non-"active"
+        values were the ones silently dropped from visibility; this pins the
+        expanded status contract (active/acknowledged/escalated/resolved/all)
+        for the case that matters most for audit trail: resolved alerts."""
+        await create_test_alert(db_session, status="active", severity="watch")
+        await create_test_alert(db_session, status="acknowledged", severity="urgent")
+        await create_test_alert(db_session, status="resolved", severity="critical")
+        headers = await _reader_headers(db_session, "reader-resolved")
+
+        response = await client.get("/api/v1/alerts?status=resolved", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["mpi_id"] == "MPI-1001"
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_status_all_returns_all_statuses(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """BUG-F5-01: status=all must apply no status predicate — this is the
+        escape hatch that lets the Alerts page (or an auditor) see the full
+        lifecycle instead of only the default active-only view."""
+        mpi = "MPI-STATUS-ALL"
+        for i, alert_status in enumerate(
+            ["active", "acknowledged", "escalated", "resolved"]
+        ):
+            alert = Alert(
+                mpi_id=mpi,
+                score_id=None,
+                severity="watch",
+                status=alert_status,
+                title=f"All-status alert {i}",
+                body="test",
+                created_at=datetime.now(timezone.utc),
+            )
+            db_session.add(alert)
+        await db_session.flush()
+        headers = await _reader_headers(db_session, "reader-all")
+
+        response = await client.get(
+            f"/api/v1/alerts?status=all&mpi_id={mpi}&limit=200", headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 4
+        assert {a["mpi_id"] for a in data["items"]} == {mpi}
+        # only the default (status=active) would have returned 1; all=4 proves
+        # the predicate was actually dropped, not just widened.
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_severity_critical_filters(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """BUG-F5-01: severity=critical should filter Alert.severity — this
+        query param did not exist before the fix and was silently ignored
+        by FastAPI."""
+        mpi = "MPI-SEVERITY-CRIT"
+        for sev in ["normal", "watch", "urgent", "critical"]:
+            alert = Alert(
+                mpi_id=mpi,
+                score_id=None,
+                severity=sev,
+                status="active",
+                title=f"Severity alert {sev}",
+                body="test",
+                created_at=datetime.now(timezone.utc),
+            )
+            db_session.add(alert)
+        await db_session.flush()
+        headers = await _reader_headers(db_session, "reader-severity")
+
+        response = await client.get(
+            f"/api/v1/alerts?status=active&severity=critical&mpi_id={mpi}", headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_invalid_status_is_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """status is Literal-validated (BUG-F5-01 contract) — a value outside
+        active/acknowledged/escalated/resolved/all is rejected, not silently
+        treated as an empty-result no-op filter."""
+        headers = await _reader_headers(db_session, "reader-bad-status")
+
+        response = await client.get("/api/v1/alerts?status=bogus", headers=headers)
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_invalid_severity_is_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """severity is Literal-validated against Alert.severity's canonical
+        set (normal/watch/urgent/critical) — bad input 422s instead of
+        silently matching zero rows."""
+        headers = await _reader_headers(db_session, "reader-bad-severity")
+
+        response = await client.get("/api/v1/alerts?severity=bogus", headers=headers)
+
+        assert response.status_code == 422
 
 
 class TestAcknowledgeAlert:
