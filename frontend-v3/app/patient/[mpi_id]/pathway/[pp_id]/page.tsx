@@ -78,13 +78,20 @@ export default function PathwayViewPage() {
   );
 
   // Realtime: WebSocket + polling fallback (ADR-0034)
+  // BUG-F7-04 fix: the backend (PathwayEnrollmentService._publish_pathway_updated,
+  // src/intensicare/services/pathway_enrollment.py) publishes the enrollment's
+  // primary key as `patient_pathway_id`, not `pp_id` — confirmed both by the
+  // publish() call site there and by the alias-channel doc comment in
+  // lib/websocket.ts (toBackendChannel). Filtering on `pp_id` meant this
+  // page's `pathway.updated` / `pathway.state_changed` events were always
+  // silently dropped (payload.pp_id is always undefined, never === ppId).
   useRealtimeChannel('pathway.state_changed', (payload) => {
     const p = payload as Record<string, unknown> | undefined;
-    if (!p || (p.mpi_id === mpiId && p.pp_id === ppId)) mutate();
+    if (!p || (p.mpi_id === mpiId && p.patient_pathway_id === ppId)) mutate();
   }, { fallbackInterval: 60_000, filter: (p) => {
     if (!p) return true;
     const d = p as Record<string, unknown>;
-    return d.mpi_id === mpiId && d.pp_id === ppId;
+    return d.mpi_id === mpiId && d.patient_pathway_id === ppId;
   }});
 
   // Breadcrumb: show the pathway's name instead of the raw pp_id once loaded.
