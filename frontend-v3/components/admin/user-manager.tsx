@@ -663,8 +663,7 @@ export function UserManager() {
                 <th key={field} className="px-4 py-3 text-left">
                   <button
                     onClick={() => handleSort(field)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider transition-colors hover:opacity-80"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                     aria-label={`Ordenar por ${label}`}
                   >
                     {label}
