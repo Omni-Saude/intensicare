@@ -14,7 +14,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useConnectionStatus } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
@@ -114,6 +114,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, logout } = useAuth();
   const { status: connStatus } = useConnectionStatus();
 
+  // Mobile drawer focus trap — pattern copied from KeyboardShortcutsHelp
+  // (lib/keyboard-shortcuts.tsx) / CreateUserDialog (admin/user-manager.tsx):
+  // Esc closes, Tab cycles within the drawer while open, and focus returns
+  // to the trigger (hamburger) button on close. On large screens the same
+  // <aside> renders as a persistent, non-modal sidebar (lg:relative
+  // lg:translate-x-0) — the trap and aria-modal/role="dialog" only kick in
+  // while `sidebarOpen` is true, which only happens via the hamburger
+  // button that is itself hidden at lg (`lg:hidden`), so desktop navigation
+  // is never affected.
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const wasSidebarOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      // Drawer just closed — return focus to whatever opened it.
+      if (wasSidebarOpenRef.current) {
+        menuButtonRef.current?.focus();
+      }
+      wasSidebarOpenRef.current = false;
+      return;
+    }
+    wasSidebarOpenRef.current = true;
+
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSidebarOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const container = sidebarRef.current;
+      if (!container) return;
+
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [sidebarOpen]);
+
   // Don't render sidebar on login page, but keep shortcuts active (e.g. so
   // typing "g" while focused on the login form correctly does nothing).
   if (pathname === '/login') {
@@ -130,6 +188,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside
+        ref={sidebarRef}
+        id="app-sidebar"
+        role={sidebarOpen ? 'dialog' : undefined}
+        aria-modal={sidebarOpen ? 'true' : undefined}
+        aria-label={sidebarOpen ? 'Menu de navegação' : undefined}
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-64 bg-[var(--surface-raised)] border-r border-[var(--border-default)]',
           'transform transition-transform duration-200 ease-in-out',
@@ -143,6 +206,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Logo variant="full" theme="dark" className="h-8 w-auto" />
           </Link>
           <button
+            ref={closeButtonRef}
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-1 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Fechar menu"
@@ -244,9 +308,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Top bar */}
         <header className="flex items-center h-16 px-4 border-b border-[var(--border-default)] bg-[var(--surface-canvas)]">
           <button
+            ref={menuButtonRef}
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden mr-3 p-1 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Abrir menu"
+            aria-expanded={sidebarOpen}
+            aria-controls="app-sidebar"
           >
             <Menu className="h-5 w-5" />
           </button>

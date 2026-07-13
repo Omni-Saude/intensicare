@@ -21,7 +21,7 @@ export function StatsBar({ total, criticalCount, unit }: StatsBarProps) {
 
   return (
     <div
-      className="flex items-center gap-4 px-4 py-3 rounded-[var(--radius-md)]"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 rounded-[var(--radius-md)]"
       style={{
         backgroundColor: 'var(--surface-raised)',
         borderColor: 'var(--border-default)',
