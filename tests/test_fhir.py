@@ -16,7 +16,6 @@ from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-import pytest
 
 from intensicare.fhir.client import (
     FHIRClient,
@@ -271,24 +270,20 @@ class TestFHIRPatientData:
 class TestFHIRClientUnconfigured:
     """FHIRClient with no base_url should always return None gracefully."""
 
-    @pytest.mark.anyio
     async def test_is_configured_false(self) -> None:
         client = FHIRClient(base_url="")
         assert client.is_configured is False
 
-    @pytest.mark.anyio
     async def test_get_patient_returns_none(self) -> None:
         client = FHIRClient(base_url="")
         result = await client.get_patient("MPI-12345")
         assert result is None
 
-    @pytest.mark.anyio
     async def test_get_observation_returns_none(self) -> None:
         client = FHIRClient(base_url="")
         result = await client.get_observation("MPI-12345", "8867-4")
         assert result is None
 
-    @pytest.mark.anyio
     async def test_search_returns_none(self) -> None:
         client = FHIRClient(base_url="")
         result = await client.search("Patient", identifier="MPI-12345")
@@ -298,7 +293,6 @@ class TestFHIRClientUnconfigured:
 class TestFHIRClientConfigured:
     """FHIRClient with a base_url should make real HTTP calls (mocked)."""
 
-    @pytest.mark.anyio
     async def test_get_patient_success(self) -> None:
         """Simulate a successful FHIR Patient query."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -319,7 +313,6 @@ class TestFHIRClientConfigured:
         assert result.gender == "male"
         assert result.primary_condition == "Hypertension"
 
-    @pytest.mark.anyio
     async def test_get_patient_404(self) -> None:
         """404 from FHIR returns a FHIRPatientData with only mpi_id."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -339,7 +332,6 @@ class TestFHIRClientConfigured:
         assert result.mpi_id == "MPI-UNKNOWN"
         assert result.display_name is None
 
-    @pytest.mark.anyio
     async def test_get_patient_connection_error(self) -> None:
         """Connection error returns None gracefully."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -352,7 +344,6 @@ class TestFHIRClientConfigured:
 
         assert result is None
 
-    @pytest.mark.anyio
     async def test_get_patient_timeout(self) -> None:
         """Timeout returns None gracefully."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -365,7 +356,6 @@ class TestFHIRClientConfigured:
 
         assert result is None
 
-    @pytest.mark.anyio
     async def test_get_observation_success(self) -> None:
         """Successful Observation fetch returns the resource."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -385,7 +375,6 @@ class TestFHIRClientConfigured:
         assert result["resourceType"] == "Observation"
         assert result["code"]["coding"][0]["code"] == "8867-4"
 
-    @pytest.mark.anyio
     async def test_close_cleans_up(self) -> None:
         """close() should close the underlying HTTP client."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -407,7 +396,6 @@ class TestFHIRClientConfigured:
 class TestPatientServiceFHIREnrichment:
     """Test the patient service with FHIR enrichment on/off."""
 
-    @pytest.mark.anyio
     async def test_enrich_skipped_when_fhir_not_configured(self) -> None:
         """When FHIR_BASE_URL is empty, enrichment returns None."""
         # Deliberately deferred: a module-level import of intensicare.services.patients
@@ -421,7 +409,6 @@ class TestPatientServiceFHIREnrichment:
             result = await _enrich_from_fhir("MPI-12345")
             assert result is None
 
-    @pytest.mark.anyio
     async def test_get_patient_status_without_enrich(self, mock_db_session: AsyncMock) -> None:
         """When enrich=False, fhir field stays None."""
         # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.
@@ -434,7 +421,6 @@ class TestPatientServiceFHIREnrichment:
         assert result.fhir is None
         assert result.mpi_id == "MPI-12345"
 
-    @pytest.mark.anyio
     async def test_get_patient_status_with_enrich_success(self, mock_db_session: AsyncMock) -> None:
         """When enrich=True and FHIR returns data, fhir field is populated."""
         # Deferred: see test_enrich_skipped_when_fhir_not_configured for rationale.

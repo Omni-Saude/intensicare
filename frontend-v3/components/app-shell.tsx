@@ -64,8 +64,8 @@ function Breadcrumb() {
 
   return (
     <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
-      <Link href="/" className="hover:text-[var(--text-primary)] transition-colors">
-        <Home className="h-3.5 w-3.5" />
+      <Link href="/" className="hover:text-[var(--text-primary)] transition-colors" aria-label="Início">
+        <Home className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
       {crumbs.map((crumb) => (
         <span key={crumb.href} className="flex items-center gap-1">

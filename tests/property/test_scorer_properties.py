@@ -17,7 +17,7 @@ Integration note:
   assertion and remove ``pass``.
 """
 
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,25 @@ plausible_vital_sign_strategy = st.fixed_dictionaries(
 )
 
 # ---------------------------------------------------------------------------
+# Domain-targeted strategies — generate directly inside the "0 points" band
+# instead of sampling the wide strategy and filtering with assume(). Ranges
+# are read straight from the clinical tables in the scorer source, not
+# reverse-engineered from the tests:
+#   - MEWS heart rate "normal" band: services/mews.py v3 (Subbe 2001),
+#     MEWS_HR_BRADY_MODERATE_MAX (50) < value <= MEWS_HR_NORMAL_MAX (100)
+#     i.e. 51-100 bpm inclusive -> 0 points.
+#   - qSOFA "normal" vitals: services/qsofa.py (Sepsis-3 / Singer 2016):
+#     respiratory_rate < QSOFA_RR_TACHYPNEA_MIN (22) -> 0
+#     systolic_bp > QSOFA_SBP_HYPOTENSION_MAX (100) -> 0
+#     gcs == QSOFA_GCS_NORMAL (15) is the only value with gcs < 15 == False -> 0
+# ---------------------------------------------------------------------------
+
+mews_normal_heart_rate_strategy = st.integers(min_value=51, max_value=100)
+
+qsofa_normal_respiratory_rate_strategy = st.integers(min_value=0, max_value=21)
+qsofa_normal_systolic_bp_strategy = st.integers(min_value=101, max_value=300)
+
+# ---------------------------------------------------------------------------
 # MEWS v2.0.0
 # ---------------------------------------------------------------------------
 
@@ -72,15 +91,23 @@ class TestMEWSProperties:
         # assert score >= 0, f"MEWS score {score} is negative for vitals={vitals}"
         pass
 
-    @given(vitals=vital_sign_strategy)
+    @given(heart_rate=mews_normal_heart_rate_strategy)
     @settings(max_examples=50)
-    def test_mews_normal_heart_rate_zero_points(self, vitals: dict) -> None:
-        """Normal heart rate (51-100 bpm) should contribute 0 points."""
-        assume(51 <= vitals["heart_rate"] <= 100)
-        # TODO: wire to actual scorer
-        # from intensicare.scoring.mews import _mews_hr_score
-        # assert _mews_hr_score(vitals["heart_rate"]) == 0
-        pass
+    def test_mews_normal_heart_rate_zero_points(self, heart_rate: int) -> None:
+        """Normal heart rate (51-100 bpm) should contribute 0 points.
+
+        Strategy generates directly inside the normal band (51-100, per
+        MEWS_HR_BRADY_MODERATE_MAX/MEWS_HR_NORMAL_MAX in services/mews.py)
+        instead of sampling a wide range and filtering with assume() —
+        avoids Hypothesis's filter_too_much health check.
+        """
+        from intensicare.services.mews import _score_heart_rate
+
+        result = _score_heart_rate(heart_rate)
+        assert result["heart_rate"] == 0, (
+            f"HR {heart_rate} is in the documented normal band (51-100) "
+            f"but scored {result['heart_rate']} points, expected 0"
+        )
 
     @given(vitals=vital_sign_strategy)
     @settings(max_examples=50)
@@ -247,18 +274,30 @@ class TestQSOFAProperties:
         # assert 0 <= score <= 3, f"qSOFA score {score} out of [0,3] range"
         pass
 
-    @given(vitals=vital_sign_strategy)
+    @given(
+        respiratory_rate=qsofa_normal_respiratory_rate_strategy,
+        systolic_bp=qsofa_normal_systolic_bp_strategy,
+    )
     @settings(max_examples=50)
-    def test_qsofa_normal_vitals_zero(self, vitals: dict) -> None:
-        """Perfectly normal vitals should yield qSOFA = 0."""
-        assume(vitals["respiratory_rate"] < 22)
-        assume(vitals["systolic_bp"] > 100)
-        # GCS / AVPU "A" — but our strategy doesn't emit GCS directly
-        assume(vitals["avpu"] == "A")
-        # TODO: wire to actual scorer
-        # from intensicare.scoring.qsofa import calculate_qsofa
-        # assert calculate_qsofa(vitals) == 0
-        pass
+    def test_qsofa_normal_vitals_zero(self, respiratory_rate: int, systolic_bp: int) -> None:
+        """Perfectly normal vitals should yield qSOFA = 0.
+
+        Strategies generate directly inside the "0 points" bands per
+        services/qsofa.py (QSOFA_RR_TACHYPNEA_MIN=22, QSOFA_SBP_HYPOTENSION_MAX=100)
+        instead of sampling a wide range and filtering with assume() — avoids
+        Hypothesis's filter_too_much health check. GCS is fixed at 15 (the
+        scorer's own "normal" constant, QSOFA_GCS_NORMAL) since the scorer
+        takes a raw GCS value, not AVPU — the wide vital_sign_strategy doesn't
+        emit GCS at all, so there is no domain to sample there.
+        """
+        from intensicare.services.qsofa import calculate_qsofa
+
+        result = calculate_qsofa(respiratory_rate=respiratory_rate, systolic_bp=systolic_bp, gcs=15)
+        assert result.total_score == 0, (
+            f"Normal vitals (RR={respiratory_rate}, SBP={systolic_bp}, GCS=15) "
+            f"scored qSOFA={result.total_score}, expected 0. "
+            f"Components: {result.components}"
+        )
 
     @given(vitals=vital_sign_strategy)
     @settings(max_examples=50)

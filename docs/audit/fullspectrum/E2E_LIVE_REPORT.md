@@ -111,3 +111,35 @@ Encontrados pelos fluxos e deliberadamente NÃO tocados (rastreados nas re-audit
 1. **PR** `fix/e2e-live-runtime` → `main` aberto e pronto; branch protection exige review humana de code-owner (gate legítimo — não forçado). CI required: Lint & Type Check + Security Scan + Frontend Lint & Build (tsc limpo, drift 87/87, ruff/mypy nos arquivos tocados).
 2. Dívidas priorizadas para o próximo ciclo: banda por critério (F4-02), `alert.updated`/`vitals.updated` publishers, hydration mismatch do /login, persistir `note` do resolve.
 3. Pendências de dono humano (inalteradas): sign-off clínico formal; review dos PRs; roadmap preditivo/CDC.
+
+---
+
+## ADENDO — FASE 2: Estabilização da suíte de testes + A11y runtime + diagnósticos (2026-07-13, mesma sessão)
+
+Comissionada pelo owner após o veredito: (1) consertar as ~95 falhas pré-existentes do main; (2) causa raiz dos diagnósticos do VS Code, sem workarounds.
+
+### Suíte de testes: 100 failed + 83 errors → **2930 passed, 1 xfailed, 0 failed, 0 errors** (2 rodadas idênticas)
+
+- **A falsa "dívida de pooling asyncpg" era conflito de plugins pytest**: markers `@pytest.mark.anyio` em `test_phase2_tables.py`/`test_fhir.py` × fixtures de sessão do pytest-asyncio → `ScopeMismatch` corrompia o loop e TODO arquivo coletado depois morria com `InterfaceError`. Fix: markers removidos, plugin anyio desligado (`-p no:anyio`), `NullPool` defensivo no engine de teste. Sozinho limpou ~55 F/E.
+- **Drift teste↔produto corrigido nos TESTES** (produto certo): auth/RBAC ausente pós-Sprint-1 (test_alerts 18F, ingestion_idempotency 9F), mocks/patches desalinhados (telemetry/secrets/pgcrypto/require_admin sem await, 11F), asserts pontuais (7 versões seedadas, time-bomb de data, enums de vetores TV-7/8, redirect /health, credencial de câmera, contrato camelCase deliberado dos clinical-forms — 6 arquivos), helper PHI gravando str em BYTEA (test_websocket), fluid_balance com campos fabricados (arqueologia git: commit 7f7fe4b).
+- **1 BUG-PRODUTO real**: rota contratada `GET /patients/{id}/status` quebrada silenciosamente pelo reroteamento do commit `2817bac` (404 sem PatientCache) — **restaurada null-safe** (decisão por evidência: consta em patients-base-openapi.yaml), contrato regenerado do `app.openapi()`, drift 87/87.
+- **Infra de teste**: DDL da migração 0003 (hypertable + trigger de imutabilidade do audit_trail) transplantado ao conftest; property-tests estavam INERTES (corpo `pass`) — agora ligados aos scorers reais (MEWS/qSOFA), sem contraexemplo clínico.
+- **Exclusões documentadas** (mandato "exclude what doesn't belong"): deletados `test_auth_stub.py` (módulo inexistente) e `test_domain_trilhas_engine.py` (motor deprecado, remoção 2026-09-01); `test_domain_prescricao.py` (45E) ignorado no pyproject com justificativa — testa a API in-memory pré-v3.2.0 de módulo reescrito para Postgres; reescrita = backlog dedicado.
+- **Achado de risco além dos testes**: `.env`/`.env.example` com comentários inline envenenando o pydantic-settings (`redis_url` continha `'redis://# Required in production@...'`; `KMS_CMK_ARN` idem) — corrigidos; backend rebootado com config limpa. Venv estava dessincronizado do pyproject (hypothesis/pytz/boto3 declarados e ausentes; mypy/pytest-cov fora do range pinado) — sincronizado.
+
+### A11y runtime (round 2): axe 28 violações → **0** nos 9 estados autenticados
+
+O lint estático do Edge Tools misturava falso-positivo com bug real. Adjudicado por axe-core em runtime: `aria-selected={expr}` = falso-positivo (padrão JSX); MAS `criteria-row` sem `role="listitem"` e `alert-trace` sem `role="list"` eram violações CRITICAL reais — e o runtime revelou 5 problemas sistemáticos que o lint nem viu: breadcrumb sem nome acessível (todas as telas), `nested-interactive` (50 nodes em /alerts — linhas reestruturadas para padrão APG disclosure com botão dedicado), contraste (opacity-60 sobre tokens; hover por opacity), banner landmark duplicado, heading-order. Tudo corrigido e re-verificado por gatekeeper (antes→depois por estado em `artifacts/axe-sweep{,-after,-final}/`).
+
+### Diagnósticos VS Code / hydration
+
+- Hydration no `<body>`: extensão Grammarly injeta `data-gr-*` pré-hidratação — `suppressHydrationWarning` no body (API documentada; prova determinística por injeção simulada). Warning irmão do headless: irreproduzível em ~60 tentativas, artefato de dev-mode (Turbopack/next-devtools); nonce descartado por design do React. Documentado, não corrigido.
+- `ci.yml environment: staging/production`: environments não existiam no repo — criados via API (raiz).
+- cSpell: projeto bilíngue — `cspell.json` (en,pt,pt-BR) + `.cspell-domain.txt`. Edge Tools webhint: desligado no workspace local (`.vscode/` é gitignored) com base na evidência runtime.
+- Warnings `vars.NEXT_PUBLIC_*` (fallback `|| ''` existente) e `secrets.AWS_*`/EKS (segredos de deploy futuros): legítimos, documentados, sem churn.
+- Inconsistência de docs anotada: `formularios-clinicos-openapi.yaml` descreve endpoint diferente do implementado em `api/clinical_forms.py` (backlog).
+
+### Backlog remanescente (documentado, fora de escopo)
+Reescrita de `test_domain_prescricao` contra o serviço DB-backed; testes maezo/alert_compiler (já ignorados anteriormente); banda de severidade por critério; publishers `alert.updated`/`vitals.updated`; persistir `note` do resolve; reconciliar YAML de formulários.
+
+**Nota para o CI**: com a suíte verde e estável, o job `Test — Python` está apto a voltar a required check da branch protection (decisão do owner).

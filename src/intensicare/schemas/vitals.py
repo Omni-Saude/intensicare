@@ -16,7 +16,10 @@ AVPU_VALUES = frozenset({"A", "C", "V", "P", "U"})
 class VitalSignCreate(BaseModel):
     """Schema para criação de registro de sinais vitais.
 
-    Todos os campos são opcionais exceto mpi_id e recorded_at.
+    ``mpi_id`` é o único campo verdadeiramente obrigatório. ``recorded_at``
+    tem ``default_factory`` (agora em UTC) — se omitido, a requisição é
+    aceita e datada com o instante do request, em vez de ser rejeitada.
+    Todos os demais campos são opcionais.
     """
 
     mpi_id: str = Field(

@@ -154,13 +154,25 @@ class TestAuditTrailImmutable:
         entry = await self._create_entry(db_session)
         original_actor = entry.actor
 
-        # Tenta UPDATE (deve falhar)
+        # Tenta UPDATE (deve falhar). Usamos begin_nested() (SAVEPOINT
+        # aninhado, escopado só a este bloco) em vez de deixar o erro
+        # propagar solto: o trigger de imutabilidade aborta a transação
+        # Postgres em curso (InFailedSqlTransactionError em qualquer
+        # statement seguinte até um ROLLBACK). Um db_session.rollback() aqui
+        # desfaria TODA a transação lógica da sessão — inclusive o INSERT
+        # de `entry` feito por _create_entry(), já que a sessão faz autobegin
+        # uma única vez e só encerra esse "logical transaction" em
+        # commit()/rollback() explícito (ver conftest db_session:
+        # join_transaction_mode="create_savepoint" cria só UM SAVEPOINT para
+        # toda a vida da sessão). begin_nested() cria um SAVEPOINT interno
+        # próprio que é revertido sozinho ao sair por exceção, preservando o
+        # restante da sessão (e o `entry` já persistido) intactos.
         try:
-            await db_session.execute(
-                text("UPDATE audit_trail SET actor = 'hacker' WHERE id = :id"),
-                {"id": entry.id},
-            )
-            await db_session.flush()
+            async with db_session.begin_nested():
+                await db_session.execute(
+                    text("UPDATE audit_trail SET actor = 'hacker' WHERE id = :id"),
+                    {"id": entry.id},
+                )
         except Exception:  # noqa: S110 — failure itself is the assertion (UPDATE must be blocked)
             pass
 

@@ -17,6 +17,7 @@ interface AlertRowProps {
 
 export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
   const [expanded, setExpanded] = useState(false);
+  const detailsId = `alert-${alert.id}-details`;
 
   const createdAt = new Date(alert.created_at).toLocaleString('pt-BR', {
     day: '2-digit',
@@ -39,29 +40,42 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
       )}
       role="listitem"
     >
-      {/* Summary row */}
+      {/*
+        Summary row — the container itself is intentionally NOT interactive
+        (no role="button"/tabIndex/onKeyDown). It contains focusable children
+        (patient link, pathway link, quick-action buttons), so making the
+        whole row a nested control would trap those children inside another
+        control (axe: nested-interactive). Instead we follow the WAI-ARIA APG
+        "disclosure" pattern: a single dedicated <button> below owns the
+        expand/collapse semantics (aria-expanded/aria-controls) and is a
+        SIBLING of the links/actions, not their ancestor. The onClick here is
+        kept as a mouse-only progressive-enhancement convenience (click
+        anywhere on the row to expand); it is not reachable via keyboard
+        because the div has no tabIndex, so it never competes with the
+        disclosure button or the nested controls for focus.
+      */}
       <div
-        className="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--severity-watch)]"
+        className="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3"
         onClick={() => setExpanded(!expanded)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setExpanded(!expanded);
-          }
-        }}
-        tabIndex={0}
-        role="button"
-        aria-expanded={expanded}
-        aria-label={`Alerta ${alert.id}: ${alert.title} — ${expanded ? 'Recolher' : 'Expandir'} detalhes`}
       >
-        {/* Expand icon */}
-        <span className="text-[var(--text-secondary)]" aria-hidden="true">
+        {/* Disclosure control — the sole keyboard/AT-accessible trigger */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(!expanded);
+          }}
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          aria-label={`Alerta ${alert.id}: ${alert.title} — ${expanded ? 'Recolher' : 'Expandir'} detalhes`}
+          className="flex-shrink-0 rounded text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)]"
+        >
           {expanded ? (
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
           )}
-        </span>
+        </button>
 
         {/* Severity */}
         <SeverityBadge severity={alert.severity} />
@@ -133,49 +147,56 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
         </div>
       </div>
 
-      {/* Expanded detail */}
-      {expanded && (
-        <div
-          className="border-t border-[var(--border-default)] px-4 py-3"
-          role="region"
-          aria-label="Detalhes do alerta"
-        >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <span className="text-xs text-[var(--text-secondary)]">Tipo</span>
-              <p className="text-sm text-[var(--text-primary)]">{alert.type}</p>
-            </div>
-            <div>
-              <span className="text-xs text-[var(--text-secondary)]">Título</span>
-              <p className="text-sm text-[var(--text-primary)]">{alert.title}</p>
-            </div>
-            {alert.acknowledged_at && (
-              <div>
-                <span className="text-xs text-[var(--text-secondary)]">Reconhecido em</span>
-                <p className="text-sm text-[var(--text-primary)]">
-                  {new Date(alert.acknowledged_at).toLocaleString('pt-BR')}
-                </p>
-              </div>
-            )}
-            {alert.resolved_at && (
-              <div>
-                <span className="text-xs text-[var(--text-secondary)]">Resolvido em</span>
-                <p className="text-sm text-[var(--text-primary)]">
-                  {new Date(alert.resolved_at).toLocaleString('pt-BR')}
-                </p>
-                {alert.resolution && (
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Motivo: {alert.resolution}
-                  </p>
-                )}
-              </div>
-            )}
+      {/*
+        Expanded detail — kept mounted at all times (visibility toggled via
+        the `hidden` attribute) rather than conditionally rendered, so
+        aria-controls={detailsId} on the disclosure button above always
+        resolves to a real node in the accessibility tree. AlertTrace is a
+        pure presentational computation from props (no fetch/side effects),
+        so always-mounting it is inexpensive.
+      */}
+      <div
+        id={detailsId}
+        hidden={!expanded}
+        className="border-t border-[var(--border-default)] px-4 py-3"
+        role="region"
+        aria-label="Detalhes do alerta"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <span className="text-xs text-[var(--text-secondary)]">Tipo</span>
+            <p className="text-sm text-[var(--text-primary)]">{alert.type}</p>
           </div>
-
-          {/* Traceability */}
-          <AlertTrace alert={alert} />
+          <div>
+            <span className="text-xs text-[var(--text-secondary)]">Título</span>
+            <p className="text-sm text-[var(--text-primary)]">{alert.title}</p>
+          </div>
+          {alert.acknowledged_at && (
+            <div>
+              <span className="text-xs text-[var(--text-secondary)]">Reconhecido em</span>
+              <p className="text-sm text-[var(--text-primary)]">
+                {new Date(alert.acknowledged_at).toLocaleString('pt-BR')}
+              </p>
+            </div>
+          )}
+          {alert.resolved_at && (
+            <div>
+              <span className="text-xs text-[var(--text-secondary)]">Resolvido em</span>
+              <p className="text-sm text-[var(--text-primary)]">
+                {new Date(alert.resolved_at).toLocaleString('pt-BR')}
+              </p>
+              {alert.resolution && (
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Motivo: {alert.resolution}
+                </p>
+              )}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Traceability */}
+        <AlertTrace alert={alert} />
+      </div>
     </div>
   );
 }

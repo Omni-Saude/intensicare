@@ -105,16 +105,24 @@ def test_alert_vector_structure(vector: dict[str, Any]) -> None:
     assert "inputs" in vector, f"Vector {vector_id} missing inputs"
 
     # Valid kind values
+    # "break-through" (TV-7/TV-8, correlation-engine.yaml:79-80): break-through
+    # vectors for the correlation-engine fold cooldown, adjudicated
+    # RT2-PATIENT-SAFETY-01 — a folded member re-notifies immediately despite
+    # a live cooldown, which is neither a plain fire nor no-fire scenario.
     assert vector["kind"] in (
         "fire",
         "no-fire",
         "boundary",
+        "break-through",
     ), f"Vector {vector_id}: invalid kind '{vector['kind']}'"
 
     # Valid expected values
+    # "member-delivers" (TV-7/TV-8): the folded MEMBER alert (not the
+    # correlation itself) is what pages — distinct outcome from fire/no-fire.
     assert vector["expected"] in (
         "fire",
         "no-fire",
+        "member-delivers",
     ), f"Vector {vector_id}: invalid expected '{vector['expected']}'"
 
     # Consistency: kind="fire" implies expected="fire"

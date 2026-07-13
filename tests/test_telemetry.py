@@ -11,6 +11,7 @@ Covers:
   - is_telemetry_available reports initialisation state
 """
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,6 +27,46 @@ from intensicare.core.telemetry import (
     is_telemetry_available,
     trace_stage,
 )
+
+# ─── Helpers to fake the OTEL SDK being importable ───────────────────────────
+#
+# telemetry.py imports `opentelemetry.*` lazily *inside* functions (never at
+# module scope), so `trace`, `TracerProvider`, etc. are not attributes of
+# `intensicare.core.telemetry` and cannot be patched with
+# `patch("intensicare.core.telemetry.<name>", ...)`. To simulate the "OTEL
+# SDK is installed" path, inject fake modules directly into `sys.modules`
+# (via `patch.dict`) for every dotted path telemetry.py imports from — this
+# is the "OTEL is available" counterpart to the "OTEL is not installed"
+# tests below (which patch `builtins.__import__` to raise `ImportError`).
+
+
+def _fake_otel_modules(*, trace_module: MagicMock | None = None) -> dict[str, MagicMock]:
+    """Build a sys.modules mapping that satisfies telemetry.py's lazy imports."""
+    top_level = trace_module if trace_module is not None else MagicMock()
+
+    resources_module = MagicMock()
+    resources_module.SERVICE_NAME = "service.name"
+    resources_module.Resource = MagicMock()
+
+    sdk_trace_module = MagicMock()
+    sdk_trace_module.TracerProvider = MagicMock()
+
+    return {
+        "opentelemetry": MagicMock(trace=top_level),
+        "opentelemetry.exporter": MagicMock(),
+        "opentelemetry.exporter.otlp": MagicMock(),
+        "opentelemetry.exporter.otlp.proto": MagicMock(),
+        "opentelemetry.exporter.otlp.proto.http": MagicMock(),
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter": MagicMock(
+            OTLPSpanExporter=MagicMock()
+        ),
+        "opentelemetry.sdk": MagicMock(),
+        "opentelemetry.sdk.resources": resources_module,
+        "opentelemetry.sdk.trace": sdk_trace_module,
+        "opentelemetry.sdk.trace.export": MagicMock(BatchSpanProcessor=MagicMock()),
+        "opentelemetry.sdk.trace.sampling": MagicMock(ALWAYS_ON=MagicMock()),
+    }
+
 
 # ─── Fixture to guard global state ───────────────────────────────────────────
 
@@ -50,13 +91,10 @@ class TestGetTracer:
 
     def test_returns_noop_when_otel_not_installed(self):
         """When opentelemetry is not importable, get_tracer returns NoOpTracer."""
-        # The module allows optional import; set the import to fail
-        with (
-            patch("intensicare.core.telemetry.trace", None),
-            patch("intensicare.core.telemetry.trace", create=True),
-        ):
-            pass
-        # With the import failing inside get_tracer, should return _NoOpTracer
+        # get_tracer() imports `opentelemetry.trace` lazily inside the
+        # function body, so simulate "SDK not installed" by making the
+        # import itself fail rather than patching a module attribute that
+        # doesn't exist.
         with patch(
             "builtins.__import__",
             side_effect=ImportError("No OTEL"),
@@ -123,7 +161,11 @@ class TestGetCurrentTraceID:
         mock_trace = MagicMock()
         mock_trace.get_current_span.return_value = mock_span
 
-        with patch("intensicare.core.telemetry.trace", mock_trace):
+        # get_current_trace_id() does `from opentelemetry import trace`
+        # lazily inside the function, so inject a fake `opentelemetry`
+        # module into sys.modules rather than patching a (nonexistent)
+        # module-level attribute.
+        with patch.dict(sys.modules, {"opentelemetry": MagicMock(trace=mock_trace)}):
             trace_id = get_current_trace_id()
             assert trace_id is not None
             assert len(trace_id) == 32
@@ -166,25 +208,16 @@ class TestInitTelemetry:
         """After init_telemetry, _telemetry_state.initialized should be True."""
         _telemetry_state.initialized = False
 
-        # Simulate success path
+        # Simulate success path. All of init_telemetry's OTEL imports
+        # (trace, TracerProvider, OTLPSpanExporter, ...) are local imports
+        # inside the function body, so they must be faked via sys.modules
+        # rather than via `patch("intensicare.core.telemetry.<name>", ...)`
+        # (those names are not module-level attributes). `_auto_instrument`
+        # *is* a real module-level attribute, so it's still patched directly.
         with (
-            patch(
-                "intensicare.core.telemetry.TracerProvider",
-                MagicMock(),
-            ),
-            patch(
-                "intensicare.core.telemetry.OTLPSpanExporter",
-                MagicMock(),
-            ),
-            patch(
-                "intensicare.core.telemetry.BatchSpanProcessor",
-                MagicMock(),
-            ),
+            patch.dict(sys.modules, _fake_otel_modules()),
             patch(
                 "intensicare.core.telemetry._auto_instrument",
-            ),
-            patch(
-                "intensicare.core.telemetry.trace",
             ),
         ):
             init_telemetry(traces_enabled=True, metrics_enabled=False)

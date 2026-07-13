@@ -53,43 +53,52 @@ class TestListAlerts:
 
     @pytest.mark.asyncio
     async def test_list_active_alerts_wrapped(self, client: AsyncClient, db_session: AsyncSession):
-        """Should return {alerts, total} instead of bare array."""
-        await create_test_alert(db_session, status="active", severity="watch")
-        await create_test_alert(db_session, status="acknowledged", severity="urgent")
+        """Should return {items, total} instead of bare array."""
+        active_alert = await create_test_alert(db_session, status="active", severity="watch")
+        ack_alert = await create_test_alert(db_session, status="acknowledged", severity="urgent")
+        headers = await _reader_headers(db_session, "reader-list-wrapped")
 
-        response = await client.get("/api/v1/alerts?status=active")
+        response = await client.get("/api/v1/alerts?status=active", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
-        # AUDIT-007: response is {alerts, total}, not bare array
-        assert "alerts" in data
+        # AUDIT-007: response is {items, total} (AlertListResponse), not bare array
+        assert "items" in data
         assert "total" in data
-        assert isinstance(data["alerts"], list)
+        assert isinstance(data["items"], list)
         assert isinstance(data["total"], int)
         assert data["total"] >= 1
-        assert all(a["status"] == "active" for a in data["alerts"])
+        # AlertResponse (api.ts AlertInfo) has no `status` field — the
+        # filter is verified by identity: the ?status=active query must
+        # include the active alert and exclude the acknowledged one.
+        returned_ids = {a["id"] for a in data["items"]}
+        assert active_alert.id in returned_ids
+        assert ack_alert.id not in returned_ids
 
     @pytest.mark.asyncio
     async def test_list_alerts_with_mpi_filter(self, client: AsyncClient, db_session: AsyncSession):
         """Should filter by mpi_id and return wrapped shape."""
         await create_test_alert(db_session, status="active")
+        headers = await _reader_headers(db_session, "reader-mpi-filter")
 
-        response = await client.get("/api/v1/alerts?status=active&mpi_id=MPI-1001")
+        response = await client.get("/api/v1/alerts?status=active&mpi_id=MPI-1001", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
-        assert "alerts" in data
+        assert "items" in data
         assert data["total"] >= 1
-        assert all(a["mpi_id"] == "MPI-1001" for a in data["alerts"])
+        assert all(a["mpi_id"] == "MPI-1001" for a in data["items"])
 
     @pytest.mark.asyncio
-    async def test_list_alerts_empty(self, client: AsyncClient):
-        """Should return {alerts: [], total: 0} when no alerts."""
-        response = await client.get("/api/v1/alerts?status=active")
+    async def test_list_alerts_empty(self, client: AsyncClient, db_session: AsyncSession):
+        """Should return {items: [], total: 0} when no alerts."""
+        headers = await _reader_headers(db_session, "reader-list-empty")
+
+        response = await client.get("/api/v1/alerts?status=active", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
-        assert data == {"alerts": [], "total": 0}
+        assert data == {"items": [], "total": 0}
 
     @pytest.mark.asyncio
     async def test_list_alerts_respects_limit(self, client: AsyncClient, db_session: AsyncSession):
@@ -105,12 +114,13 @@ class TestListAlerts:
             )
             db_session.add(alert)
         await db_session.flush()
+        headers = await _reader_headers(db_session, "reader-list-limit")
 
-        response = await client.get("/api/v1/alerts?status=active&limit=2")
+        response = await client.get("/api/v1/alerts?status=active&limit=2", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["alerts"]) <= 2
+        assert len(data["items"]) <= 2
         # total should be the unfiltered count
         assert data["total"] >= 5
 
@@ -248,6 +258,10 @@ class TestAcknowledgeAlert:
             email="nurse@test.com",
             hashed_password=hash_password("nurse1234"),
             is_active=True,
+            # role="medico" — require_abac(ACKNOWLEDGE) runs before the
+            # 404 lookup; default role="readonly" (VIEWER) would 403
+            # first and never exercise the not-found branch under test.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -273,6 +287,9 @@ class TestAcknowledgeAlert:
             email="nurse@test.com",
             hashed_password=hash_password("nurse1234"),
             is_active=True,
+            # role="medico" — see test_acknowledge_not_found: ABAC ACKNOWLEDGE
+            # gates this route before the status-conflict check runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -343,6 +360,9 @@ class TestResolveAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — require_abac(ACKNOWLEDGE) runs before the
+            # 404 lookup; default role="readonly" (VIEWER) would 403 first.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -368,6 +388,9 @@ class TestResolveAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly (VIEWER)
+            # would 403 before ever reaching the resolve transition.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -382,9 +405,12 @@ class TestResolveAlert:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "resolved"
+        # AlertResponse (api.ts AlertInfo) has no `status` field; verify the
+        # transition at the DB layer instead.
         assert data["resolution"] == "true_positive"
         assert data["resolved_at"] is not None
+        await db_session.refresh(alert, attribute_names=["status"])
+        assert alert.status == "resolved"
 
     @pytest.mark.asyncio
     async def test_resolve_invalid_resolution(self, client: AsyncClient, db_session: AsyncSession):
@@ -395,6 +421,9 @@ class TestResolveAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate runs before resolution
+            # validation; default readonly (VIEWER) would 403 first.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -418,6 +447,9 @@ class TestResolveAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the status-conflict check runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -441,6 +473,9 @@ class TestResolveAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the status-transition check runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -478,6 +513,9 @@ class TestEscalateAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — require_abac(ACKNOWLEDGE) runs before the
+            # 404 lookup; default role="readonly" (VIEWER) would 403 first.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -502,6 +540,9 @@ class TestEscalateAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the escalate transition runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -515,8 +556,10 @@ class TestEscalateAlert:
         )
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "escalated"
+        # AlertResponse (api.ts AlertInfo) has no `status` field; verify the
+        # transition at the DB layer instead.
+        await db_session.refresh(alert, attribute_names=["status"])
+        assert alert.status == "escalated"
 
     @pytest.mark.asyncio
     async def test_escalate_success_from_acknowledged(
@@ -529,6 +572,9 @@ class TestEscalateAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the escalate transition runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -541,8 +587,10 @@ class TestEscalateAlert:
         )
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "escalated"
+        # AlertResponse (api.ts AlertInfo) has no `status` field; verify the
+        # transition at the DB layer instead.
+        await db_session.refresh(alert, attribute_names=["status"])
+        assert alert.status == "escalated"
 
     @pytest.mark.asyncio
     async def test_escalate_already_resolved(self, client: AsyncClient, db_session: AsyncSession):
@@ -553,6 +601,9 @@ class TestEscalateAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the status-conflict check runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -575,6 +626,9 @@ class TestEscalateAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" — ABAC ACKNOWLEDGE gate; default readonly
+            # (VIEWER) would 403 before the status-conflict check runs.
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -596,20 +650,25 @@ class TestTraceAlert:
     async def test_trace_alert_success(self, client: AsyncClient, db_session: AsyncSession):
         """Should return alert details."""
         alert = await create_test_alert(db_session)
+        headers = await _reader_headers(db_session, "reader-trace-success")
 
-        response = await client.get(f"/api/v1/alerts/{alert.id}/trace")
+        response = await client.get(f"/api/v1/alerts/{alert.id}/trace", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == alert.id
         assert data["mpi_id"] == alert.mpi_id
         assert data["severity"] == alert.severity
-        assert data["status"] == alert.status
+        # AlertResponse (api.ts AlertInfo) has no `status` field — trace
+        # exposes lifecycle via acknowledged_at/resolved_at instead.
+        assert data["created_at"] is not None
 
     @pytest.mark.asyncio
-    async def test_trace_alert_not_found(self, client: AsyncClient):
+    async def test_trace_alert_not_found(self, client: AsyncClient, db_session: AsyncSession):
         """Should return 404 for non-existent alert."""
-        response = await client.get("/api/v1/alerts/99999/trace")
+        headers = await _reader_headers(db_session, "reader-trace-not-found")
+
+        response = await client.get("/api/v1/alerts/99999/trace", headers=headers)
 
         assert response.status_code == 404
 

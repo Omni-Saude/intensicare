@@ -30,6 +30,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from intensicare.api.v1.auth import hash_password
 from intensicare.auth.jwt import create_access_token
@@ -63,7 +64,9 @@ REDIS_TEST_URL = os.environ.get("REDIS_URL") or settings.redis_url
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine() -> AsyncGenerator[AsyncEngine, None]:
     """Engine assíncrona para o banco de testes (uma por sessão, um único loop)."""
-    eng = create_async_engine(TEST_DATABASE_URL, echo=False)
+    # NullPool: defesa em profundidade — nenhuma conexão asyncpg fica pooled/
+    # presa caso algum plugin/teste corrompa o loop de sessão novamente.
+    eng = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     yield eng
     await eng.dispose()
 
@@ -96,6 +99,46 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
                 """
             )
         )
+        # DDL bruto de alembic/versions/0003_add_audit_trail.py: hypertable
+        # TimescaleDB + trigger de imutabilidade (INV-1 / CON-0066) sobre
+        # audit_trail. Assim como uq_active_enrollment acima, isto NÃO é
+        # replayado por Base.metadata.create_all (que só emite CREATE TABLE
+        # a partir do ORM metadata) — sem este transplante,
+        # TestAuditTrailHypertable e TestAuditTrailImmutable
+        # (test_audit_trail.py) falham porque a tabela criada pelo
+        # create_all é uma tabela Postgres comum, sem conversão para
+        # hypertable e sem o trigger anti-mutação. Tudo idempotente
+        # (IF NOT EXISTS / OR REPLACE / CREATE OR REPLACE TRIGGER — suportado
+        # desde PG14, e o container de teste é pg16) para sobreviver a
+        # reruns dentro da mesma sessão de testes.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA public"))
+        await conn.execute(
+            text("SELECT create_hypertable('audit_trail', 'event_ts', if_not_exists => true)")
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE OR REPLACE FUNCTION audit_trail_no_mutation() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION
+                        'audit_trail is append-only (INV-1 / CON-0066): % blocked', TG_OP;
+                END;
+                $$ LANGUAGE plpgsql
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE OR REPLACE TRIGGER trg_audit_trail_immutable
+                    BEFORE UPDATE OR DELETE ON audit_trail
+                    FOR EACH ROW EXECUTE FUNCTION audit_trail_no_mutation()
+                """
+            )
+        )
+        # Defesa em profundidade — igual à migração 0003 (idempotente: um
+        # REVOKE de um privilégio já ausente não gera erro).
+        await conn.execute(text("REVOKE UPDATE, DELETE ON audit_trail FROM PUBLIC"))
         # Seed algorithm_registry com as versões usadas pelos scorers.
         # Sem isso, a FK clinical_score.algorithm_version → algorithm_registry
         # causa IntegrityError em qualquer ingestão de vitals.
