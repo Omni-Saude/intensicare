@@ -30,6 +30,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from intensicare.api.v1.auth import hash_password
 from intensicare.auth.jwt import create_access_token
@@ -63,7 +64,9 @@ REDIS_TEST_URL = os.environ.get("REDIS_URL") or settings.redis_url
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine() -> AsyncGenerator[AsyncEngine, None]:
     """Engine assíncrona para o banco de testes (uma por sessão, um único loop)."""
-    eng = create_async_engine(TEST_DATABASE_URL, echo=False)
+    # NullPool: defesa em profundidade — nenhuma conexão asyncpg fica pooled/
+    # presa caso algum plugin/teste corrompa o loop de sessão novamente.
+    eng = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     yield eng
     await eng.dispose()
 

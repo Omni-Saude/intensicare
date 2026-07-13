@@ -57,7 +57,6 @@ async def _ensure_patient(db: AsyncSession, mpi_id: str) -> None:
 class TestLabResultIdempotency:
     """Garante que (fhir_id, collected_at) seja único — hypertable idempotency."""
 
-    @pytest.mark.anyio
     async def test_same_fhir_id_and_collected_at_twice_one_row(
         self, db_session: AsyncSession
     ) -> None:
@@ -93,7 +92,6 @@ class TestLabResultIdempotency:
         with pytest.raises(IntegrityError):
             await db_session.flush()
 
-    @pytest.mark.anyio
     async def test_different_fhir_id_same_collected_at_two_rows(
         self, db_session: AsyncSession
     ) -> None:
@@ -133,7 +131,6 @@ class TestLabResultIdempotency:
         rows = result.scalars().all()
         assert len(rows) == 2
 
-    @pytest.mark.anyio
     async def test_same_fhir_id_different_collected_at_two_rows(
         self, db_session: AsyncSession
     ) -> None:
@@ -179,7 +176,6 @@ class TestLabResultIdempotency:
 class TestMedicationFKChain:
     """Garante que a FK chain entre medication_order e medication_administration funciona."""
 
-    @pytest.mark.anyio
     async def test_order_to_administration_fk_chain(self, db_session: AsyncSession) -> None:
         """Ordem → administração com FK válida."""
         await _ensure_patient(db_session, "MPI-MED-001")
@@ -220,7 +216,6 @@ class TestMedicationFKChain:
         assert admin_row.order_id == order_id
         assert admin_row.mpi_id == "MPI-MED-001"
 
-    @pytest.mark.anyio
     async def test_administration_without_order_allowed(self, db_session: AsyncSession) -> None:
         """Administração sem order_id (NULL) é permitida (FK ondelete SET NULL)."""
         await _ensure_patient(db_session, "MPI-MED-002")
@@ -245,7 +240,6 @@ class TestMedicationFKChain:
         admin_row = result.scalar_one()
         assert admin_row.order_id is None
 
-    @pytest.mark.anyio
     async def test_order_cascade_on_patient_delete(self, db_session: AsyncSession) -> None:
         """Ao deletar patient_cache, medication_order é removido em cascata."""
         await _ensure_patient(db_session, "MPI-MED-003")
@@ -273,7 +267,6 @@ class TestMedicationFKChain:
         )
         assert result.scalar_one_or_none() is None
 
-    @pytest.mark.anyio
     async def test_multiple_administrations_per_order(self, db_session: AsyncSession) -> None:
         """Múltiplas administrações para a mesma ordem."""
         await _ensure_patient(db_session, "MPI-MED-004")
@@ -435,7 +428,6 @@ MOCK_MEDICATION_ADMINISTRATION = {
 class TestFHIREnrichmentPull:
     """Testa os métodos de enrichment do FHIRClient com HTTP mockado."""
 
-    @pytest.mark.anyio
     async def test_enrich_lab_result_success(self) -> None:
         """enrich_lab_result retorna FHIRLabResult com dados parseados."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -464,14 +456,12 @@ class TestFHIREnrichmentPull:
         assert result.abnormal_flag == "N"
         assert result.collected_at is not None
 
-    @pytest.mark.anyio
     async def test_enrich_lab_result_unconfigured(self) -> None:
         """FHIR não configurado → retorna None."""
         client = FHIRClient(base_url="")
         result = await client.enrich_lab_result("obs-any")
         assert result is None
 
-    @pytest.mark.anyio
     async def test_enrich_lab_result_not_found(self) -> None:
         """404 → retorna None."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -489,7 +479,6 @@ class TestFHIREnrichmentPull:
 
         assert result is None
 
-    @pytest.mark.anyio
     async def test_enrich_medication_success(self) -> None:
         """enrich_medication retorna FHIRMedicationOrder com dados parseados."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -515,14 +504,12 @@ class TestFHIREnrichmentPull:
         assert result.frequency == "BID"
         assert result.ordered_at is not None
 
-    @pytest.mark.anyio
     async def test_enrich_medication_unconfigured(self) -> None:
         """FHIR não configurado → retorna None."""
         client = FHIRClient(base_url="")
         result = await client.enrich_medication("medreq-any")
         assert result is None
 
-    @pytest.mark.anyio
     async def test_enrich_patient_context_aggregates(self) -> None:
         """enrich_patient_context agrega labs + medications + administrations."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
@@ -577,14 +564,12 @@ class TestFHIREnrichmentPull:
         assert admin.order_fhir_id == "medreq-100"
         assert admin.dose_given == "50 mg"
 
-    @pytest.mark.anyio
     async def test_enrich_patient_context_unconfigured(self) -> None:
         """FHIR não configurado → retorna None."""
         client = FHIRClient(base_url="")
         result = await client.enrich_patient_context("MPI-ANY")
         assert result is None
 
-    @pytest.mark.anyio
     async def test_enrich_patient_context_connection_error(self) -> None:
         """Erro de conexão → retorna None graciosamente."""
         client = FHIRClient(base_url="https://fhir.example.com/fhir")
