@@ -653,6 +653,10 @@ def _build_alert(
     if unit:
         body_lines.append(f"Unit: {unit}")
 
+    # ⚠️ WIRING WARNING (ADR-0039 §7): This site creates Alerts directly without
+    # the cooldown/rate-limit discipline enforced by alert_engine.check_score_against_thresholds.
+    # Reconnecting this path outside that gatekeeper reintroduces the alert burst issue
+    # documented in docs/audit/ALERT_CONSOLIDATION_ANALYSIS.md. Do not alter without reviewing ADR-0039.
     return Alert(
         mpi_id=snapshot.mpi_id,
         score_id=snapshot.vital_sign_id,
