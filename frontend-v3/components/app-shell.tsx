@@ -99,7 +99,7 @@ function ShortcutsHint() {
       className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
       aria-label="Ver atalhos de teclado"
     >
-      <kbd className="px-1.5 py-0.5 rounded border border-[var(--border-default)] bg-[var(--surface-overlay)] font-mono text-[10px]">
+      <kbd className="px-1.5 py-0.5 rounded border border-[var(--border-default)] bg-[var(--surface-overlay)] font-mono text-2xs">
         ?
       </kbd>
       atalhos
@@ -208,7 +208,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             ref={closeButtonRef}
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 rounded hover:bg-[var(--surface-overlay)]"
+            className="lg:hidden p-2.5 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Fechar menu"
           >
             <X className="h-5 w-5" />
@@ -310,7 +310,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             ref={menuButtonRef}
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden mr-3 p-1 rounded hover:bg-[var(--surface-overlay)]"
+            className="lg:hidden mr-3 p-2.5 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Abrir menu"
             aria-expanded={sidebarOpen}
             aria-controls="app-sidebar"
@@ -331,7 +331,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6">
           {children}
         </main>
       </div>
