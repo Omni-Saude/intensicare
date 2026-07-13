@@ -219,6 +219,61 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Error detail normalization (handles Pydantic validation error arrays)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes API error detail into a human-readable string.
+ * Handles Pydantic validation error arrays (e.g., [{"type":"missing","loc":["body","username"],"msg":"Field required"}])
+ * as well as string, object, and fallback cases.
+ */
+function normalizeApiDetail(detail: unknown, fallback: string): string {
+  // String: return as-is
+  if (typeof detail === 'string') {
+    return detail;
+  }
+
+  // Array of Pydantic validation errors
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item: any) => {
+        if (typeof item === 'object' && item !== null && 'msg' in item) {
+          const msg = item.msg;
+          // Extract the field name from loc (e.g., ["body", "username"] → "username")
+          const loc = Array.isArray(item.loc) && item.loc.length > 0
+            ? item.loc[item.loc.length - 1]
+            : null;
+
+          if (loc && msg) {
+            return `${loc}: ${msg}`;
+          }
+          return msg;
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (messages.length > 0) {
+      return messages.join('; ');
+    }
+  }
+
+  // Object with .msg or .message field
+  if (typeof detail === 'object' && detail !== null) {
+    const obj = detail as any;
+    if ('msg' in obj && typeof obj.msg === 'string') {
+      return obj.msg;
+    }
+    if ('message' in obj && typeof obj.message === 'string') {
+      return obj.message;
+    }
+  }
+
+  // Fallback for unknown types
+  return fallback;
+}
+
+// ---------------------------------------------------------------------------
 // JWT storage (in-memory)
 // ---------------------------------------------------------------------------
 
@@ -339,7 +394,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     let detail = response.statusText;
     try {
       const body = await response.json();
-      detail = body.detail || detail;
+      detail = normalizeApiDetail(body.detail, detail);
     } catch {
       // ignore parse error
     }
@@ -373,7 +428,7 @@ export async function login(username: string, password: string): Promise<LoginRe
     let detail = 'Falha na autenticação';
     try {
       const body = await response.json();
-      detail = body.detail || detail;
+      detail = normalizeApiDetail(body.detail, detail);
     } catch {
       // ignore
     }
