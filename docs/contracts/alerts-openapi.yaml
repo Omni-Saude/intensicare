@@ -1,8 +1,9 @@
 openapi: 3.1.0
 info:
   title: IntensiCare Alerts API
-  description: 'Listagem e ciclo de vida de alertas clínicos (acknowledge/resolve/escalate) e trace de
-    auditoria. Extraído do openapi.json vivo (router alerts.py) — achado Dim A: endpoint vivo sem contrato.'
+  description: 'Listagem (com agregação opcional por sinal — group_by=signal, ADR-0039) e ciclo de vida
+    de alertas clínicos (acknowledge/resolve/escalate) e trace de auditoria. Extraído do openapi.json
+    vivo (router alerts.py) — achado Dim A: endpoint vivo sem contrato.'
   version: 1.0.0
 servers:
 - url: /api/v1
@@ -20,6 +21,11 @@ paths:
         escalated/resolved) plus `all` (no status predicate applied), and
         `severity` filters by Alert.severity. See the module-level comment above
         for why these are Literal-typed and why `all` subsumes `acting`.
+
+        ADR-0039: `group_by=signal` switches the response to
+        `AlertGroupedListResponse` ({groups, total_groups, total_alerts}) —
+        additive and opt-in; without it the response is byte-for-byte the
+        pre-existing `AlertListResponse` shape.
       operationId: list_alerts_api_v1_alerts_get
       security:
       - HTTPBearer: []
@@ -68,6 +74,19 @@ paths:
           - type: string
           - type: 'null'
           title: Mpi Id
+      - name: group_by
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - const: signal
+            type: string
+          - type: 'null'
+          description: Optional read-time aggregation (ADR-0039). group_by=signal groups members by (mpi_id,
+            score_type); omitted, the response is the unchanged flat {items, total} shape.
+          title: Group By
+        description: Optional read-time aggregation (ADR-0039). group_by=signal groups members by (mpi_id,
+          score_type); omitted, the response is the unchanged flat {items, total} shape.
       - name: limit
         in: query
         required: false
@@ -91,7 +110,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AlertListResponse'
+                anyOf:
+                - $ref: '#/components/schemas/AlertListResponse'
+                - $ref: '#/components/schemas/AlertGroupedListResponse'
+                title: Response List Alerts Api V1 Alerts Get
         '422':
           description: Validation Error
           content:
@@ -248,6 +270,87 @@ components:
       type: object
       title: AcknowledgeRequest
       description: Acknowledge an alert.
+    AlertGroupResponse:
+      properties:
+        mpi_id:
+          type: string
+          title: Mpi Id
+        patient_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Patient Name
+        score_type:
+          type: string
+          title: Score Type
+        max_severity:
+          type: string
+          title: Max Severity
+        count:
+          type: integer
+          title: Count
+        first_created_at:
+          type: string
+          title: First Created At
+        latest_created_at:
+          type: string
+          title: Latest Created At
+        escalating:
+          type: boolean
+          title: Escalating
+        members:
+          items:
+            $ref: '#/components/schemas/AlertResponse'
+          type: array
+          title: Members
+      type: object
+      required:
+      - mpi_id
+      - score_type
+      - max_severity
+      - count
+      - first_created_at
+      - latest_created_at
+      - escalating
+      - members
+      title: AlertGroupResponse
+      description: |-
+        Aggregated alert group — one row per (mpi_id, score_type) signal.
+
+        ADR-0039 §2 (contract adjudicated): aggregation happens at READ time
+        only — the underlying ``alert`` rows are never merged/mutated (zero
+        information-loss invariant). ``members`` carries every original alert
+        belonging to the group, so nothing is hidden; only the *presentation*
+        is collapsed by (patient, score_type) for the alert-fatigue view.
+
+        ``escalating`` fura o rollup (ADR-0039 §3): it is True when the
+        severity of the newest ``active``-status member is strictly higher
+        (canonical ordinal normal<watch<urgent<critical) than the oldest
+        ``active``-status member — i.e. the signal is still getting worse
+        among the alerts nobody has acted on yet. Acknowledged/resolved/
+        escalated members never suppress this signal, and are never excluded
+        from ``members`` — only excluded from the escalating comparison
+        itself.
+    AlertGroupedListResponse:
+      properties:
+        groups:
+          items:
+            $ref: '#/components/schemas/AlertGroupResponse'
+          type: array
+          title: Groups
+        total_groups:
+          type: integer
+          title: Total Groups
+        total_alerts:
+          type: integer
+          title: Total Alerts
+      type: object
+      required:
+      - groups
+      - total_groups
+      - total_alerts
+      title: AlertGroupedListResponse
+      description: Response shape for ``GET /alerts?group_by=signal`` (ADR-0039 §2).
     AlertListResponse:
       properties:
         items:
@@ -331,21 +434,6 @@ components:
       - created_at
       title: AlertResponse
       description: Alert response schema — shape matches frontend AlertInfo (api.ts:91-105).
-    ResolveRequest:
-      properties:
-        resolution:
-          type: string
-          title: Resolution
-        note:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Note
-      type: object
-      required:
-      - resolution
-      title: ResolveRequest
-      description: Resolve an alert with clinical outcome.
     EscalateRequest:
       properties:
         reason:
@@ -365,6 +453,21 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    ResolveRequest:
+      properties:
+        resolution:
+          type: string
+          title: Resolution
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - resolution
+      title: ResolveRequest
+      description: Resolve an alert with clinical outcome.
     ValidationError:
       properties:
         loc:

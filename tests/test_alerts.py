@@ -1,6 +1,6 @@
 """Tests for alert CRUD endpoints — AUDIT-007 wrapped response + lifecycle."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from httpx import AsyncClient
 import pytest
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from intensicare.api.v1.auth import hash_password
 from intensicare.auth.jwt import create_access_token
 from intensicare.models.alert import Alert
+from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.user import User
 
 
@@ -22,6 +23,51 @@ async def create_test_alert(db: AsyncSession, status="active", severity="watch")
         title=f"Test Alert - {severity}",
         body="Test alert body",
         created_at=datetime.now(timezone.utc),
+    )
+    db.add(alert)
+    await db.flush()
+    await db.refresh(alert)
+    return alert
+
+
+# Algorithm versions seeded by conftest.py's engine fixture (algorithm_registry
+# FK target) — see tests/conftest.py "Seed algorithm_registry" block.
+_ALGORITHM_VERSION_BY_SCORE_TYPE = {"MEWS": "MEWS-v1.0", "NEWS2": "NEWS2-v1.0"}
+
+
+async def create_test_alert_with_score(
+    db: AsyncSession,
+    mpi_id: str,
+    score_type: str,
+    severity: str,
+    status: str = "active",
+    score_value: int = 5,
+    created_at: datetime | None = None,
+) -> Alert:
+    """Create an Alert wired to a real ClinicalScore row via `score_id` —
+    the live creation path (alert_engine.check_score_against_thresholds)
+    always does this, and it is the authoritative source ADR-0039 grouping
+    (`_derive_score_type` priority 1 in api/v1/alerts.py) joins against to
+    resolve `score_type` for `group_by=signal`."""
+    ts = created_at or datetime.now(timezone.utc)
+    score = ClinicalScore(
+        mpi_id=mpi_id,
+        score_type=score_type,
+        score_value=score_value,
+        algorithm_version=_ALGORITHM_VERSION_BY_SCORE_TYPE[score_type],
+        calculated_at=ts,
+    )
+    db.add(score)
+    await db.flush()
+
+    alert = Alert(
+        mpi_id=mpi_id,
+        score_id=score.id,
+        severity=severity,
+        status=status,
+        title=f"{score_type} {severity.upper()}: {score_value}",
+        body=f"Patient {mpi_id} — {score_type} score: {score_value}",
+        created_at=ts,
     )
     db.add(alert)
     await db.flush()
@@ -234,6 +280,274 @@ class TestListAlerts:
         headers = await _reader_headers(db_session, "reader-bad-severity")
 
         response = await client.get("/api/v1/alerts?severity=bogus", headers=headers)
+
+        assert response.status_code == 422
+
+
+class TestGroupAlertsBySignal:
+    """Tests for GET /api/v1/alerts?group_by=signal (ADR-0039 §2).
+
+    Read-time aggregation by (mpi_id, score_type) — additive, opt-in. See
+    docs/adr/ADR-0039-alert-group-read-aggregation.md for the adjudicated
+    contract this pins.
+    """
+
+    @pytest.mark.asyncio
+    async def test_group_aggregates_n_members_of_same_signal(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """N alerts for the same (mpi_id, score_type) collapse into 1 group
+        with count=N and every original alert reachable in `members`
+        (ADR-0039 zero information-loss invariant)."""
+        mpi = "MPI-GROUP-SAME"
+        base = datetime(2026, 7, 13, 18, 0, 0, tzinfo=timezone.utc)
+        created_ids = []
+        for i in range(5):
+            alert = await create_test_alert_with_score(
+                db_session,
+                mpi,
+                "NEWS2",
+                "critical",
+                score_value=10 + i,
+                created_at=base + timedelta(seconds=i),
+            )
+            created_ids.append(alert.id)
+        headers = await _reader_headers(db_session, "reader-group-same")
+
+        response = await client.get(f"/api/v1/alerts?group_by=signal&mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_groups"] == 1
+        assert data["total_alerts"] == 5
+        group = data["groups"][0]
+        assert group["mpi_id"] == mpi
+        assert group["score_type"] == "NEWS2"
+        assert group["count"] == 5
+        assert {m["id"] for m in group["members"]} == set(created_ids)
+        assert group["max_severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_group_distinct_score_types_form_distinct_groups(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """NEWS2 and MEWS alerts for the SAME patient are distinct clinical
+        signals — ADR-0039 groups by (mpi_id, score_type), never collapsing
+        different signals into one group."""
+        mpi = "MPI-GROUP-DISTINCT"
+        base = datetime(2026, 7, 13, 18, 5, 0, tzinfo=timezone.utc)
+        await create_test_alert_with_score(db_session, mpi, "NEWS2", "watch", created_at=base)
+        await create_test_alert_with_score(
+            db_session, mpi, "MEWS", "watch", created_at=base + timedelta(seconds=1)
+        )
+        headers = await _reader_headers(db_session, "reader-group-distinct")
+
+        response = await client.get(f"/api/v1/alerts?group_by=signal&mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_groups"] == 2
+        assert data["total_alerts"] == 2
+        score_types = {g["score_type"] for g in data["groups"]}
+        assert score_types == {"NEWS2", "MEWS"}
+        assert all(g["count"] == 1 and g["mpi_id"] == mpi for g in data["groups"])
+
+    @pytest.mark.asyncio
+    async def test_group_escalating_true_when_newest_active_more_severe(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """escalating=True when the newest active member's severity is
+        strictly higher than the oldest active member's — a trail that
+        pierces the rollup (ADR-0039 §3), like MPI-DEMO-001/NEWS2 in the
+        dev-DB baseline (watch -> urgent -> critical)."""
+        mpi = "MPI-GROUP-ESCALATING"
+        base = datetime(2026, 7, 13, 18, 10, 0, tzinfo=timezone.utc)
+        await create_test_alert_with_score(
+            db_session, mpi, "NEWS2", "watch", score_value=4, created_at=base
+        )
+        await create_test_alert_with_score(
+            db_session,
+            mpi,
+            "NEWS2",
+            "critical",
+            score_value=13,
+            created_at=base + timedelta(seconds=5),
+        )
+        headers = await _reader_headers(db_session, "reader-group-escalating-true")
+
+        response = await client.get(f"/api/v1/alerts?group_by=signal&mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        group = data["groups"][0]
+        assert group["escalating"] is True
+        assert group["max_severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_group_escalating_false_when_severity_constant(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """escalating=False for a pure repetition (same band, no severity
+        change) — the 'duplicata exata' pattern from the dev-DB baseline
+        (e.g. MPI-DEMO-003/MEWS WATCH, score constant across the trail)."""
+        mpi = "MPI-GROUP-CONSTANT"
+        base = datetime(2026, 7, 13, 18, 15, 0, tzinfo=timezone.utc)
+        for i in range(3):
+            await create_test_alert_with_score(
+                db_session,
+                mpi,
+                "MEWS",
+                "watch",
+                score_value=3,
+                created_at=base + timedelta(seconds=i),
+            )
+        headers = await _reader_headers(db_session, "reader-group-escalating-false")
+
+        response = await client.get(f"/api/v1/alerts?group_by=signal&mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        group = data["groups"][0]
+        assert group["escalating"] is False
+
+    @pytest.mark.asyncio
+    async def test_group_escalating_false_when_severity_decreases(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """De-escalation (newest active LESS severe than oldest active)
+        must never be reported as escalating — only a strict increase
+        counts (ADR-0039 §3)."""
+        mpi = "MPI-GROUP-DEESCALATING"
+        base = datetime(2026, 7, 13, 18, 17, 0, tzinfo=timezone.utc)
+        await create_test_alert_with_score(
+            db_session, mpi, "MEWS", "critical", score_value=9, created_at=base
+        )
+        await create_test_alert_with_score(
+            db_session,
+            mpi,
+            "MEWS",
+            "watch",
+            score_value=3,
+            created_at=base + timedelta(seconds=5),
+        )
+        headers = await _reader_headers(db_session, "reader-group-deescalating")
+
+        response = await client.get(f"/api/v1/alerts?group_by=signal&mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        group = data["groups"][0]
+        assert group["escalating"] is False
+        # max_severity still reflects the worst ever seen in the group.
+        assert group["max_severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_group_filters_apply_to_members_before_grouping(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """severity=critical must exclude non-critical members from the
+        candidate set BEFORE grouping — the group only reflects what
+        survives the filter (task-prompt: 'filtros aplicam-se aos MEMBROS
+        antes de agrupar; grupo herda o que sobrar')."""
+        mpi = "MPI-GROUP-FILTER"
+        base = datetime(2026, 7, 13, 18, 20, 0, tzinfo=timezone.utc)
+        await create_test_alert_with_score(
+            db_session, mpi, "NEWS2", "watch", score_value=4, created_at=base
+        )
+        critical_alert = await create_test_alert_with_score(
+            db_session,
+            mpi,
+            "NEWS2",
+            "critical",
+            score_value=12,
+            created_at=base + timedelta(seconds=1),
+        )
+        headers = await _reader_headers(db_session, "reader-group-filter")
+
+        response = await client.get(
+            f"/api/v1/alerts?group_by=signal&severity=critical&mpi_id={mpi}", headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_groups"] == 1
+        assert data["total_alerts"] == 1
+        group = data["groups"][0]
+        assert group["count"] == 1
+        assert group["members"][0]["id"] == critical_alert.id
+        assert group["members"][0]["severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_no_group_by_returns_unchanged_flat_shape(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Omitting group_by must return the exact pre-existing
+        {items, total} AlertListResponse shape — additive, zero breaking
+        (task-prompt: 'Sem group_by → comportamento idêntico ao atual')."""
+        mpi = "MPI-GROUP-NOOP"
+        await create_test_alert_with_score(db_session, mpi, "NEWS2", "watch")
+        headers = await _reader_headers(db_session, "reader-group-noop")
+
+        response = await client.get(f"/api/v1/alerts?mpi_id={mpi}", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert set(data.keys()) == {"items", "total"}
+
+    @pytest.mark.asyncio
+    async def test_group_mixed_active_acknowledged_under_status_all(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A group with both active and acknowledged members under
+        status=all: every member stays visible (nothing hidden), but
+        `escalating` is computed only from the active-status subsequence —
+        with a single active member there is nothing to compare, so
+        escalating stays False even though max_severity (from the
+        acknowledged member) is higher."""
+        mpi = "MPI-GROUP-MIXED"
+        base = datetime(2026, 7, 13, 18, 25, 0, tzinfo=timezone.utc)
+        ack_alert = await create_test_alert_with_score(
+            db_session,
+            mpi,
+            "MEWS",
+            "critical",
+            status="acknowledged",
+            score_value=9,
+            created_at=base,
+        )
+        active_alert = await create_test_alert_with_score(
+            db_session,
+            mpi,
+            "MEWS",
+            "watch",
+            status="active",
+            score_value=4,
+            created_at=base + timedelta(seconds=5),
+        )
+        headers = await _reader_headers(db_session, "reader-group-mixed")
+
+        response = await client.get(
+            f"/api/v1/alerts?group_by=signal&status=all&mpi_id={mpi}", headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_groups"] == 1
+        group = data["groups"][0]
+        assert group["count"] == 2
+        assert {m["id"] for m in group["members"]} == {ack_alert.id, active_alert.id}
+        assert group["escalating"] is False
+        assert group["max_severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_group_by_invalid_value_is_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """group_by is Literal-typed (only "signal" is valid today) — a bad
+        value 422s instead of silently falling back to the flat shape."""
+        headers = await _reader_headers(db_session, "reader-group-bad-value")
+
+        response = await client.get("/api/v1/alerts?group_by=bogus", headers=headers)
 
         assert response.status_code == 422
 
