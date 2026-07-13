@@ -144,9 +144,7 @@ class TestListAlerts:
         escape hatch that lets the Alerts page (or an auditor) see the full
         lifecycle instead of only the default active-only view."""
         mpi = "MPI-STATUS-ALL"
-        for i, alert_status in enumerate(
-            ["active", "acknowledged", "escalated", "resolved"]
-        ):
+        for i, alert_status in enumerate(["active", "acknowledged", "escalated", "resolved"]):
             alert = Alert(
                 mpi_id=mpi,
                 score_id=None,
