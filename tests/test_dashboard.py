@@ -72,6 +72,67 @@ async def test_get_dashboard_with_unit_filter():
 
 
 @pytest.mark.asyncio
+async def test_get_dashboard_unit_counts_unfiltered_by_unit_param(
+    db_session: AsyncSession,
+) -> None:
+    """BUG-F2-01: unit_counts must always list every unit with active
+    patients, even when the bed grid itself is filtered by ?unit=X — the
+    frontend derives its unit tabs from unit_counts (frontend-v3/app/
+    page.tsx), so a filtered unit_counts made every other tab disappear
+    and trapped users on whichever unit they filtered to."""
+    from intensicare.models.patient_cache import PatientCache
+    from intensicare.services.dashboard import get_dashboard
+    from intensicare.services.patient_encryption import encrypt_phi
+
+    tenant_id = "tenant-unit-counts-test"
+    await _ensure_pgcrypto(db_session)
+    await _set_dev_encryption_key(db_session, tenant_id)
+
+    names = [
+        await encrypt_phi(db_session, name)
+        for name in ("Paciente UC 1", "Paciente UC 2", "Paciente UC 3")
+    ]
+
+    db_session.add_all(
+        [
+            PatientCache(
+                mpi_id="MPI-UC-001",
+                tenant_id=tenant_id,
+                display_name=names[0],
+                bed_id="B-UC-01",
+                unit="UTI-DEMO",
+                is_active=True,
+            ),
+            PatientCache(
+                mpi_id="MPI-UC-002",
+                tenant_id=tenant_id,
+                display_name=names[1],
+                bed_id="B-UC-02",
+                unit="UTI-DEMO",
+                is_active=True,
+            ),
+            PatientCache(
+                mpi_id="MPI-UC-003",
+                tenant_id=tenant_id,
+                display_name=names[2],
+                bed_id="B-UC-03",
+                unit="UTI-B",
+                is_active=True,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    # Filtered by unit=UTI-DEMO: the bed grid narrows to that unit's 2
+    # patients, but unit_counts must still report BOTH units so the
+    # frontend can render a tab for UTI-B too.
+    response = await get_dashboard(db_session, unit="UTI-DEMO")
+
+    assert response.total == 2
+    assert response.unit_counts == {"UTI-DEMO": 2, "UTI-B": 1}
+
+
+@pytest.mark.asyncio
 async def test_get_patient_detail_not_found():
     """Deve retornar None quando o paciente não existe."""
     from intensicare.services.dashboard import get_patient_detail

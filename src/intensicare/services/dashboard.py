@@ -125,6 +125,23 @@ async def get_dashboard(
         db: Async database session.
         unit: Optional unit filter.
     """
+    # unit_counts is a navigation aid — it must always reflect ALL units so
+    # the frontend can render every tab, regardless of which unit (if any)
+    # the bed grid itself is filtered to (BUG-F2-01: filtering unit_counts
+    # by the same ?unit= made every other tab disappear, trapping users on
+    # whichever unit they filtered to). One cheap GROUP BY aggregate over
+    # all active patients — independent of the `unit` filter below — avoids
+    # both the semantic bug and any N+1 (it never touches per-patient rows).
+    unit_counts_query = (
+        select(PatientCache.unit, func.count(PatientCache.mpi_id))
+        .where(PatientCache.is_active.is_(True))
+        .group_by(PatientCache.unit)
+    )
+    unit_counts_result = await db.execute(unit_counts_query)
+    unit_counts: dict[str, int] = {
+        row[0]: row[1] for row in unit_counts_result.fetchall() if row[0]
+    }
+
     # Get all active patients with eager-loaded relationships (F-CODE-001)
     patient_query = (
         select(PatientCache)
@@ -149,7 +166,7 @@ async def get_dashboard(
             total=0,
             critical_count=0,
             active_alerts_total=0,
-            unit_counts={},
+            unit_counts=unit_counts,
         )
 
     # Load MEWS/NEWS2 severity-band thresholds once per request (cheap,
@@ -292,9 +309,8 @@ async def get_dashboard(
         for row in vitals_result.fetchall()
     }
 
-    # Build response
+    # Build response (unit_counts already computed above, unfiltered)
     bed_summaries = []
-    unit_counts: dict[str, int] = {}
     critical_patient_count = 0
 
     for p in patients:
@@ -337,10 +353,6 @@ async def get_dashboard(
                             "severity": pp.severity or "normal",
                         }
                     )
-
-        # Count per unit
-        if p.unit:
-            unit_counts[p.unit] = unit_counts.get(p.unit, 0) + 1
 
         # Derived bed severity — max(active-alert, active-pathway, MEWS/NEWS2
         # band). Always non-null (floor "normal"); fixes beds with no fired
