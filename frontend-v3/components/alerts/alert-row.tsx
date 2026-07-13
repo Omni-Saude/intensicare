@@ -116,12 +116,13 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
           <span className="text-sm text-[var(--text-secondary)]">—</span>
         )}
 
-        {/* Message */}
+        {/* Title — short label per ADR-0039 §6; the full 3-part explanation
+            (alert.message) lives in the expanded region below, not here. */}
         <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
           Mensagem
         </span>
         <span className="flex-1 truncate text-sm text-[var(--text-primary)] min-w-0">
-          {alert.message}
+          {alert.title}
         </span>
 
         {/* Date */}
@@ -179,14 +180,19 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
         role="region"
         aria-label="Detalhes do alerta"
       >
+        {/* Full clinical explanation — ADR-0039 §6: the short title lives in
+            the compact row above; this 3-part body (o que aconteceu / por
+            que importa / o que verificar, one sentence per line — see
+            alert_copy.py) is the primary content of the expanded detail.
+            whitespace-pre-line preserves the \n-separated parts. */}
+        <p className="mb-3 whitespace-pre-line text-sm text-[var(--text-primary)]">
+          {alert.message}
+        </p>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <span className="text-xs text-[var(--text-secondary)]">Tipo</span>
             <p className="text-sm text-[var(--text-primary)]">{alert.type}</p>
-          </div>
-          <div>
-            <span className="text-xs text-[var(--text-secondary)]">Título</span>
-            <p className="text-sm text-[var(--text-primary)]">{alert.title}</p>
           </div>
           {alert.acknowledged_at && (
             <div>
