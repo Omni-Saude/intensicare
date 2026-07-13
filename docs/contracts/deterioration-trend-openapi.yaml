@@ -1,0 +1,169 @@
+openapi: "3.1.0"
+info:
+  title: "IntensiCare — Deterministic Deterioration Trend (Lead-Time) API"
+  version: "1.0.0"
+  description: >
+    Projeção preditiva determinística e explicável de tendência de
+    deterioração clínica (Dim E audit finding — dedução -8: "zero capacidade
+    preditiva/lead-time"; Epic EDI ~24h, CLEW 8h FDA-cleared).
+
+    Em vez de um modelo de ML opaco, este endpoint ajusta uma regressão
+    linear simples (least squares, stdlib) sobre o histórico real de
+    ClinicalScore (MEWS/NEWS2) do paciente nas últimas 12h e projeta o tempo
+    estimado até o próximo threshold ratificado (threshold_config —
+    migração 0038) ser cruzado, com confiabilidade reportada honestamente
+    (low/moderate) e os pontos brutos incluídos para auditoria clínica.
+
+    Precedente conceitual: ADR-0024 (estratégia de detecção de piora
+    clínica) / domain_piora_clinica.py.
+
+    Backend: services/deterioration_trend.py.
+
+servers:
+  - url: "/api/v1"
+    description: "IntensiCare API v1"
+
+paths:
+  /patients/{mpi_id}/deterioration-trend:
+    get:
+      operationId: getPatientDeteriorationTrend
+      summary: "Projeção determinística de tendência de deterioração (lead-time)"
+      description: >
+        Retorna, para MEWS e NEWS2, uma projeção linear determinística
+        baseada nos scores persistidos das últimas 12h (mínimo 3 pontos por
+        score_type; caso contrário aquele score_type é omitido da lista de
+        projeções). Se a tendência for de piora (slope > 0), estima o tempo
+        (em horas, cap de 24h) até o score cruzar o próximo threshold
+        ratificado (watch/urgent/critical). Cada projeção inclui os pontos
+        brutos (timestamp+score) usados no ajuste para auditoria clínica.
+        NÃO substitui julgamento clínico — ver campo `disclaimer`.
+      parameters:
+        - name: mpi_id
+          in: path
+          required: true
+          schema: { type: string }
+          example: "MPI-DEMO-001"
+      responses:
+        "200":
+          description: >
+            Projeções de tendência (0, 1 ou 2 entradas — uma por score_type
+            com dados suficientes). Lista vazia se o paciente existe mas não
+            há histórico suficiente de ClinicalScore em nenhum score_type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeteriorationTrendResponse"
+        "401":
+          description: "Não autenticado"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  schemas:
+    TrendPoint:
+      type: object
+      required: [timestamp, score]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: "Instante do score persistido (calculated_at)"
+        score:
+          type: integer
+          description: "Valor do score (score_value) naquele instante"
+
+    DeteriorationTrendProjection:
+      type: object
+      required:
+        - score_type
+        - current_score
+        - slope_per_hour
+        - r_squared
+        - n_points
+        - window_hours
+        - confidence
+        - disclaimer
+      properties:
+        score_type:
+          type: string
+          enum: [MEWS, NEWS2]
+        current_score:
+          type: integer
+          description: "Score mais recente observado na janela (não ajustado)"
+        slope_per_hour:
+          type: number
+          format: float
+          description: "Taxa de variação estimada do score (pontos/hora)"
+        r_squared:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: "Qualidade do ajuste linear (coeficiente de determinação)"
+        n_points:
+          type: integer
+          minimum: 3
+          description: "Número de pontos (scores) usados na regressão"
+        window_hours:
+          type: number
+          format: float
+          description: "Janela de observação usada (horas) — fixa em 12h"
+        projected_threshold:
+          type: integer
+          nullable: true
+          description: >
+            Próximo threshold ratificado (watch/urgent/critical, de
+            threshold_config com fallback aos defaults da migração 0038)
+            na trajetória de piora. `null` se estável/melhorando, se o
+            score já está no nível crítico, ou se a projeção excede 24h.
+        hours_to_threshold:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Horas estimadas até cruzar `projected_threshold`, cap de 24h.
+            `null` quando `projected_threshold` é `null`.
+        confidence:
+          type: string
+          enum: [low, moderate]
+          description: >
+            Confiabilidade honesta da projeção, derivada de r_squared (≥0.6
+            e n_points≥4 → moderate; caso contrário → low). Nunca omitida.
+        disclaimer:
+          type: string
+          description: "Aviso fixo de que a projeção não substitui julgamento clínico"
+          example: >
+            Projeção linear determinística baseada em tendência recente;
+            não substitui julgamento clínico.
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendPoint"
+          description: >
+            Pontos brutos (timestamp+score) usados no ajuste — permite ao
+            clínico auditar a projeção diretamente (explicabilidade).
+
+    DeteriorationTrendResponse:
+      type: object
+      required: [mpi_id, projections]
+      properties:
+        mpi_id:
+          type: string
+          example: "MPI-DEMO-001"
+        projections:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeteriorationTrendProjection"
+          description: >
+            0 a 2 projeções (uma por score_type — MEWS, NEWS2 — com dados
+            suficientes na janela de 12h).
+
+  responses:
+    NotFound:
+      description: "Paciente não encontrado"
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }
