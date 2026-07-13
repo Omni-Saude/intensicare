@@ -244,7 +244,7 @@ function normalizeApiDetail(detail: unknown, fallback: string): string {
   // Array of Pydantic validation errors
   if (Array.isArray(detail)) {
     const messages = detail
-      .map((item: any) => {
+      .map((item) => {
         if (typeof item === 'object' && item !== null && 'msg' in item) {
           const msg = item.msg;
           // Extract the field name from loc (e.g., ["body", "username"] → "username")
@@ -268,7 +268,7 @@ function normalizeApiDetail(detail: unknown, fallback: string): string {
 
   // Object with .msg or .message field
   if (typeof detail === 'object' && detail !== null) {
-    const obj = detail as any;
+    const obj = detail as Record<string, unknown>;
     if ('msg' in obj && typeof obj.msg === 'string') {
       return obj.msg;
     }

@@ -21,7 +21,7 @@ export function UnitFilter({ units, selected, onChange }: UnitFilterProps) {
   if (!units || units.length === 0) return null;
 
   const allUnits = [null, ...units] as const;
-  buttonRefs.current.length = allUnits.length;
+  // Array grows naturally via ref callbacks (line 68-70); no manual pruning needed
 
   const focusTab = (index: number) => {
     const count = allUnits.length;
