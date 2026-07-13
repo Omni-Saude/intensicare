@@ -1,7 +1,7 @@
 'use client';
 
 import type { SeverityLevel } from '@/lib/api';
-import { severityColor } from './severity-glow';
+import { severityColor, severityWash, severityRing } from './severity-glow';
 import { cn } from '@/lib/utils';
 
 interface StateLabelProps {
@@ -18,9 +18,9 @@ export function StateLabel({ label, severity, className }: StateLabelProps) {
         className,
       )}
       style={{
-        backgroundColor: `${severityColor(severity)}1A`,
+        backgroundColor: severityWash(severity),
         color: severityColor(severity),
-        border: `1px solid ${severityColor(severity)}33`,
+        border: `1px solid ${severityRing(severity)}`,
       }}
     >
       <span
