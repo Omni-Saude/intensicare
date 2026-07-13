@@ -2,18 +2,29 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from intensicare.auth.dependencies import get_current_user
+from intensicare.auth.abac import Action, ResourceType, require_abac
+from intensicare.auth.dependencies import get_current_tenant_id, get_current_user
 from intensicare.core.database import get_db
 from intensicare.models.alert import Alert
 from intensicare.models.user import User
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
+
+# ABAC enforcement (fix RBAC audit Dim A/C — clinical guards had zero
+# call-sites outside admin.py). Resolve/escalate are workflow transitions on
+# an already-acknowledged alert, not a distinct "write" in the ABACPolicy
+# matrix sense (only ADMIN has Action.WRITE for ResourceType.ALERTS). The
+# matrix's Action.ACKNOWLEDGE is the one non-admin action clinical roles
+# (physician/nurse/physiotherapist/nutritionist) hold for ALERTS beyond
+# READ, so acknowledge/resolve/escalate are all mapped to ACKNOWLEDGE here —
+# this preserves the exact set of roles the matrix already grants alert
+# workflow actions to, without inventing a new policy.
 
 
 class AlertResponse(BaseModel):
@@ -101,6 +112,7 @@ def _to_alert_response(alert: Alert) -> AlertResponse:
 
 @router.get("", response_model=AlertListResponse)
 async def list_alerts(
+    request: Request,
     status_filter: str = Query("active", alias="status"),
     unit: str | None = Query(
         None, alias="unit"
@@ -112,6 +124,15 @@ async def list_alerts(
     current_user: User = Depends(get_current_user),
 ) -> AlertListResponse:
     """List alerts with optional filters. Returns {alerts, total} (AUDIT-007)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     base_query = select(Alert).options(joinedload(Alert.patient))
 
     if status_filter:
@@ -138,11 +159,21 @@ async def list_alerts(
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: int,
+    request: Request,
     request_body: AcknowledgeRequest | None = None,  # optional body accepted for API compatibility
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Acknowledge an alert (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -174,10 +205,20 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: int,
     request_body: ResolveRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Resolve an alert — records the clinical outcome (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -224,11 +265,21 @@ async def resolve_alert(
 @router.post("/{alert_id}/escalate", response_model=AlertResponse)
 async def escalate_alert(
     alert_id: int,
+    request: Request,
     request_body: EscalateRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Escalate an alert to the next response tier (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -265,10 +316,20 @@ async def escalate_alert(
 @router.get("/{alert_id}/trace", response_model=AlertResponse)
 async def trace_alert(
     alert_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Get detailed trace of a specific alert."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
