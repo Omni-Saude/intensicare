@@ -166,6 +166,38 @@ export interface AlertListResponse {
   total: number;
 }
 
+// ---------------------------------------------------------------------------
+// Alert groups (ADR-0039 — read-side aggregation, FASE 2B.1)
+// ---------------------------------------------------------------------------
+// GET /api/v1/alerts?group_by=signal groups the *current* filter result by
+// (mpi_id, score_type). The source of truth (`alert` rows) is never merged
+// or altered server-side — every original alert stays individually
+// addressable inside `members` (zero-information-loss invariant, ADR-0039
+// §1). Without `group_by`, the contract above (AlertListResponse) is
+// unchanged — this is a purely additive shape.
+export interface AlertGroup {
+  mpi_id: string;
+  patient_name: string;
+  score_type: string;
+  max_severity: SeverityLevel;
+  count: number;
+  first_created_at: string;
+  latest_created_at: string;
+  /**
+   * True when the newest active member's severity outranks the oldest
+   * active member's — ADR-0039 §3: escalation always "fura o rollup"; the
+   * UI must surface this prominently and never suppress it, even collapsed.
+   */
+  escalating: boolean;
+  members: AlertInfo[];
+}
+
+export interface AlertGroupListResponse {
+  groups: AlertGroup[];
+  total_groups: number;
+  total_alerts: number;
+}
+
 export interface UserInfo {
   // Backend UserResponse.id is the numeric DB PK (int). Kept as a union
   // rather than switching fully to `number` because lib/auth.tsx also
@@ -570,6 +602,24 @@ export async function fetchAlerts(params: AlertFilters = {}): Promise<AlertListR
 
   const qs = searchParams.toString();
   return request<AlertListResponse>(`/alerts${qs ? `?${qs}` : ''}`);
+}
+
+// ADR-0039 §1/§2: read-side aggregation, adjudicated contract. `params`
+// reuses AlertFilters as-is — status/severity/limit/offset apply to the
+// underlying members before grouping ("filtros existentes aplicam-se aos
+// membros"). group_by currently only accepts the literal "signal" (group
+// by mpi_id+score_type); no other value is defined by the contract.
+export async function fetchAlertGroups(
+  params: AlertFilters = {},
+): Promise<AlertGroupListResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('group_by', 'signal');
+  if (params.status) searchParams.set('status', params.status);
+  if (params.severity) searchParams.set('severity', params.severity);
+  if (params.limit) searchParams.set('limit', String(params.limit));
+  if (params.offset) searchParams.set('offset', String(params.offset));
+
+  return request<AlertGroupListResponse>(`/alerts?${searchParams.toString()}`);
 }
 
 export async function acknowledgeAlert(id: number): Promise<AlertInfo> {
