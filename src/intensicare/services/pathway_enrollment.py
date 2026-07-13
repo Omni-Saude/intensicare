@@ -845,9 +845,7 @@ def _build_recommendation(
     total = criteria_summary.get("total", 0)
     evaluated = criteria_summary.get("met", 0) + criteria_summary.get("not_met", 0)
     eval_str = (
-        f"{evaluated} de {total} critérios avaliados"
-        if total > 0
-        else "nenhum critério avaliado"
+        f"{evaluated} de {total} critérios avaliados" if total > 0 else "nenhum critério avaliado"
     )
 
     # Pathway-specific recommendations.
