@@ -10,6 +10,8 @@ Cobre:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from httpx import AsyncClient
 import pytest
 
@@ -602,3 +604,45 @@ async def test_dual_scoring_idempotent_replay_returns_both_scores(
     assert data2["mews_score"] == data1["mews_score"]
     assert data2["news2_score"] == data1["news2_score"]
     assert data2["news2_risk_category"] == data1["news2_risk_category"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WebSocket publish — BUG-F7-03 (bed_grid.updated had no publisher)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_ingest_vitals_publishes_bed_grid_updated(
+    client: AsyncClient, user_headers: dict[str, str]
+):
+    """POST /api/v1/vitals deve publicar bed_grid.updated após ingestão bem-sucedida."""
+    mock_manager = AsyncMock()
+    with patch("intensicare.api.v1.ws.get_ws_manager", return_value=mock_manager):
+        response = await client.post(
+            "/api/v1/vitals", json=VALID_VITALS_PAYLOAD, headers=user_headers
+        )
+
+    assert response.status_code == 201
+    mock_manager.publish.assert_any_await(
+        "bed_grid.updated", {"mpi_id": VALID_VITALS_PAYLOAD["mpi_id"]}
+    )
+
+
+@pytest.mark.asyncio
+async def test_ingest_vitals_ws_publish_failure_is_non_fatal(
+    client: AsyncClient, user_headers: dict[str, str]
+):
+    """Falha ao publicar bed_grid.updated não deve derrubar a ingestão (201 continua)."""
+    mock_manager = AsyncMock()
+    mock_manager.publish.side_effect = RuntimeError("ws down")
+    with patch("intensicare.api.v1.ws.get_ws_manager", return_value=mock_manager):
+        response = await client.post(
+            "/api/v1/vitals", json=VALID_VITALS_PAYLOAD, headers=user_headers
+        )
+
+    # Vitals/MEWS/NEWS2 already persisted — a WS publish failure must not
+    # surface as an ingestion failure.
+    assert response.status_code == 201
+    data = response.json()
+    assert data["mpi_id"] == VALID_VITALS_PAYLOAD["mpi_id"]
+    assert data["mews_score"] is not None
