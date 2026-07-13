@@ -234,15 +234,83 @@ export function setToken(token: string): void {
 
 function clearToken(): void {
   _token = null;
+  // A fresh bootstrap must be attempted (and hit the network again) after
+  // logout — the cached promise from a previous successful bootstrap
+  // already fired its setToken() side effect once and won't repeat it, so
+  // reusing it here would be harmless but stale. Resetting it means the
+  // next ensureSession() call re-checks the refresh_token cookie for real,
+  // which correctly comes back 401 once the backend has blacklisted it
+  // (see _perform_logout in src/intensicare/api/v1/auth.py).
+  _bootstrapPromise = null;
+}
+
+const API_BASE = '/api/v1';
+
+// ---------------------------------------------------------------------------
+// Session bootstrap — recover the in-memory access token from the HttpOnly
+// refresh_token cookie on mount (reload / deep-link).
+// ---------------------------------------------------------------------------
+// The JWT is intentionally in-memory only (see module header — XSS
+// hardening, never localStorage/sessionStorage). On a full page load this
+// module is re-instantiated with `_token = null`, even though the browser
+// may still hold a valid HttpOnly `refresh_token` cookie set by the backend
+// on login. Without recovering it, the *first* API call made by any page
+// (several pages fetch via useSWR immediately on mount, before
+// AuthProvider's own effect has a chance to run — see lib/auth.tsx) would
+// go out with no Authorization header, get a 401, and trip the hard
+// redirect below — discarding a perfectly valid session.
+//
+// `ensureSession()` is a memoized, single-flight bootstrap: whichever
+// caller reaches it first (AuthProvider's mount effect, or request<T> from
+// an eager page fetch) triggers exactly one POST /api/v1/auth/refresh;
+// every other concurrent caller awaits that same in-flight promise instead
+// of racing ahead with a token-less request or firing duplicate refreshes.
+interface RefreshResponse {
+  access_token: string;
+  token_type: string;
+  user: UserInfo;
+}
+
+let _bootstrapPromise: Promise<UserInfo | null> | null = null;
+
+export function ensureSession(): Promise<UserInfo | null> {
+  if (_token) {
+    // Already authenticated in this module instance (e.g. AuthProvider
+    // re-mounting during client-side navigation) — nothing to bootstrap.
+    return Promise.resolve(null);
+  }
+  if (!_bootstrapPromise) {
+    _bootstrapPromise = fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      // Same-origin via the Next.js rewrite proxy, so cookies flow by
+      // default — 'include' is explicit belt-and-suspenders documentation
+      // of that requirement, not strictly required for same-origin fetch.
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+        const data = (await response.json()) as RefreshResponse;
+        setToken(data.access_token);
+        return data.user;
+      })
+      .catch(() => null); // network error / no valid refresh cookie → stay unauthenticated
+  }
+  return _bootstrapPromise;
 }
 
 // ---------------------------------------------------------------------------
 // request<T> — generic fetch wrapper
 // ---------------------------------------------------------------------------
 
-const API_BASE = '/api/v1';
-
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  // Block on the session bootstrap so the very first request of a fresh
+  // page load doesn't race ahead of the refresh-cookie exchange (see
+  // ensureSession() above). Once a token is in memory this resolves
+  // synchronously-fast (no extra network round trip).
+  await ensureSession();
+
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -337,28 +405,23 @@ export async function logout(): Promise<void> {
     }
   }
 
-  // KNOWN LIMITATION (audit Dim B/D, verified in auth.py
-  // _build_login_response): the `token` and `access_token` cookies set on
-  // login are HttpOnly + Secure-flagged-off-only-for-dev, so client-side JS
-  // cannot read or delete them — `document.cookie` writes to an HttpOnly
-  // cookie are silently ignored by the browser (they are not thrown, they
-  // just do nothing). The line below is therefore a best-effort no-op
-  // against the current backend cookie config, kept for defense-in-depth
-  // (e.g. if a deployment ever sets these non-HttpOnly) and cleared as
-  // requested by the audit. It does NOT solve the underlying issue: the
-  // Next.js middleware (middleware.ts) only checks for the *presence* of
-  // the `token` cookie, so the browser keeps looking "authenticated" for
-  // page-routing purposes for up to ~30 min (cookie max_age=1800) after
-  // logout, even though the JWT itself is blacklisted server-side (once
-  // the call above is reachable). A full fix is out of this task's 3-file
-  // scope: the backend /auth/logout handler must call
-  // `response.delete_cookie(...)` for both cookies (it currently returns a
-  // plain dict, not a Response with Set-Cookie headers), and must be
-  // reachable at /api/v1/auth/logout (or the rewrite proxy extended) for
-  // this client call to reach it in the first place.
+  // FIXED (was KNOWN LIMITATION, audit Dim B/D): the `token`, `access_token`
+  // and `refresh_token` cookies are HttpOnly, so client-side JS can never
+  // read or delete them — `document.cookie` writes below remain a no-op
+  // against them (kept only as defense-in-depth for any deployment that
+  // ever sets these non-HttpOnly). The real fix lives server-side: the
+  // /api/v1/auth/logout handler (`_perform_logout` in
+  // src/intensicare/api/v1/auth.py) now returns a `Response` that calls
+  // `delete_cookie(...)` for all three cookies, so as long as the POST
+  // above reaches the backend, the browser actually drops them — closing
+  // the ~30 min "still looks authenticated" window this comment used to
+  // describe, and (now that POST /auth/refresh exists to bootstrap a
+  // session from `refresh_token`) preventing a logged-out session from
+  // being silently resurrected on the next reload.
   if (typeof document !== 'undefined') {
     document.cookie = 'token=; Max-Age=0; path=/';
     document.cookie = 'access_token=; Max-Age=0; path=/';
+    document.cookie = 'refresh_token=; Max-Age=0; path=/';
   }
 }
 
