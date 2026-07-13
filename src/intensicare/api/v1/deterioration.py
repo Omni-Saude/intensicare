@@ -1,20 +1,23 @@
 """Clinical Deterioration API Router.
 
-GET /patients/{mpi_id}/deterioration      — score atual
-GET /patients/{mpi_id}/deterioration/history — histórico paginado
+GET /patients/{mpi_id}/deterioration          — score atual
+GET /patients/{mpi_id}/deterioration/history  — histórico paginado
+GET /patients/{mpi_id}/deterioration-trend    — projeção determinística de tendência (lead-time)
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user
 from intensicare.core.database import get_db
 from intensicare.models.deterioration import DeteriorationAssessment
+from intensicare.models.patient_cache import PatientCache
 from intensicare.models.user import User
 from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.deterioration import (
@@ -22,9 +25,57 @@ from intensicare.schemas.deterioration import (
     DeteriorationHistoryResponse,
     DeteriorationScoreSchema,
 )
+from intensicare.services.deterioration_trend import (
+    TrendProjection,
+    compute_deterioration_trend,
+)
 from intensicare.services.domain_piora_clinica import evaluate_deterioration
 
 router = APIRouter(prefix="/api/v1", tags=["deterioration"])
+
+# Score types projected by the deterioration-trend endpoint.
+TREND_SCORE_TYPES = ("MEWS", "NEWS2")
+
+
+# ---------------------------------------------------------------------------
+# Deterioration-trend schemas (deterministic lead-time projection)
+# ---------------------------------------------------------------------------
+
+
+class TrendPointSchema(BaseModel):
+    """A single (timestamp, score) observation used to fit the trend line."""
+
+    timestamp: datetime
+    score: int
+
+
+class DeteriorationTrendProjectionSchema(BaseModel):
+    """Deterministic linear-trend projection for one score_type."""
+
+    score_type: str
+    current_score: int
+    slope_per_hour: float = Field(..., description="Taxa de variação do score (pts/h)")
+    r_squared: float = Field(..., description="Qualidade do ajuste linear (0-1)")
+    n_points: int = Field(..., description="Número de pontos usados na regressão")
+    window_hours: float = Field(..., description="Janela de observação (horas)")
+    projected_threshold: int | None = Field(
+        None, description="Próximo threshold ratificado (watch/urgent/critical) na trajetória"
+    )
+    hours_to_threshold: float | None = Field(
+        None, description="Horas estimadas até cruzar projected_threshold (cap 24h)"
+    )
+    confidence: str = Field(..., description="low | moderate — derivada de R² e nº de pontos")
+    disclaimer: str
+    points: list[TrendPointSchema] = Field(
+        default_factory=list, description="Pontos brutos (timestamp+score) para auditoria clínica"
+    )
+
+
+class DeteriorationTrendResponse(BaseModel):
+    """Response envelope for GET /patients/{mpi_id}/deterioration-trend."""
+
+    mpi_id: str
+    projections: list[DeteriorationTrendProjectionSchema] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +185,23 @@ def _result_to_score_schema(result, mpi_id: str) -> DeteriorationScoreSchema:
     )
 
 
+def _to_trend_schema(projection: TrendProjection) -> DeteriorationTrendProjectionSchema:
+    """Map a TrendProjection (service dataclass) → DeteriorationTrendProjectionSchema."""
+    return DeteriorationTrendProjectionSchema(
+        score_type=projection.score_type,
+        current_score=projection.current_score,
+        slope_per_hour=projection.slope_per_hour,
+        r_squared=projection.r_squared,
+        n_points=projection.n_points,
+        window_hours=projection.window_hours,
+        projected_threshold=projection.projected_threshold,
+        hours_to_threshold=projection.hours_to_threshold,
+        confidence=projection.confidence,
+        disclaimer=projection.disclaimer,
+        points=[TrendPointSchema(timestamp=p.timestamp, score=p.score) for p in projection.points],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -232,3 +300,44 @@ async def get_patient_deterioration_history(
         items=[_to_score_schema(a) for a in assessments],
         total=total,
     )
+
+
+@router.get(
+    "/patients/{mpi_id}/deterioration-trend",
+    response_model=DeteriorationTrendResponse,
+    summary="Projeção determinística de tendência de deterioração (lead-time)",
+)
+async def get_patient_deterioration_trend(
+    mpi_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DeteriorationTrendResponse:
+    """Projeção linear determinística (não-ML) do MEWS/NEWS2 do paciente.
+
+    Ajusta uma regressão linear simples (least squares) sobre os scores
+    persistidos das últimas 12h e, se a tendência for de piora, estima o
+    tempo até o próximo threshold ratificado (watch/urgent/critical) ser
+    cruzado — cap de 24h. Cada projeção inclui os pontos brutos
+    (timestamp+score) usados no ajuste, para auditoria clínica.
+
+    404 se o paciente não existir. 200 com ``projections: []`` se o
+    paciente existir mas não houver dados suficientes (mín. 3 pontos em
+    12h) para nenhum score_type.
+    """
+    patient = (
+        await db.execute(select(PatientCache).where(PatientCache.mpi_id == mpi_id))
+    ).scalar_one_or_none()
+    if patient is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Paciente '{mpi_id}' não encontrado.",
+        )
+
+    now = datetime.now(timezone.utc)
+    projections: list[DeteriorationTrendProjectionSchema] = []
+    for score_type in TREND_SCORE_TYPES:
+        projection = await compute_deterioration_trend(db, mpi_id, now, score_type)
+        if projection is not None:
+            projections.append(_to_trend_schema(projection))
+
+    return DeteriorationTrendResponse(mpi_id=mpi_id, projections=projections)

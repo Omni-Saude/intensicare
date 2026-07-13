@@ -8,6 +8,7 @@ import {
   escalateAlert,
   resolveAlert,
   type AlertInfo,
+  type AlertResolution,
 } from '@/lib/api';
 
 interface QuickActionsProps {
@@ -18,10 +19,18 @@ interface QuickActionsProps {
 
 type ActionState = 'idle' | 'loading' | 'resolving';
 
+const RESOLUTION_OPTIONS: Array<{ value: AlertResolution; label: string }> = [
+  { value: 'true_positive', label: 'Verdadeiro positivo' },
+  { value: 'false_positive', label: 'Falso positivo' },
+  { value: 'intervention_done', label: 'Intervenção realizada' },
+];
+
 export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
   const [actionState, setActionState] = useState<ActionState>('idle');
   const [showResolveInput, setShowResolveInput] = useState(false);
-  const [resolution, setResolution] = useState('');
+  // Free-text justification — sent as `note` (backend ResolveRequest.note is
+  // optional and accepted, but not yet persisted server-side).
+  const [note, setNote] = useState('');
 
   const handleAcknowledge = async () => {
     if (alert.acknowledged_at) return;
@@ -48,10 +57,11 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
     }
   };
 
+  // "Não procede" is a disposition shortcut for the false_positive outcome.
   const handleDismiss = async () => {
     setActionState('loading');
     try {
-      const updated = await resolveAlert(alert.id, 'não procede');
+      const updated = await resolveAlert(alert.id, 'false_positive');
       onAction(updated);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Erro ao marcar alerta como não procedente');
@@ -60,14 +70,13 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
     }
   };
 
-  const handleResolve = async () => {
-    if (!resolution.trim()) return;
+  const handleResolve = async (value: AlertResolution) => {
     setActionState('loading');
     try {
-      const updated = await resolveAlert(alert.id, resolution.trim());
+      const updated = await resolveAlert(alert.id, value, note);
       onAction(updated);
       setShowResolveInput(false);
-      setResolution('');
+      setNote('');
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Erro ao resolver alerta');
     } finally {
@@ -172,40 +181,39 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
         <div className="flex items-center gap-1" role="group" aria-label="Formulário de resolução">
           <input
             type="text"
-            value={resolution}
-            onChange={(e) => setResolution(e.target.value)}
-            placeholder="Resolução…"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Justificativa (opcional)…"
             className={cn(
-              'h-7 w-32 rounded-md border border-[var(--border-default)] bg-[var(--surface-canvas)]',
+              'h-7 w-36 rounded-md border border-[var(--border-default)] bg-[var(--surface-canvas)]',
               'px-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]',
               'focus:outline-none focus:border-[var(--severity-watch)]',
             )}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleResolve();
               if (e.key === 'Escape') {
                 setShowResolveInput(false);
-                setResolution('');
+                setNote('');
               }
             }}
             autoFocus
-            aria-label="Texto da resolução"
+            aria-label="Justificativa da resolução"
           />
-          <button
-            onClick={handleResolve}
-            disabled={isBusy || !resolution.trim()}
-            className="inline-flex items-center rounded-md bg-[var(--severity-normal-wash)] px-2 py-1 text-xs text-[var(--severity-normal)] hover:brightness-125 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-canvas)]"
-            aria-label="Confirmar resolução"
-          >
-            {isBusy ? (
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-            ) : (
-              'OK'
-            )}
-          </button>
+          {RESOLUTION_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => handleResolve(option.value)}
+              disabled={isBusy}
+              className="inline-flex items-center rounded-md bg-[var(--severity-normal-wash)] px-2 py-1 text-xs text-[var(--severity-normal)] hover:brightness-125 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-canvas)]"
+              aria-label={`Resolver — ${option.label}`}
+              title={option.label}
+            >
+              {isBusy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : option.label}
+            </button>
+          ))}
           <button
             onClick={() => {
               setShowResolveInput(false);
-              setResolution('');
+              setNote('');
             }}
             className="rounded-md px-1 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-canvas)]"
             aria-label="Cancelar resolução"

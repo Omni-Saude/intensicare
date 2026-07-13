@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from intensicare.models.alert import Alert
 from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.patient_cache import PatientCache
+from intensicare.models.threshold_config import ThresholdConfig
 from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.dashboard import (
     DashboardResponse,
@@ -23,11 +25,94 @@ from intensicare.schemas.dashboard import (
     VitalRecord,
     VitalsHistoryPoint,
 )
-from intensicare.schemas.severity import TripleEncoder, max_severity
+from intensicare.schemas.severity import SeverityLevel, TripleEncoder, max_severity
+from intensicare.services.patient_encryption import resolve_display_name
+
+logger = logging.getLogger(__name__)
 
 # NEWS2 clinical risk-category thresholds (aggregate score)
 NEWS2_HIGH_RISK_THRESHOLD = 7
 NEWS2_MEDIUM_RISK_THRESHOLD = 5
+
+# Tenant-global threshold scope convention (unit=NULL, bed_id=NULL), matching
+# migration 0038 and the resolve_threshold() tenant-fallback tier.
+DEFAULT_TENANT = "default"
+
+# Fallback thresholds — identical to the migration 0038 seed values — used
+# when threshold_config has no tenant-global row for a score_type (e.g. an
+# empty/unseeded table). Never let a missing config row null out severity.
+FALLBACK_THRESHOLDS: dict[str, tuple[int, int, int]] = {
+    "MEWS": (3, 4, 5),  # watch, urgent, critical
+    "NEWS2": (3, 5, 7),
+}
+
+
+async def _load_bed_severity_thresholds(
+    db: AsyncSession,
+) -> dict[str, tuple[int, int, int]]:
+    """Load MEWS/NEWS2 watch/urgent/critical thresholds once per request.
+
+    Scope: tenant-global fallback (tenant_id='default', unit=NULL, bed_id=NULL)
+    — the same scope seeded by migration 0038. Any score_type missing from
+    threshold_config (including an entirely empty table) falls back to the
+    hardcoded values that mirror the 0038 seed, so severity derivation never
+    breaks due to missing configuration.
+    """
+    thresholds = dict(FALLBACK_THRESHOLDS)
+    query = select(
+        ThresholdConfig.score_type,
+        ThresholdConfig.watch_threshold,
+        ThresholdConfig.urgent_threshold,
+        ThresholdConfig.critical_threshold,
+    ).where(
+        ThresholdConfig.tenant_id == DEFAULT_TENANT,
+        ThresholdConfig.unit.is_(None),
+        ThresholdConfig.bed_id.is_(None),
+        ThresholdConfig.score_type.in_(list(FALLBACK_THRESHOLDS)),
+    )
+    result = await db.execute(query)
+    for score_type, watch, urgent, critical in result.fetchall():
+        thresholds[score_type] = (watch, urgent, critical)
+    return thresholds
+
+
+def _score_band_severity(score: int | None, thresholds: tuple[int, int, int] | None) -> str | None:
+    """Map a MEWS/NEWS2 score to a severity band via watch/urgent/critical thresholds."""
+    if score is None or thresholds is None:
+        return None
+    watch, urgent, critical = thresholds
+    if score >= critical:
+        return SeverityLevel.CRITICAL.value
+    if score >= urgent:
+        return SeverityLevel.URGENT.value
+    if score >= watch:
+        return SeverityLevel.WATCH.value
+    return SeverityLevel.NORMAL.value
+
+
+def derive_bed_severity(
+    alert_severity: str | None,
+    pathway_severities: list[str | None] | None,
+    mews: int | None,
+    news2: int | None,
+    thresholds: dict[str, tuple[int, int, int]],
+) -> str:
+    """Derive a bed's clinical severity — never null.
+
+    Composed as max(active-alert severity, active-pathway severities,
+    MEWS threshold band, NEWS2 threshold band). Floor is "normal": a bed
+    with no alerts, no active pathways, and no scores is still "normal",
+    not null — fixes beds silently disappearing from severity views when
+    no alert has fired yet (e.g. MEWS 13 with no matching alert rule).
+    """
+    candidates: list[str | None] = [alert_severity]
+    if pathway_severities:
+        candidates.extend(pathway_severities)
+    candidates.append(_score_band_severity(mews, thresholds.get("MEWS")))
+    candidates.append(_score_band_severity(news2, thresholds.get("NEWS2")))
+
+    derived = max_severity(*candidates)
+    return derived or SeverityLevel.NORMAL.value
 
 
 async def get_dashboard(
@@ -59,7 +144,17 @@ async def get_dashboard(
     patients = result.scalars().all()
 
     if not patients:
-        return DashboardResponse(patients=[], total=0, critical_count=0, unit_counts={})
+        return DashboardResponse(
+            patients=[],
+            total=0,
+            critical_count=0,
+            active_alerts_total=0,
+            unit_counts={},
+        )
+
+    # Load MEWS/NEWS2 severity-band thresholds once per request (cheap,
+    # tenant-global scope) — used below to derive a non-null severity per bed.
+    bed_severity_thresholds = await _load_bed_severity_thresholds(db)
 
     mpi_ids = [p.mpi_id for p in patients]
 
@@ -200,6 +295,7 @@ async def get_dashboard(
     # Build response
     bed_summaries = []
     unit_counts: dict[str, int] = {}
+    critical_patient_count = 0
 
     for p in patients:
         mews_data = mews_map.get(p.mpi_id)
@@ -246,11 +342,26 @@ async def get_dashboard(
         if p.unit:
             unit_counts[p.unit] = unit_counts.get(p.unit, 0) + 1
 
+        # Derived bed severity — max(active-alert, active-pathway, MEWS/NEWS2
+        # band). Always non-null (floor "normal"); fixes beds with no fired
+        # alert (e.g. high MEWS but no matching alert rule) showing severity=null.
+        derived_severity = derive_bed_severity(
+            alert_severity=highest_sev,
+            pathway_severities=[pw["severity"] for pw in active_pathways],
+            mews=mews_data[0] if mews_data else None,
+            news2=news2_score,
+            thresholds=bed_severity_thresholds,
+        )
+        if derived_severity == SeverityLevel.CRITICAL.value:
+            critical_patient_count += 1
+
+        patient_name = await resolve_display_name(db, p.display_name)
+
         bed_summaries.append(
             PatientBedSummary(
                 mpi_id=p.mpi_id,
                 bed=p.bed_id,
-                patient_name=p.display_name,
+                patient_name=patient_name,
                 unit=p.unit,
                 mews=mews_data[0] if mews_data else None,
                 news2=news2_score,
@@ -258,7 +369,8 @@ async def get_dashboard(
                 mews_trend=mews_data[1] if mews_data else None,
                 news2_trend=news2_data[1] if news2_data else None,
                 active_alerts_count=alert_counts.get(p.mpi_id, 0),
-                severity=alert_severities.get(p.mpi_id),
+                severity=derived_severity,
+                highest_alert_severity=highest_sev,
                 highest_alert_encoding=highest_encoding,
                 vitals=vitals_map.get(p.mpi_id),
                 last_vital_at=p.synced_at.isoformat() if p.synced_at else None,
@@ -269,7 +381,8 @@ async def get_dashboard(
     return DashboardResponse(
         patients=bed_summaries,
         total=len(bed_summaries),
-        critical_count=total_alerts,
+        critical_count=critical_patient_count,
+        active_alerts_total=total_alerts,
         unit_counts=unit_counts,
     )
 
@@ -357,6 +470,48 @@ def _convert_scores_to_records(
     ]
 
 
+# Patient-detail history fallback: when the 24h window has no rows (e.g.
+# LEITO-* demo/backfilled data that is >24h old), fall back to the N most
+# recent rows regardless of age so the detail screen is never empty when
+# data actually exists.
+RECENT_HISTORY_FALLBACK_LIMIT = 50
+
+
+async def _rows_within_cutoff_or_recent(
+    db: AsyncSession,
+    model: type,
+    mpi_id: str,
+    time_col,
+    cutoff: datetime,
+    extra_filters: tuple = (),
+    window_limit: int = 200,
+    fallback_limit: int = RECENT_HISTORY_FALLBACK_LIMIT,
+) -> list:
+    """Return rows within [cutoff, now), oldest-first; if none, fall back to
+    the `fallback_limit` most recent rows regardless of age (oldest-first)
+    instead of returning an empty list.
+    """
+    window_query = (
+        select(model)
+        .where(model.mpi_id == mpi_id, time_col >= cutoff, *extra_filters)
+        .order_by(time_col.asc())
+        .limit(window_limit)
+    )
+    window_result = await db.execute(window_query)
+    rows = list(window_result.scalars().all())
+    if rows:
+        return rows
+
+    fallback_query = (
+        select(model)
+        .where(model.mpi_id == mpi_id, *extra_filters)
+        .order_by(time_col.desc())
+        .limit(fallback_limit)
+    )
+    fallback_result = await db.execute(fallback_query)
+    return list(reversed(fallback_result.scalars().all()))
+
+
 async def get_patient_detail(
     db: AsyncSession,
     mpi_id: str,
@@ -386,16 +541,13 @@ async def get_patient_detail(
     # Count active pathways
     active_pathways_count = sum(1 for pp in (patient.pathways or []) if pp.status == "active")
 
-    # Get vitals history (last 24h)
+    # Get vitals history: last 24h, falling back to the N=50 most recent
+    # rows if the 24h window is empty (e.g. stale demo/backfilled data) —
+    # never an empty screen when data exists.
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    vitals_query = (
-        select(VitalSign)
-        .where(VitalSign.mpi_id == mpi_id, VitalSign.recorded_at >= cutoff)
-        .order_by(VitalSign.recorded_at.asc())
-        .limit(200)
+    vitals = await _rows_within_cutoff_or_recent(
+        db, VitalSign, mpi_id, VitalSign.recorded_at, cutoff
     )
-    vitals_result = await db.execute(vitals_query)
-    vitals = vitals_result.scalars().all()
 
     vitals_history = [
         VitalsHistoryPoint(
@@ -415,18 +567,15 @@ async def get_patient_detail(
     # Expand vitals history into frontend VitalRecord format
     vitals_records = _expand_vitals_to_records(vitals_history)
 
-    # Get MEWS history
-    mews_query = (
-        select(ClinicalScore)
-        .where(
-            ClinicalScore.mpi_id == mpi_id,
-            ClinicalScore.score_type == "MEWS",
-            ClinicalScore.calculated_at >= cutoff,
-        )
-        .order_by(ClinicalScore.calculated_at.asc())
-        .limit(200)
+    # Get MEWS history (24h window, falling back to N=50 most recent)
+    mews_rows = await _rows_within_cutoff_or_recent(
+        db,
+        ClinicalScore,
+        mpi_id,
+        ClinicalScore.calculated_at,
+        cutoff,
+        extra_filters=(ClinicalScore.score_type == "MEWS",),
     )
-    mews_result = await db.execute(mews_query)
     mews_history = [
         ScoreHistoryPoint(
             calculated_at=s.calculated_at.isoformat(),
@@ -434,21 +583,18 @@ async def get_patient_detail(
             score_value=s.score_value,
             trend=s.trend,
         )
-        for s in mews_result.scalars().all()
+        for s in mews_rows
     ]
 
-    # Get NEWS2 history
-    news2_query = (
-        select(ClinicalScore)
-        .where(
-            ClinicalScore.mpi_id == mpi_id,
-            ClinicalScore.score_type == "NEWS2",
-            ClinicalScore.calculated_at >= cutoff,
-        )
-        .order_by(ClinicalScore.calculated_at.asc())
-        .limit(200)
+    # Get NEWS2 history (24h window, falling back to N=50 most recent)
+    news2_rows = await _rows_within_cutoff_or_recent(
+        db,
+        ClinicalScore,
+        mpi_id,
+        ClinicalScore.calculated_at,
+        cutoff,
+        extra_filters=(ClinicalScore.score_type == "NEWS2",),
     )
-    news2_result = await db.execute(news2_query)
     news2_history = [
         ScoreHistoryPoint(
             calculated_at=s.calculated_at.isoformat(),
@@ -456,7 +602,7 @@ async def get_patient_detail(
             score_value=s.score_value,
             trend=s.trend,
         )
-        for s in news2_result.scalars().all()
+        for s in news2_rows
     ]
 
     # Merge MEWS + NEWS2 history into frontend ScoreRecord format
@@ -493,10 +639,12 @@ async def get_patient_detail(
             }
         )
 
+    patient_name = await resolve_display_name(db, patient.display_name)
+
     return PatientDetailResponse(
         mpi_id=patient.mpi_id,
         bed=patient.bed_id,
-        patient_name=patient.display_name,
+        patient_name=patient_name,
         unit=patient.unit,
         vitals_history=vitals_history,
         mews_history=mews_history,

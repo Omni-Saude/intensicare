@@ -130,7 +130,7 @@ async def test_enrollment_survives_new_engine_and_resync(
     assert update_resp.status_code == 200, update_resp.text
     updated_body = update_resp.json()
     assert updated_body["current_state"]["id"] == "confirmacao"
-    assert updated_body["severity"] == "normal"
+    assert updated_body["severity"] == "critical"
 
     # ── Progress endpoint reflects the persisted transition history. ──
     progress_resp = await client.get(

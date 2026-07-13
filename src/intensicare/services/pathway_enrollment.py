@@ -55,28 +55,41 @@ Design notes / decisions made where the approved design was ambiguous:
     (``intensicare.api.v1.ws.get_ws_manager``). Publish failures are
     caught and logged — they must never fail the clinical transaction
     (enrollment/criteria update) that triggered them.
-  - The trend/severity/recommendation helpers (``_determine_severity``,
-    ``_determine_trend``, ``_build_recommendation``) are copied verbatim
-    from ``trilhas_state.py`` rather than imported, since that module is
-    deprecated and slated for removal (2026-09-01) — this module must not
-    depend on it. ``trilhas_state.py`` itself was not modified.
+  - The trend/recommendation helpers (``_determine_trend``,
+    ``_build_recommendation``) are copied verbatim from ``trilhas_state.py``
+    rather than imported, since that module is deprecated and slated for
+    removal (2026-09-01) — this module must not depend on it.
+    ``trilhas_state.py`` itself was not modified.
+  - ``_determine_severity`` (Rule 10) was NOT copied verbatim: the legacy
+    met/total *ratio* rule (see git history) is a P0 clinical-safety bug
+    (gatekeeper G-S2) — it treats a criterion that was never evaluated
+    (``value`` is ``None``) as if it had failed, inflating severity for any
+    pathway with a partial evaluation. It has been replaced with a
+    band-based rule that reuses the existing YAML predicate classifier
+    (:class:`~intensicare.services.trilhas_compiler.PredicateCompiler`, the
+    same one ``TrilhasEvaluator``/the alerting engine use) — see its
+    docstring below for the full rule and rationale.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from intensicare.schemas.severity import max_severity
 from intensicare.services.domain_trilhas_engine import (
     CriteriaEvaluationResult,
     PathwayEnrollmentResult,
     PathwayProgressResult,
 )
 from intensicare.services.pathway_repository import PathwayRepository
+from intensicare.services.trilhas_compiler import PredicateCompiler
+from intensicare.services.trilhas_engine import TrilhasEngine
 
 logger = logging.getLogger(__name__)
 
@@ -368,10 +381,8 @@ async def evaluate_criteria(
                     next_state_def["name"],
                 )
 
-    # ── Rule 10: Severity determination ──
-    met_count = sum(1 for c in criteria_data if c.get("met", False))
-    total_count = len(criteria_data)
-    severity = _determine_severity(met_count, total_count)
+    # ── Rule 10: Severity determination (band-based, see _determine_severity) ──
+    severity = _determine_severity(enrollment.pathway_id, criteria_data)
     enrollment.severity = severity
 
     await db.flush()
@@ -538,6 +549,7 @@ async def get_pathway_progress(
         current_state=current_state_id,
         severity=severity,
         states=(pathway.states if pathway and pathway.states else []),
+        criteria_summary=criteria_summary,
     )
 
     return PathwayProgressResult(
@@ -613,32 +625,148 @@ async def _publish_pathway_updated(
 # ============================================================================
 
 
-def _determine_severity(met_count: int, total_count: int) -> str:
-    """Map criteria met ratio to severity.
+# Lazily-constructed, module-cached TrilhasEngine used ONLY to read each
+# criterion's compiled YAML predicate (bands/threshold/boolean) for severity
+# classification in _determine_severity. This information is NOT persisted
+# to the `pathway_criteria` table (PathwayRepository/Pathway.criteria only
+# carries display fields — name/category/normal_range/alert_threshold, see
+# intensicare.models.pathway.PathwayCriteria), so the DB-backed pathway
+# definition fetched by PathwayRepository.get_pathway() cannot be used here.
+# Mirrors the same lazy-engine pattern already used by
+# intensicare.api.v1.pathways._get_engine() (kept private/duplicated rather
+# than shared, to avoid a services/ -> api/ import).
+_trilhas_engine: TrilhasEngine | None = None
+_trilhas_engine_load_failed = False
 
-    Rule 10:
-        - normal: >= 80% of criteria met
-        - watch: 60-79% of criteria met
-        - urgent: 40-59% of criteria met
-        - critical: < 40% of criteria met
+
+def _get_trilhas_engine() -> TrilhasEngine | None:
+    """Lazily construct and cache the TrilhasEngine, or None if unavailable.
+
+    Never raises — a definitions-load hiccup must degrade
+    ``_determine_severity`` to its "normal" fallback rather than fail the
+    clinical enrollment/evaluation transaction that triggered it.
+    """
+    global _trilhas_engine, _trilhas_engine_load_failed
+    if _trilhas_engine is not None:
+        return _trilhas_engine
+    if _trilhas_engine_load_failed:
+        return None
+    try:
+        # pathway_enrollment.py -> services -> intensicare -> src -> repo root
+        repo_root = Path(__file__).resolve().parent.parent.parent.parent
+        yaml_dir = str(repo_root / "_work" / "alerts" / "pathways")
+        _trilhas_engine = TrilhasEngine(definitions_path=yaml_dir)
+    except Exception:
+        logger.warning(
+            "TrilhasEngine failed to load for pathway severity "
+            "classification; _determine_severity will fall back to "
+            "'normal' until this is resolved.",
+            exc_info=True,
+        )
+        _trilhas_engine_load_failed = True
+        return None
+    return _trilhas_engine
+
+
+def _determine_severity(pathway_id: int, criteria_data: list[dict[str, Any]]) -> str:
+    """Derive pathway severity from the YAML severity bands of *evaluated* criteria.
+
+    Rule 10 (corrected — gatekeeper G-S2 clinical-safety fix):
+
+    The previous implementation derived severity from the *ratio* of
+    criteria met/total (``< 40% met -> critical``). This was a P0 bug: it
+    silently treated any criterion that had never been evaluated
+    (``value`` is ``None``/absent) as if it had *failed*, which both (a)
+    conflates "pending" with "not met", and (b) completely ignores the
+    actual clinical severity bands declared per-criterion in the YAML
+    pathway definition — e.g. a pathway with only one criterion evaluated
+    to an "urgent" band would be reported as "critical" purely because
+    2 of 3 criteria hadn't been assessed yet.
+
+    Corrected rule:
+        - Only criteria that have actually been evaluated (``value`` is
+          not None) are considered. Each is classified into a severity by
+          compiling its YAML ``predicate`` (graded/threshold/boolean) and
+          evaluating it against ``{input: value}`` — reusing
+          :class:`~intensicare.services.trilhas_compiler.PredicateCompiler`,
+          the exact same classifier ``TrilhasEvaluator``/the alerting
+          engine use elsewhere (band logic is intentionally NOT
+          reimplemented here).
+        - A criterion with no value yet is PENDING: excluded entirely from
+          the computation (neither counted as critical nor as normal).
+        - Pathway severity is the MAXIMUM severity across the evaluated
+          criteria's classified severities, per the canonical ordering
+          normal < watch < urgent < critical
+          (:func:`intensicare.schemas.severity.max_severity`).
+        - If nothing has been evaluated yet, severity is "normal" — the
+          same default state used at enrollment (Rule 6), for coherence.
 
     Args:
-        met_count: Number of criteria met.
-        total_count: Total number of criteria.
+        pathway_id: The enrollment's pathway ID, used to look up its
+            compiled YAML criteria/predicates via the module-level
+            TrilhasEngine.
+        criteria_data: The enrollment's current criteria array. Each dict
+            has at least ``id`` and ``value`` (``value`` is None/absent
+            for a criterion not yet evaluated).
 
     Returns:
         Severity string: normal, watch, urgent, or critical.
     """
-    if total_count == 0:
+    engine = _get_trilhas_engine()
+    pdef = engine.get_pathway(pathway_id) if engine is not None else None
+
+    if pdef is None:
+        # Definitions unavailable (engine failed to load) or this
+        # pathway_id has no YAML source (e.g. a pathway upserted directly
+        # via PathwayRepository, as some tests do) — degrade to the Rule 6
+        # default rather than fail the clinical transaction.
         return "normal"
-    ratio = met_count / total_count
-    if ratio >= 0.80:
+
+    predicate_by_criterion_id: dict[str, dict[str, Any]] = {
+        c["id"]: c.get("predicate", {}) for c in pdef.criteria if c.get("id")
+    }
+
+    compiler = PredicateCompiler()
+    evaluated_severities: list[str] = []
+
+    for crit in criteria_data:
+        value = crit.get("value")
+        if value is None:
+            continue  # Pending — excluded, per the corrected rule above.
+
+        crit_id = crit.get("id")
+        predicate = predicate_by_criterion_id.get(crit_id) if crit_id is not None else None
+        if not predicate:
+            logger.warning(
+                "_determine_severity: no YAML predicate found for "
+                "criterion %r in pathway %d; excluding it from the "
+                "severity computation.",
+                crit.get("id"),
+                pathway_id,
+            )
+            continue
+
+        try:
+            compiled = compiler.compile(predicate)
+            result = compiler.evaluate(compiled, {compiled.input_name: value})
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.warning(
+                "_determine_severity: failed to classify criterion %r "
+                "(pathway %d, value=%r); excluding it from the severity "
+                "computation: %s",
+                crit.get("id"),
+                pathway_id,
+                value,
+                exc,
+            )
+            continue
+
+        evaluated_severities.append(result.severity)
+
+    if not evaluated_severities:
         return "normal"
-    if ratio >= 0.60:
-        return "watch"
-    if ratio >= 0.40:
-        return "urgent"
-    return "critical"
+
+    return max_severity(*evaluated_severities) or "normal"
 
 
 def _determine_trend(history: list[dict[str, Any]]) -> str:
@@ -680,33 +808,52 @@ def _build_recommendation(
     current_state: str,
     severity: str,
     states: list[dict[str, Any]] | None = None,
+    criteria_summary: dict[str, int] | None = None,
 ) -> str:
     """Generate PT-BR clinical recommendation based on pathway, state, and severity.
 
     Rule 12: Recommendations are generated in PT-BR.
 
+    Note (G-S2 fix — band-based severity): Severity is derived from the YAML
+    severity bands of *evaluated* criteria (not a ratio of met/total). This
+    function now reports the count of evaluated vs. pending criteria to make
+    the severity classification transparent and clinically coherent.
+
     Args:
         pathway_name: Human-readable pathway name.
         current_state: Current state identifier.
-        severity: Severity level (normal, watch, urgent, critical).
+        severity: Severity level (normal, watch, urgent, critical) — derived
+            from band classification of evaluated criteria, not a ratio.
         states: Optional list of state definitions for context.
+        criteria_summary: Optional dict with keys total/met/not_met/pending.
+            Used to report how many criteria have been evaluated (met +
+            not_met) vs. pending. If None, defaults to empty dict.
 
     Returns:
         Recommendation string in Portuguese (BR).
     """
     if states is None:
         states = []
+    if criteria_summary is None:
+        criteria_summary = {}
 
     # Build state name lookup.
     state_name_map: dict[str, str] = {s["id"]: s["name"] for s in states}
     state_name = state_name_map.get(current_state, current_state)
+
+    # Compute evaluated vs. pending for coherent clinical messaging.
+    total = criteria_summary.get("total", 0)
+    evaluated = criteria_summary.get("met", 0) + criteria_summary.get("not_met", 0)
+    eval_str = (
+        f"{evaluated} de {total} critérios avaliados" if total > 0 else "nenhum critério avaliado"
+    )
 
     # Pathway-specific recommendations.
     if pathway_name == "Ventilação Mecânica":
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Reavaliar parâmetros "
+                f"{eval_str}; faixa crítica detectada. Reavaliar parâmetros "
                 "ventilatórios IMEDIATAMENTE. Verificar PEEP, driving pressure e "
                 "relação P/F. Considerar manobras de recrutamento alveolar "
                 "e posição prona se P/F < 150. Acionar fisioterapia respiratória."
@@ -714,14 +861,14 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios parcialmente atendidos (40-59%). Ajustar parâmetros "
+                f"{eval_str}; faixa urgente. Ajustar parâmetros "
                 "do ventilador nas próximas 6h. Reavaliar PEEP ideal e "
                 "considerar gasometria de controle. Manter cabeceira elevada 30-45°."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Manter parâmetros protetores e "
+                f"{eval_str}; faixa de cuidado. Manter parâmetros protetores e "
                 "monitorizar "
                 "tendência da mecânica pulmonar a cada 12h. Avaliar diariamente prontidão para "
                 "desmame."
@@ -729,7 +876,7 @@ def _build_recommendation(
         # normal
         return (
             f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-            "≥80% dos critérios de ventilação protetora atendidos. Manter estratégia atual e "
+            f"{eval_str}; faixa normal. Manter estratégia atual e "
             "avaliar critérios para início do desmame ventilatório. Registrar avaliação diária."
         )
 
@@ -737,7 +884,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. ACIONAR PROTOCOLO DE SEPSE IMEDIATAMENTE. "
+                f"{eval_str}; critério em faixa crítica. ACIONAR PROTOCOLO DE SEPSE IMEDIATAMENTE. "
                 "Verificar: antibiótico administrado? Culturas coletadas? Ressuscitação volêmica "
                 "iniciada? "
                 "Lactato >4 mmol/L requer reavaliação em 2-4h. Considerar acesso central e droga "
@@ -746,21 +893,21 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios do bundle de sepse incompletos (40-59%). Completar bundle da 1ª hora: "
+                f"{eval_str}; critério em faixa urgente. Completar bundle da 1ª hora: "
                 "coletar culturas, administrar antibiótico, iniciar cristaloide 30 mL/kg. "
                 "Reavaliar lactato em 2-4h."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Bundle de sepse parcialmente completo (60-79%). Verificar itens pendentes e "
+                f"{eval_str}; monitorização de cuidado recomendada. Verificar itens pendentes e "
                 "reavaliar resposta hemodinâmica. Monitorizar clearance de lactato a cada 6h. "
                 "Avaliar descalonamento antimicrobiano em 48-72h."
             )
         # normal
         return (
             f"✓ Resposta adequada — {pathway_name} ({state_name}): "
-            "≥80% dos critérios do bundle atendidos. Paciente com boa evolução. "
+            f"{eval_str}; todos em faixa normal. Paciente com boa evolução. "
             "Manter monitorização e avaliar transição para via oral de antibióticos. "
             "Reavaliar culturas e possibilidade de descalonamento."
         )
@@ -769,7 +916,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios de desmame atendidos. Paciente NÃO está pronto para "
+                f"{eval_str}; critério em faixa crítica. Paciente NÃO está pronto para "
                 "desmame. "
                 "Otimizar parâmetros ventilatórios, corrigir distúrbios metabólicos e "
                 "eletrolíticos. "
@@ -778,14 +925,14 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios de prontidão para desmame parcialmente atendidos (40-59%). "
+                f"{eval_str}; critério em faixa urgente para desmame. "
                 "Reavaliar força muscular respiratória (NIF) e drive respiratório (RSBI). "
                 "Considerar TRE (Teste de Respiração Espontânea) se Glasgow ≥11 e tosse eficaz."
             )
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Paciente próximo da prontidão para TRE. "
+                f"{eval_str}; proximidade com prontidão para TRE monitorada. "
                 "Verificar critérios pendentes e programar teste de respiração espontânea nas "
                 "próximas 12-24h. "
                 "Manter sedação mínima (RASS -1 a 0)."
@@ -793,7 +940,8 @@ def _build_recommendation(
         # normal
         return (
             f"✓ Pronto para desmame — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
+            f"{eval_str}; paciente em faixa adequada. "
+            "REALIZAR TESTE DE RESPIRAÇÃO ESPONTÂNEA (TRE). "
             "Manter paciente em PSV 5-7 cmH₂O ou tubo T por 30-120 min. "
             "Se TRE bem-sucedido, proceder à extubação e iniciar monitorização pós-extubação."
         )
@@ -802,7 +950,7 @@ def _build_recommendation(
         if severity == "critical":
             return (
                 f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-                "Menos de 40% dos critérios atendidos. Intolerância grave à dieta ou desnutrição "
+                f"{eval_str}; critério em faixa crítica. Intolerância grave à dieta ou desnutrição "
                 "severa. "
                 "Reavaliar via de acesso nutricional, considerar nutrição parenteral suplementar. "
                 "Investigar causas de intolerância (íleo, infecção, isquemia mesentérica). "
@@ -811,7 +959,7 @@ def _build_recommendation(
         if severity == "urgent":
             return (
                 f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-                "Critérios nutricionais parcialmente atendidos (40-59%). Aporte calórico-proteico "
+                f"{eval_str}; critério em faixa urgente. Aporte calórico-proteico "
                 "abaixo da meta. "
                 "Avaliar resíduo gástrico e considerar procinético. Ajustar velocidade de infusão "
                 "e "
@@ -820,14 +968,14 @@ def _build_recommendation(
         if severity == "watch":
             return (
                 f"Acompanhar — {pathway_name} ({state_name}): "
-                "Maioria dos critérios atendidos (60-79%). Progredir dieta conforme protocolo, "
+                f"{eval_str}; progresso em nível de cuidado. Progredir dieta conforme protocolo, "
                 "atingindo meta calórica em até 72h. Monitorizar resíduo gástrico a cada 6h e "
                 "sinais de intolerância. Manter cabeceira elevada."
             )
         # normal
         return (
             f"✓ Meta nutricional — {pathway_name} ({state_name}): "
-            "≥80% dos critérios atendidos. Aporte calórico e proteico adequados. "
+            f"{eval_str}; meta adequada. Aporte calórico e proteico adequados. "
             "Avaliar transição para dieta via oral conforme melhora clínica. "
             "Manter monitorização de tolerância e balanço nitrogenado semanal."
         )
@@ -836,22 +984,23 @@ def _build_recommendation(
     if severity == "critical":
         return (
             f"⚠️ ALERTA CRÍTICO — {pathway_name} ({state_name}): "
-            "Menos de 40% dos critérios clínicos atendidos. Requer intervenção imediata. "
+            f"{eval_str}; critério em faixa crítica. Requer intervenção imediata. "
             "Reavaliar todos os parâmetros e acionar equipe multidisciplinar."
         )
     if severity == "urgent":
         return (
             f"⚠️ ATENÇÃO — {pathway_name} ({state_name}): "
-            "Critérios parcialmente atendidos (40-59%). Priorizar itens pendentes e reavaliar em "
+            f"{eval_str}; critério em faixa urgente. Priorizar itens pendentes e reavaliar em "
             "6-12h."
         )
     if severity == "watch":
         return (
             f"Acompanhar — {pathway_name} ({state_name}): "
-            "Maioria dos critérios atendidos (60-79%). Verificar pendências e manter "
+            f"{eval_str}; monitorização recomendada. Verificar pendências e manter "
             "monitorização programada."
         )
     return (
         f"✓ Dentro das metas — {pathway_name} ({state_name}): "
-        "≥80% dos critérios atendidos. Manter conduta atual e reavaliar conforme protocolo."
+        f"{eval_str}; dentro dos limites normais. "
+        "Manter conduta atual e reavaliar conforme protocolo."
     )

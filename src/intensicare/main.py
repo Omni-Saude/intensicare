@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager
 import logging
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from intensicare.api.clinical_forms import router as clinical_forms_router
 from intensicare.api.reference_ranges import router as reference_ranges_router
@@ -21,6 +22,7 @@ from intensicare.api.v1 import (
     antimicrobial_router,
     api_v1_auth_router,
     auth_router,
+    cds_hooks_router,
     dashboard_router,
     deterioration_router,
     documentacao_router,
@@ -142,6 +144,16 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RateLimitMiddleware)
 
+    # ABAC access-denied handler — turns an unhandled ABACAccessDenied
+    # (which would otherwise propagate as a 500) into a clean 403 with a
+    # safe, informative JSON body. The exception message is already
+    # internals-free (role/action/resource only), so it is returned as-is.
+    from intensicare.auth.abac import ABACAccessDenied
+
+    @app.exception_handler(ABACAccessDenied)
+    async def abac_access_denied_handler(request: Request, exc: ABACAccessDenied) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
     # Health check — redirect /health to /api/v1/health for backward compat
     from fastapi.responses import RedirectResponse
 
@@ -161,6 +173,10 @@ def create_app() -> FastAPI:
     # carry their own prefix internally.
     app.include_router(auth_router)
     app.include_router(api_v1_auth_router)
+    # CDS Hooks 2.0 (HL7) discovery + patient-view service — mounted
+    # unprefixed at /cds-services, matching the spec's conventional base
+    # path for third-party EHR discovery (see api/v1/cds_hooks.py).
+    app.include_router(cds_hooks_router)
     app.include_router(admin_router, prefix="/api/v1")
     app.include_router(alerts_router)
     app.include_router(antimicrobial_router)

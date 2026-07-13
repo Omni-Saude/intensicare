@@ -4,9 +4,9 @@ pathway:
   id: 2
   name: "Sepse"
   slug: "sepse"
-  version: "3.0.0"
-  content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000002"
-  description: "Acompanhamento de pacientes com sepse ou choque séptico conforme diretrizes SSC-2021. Inclui triagem (qSOFA), confirmação diagnóstica (lactato, PCT), bundle de 1ª hora e monitorização de resposta."
+  version: "4.0.0"
+  content_hash: "sha256:683cff5a5af3de41c679f0e42ca41bc62423effdd6e9981d8e74e217e4683a50"
+  description: "Acompanhamento de pacientes com sepse ou choque séptico conforme diretrizes SSC-2021. Inclui triagem (qSOFA/SIRS + infecção), confirmação diagnóstica (lactato, PCT), disfunção orgânica, choque séptico, bundle de 1ª hora e 3h (antibiótico e culturas), sequenciamento culturas-antes-antibiótico, e monitorização PCT-guiada de resposta/descalonamento. v4.0.0 porta para o modelo declarativo a lógica rica anteriormente em domain_sepsis.py (SIRS, timers de bundle SSC-2021, PCT stewardship — 31 vetores de validação), que passa a ser a referência/oráculo de validação (ver tests/test_sepse_yaml_parity.py)."
   active: true
 
 evaluation:
@@ -16,6 +16,10 @@ evaluation:
       source: vitals_stream
       unit: points
       description: "Quick SOFA score (0-3): FR ≥22 irpm, PAS ≤100 mmHg, Glasgow <15."
+    - name: sirs_count
+      source: vitals_stream
+      unit: points
+      description: "Contagem de critérios SIRS (0-4): temperatura, FC, FR/PaCO2, leucócitos/bastonetes. Ver domain_sepsis._compute_sirs_count."
     - name: lactato
       source: amh_gold
       unit: mmol/L
@@ -40,6 +44,42 @@ evaluation:
       source: amh_gold
       unit: mL/kg
       description: "Volume de cristaloide administrado para ressuscitação volêmica."
+    - name: infeccao_suspeita
+      source: amh_gold
+      unit: ratio
+      description: "Evidência de infecção (cultura positiva, ATB iniciado <24h, ou suspeita clínica documentada). Ver domain_sepsis._infection_present."
+    - name: vasopressor_ativo
+      source: vitals_stream
+      unit: ratio
+      description: "Vasopressor em uso ativo (dose > 0 ou tipo informado)."
+    - name: minutes_since_accept_atb
+      source: amh_gold
+      unit: min
+      description: "Minutos desde o aceite do protocolo de sepse até agora, para o item de antibiótico do bundle (SSC-2021 hour-1)."
+    - name: minutes_since_accept_culturas
+      source: amh_gold
+      unit: min
+      description: "Minutos desde o aceite do protocolo de sepse até agora, para o item de culturas do bundle."
+    - name: culturas_antes_atb
+      source: amh_gold
+      unit: ratio
+      description: "Confirma que as culturas foram coletadas antes da primeira dose de antibiótico (sequenciamento SSC-2021)."
+    - name: atb_ativa_horas
+      source: amh_gold
+      unit: h
+      description: "Horas de antibioticoterapia ativa contínua — usado para gating de tendência de PCT (rising/de-escalation) a partir de 48h."
+    - name: delta_pct_24h
+      source: amh_gold
+      unit: ng/mL
+      description: "Variação da procalcitonina nas últimas 24h (atual - anterior). Positivo = subindo."
+    - name: pct_queda_pct
+      source: amh_gold
+      unit: "%"
+      description: "Percentual de queda da PCT em relação ao pico registrado durante o episódio."
+    - name: paciente_estavel_48h
+      source: amh_gold
+      unit: ratio
+      description: "Paciente hemodinamicamente estável nas últimas 48h (gate de segurança para descalonamento PCT-guiado)."
 
 criteria:
   - id: crit-sep-qsofa
@@ -170,6 +210,177 @@ criteria:
           label: "Meta atingida"
       unit: mL/kg
 
+  # ─────────────────────────────────────────────────────────────────────
+  # v4.0.0 — porte declarativo dos alertas ricos de domain_sepsis.py
+  # (31 vetores de validação, ver tests/test_sepse_yaml_parity.py)
+  # ─────────────────────────────────────────────────────────────────────
+
+  - id: crit-sep-screen
+    name: "Triagem de Sepse (qSOFA/SIRS + Infecção)"
+    category: triagem
+    description: "SSC-2021 RATIFICADO (RAT-SEPSE-01/02): triagem positiva quando há evidência de infecção E (qSOFA ≥2 OU SIRS ≥2). Porta ALERT-SEPSIS-SCREEN-01 de domain_sepsis.py (_eval_screen_01)."
+    predicate:
+      type: composite
+      combinator: OR
+      sub_predicates:
+        - type: composite
+          combinator: AND
+          sub_predicates:
+            - type: threshold
+              input: qsofa_score
+              operator: ">="
+              value: 2
+              unit: points
+            - type: boolean
+              input: infeccao_suspeita
+        - type: composite
+          combinator: AND
+          sub_predicates:
+            - type: threshold
+              input: sirs_count
+              operator: ">="
+              value: 2
+              unit: points
+            - type: boolean
+              input: infeccao_suspeita
+
+  - id: crit-sep-organ
+    name: "Disfunção Orgânica (qSOFA + Lactato Elevado)"
+    category: laboratorial
+    description: "qSOFA ≥2 com lactato >2 mmol/L (hipoperfusão tecidual). Porta o branch de lactato absoluto de ALERT-SEPSIS-ORGAN-02 (_eval_organ_02); o branch de tendência delta-lactato/hora não é portável neste v4 — não há input de lactato anterior no vocabulário declarativo (ver xfail documentado em tests/test_sepse_yaml_parity.py)."
+    predicate:
+      type: composite
+      combinator: AND
+      sub_predicates:
+        - type: threshold
+          input: qsofa_score
+          operator: ">="
+          value: 2
+          unit: points
+        - type: threshold
+          input: lactato
+          operator: ">"
+          value: 2.0
+          unit: mmol/L
+
+  - id: crit-sep-shock
+    name: "Choque Séptico (Lactato ≥4 ou PAM Refratária)"
+    category: hemodinamica
+    description: "Lactato ≥4 mmol/L (marcador de choque séptico) OU PAM <65 mmHg refratária, sob vasopressor ativo. Porta ALERT-SEPSIS-SHOCK-03 (_eval_shock_03)."
+    predicate:
+      type: composite
+      combinator: OR
+      sub_predicates:
+        - type: threshold
+          input: lactato
+          operator: ">="
+          value: 4.0
+          unit: mmol/L
+        - type: composite
+          combinator: AND
+          sub_predicates:
+            - type: threshold
+              input: pam
+              operator: "<"
+              value: 65
+              unit: mmHg
+            - type: boolean
+              input: vasopressor_ativo
+
+  - id: crit-sep-bundle-atb-1h
+    name: "Bundle 1ª Hora — Antibiótico Pendente e Atrasado"
+    category: bundle
+    description: "Antibiótico ainda não administrado E mais de 60 minutos desde o aceite do protocolo de sepse (SSC-2021 hour-1 bundle). Porta o item 'primeira_hora' de ALERT-SEPSIS-BUNDLE-OVERDUE-04 (_eval_bundle_overdue_04): overdue = minutos decorridos > 60 (estrito, no exato limite ainda não dispara)."
+    predicate:
+      type: composite
+      combinator: AND
+      sub_predicates:
+        - type: boolean
+          input: atb_status
+          negate: true
+        - type: temporal
+          input: minutes_since_accept_atb
+          within_minutes: 60
+          satisfied_when: overdue
+          severity: critical
+          unit: min
+
+  - id: crit-sep-bundle-reaval-3h
+    name: "Bundle 3h — Culturas Pendentes e Atrasadas"
+    category: bundle
+    description: "Culturas ainda não coletadas E mais de 180 minutos desde o aceite do protocolo de sepse. Porta o item 'reavaliacao' de ALERT-SEPSIS-BUNDLE-OVERDUE-04 (_eval_bundle_overdue_04): overdue = minutos decorridos > 180 (estrito)."
+    predicate:
+      type: composite
+      combinator: AND
+      sub_predicates:
+        - type: boolean
+          input: culturas_status
+          negate: true
+        - type: temporal
+          input: minutes_since_accept_culturas
+          within_minutes: 180
+          satisfied_when: overdue
+          severity: critical
+          unit: min
+
+  - id: crit-sep-culturas-antes-atb
+    name: "Sequenciamento: Culturas Antes do Antibiótico"
+    category: microbiologia
+    description: "Confirma que as culturas foram coletadas antes da primeira dose de antibiótico, conforme SSC-2021 (o antibiótico nunca deve ser atrasado para aguardar a coleta). Critério novo (não portado de domain_sepsis.py — não há alerta correspondente lá)."
+    predicate:
+      type: boolean
+      input: culturas_antes_atb
+      operator: "=="
+      value: true
+
+  - id: crit-sep-pct-rising
+    name: "PCT em Ascensão (Falha Terapêutica)"
+    category: laboratorial
+    description: "Procalcitonina em ascensão (delta >0.25 ng/mL em 24h) com antibioticoterapia ativa ≥48h — sugere falha terapêutica/necessidade de reavaliação do esquema. Porta ALERT-SEPSIS-PCT-RISING-05 (_eval_pct_rising_05)."
+    predicate:
+      type: composite
+      combinator: AND
+      sub_predicates:
+        - type: threshold
+          input: atb_ativa_horas
+          operator: ">="
+          value: 48
+          unit: h
+        - type: threshold
+          input: delta_pct_24h
+          operator: ">"
+          value: 0.25
+          unit: ng/mL
+
+  - id: crit-sep-pct-deesc
+    name: "Descalonamento Guiado por PCT"
+    category: laboratorial
+    description: "PCT <0.25 ng/mL OU queda >80% em relação ao pico, com antibioticoterapia ≥48h e paciente estável nas últimas 48h — elegível para descalonamento antimicrobiano. Porta ALERT-SEPSIS-PCT-DEESC-06 (_eval_pct_deesc_06). Inclui o gate atb_ativa_horas≥48h explícito no compilado (fiel ao domain_sepsis), mesmo não estando no esqueleto textual original da tarefa."
+    predicate:
+      type: composite
+      combinator: AND
+      sub_predicates:
+        - type: threshold
+          input: atb_ativa_horas
+          operator: ">="
+          value: 48
+          unit: h
+        - type: boolean
+          input: paciente_estavel_48h
+        - type: composite
+          combinator: OR
+          sub_predicates:
+            - type: threshold
+              input: pct
+              operator: "<"
+              value: 0.25
+              unit: ng/mL
+            - type: threshold
+              input: pct_queda_pct
+              operator: ">"
+              value: 80
+              unit: "%"
+
 states:
   - id: initial
     name: "Triagem Inicial"
@@ -214,3 +425,10 @@ evidence:
     - "Administrar antibioticoterapia de amplo espectro em até 1 hora"
     - "Iniciar ressuscitação volêmica com cristaloide 30 mL/kg nas primeiras 3 horas"
     - "Reavaliar volemia e perfusão tecidual a cada 6 horas"
+    - "Triagem: acionar protocolo de sepse quando houver evidência de infecção com qSOFA ≥2 ou SIRS ≥2 (SSC-2021 RATIFICADO)"
+    - "Nunca atrasar o antibiótico para aguardar a coleta de culturas — coletar culturas antes, mas sem atrasar a primeira dose"
+    - "Choque séptico (lactato ≥4 mmol/L ou PAM <65 mmHg refratária): considerar acesso central e droga vasoativa imediatamente"
+    - "Bundle 1ª hora: escalar se antibiótico não administrado em até 60 minutos do aceite do protocolo"
+    - "Bundle 3h: escalar se culturas não coletadas em até 180 minutos do aceite do protocolo"
+    - "PCT em ascensão (delta >0.25 ng/mL em 24h) após 48h de antibioticoterapia: reavaliar cobertura antimicrobiana e focos infecciosos"
+    - "Descalonamento guiado por PCT: considerar redução de espectro quando PCT <0.25 ng/mL ou queda >80% do pico, com paciente estável por 48h"

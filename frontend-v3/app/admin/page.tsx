@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Users, SlidersHorizontal, Building2, FileClock } from 'lucide-react';
 import { UserManager } from '@/components/admin/user-manager';
 import { ThresholdEditor } from '@/components/admin/threshold-editor';
 import { TenantConfig } from '@/components/admin/tenant-config';
 import { AuditLog } from '@/components/admin/audit-log';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 type TabId = 'users' | 'thresholds' | 'tenant' | 'audit';
@@ -25,6 +27,19 @@ const TABS: Tab[] = [
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabId>('users');
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  // Admin guard (AUTH-3): redirect non-admins away without flashing content.
+  useEffect(() => {
+    if (!isLoading && !user?.is_admin) {
+      router.replace('/');
+    }
+  }, [isLoading, user, router]);
+
+  if (isLoading || !user?.is_admin) {
+    return null;
+  }
 
   return (
     <div className="flex flex-col gap-6">

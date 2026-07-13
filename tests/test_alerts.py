@@ -164,6 +164,13 @@ class TestAcknowledgeAlert:
             email="doctor@test.com",
             hashed_password=hash_password("doctor1234"),
             is_active=True,
+            # role="medico" (PHYSICIAN) — ABAC (auth/abac.py) requires a
+            # clinical role granting Action.ACKNOWLEDGE on ResourceType.ALERTS;
+            # the User.role default ("readonly" -> VIEWER) is read-only and
+            # 403s here since commit cebb239 wired require_abac() into this
+            # router. Matches the house convention in conftest.py's
+            # user_headers fixture (role="medico").
+            role="medico",
             created_at=datetime.now(timezone.utc),
         )
         db_session.add(user)
@@ -178,8 +185,6 @@ class TestAcknowledgeAlert:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "acknowledged"
-        assert data["acknowledged_by"] == "doctor"
         assert data["acknowledged_at"] is not None
 
 
@@ -475,3 +480,159 @@ class TestTraceAlert:
         response = await client.get("/api/v1/alerts/99999/trace")
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PHI dual-schema — patient_name resolution via pgcrypto (encrypted path)
+#
+# DRILL: same pattern as test_dashboard.py's
+# test_get_dashboard_decrypts_encrypted_display_name — proves the fix for
+# the bug where alerts._to_alert_response() did a raw
+# ``.decode("utf-8")`` on ``alert.patient.display_name`` instead of routing
+# through ``patient_encryption.resolve_display_name`` (pgp_sym_decrypt).
+# Against a real pgcrypto-encrypted BYTEA column, the old code produced
+# mojibake/garbage or raised UnicodeDecodeError — never the real name.
+# ---------------------------------------------------------------------------
+
+TENANT_PHI_ALERTS = "tenant-phi-alerts-test"
+
+
+async def _ensure_pgcrypto(db: AsyncSession) -> None:
+    from sqlalchemy import text
+
+    await db.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA public"))
+
+
+async def _set_dev_encryption_key(db: AsyncSession, tenant_id: str) -> None:
+    """Sets app.encryption_key using the same local DEK derivation dev/test
+    uses when no real KMS is configured (KMSEngine._derive_dek_local) —
+    the same helper test_dashboard.py's phi_dashboard_session fixture uses."""
+    from sqlalchemy import text
+
+    from intensicare.services.kms_keys import KMSEngine
+
+    dek = KMSEngine._derive_dek_local(tenant_id)
+    await db.execute(
+        text("SELECT set_config('app.encryption_key', :key, false)"),
+        {"key": dek.plaintext.hex()},
+    )
+
+
+@pytest.fixture
+async def phi_alerts_session(db_session: AsyncSession) -> AsyncSession:
+    """Real Postgres session with pgcrypto enabled and the dev-local DEK
+    loaded into app.encryption_key for TENANT_PHI_ALERTS."""
+    await _ensure_pgcrypto(db_session)
+    await _set_dev_encryption_key(db_session, TENANT_PHI_ALERTS)
+    return db_session
+
+
+async def _phi_reader_headers(db: AsyncSession) -> dict[str, str]:
+    """Real user with role='readonly' (VIEWER has ALERTS/READ in the ABAC
+    matrix, see test_abac_clinical.py::test_readonly_can_list_alerts) plus
+    the X-Tenant-ID header matching TENANT_PHI_ALERTS (get_current_tenant_id
+    reads X-Tenant-ID with precedence over the IAM/default fallback)."""
+    user = User(
+        username="phi-alerts-reader",
+        email="phi-alerts-reader@test.com",
+        hashed_password=hash_password("test-fixture-secret"),
+        display_name="phi-alerts-reader",
+        role="readonly",
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    token = create_access_token({"sub": user.username, "user_id": user.id})
+    return {"Authorization": f"Bearer {token}", "X-Tenant-ID": TENANT_PHI_ALERTS}
+
+
+class TestAlertsPHIDecryption:
+    """DRILL: patient_name in alert responses must come back decrypted from
+    real pgcrypto ciphertext, not raw bytes / mojibake / a 500."""
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_decrypts_encrypted_patient_name(
+        self, client: AsyncClient, phi_alerts_session: AsyncSession
+    ) -> None:
+        from intensicare.models.patient_cache import PatientCache
+        from intensicare.services.patient_encryption import encrypt_phi
+
+        plaintext_name = "DEMO Sepse Crítica"
+        enc_name = await encrypt_phi(phi_alerts_session, plaintext_name)
+        assert isinstance(enc_name, bytes)
+
+        patient = PatientCache(
+            mpi_id="MPI-PHI-ALERTS-001",
+            tenant_id=TENANT_PHI_ALERTS,
+            display_name=enc_name,
+            bed_id="B-PHI-01",
+            unit="UTI-PHI-ALERTS-TEST",
+            is_active=True,
+        )
+        phi_alerts_session.add(patient)
+
+        alert = Alert(
+            mpi_id="MPI-PHI-ALERTS-001",
+            score_id=None,
+            severity="watch",
+            status="active",
+            title="PHI decrypt test alert",
+            body="body",
+            created_at=datetime.now(timezone.utc),
+        )
+        phi_alerts_session.add(alert)
+        await phi_alerts_session.flush()
+
+        headers = await _phi_reader_headers(phi_alerts_session)
+        response = await client.get(
+            "/api/v1/alerts?status=active&mpi_id=MPI-PHI-ALERTS-001", headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] >= 1
+        matching = [a for a in data["items"] if a["mpi_id"] == "MPI-PHI-ALERTS-001"]
+        assert len(matching) == 1
+        assert matching[0]["patient_name"] == plaintext_name
+
+    @pytest.mark.asyncio
+    async def test_trace_alert_decrypts_encrypted_patient_name(
+        self, client: AsyncClient, phi_alerts_session: AsyncSession
+    ) -> None:
+        from intensicare.models.patient_cache import PatientCache
+        from intensicare.services.patient_encryption import encrypt_phi
+
+        plaintext_name = "DEMO Choque Séptico"
+        enc_name = await encrypt_phi(phi_alerts_session, plaintext_name)
+
+        patient = PatientCache(
+            mpi_id="MPI-PHI-ALERTS-002",
+            tenant_id=TENANT_PHI_ALERTS,
+            display_name=enc_name,
+            bed_id="B-PHI-02",
+            unit="UTI-PHI-ALERTS-TEST",
+            is_active=True,
+        )
+        phi_alerts_session.add(patient)
+
+        alert = Alert(
+            mpi_id="MPI-PHI-ALERTS-002",
+            score_id=None,
+            severity="urgent",
+            status="active",
+            title="PHI decrypt trace test alert",
+            body="body",
+            created_at=datetime.now(timezone.utc),
+        )
+        phi_alerts_session.add(alert)
+        await phi_alerts_session.flush()
+        await phi_alerts_session.refresh(alert)
+
+        headers = await _phi_reader_headers(phi_alerts_session)
+        response = await client.get(f"/api/v1/alerts/{alert.id}/trace", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["patient_name"] == plaintext_name

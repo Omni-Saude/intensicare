@@ -150,9 +150,9 @@ A documentação interativa completa está disponível em:
 
 | Score | Engine | Versão | Validação |
 |-------|--------|--------|-----------|
-| **MEWS** | Modified Early Warning Score | `MEWS-v1.0` | ✅ Testes unitários + integração |
-| **NEWS2** | National Early Warning Score 2 | `NEWS2-v1.0` | ✅ Testes unitários + integração |
-| **SOFA** | Sequential Organ Failure Assessment | `SOFA-v1.0` | ✅ Testes unitários |
+| **MEWS** | Modified Early Warning Score | `MEWS-v3.0.0` (Subbe CP et al., QJM 2001;94(10):521-6) | ✅ Testes unitários + integração |
+| **NEWS2** | National Early Warning Score 2 | `NEWS2-v3.0.0` | ✅ Testes unitários + integração |
+| **SOFA** | Sequential Organ Failure Assessment | `SOFA-v2.0.0` | ✅ Testes unitários |
 | **qSOFA** | Quick SOFA (Sepsis Screening) | `qSOFA-v1.0` | ✅ Testes unitários |
 
 Todos os scores são calculados **sincronamente** após cada ingestão de sinais vitais.
@@ -163,7 +163,17 @@ Cada ClinicalScore registrado inclui `algorithm_version` para rastreabilidade co
 ## 🧬 Inteligência Clínica — Motor de Regras
 
 > **188 regras clínicas** extraídas do sistema legado (463 arquivos TypeScript + 153
-> LESS), organizadas em **25 domínios clínicos** e **5 trilhas de cuidado contínuo**.
+> LESS), organizadas em **25 clusters de regras legadas** (taxonomia da extração — ver
+> tabela abaixo; distinta dos **24 serviços de domínio** em `services/domain_*.py`) e
+> **12 trilhas declarativas** (YAML
+> content-addressed em `_work/alerts/pathways/`, executadas pelo `TrilhasEngine` e
+> espelhadas em Postgres a cada boot via `pathway_definitions_sync.py`).
+>
+> API: **82 endpoints** com contrato OpenAPI correspondente em `docs/contracts/` (0
+> órfãos — `scripts/ci/check_openapi_drift.py`). Early warning score: **MEWS v3.0.0**
+> (Subbe CP et al., QJM 2001;94(10):521-6).
+>
+> Ciclo de correção pós-auditoria (2026-07-12): ver [`docs/audit/fullspectrum/`](docs/audit/fullspectrum/).
 
 ### 📊 Domínios Clínicos (25 clusters de regras)
 

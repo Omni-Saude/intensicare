@@ -13,7 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from intensicare.auth.dependencies import get_current_user, require_admin
-from intensicare.auth.jwt import blacklist_token, create_access_token, create_refresh_token
+from intensicare.auth.jwt import (
+    blacklist_token,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    is_token_blacklisted,
+)
+from intensicare.config import settings
 from intensicare.core.database import get_db
 from intensicare.core.redis import get_redis
 from intensicare.models.user import User
@@ -58,12 +65,21 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
+    # NOTE: `id` stays `int` here (matches the DB PK). frontend-v3's TS type
+    # declares `id: string`, but a JSON number is assignable at runtime; the
+    # type-side fix belongs in the frontend, not here (would be a breaking
+    # wire-format change for other consumers of this endpoint).
     id: int
     username: str
     email: str
     display_name: str | None
     is_admin: bool
     is_active: bool
+    # Added for AUTH-1: frontend-v3 (lib/api.ts LoginResponse.user) expects
+    # `name` and `role`. Additive only — existing fields kept for backward
+    # compatibility with other consumers.
+    name: str
+    role: str
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -83,6 +99,8 @@ def _user_to_response(user: User) -> UserResponse:
         display_name=user.display_name,
         is_admin=user.is_admin,
         is_active=user.is_active,
+        name=user.display_name or user.username,
+        role=user.role,
     )
 
 
@@ -116,7 +134,84 @@ def _build_login_response(user: User, access_token: str, refresh_token: str) -> 
         max_age=1800,
         path="/",
     )
+    # HttpOnly refresh_token cookie — enables session bootstrap on reload/
+    # deep-link (POST /auth/refresh reads this cookie; the in-memory-only
+    # access token is otherwise lost on every full page load, see
+    # frontend-v3 lib/auth.tsx AuthProvider). Lifetime matches the refresh
+    # JWT's own `exp` claim (jwt_refresh_expire_days), not the short-lived
+    # access token cookies above.
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=settings.jwt_refresh_expire_days * 24 * 60 * 60,
+        path="/",
+    )
     return response
+
+
+async def _refresh_from_cookie(request: Request, db: AsyncSession) -> JSONResponse:
+    """Bootstrap a session from the HttpOnly ``refresh_token`` cookie.
+
+    Used by the frontend on mount (page reload / deep-link) to recover the
+    in-memory-only access token, which is intentionally never persisted to
+    localStorage/sessionStorage (XSS hardening — see lib/api.ts). The
+    browser sends the HttpOnly cookie automatically; this endpoint validates
+    it and re-issues a fresh access/refresh pair via the same code path as
+    login, so the response shape is identical to ``TokenResponse``.
+    """
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token ausente"
+        )
+
+    redis_client = get_redis()
+    if await is_token_blacklisted(refresh_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revogado"
+        )
+
+    payload = decode_token(refresh_token)
+    if payload is None or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido ou expirado",
+        )
+
+    username: str | None = payload.get("sub")
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token inválido"
+        )
+
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário não encontrado ou inativo",
+        )
+
+    token_data = {
+        "sub": user.username,
+        "user_id": user.id,
+        "is_admin": user.is_admin,
+        "role": user.role,
+        "name": user.display_name or user.username,
+        "email": user.email,
+    }
+    new_access_token = create_access_token(token_data)
+    # Rotate the refresh token on every use (standard refresh-token-rotation
+    # practice); the old one is left to expire naturally rather than
+    # blacklisted, since it was single-use only insofar as the client
+    # always receives (and the browser overwrites the cookie with) the new
+    # one on success.
+    new_refresh_token = create_refresh_token(token_data)
+
+    return _build_login_response(user, new_access_token, new_refresh_token)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -159,6 +254,17 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     refresh_token = create_refresh_token(token_data)
 
     return _build_login_response(user, access_token, refresh_token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(request: Request, db: AsyncSession = Depends(get_db)):
+    """Bootstrap/renew a session from the HttpOnly ``refresh_token`` cookie.
+
+    Called by the frontend on mount to recover the in-memory-only access
+    token lost on full page reload / deep-link navigation (JWT is never
+    persisted client-side). Returns 401 if the cookie is missing/invalid.
+    """
+    return await _refresh_from_cookie(request, db)
 
 
 # ---------------------------------------------------------------------------
@@ -214,13 +320,33 @@ async def login_form(
     return _build_login_response(user, access_token, refresh_token)
 
 
+@api_v1_auth_router.post("/refresh", response_model=TokenResponse)
+async def refresh_v1(request: Request, db: AsyncSession = Depends(get_db)):
+    """Bootstrap/renew a session from the HttpOnly ``refresh_token`` cookie.
+
+    API v1 compat alias — see ``refresh()`` above for details. This is the
+    path frontend-v3 actually calls (proxied through Next.js at
+    ``/api/v1/auth/refresh``).
+    """
+    return await _refresh_from_cookie(request, db)
+
+
+@api_v1_auth_router.post("/logout")
+async def logout_v1(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """Log out (API v1 compat) — see ``_perform_logout`` for details."""
+    return await _perform_logout(request)
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_admin)],
 )
-async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)) -> User:
+async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)) -> UserResponse:
     result = await db.execute(select(User).where(User.username == request.username))
     if result.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
@@ -241,18 +367,45 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    return user
+    # Build the response explicitly (rather than returning the ORM object and
+    # relying on FastAPI's from_attributes auto-serialization): UserResponse.name
+    # has no 1:1 attribute on the User model (it derives from display_name/username).
+    return _user_to_response(user)
+
+
+async def _perform_logout(request: Request) -> JSONResponse:
+    """Blacklist the current access + refresh tokens and clear all session cookies.
+
+    Clearing the cookies server-side (``delete_cookie``) is required now
+    that ``POST /auth/refresh`` exists to bootstrap a session from the
+    HttpOnly ``refresh_token`` cookie (see ``_refresh_from_cookie`` above):
+    without also blacklisting that refresh token and deleting the cookie
+    here, a "logged out" session would be silently resurrected the next
+    time the frontend calls ``/auth/refresh`` on mount, since the cookie
+    would still be valid until its natural expiry (up to
+    ``jwt_refresh_expire_days``).
+    """
+    redis_client = get_redis()
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header[7:].strip()
+        await blacklist_token(access_token, redis_client)
+
+    refresh_cookie = request.cookies.get("refresh_token")
+    if refresh_cookie:
+        await blacklist_token(refresh_cookie, redis_client)
+
+    response = JSONResponse(content={"detail": "Logged out successfully"})
+    for cookie_name in ("access_token", "token", "refresh_token"):
+        response.delete_cookie(key=cookie_name, path="/")
+    return response
 
 
 @router.post("/logout")
 async def logout(
     request: Request,
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
-    """Log out by blacklisting the current access token in Redis."""
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        redis_client = get_redis()
-        await blacklist_token(token, redis_client)
-    return {"detail": "Logged out successfully"}
+) -> JSONResponse:
+    """Log out — see ``_perform_logout`` for details."""
+    return await _perform_logout(request)

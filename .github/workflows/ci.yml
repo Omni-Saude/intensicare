@@ -621,22 +621,39 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend-v3
-        env:
-          NODE_ENV: production
         run: |
-          npm ci
+          npm ci --legacy-peer-deps
           npm run build
 
       - name: Run axe accessibility scan
         working-directory: frontend-v3
         run: |
           echo "### ♿ Accessibility Audit" >> $GITHUB_STEP_SUMMARY
-          npx next start -p 4173 &
-          sleep 5
-          axe http://localhost:4173 --exit \
-            && echo "✅ Nenhum problema crítico de acessibilidade" >> $GITHUB_STEP_SUMMARY \
-            || echo "⚠️  Problemas de acessibilidade encontrados (draft-mode)" >> $GITHUB_STEP_SUMMARY
-          kill %1 2>/dev/null || true
+          # Start the Next.js production server in background
+          npm run start &
+          SERVER_PID=$!
+
+          # Wait for server to be ready (max 30 seconds)
+          echo "⏳ Waiting for server to be ready..."
+          for i in {1..30}; do
+            if curl -s -f http://localhost:3000/login > /dev/null 2>&1; then
+              echo "✓ Server ready"
+              break
+            fi
+            echo "  Attempt $i/30..."
+            sleep 1
+          done
+
+          # Run accessibility audit
+          if axe http://localhost:3000/login --exit; then
+            echo "✅ Nenhum problema crítico de acessibilidade" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️  Problemas de acessibilidade encontrados (draft-mode)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Cleanup
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Job 11 — Alert Storm Test (pre-release, bloqueia merge)

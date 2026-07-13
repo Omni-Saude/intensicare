@@ -223,14 +223,22 @@ async def _create_user_and_headers(
     username: str,
     email: str,
     is_admin: bool,
+    role: str = "readonly",
 ) -> dict[str, str]:
-    """Cria um usuário real e devolve o header Authorization com um JWT válido."""
+    """Cria um usuário real e devolve o header Authorization com um JWT válido.
+
+    ``role`` (default "readonly") is the field ``require_abac`` actually
+    reads (via ``ROLE_ALIASES`` — see auth/abac.py); ``is_admin`` alone is
+    NOT sufficient for ABAC-gated clinical endpoints (fix RBAC audit
+    CRITICAL #6 in api/v1/admin.py established the same distinction).
+    """
     user = User(
         username=username,
         email=email,
         hashed_password=hash_password("test-fixture-secret"),
         display_name=username,
         is_admin=is_admin,
+        role=role,
         is_active=True,
         created_at=datetime.now(timezone.utc),
     )
@@ -243,17 +251,39 @@ async def _create_user_and_headers(
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def admin_headers(db_session: AsyncSession) -> dict[str, str]:
-    """Authorization header para um usuário admin real (username: testadmin)."""
+    """Authorization header para um usuário admin real (username: testadmin).
+
+    ``role="admin"`` — the ABAC-matrix role, not just ``is_admin=True`` (see
+    ``_create_user_and_headers`` docstring). Without this, ABAC-gated
+    endpoints (vitals/alerts/dashboard/pathways) would 403 this fixture
+    despite it being "the admin user" by every other test's expectation.
+    """
     return await _create_user_and_headers(
-        db_session, username="testadmin", email="testadmin@intensicare.io", is_admin=True
+        db_session,
+        username="testadmin",
+        email="testadmin@intensicare.io",
+        is_admin=True,
+        role="admin",
     )
 
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def user_headers(db_session: AsyncSession) -> dict[str, str]:
-    """Authorization header para um usuário comum (não-admin) real."""
+    """Authorization header para um usuário clínico comum (não-admin) real.
+
+    ``role="medico"`` — most existing tests using this fixture exercise
+    clinical write paths (e.g. POST /api/v1/vitals) that pre-date ABAC
+    enforcement and implicitly assumed "any authenticated user can chart
+    vitals". "medico" is the broadest non-admin clinical role in the ABAC
+    matrix (auth/abac.py) that preserves that assumption without granting
+    admin privileges.
+    """
     return await _create_user_and_headers(
-        db_session, username="testuser", email="testuser@intensicare.io", is_admin=False
+        db_session,
+        username="testuser",
+        email="testuser@intensicare.io",
+        is_admin=False,
+        role="medico",
     )
 
 

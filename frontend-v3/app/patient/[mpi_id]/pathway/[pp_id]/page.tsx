@@ -2,8 +2,15 @@
 
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
-import { fetchPathwayProgress, type PathwayProgress, type PathwayState } from '@/lib/api';
+import {
+  fetchPathwayProgress,
+  fetchPatientDetail,
+  type PathwayProgress,
+  type PathwayState,
+  type PatientDetailResponse,
+} from '@/lib/api';
 import { useRealtimeChannel } from '@/lib/websocket';
+import { useSetBreadcrumbLabel } from '@/lib/breadcrumb-context';
 import { PathwayHeader } from '@/components/pathway/pathway-header';
 import { StateFlow } from '@/components/pathway/state-flow';
 import { CriteriaList } from '@/components/pathway/criteria-list';
@@ -42,6 +49,17 @@ export default function PathwayViewPage() {
     { revalidateOnFocus: false },
   );
 
+  // Patient detail: fetched under the same SWR key the patient page uses
+  // (`patient-${mpiId}`), so navigating from /patient/{mpi_id} is an
+  // instant cache hit here — this call exists purely to recover the
+  // patient's display name for the breadcrumb (the progress endpoint only
+  // returns mpi_id, not a human-readable name).
+  const { data: patient } = useSWR<PatientDetailResponse>(
+    mpiId ? `patient-${mpiId}` : null,
+    () => fetchPatientDetail(mpiId!),
+    { revalidateOnFocus: false },
+  );
+
   // Realtime: WebSocket + polling fallback (ADR-0034)
   useRealtimeChannel('pathway.state_changed', (payload) => {
     const p = payload as Record<string, unknown> | undefined;
@@ -51,6 +69,14 @@ export default function PathwayViewPage() {
     const d = p as Record<string, unknown>;
     return d.mpi_id === mpiId && d.pp_id === ppId;
   }});
+
+  // Breadcrumb: show the pathway's name instead of the raw pp_id once loaded.
+  useSetBreadcrumbLabel(ppIdRaw, progress?.pathway_name);
+  // Breadcrumb: also re-register the patient's name at this level. The
+  // patient page clears its own label on unmount when navigating here, so
+  // without this the mpi_id segment regresses to the raw ID — including on
+  // a direct deep-link straight to the pathway URL.
+  useSetBreadcrumbLabel(mpiId, patient?.patient_name);
 
   // ---------- No params ----------
   if (!mpiId || ppId === undefined || isNaN(ppId)) {

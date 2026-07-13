@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +24,11 @@ from intensicare.schemas.vitals import VitalSignCreate, VitalSignResponse
 from intensicare.services.alert_engine import process_clinical_score
 from intensicare.services.mews import MEWS_VERSION, calculate_mews
 from intensicare.services.news2 import calculate_news2
+from intensicare.services.pathway_auto_evaluation import evaluate_enrolled_pathways
 from intensicare.services.qsofa import QSOFA_VERSION, calculate_qsofa
 from intensicare.services.sofa import SOFA_VERSION, calculate_sofa, classify_sofa_mortality_risk
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Risk-stratification thresholds (aggregate-score cutoffs for the clinical
@@ -249,7 +253,14 @@ async def ingest_vitals(
     )
 
     # 4. Determina tendência vs score anterior
-    prev_score, _prev_id = await find_previous_mews_score(db, data.mpi_id, now)
+    # NOTA (fidelidade temporal): compara contra scores anteriores por
+    # vital.recorded_at (o instante clínico da medição), não por `now` (o
+    # instante de processamento) — mantém a comparação de tendência
+    # consistente com calculated_at abaixo, que agora também usa
+    # recorded_at. Evita que ingestões retroativas/fora de ordem (ex.:
+    # backfill, replay de HL7 atrasado) comparem contra um score que na
+    # verdade é clinicamente posterior.
+    prev_score, _prev_id = await find_previous_mews_score(db, data.mpi_id, vital.recorded_at)
     trend: str | None = None
     delta: int | None = None
     if prev_score is not None:
@@ -266,12 +277,27 @@ async def ingest_vitals(
         delta = None
 
     # 5. Persiste clinical_score MEWS
+    # NOTA (fidelidade temporal): calculated_at = vital.recorded_at (o
+    # instante clínico da medição), NÃO `now` (o instante de
+    # processamento/ingestão). Um score é "as of" o momento da medição —
+    # usar `now` aqui inflava artificialmente a inclinação (slope) da
+    # projeção de deterioração (deterioration_trend.py, janela 12h sobre
+    # calculated_at) quando vitais eram ingeridos em lote/retroativamente
+    # (ex.: seed de demo, backfill, replay de HL7 atrasado): 10 scores
+    # clinicamente espalhados por 6h acabavam com calculated_at a
+    # milissegundos de distância, produzindo slopes de ~10^5 pts/h.
+    # Sem risco de colisão de PK: clinical_score.id é BigInteger
+    # autoincrement e a PK real é composta (id, calculated_at) — ver
+    # models/clinical_score.py — então múltiplos scores com o mesmo
+    # calculated_at nunca colidem. A idempotência de reingestão já é
+    # garantida antes deste ponto pela chave natural
+    # (mpi_id, recorded_at, source_system) e pelo idempotency_key.
     score = ClinicalScore(
         mpi_id=data.mpi_id,
         score_type="MEWS",
         score_value=score_value,
         algorithm_version=MEWS_VERSION,
-        calculated_at=now,
+        calculated_at=vital.recorded_at,
         vital_sign_id=vital.id,
         components=components,
         trend=trend,
@@ -296,7 +322,9 @@ async def ingest_vitals(
         score_type="NEWS2",
         score_value=news2_result.total_score,
         algorithm_version="NEWS2-v1.0",
-        calculated_at=now,
+        # calculated_at = vital.recorded_at — ver nota de fidelidade
+        # temporal acima (score MEWS).
+        calculated_at=vital.recorded_at,
         vital_sign_id=vital.id,
         components=asdict(news2_result.components),
         trend=None,
@@ -323,7 +351,9 @@ async def ingest_vitals(
         score_type="SOFA",
         score_value=sofa_result.total_score,
         algorithm_version=SOFA_VERSION,
-        calculated_at=now,
+        # calculated_at = vital.recorded_at — ver nota de fidelidade
+        # temporal acima (score MEWS).
+        calculated_at=vital.recorded_at,
         vital_sign_id=vital.id,
         components=asdict(sofa_result.components),
         trend=None,
@@ -343,7 +373,9 @@ async def ingest_vitals(
         score_type="qSOFA",
         score_value=qsofa_result.total_score,
         algorithm_version=QSOFA_VERSION,
-        calculated_at=now,
+        # calculated_at = vital.recorded_at — ver nota de fidelidade
+        # temporal acima (score MEWS).
+        calculated_at=vital.recorded_at,
         vital_sign_id=vital.id,
         components=asdict(qsofa_result.components),
         trend=None,
@@ -374,6 +406,21 @@ async def ingest_vitals(
     qsofa_alert = await process_clinical_score(db=db, score=qsofa_cs)
     if qsofa_alert is not None:
         alerts.append(qsofa_alert)
+
+    # 7b. Auto-avaliação dos pathways ativos do paciente (elo faltante entre a
+    # ingestão de vitais e o motor declarativo de pathways — Dim A re-audit:
+    # sepsis_input_provider.build_sepsis_inputs não tinha nenhum caller até
+    # aqui). Best-effort: qualquer falha é logada e NUNCA derruba a ingestão,
+    # que já persistiu vital/scores/alertas com sucesso neste ponto.
+    try:
+        await evaluate_enrolled_pathways(db, data.mpi_id, now)
+    except Exception:
+        logger.error(
+            "Pathway auto-evaluation failed for mpi_id=%s (non-fatal — vital "
+            "signs, scores and alerts above are already persisted)",
+            data.mpi_id,
+            exc_info=True,
+        )
 
     # 8. Armazena idempotency key
     if idempotency_key:

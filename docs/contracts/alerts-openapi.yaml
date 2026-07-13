@@ -1,0 +1,366 @@
+openapi: 3.1.0
+info:
+  title: IntensiCare Alerts API
+  description: 'Listagem e ciclo de vida de alertas clínicos (acknowledge/resolve/escalate) e trace de
+    auditoria. Extraído do openapi.json vivo (router alerts.py) — achado Dim A: endpoint vivo sem contrato.'
+  version: 1.0.0
+servers:
+- url: /api/v1
+  description: IntensiCare API v1
+paths:
+  /alerts:
+    get:
+      tags:
+      - alerts
+      summary: List Alerts
+      description: List alerts with optional filters. Returns {alerts, total} (AUDIT-007).
+      operationId: list_alerts_api_v1_alerts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: active
+          title: Status
+      - name: unit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Unit
+      - name: mpi_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mpi Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /alerts/{alert_id}/acknowledge:
+    post:
+      tags:
+      - alerts
+      summary: Acknowledge Alert
+      description: Acknowledge an alert (authenticated).
+      operationId: acknowledge_alert_api_v1_alerts__alert_id__acknowledge_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Alert Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AcknowledgeRequest'
+              - type: 'null'
+              title: Request Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /alerts/{alert_id}/resolve:
+    post:
+      tags:
+      - alerts
+      summary: Resolve Alert
+      description: Resolve an alert — records the clinical outcome (authenticated).
+      operationId: resolve_alert_api_v1_alerts__alert_id__resolve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Alert Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /alerts/{alert_id}/escalate:
+    post:
+      tags:
+      - alerts
+      summary: Escalate Alert
+      description: Escalate an alert to the next response tier (authenticated).
+      operationId: escalate_alert_api_v1_alerts__alert_id__escalate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Alert Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/EscalateRequest'
+              - type: 'null'
+              title: Request Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /alerts/{alert_id}/trace:
+    get:
+      tags:
+      - alerts
+      summary: Trace Alert
+      description: Get detailed trace of a specific alert.
+      operationId: trace_alert_api_v1_alerts__alert_id__trace_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Alert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AcknowledgeRequest:
+      properties:
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+      type: object
+      title: AcknowledgeRequest
+      description: Acknowledge an alert.
+    AlertListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AlertResponse'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: AlertListResponse
+      description: Wrapped list response — frontend expects {items, total} (AUDIT-007).
+    AlertResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        type:
+          type: string
+          title: Type
+          default: clinical
+        severity:
+          type: string
+          title: Severity
+        title:
+          type: string
+          title: Title
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+        mpi_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mpi Id
+        patient_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Patient Name
+        pathway_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pathway Name
+        created_at:
+          type: string
+          title: Created At
+        acknowledged_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Acknowledged At
+        resolved_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Resolved At
+        resolved_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Resolved By
+        resolution:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Resolution
+      type: object
+      required:
+      - id
+      - severity
+      - title
+      - message
+      - created_at
+      title: AlertResponse
+      description: Alert response schema — shape matches frontend AlertInfo (api.ts:91-105).
+    ResolveRequest:
+      properties:
+        resolution:
+          type: string
+          title: Resolution
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - resolution
+      title: ResolveRequest
+      description: Resolve an alert with clinical outcome.
+    EscalateRequest:
+      properties:
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      title: EscalateRequest
+      description: Escalate an alert.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

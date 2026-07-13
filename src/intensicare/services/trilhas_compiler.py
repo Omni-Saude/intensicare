@@ -5,8 +5,10 @@ Per ADR-0020: NO eval()/exec(). Uses Python operator module + safe dict lookup.
 Supports predicate types:
   - threshold: single value comparison
   - graded: band-based evaluation with severity/score
-  - boolean: simple truthy/falsy check from patient data
-  - composite: AND/OR combinations of sub-predicates
+  - boolean: simple truthy/falsy check from patient data (optional negate)
+  - composite: AND/OR/NOT combinations of sub-predicates
+  - temporal: precomputed duration (minutes) vs. a budget (within/overdue),
+    deterministic — "now" comes from the input, never the clock
 
 Reference schema: /_work/alerts/schema/pathway.schema.json
 """
@@ -36,6 +38,12 @@ _OPS: dict[str, Callable[[Any, Any], bool]] = {
 }
 
 _VALID_OPERATORS: frozenset[str] = frozenset(_OPS.keys())
+
+_VALID_COMBINATORS: frozenset[str] = frozenset({"AND", "OR", "NOT"})
+
+_VALID_SEVERITIES: frozenset[str] = frozenset({"normal", "watch", "urgent", "critical"})
+
+_VALID_TEMPORAL_MODES: frozenset[str] = frozenset({"within", "overdue"})
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +103,7 @@ class Band:
         """Check if value falls within this band: lower ≤ value < upper."""
         if value < self.lower:
             return False
-        return not (self.upper is not None and value >= self.upper)
+        return self.upper is None or value < self.upper
 
 
 @dataclass(frozen=True)
@@ -125,17 +133,43 @@ class BooleanNode(ASTNode):
     """Boolean predicate: check truthiness of a data field."""
 
     input_name: str
+    negate: bool = False
 
 
 @dataclass(frozen=True)
 class CompositeNode(ASTNode):
-    """Composite predicate: AND/OR combination of sub-predicates.
+    """Composite predicate: AND/OR/NOT combination of sub-predicates.
 
-    Each sub_predicate is a CompiledPredicate instance.
+    Each sub_predicate is a CompiledPredicate instance. NOT requires
+    exactly one sub_predicate and negates its result.
     """
 
-    combinator: str  # "AND" or "OR"
+    combinator: str  # "AND", "OR", or "NOT"
     sub_predicates: tuple[CompiledPredicate, ...]
+
+
+@dataclass(frozen=True)
+class TemporalNode(ASTNode):
+    """Temporal predicate: evaluates a precomputed duration against a budget.
+
+    The input is a DURATION IN MINUTES already computed upstream (e.g.
+    minutes_since_accept_atb) — this node performs no clock access and is
+    fully deterministic (no datetime.now()/time.time() calls).
+
+    satisfied_when:
+      - "overdue": met when input > within_minutes (strict — equality does
+        NOT fire).
+      - "within":  met when input <= within_minutes.
+
+    severity: optional override applied when met is True. Defaults to
+    "urgent" when not provided (mirrors ThresholdNode's convention).
+    """
+
+    input_name: str
+    within_minutes: int
+    satisfied_when: str  # "within" or "overdue"
+    severity: str | None
+    unit: str
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +214,7 @@ class CompiledPredicate:
     ast_node: ASTNode
     input_name: str
     unit: str
-    predicate_type: str  # "threshold" | "graded" | "boolean" | "composite"
+    predicate_type: str  # "threshold" | "graded" | "boolean" | "composite" | "temporal"
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +261,8 @@ class PredicateCompiler:
             return self._compile_boolean(predicate)
         if ptype == "composite":
             return self._compile_composite(predicate)
+        if ptype == "temporal":
+            return self._compile_temporal(predicate)
         raise ValueError(f"Unknown predicate type: {ptype}")
 
     def evaluate(self, compiled: CompiledPredicate, patient_data: dict) -> EvaluationResult:
@@ -252,6 +288,8 @@ class PredicateCompiler:
             return self._evaluate_boolean(node, patient_data)
         if isinstance(node, CompositeNode):
             return self._evaluate_composite(node, patient_data)
+        if isinstance(node, TemporalNode):
+            return self._evaluate_temporal(node, patient_data)
         raise ValueError(f"Unknown AST node type: {type(node).__name__}")
 
     # ── Compile helpers ────────────────────────────────────────────────
@@ -363,12 +401,20 @@ class PredicateCompiler:
         )
 
     def _compile_boolean(self, pred: dict) -> CompiledPredicate:
-        """Compile a boolean predicate."""
+        """Compile a boolean predicate.
+
+        Optional 'negate' field (bool, default False) inverts the result:
+        met = NOT bool(value) when negate is True.
+        """
         input_name = pred.get("input", "")
         if not input_name:
             raise ValueError("boolean predicate missing 'input' field")
 
-        node = BooleanNode(input_name=input_name)
+        negate = pred.get("negate", False)
+        if not isinstance(negate, bool):
+            raise ValueError(f"boolean predicate 'negate' must be a boolean, got {negate!r}")
+
+        node = BooleanNode(input_name=input_name, negate=negate)
         return CompiledPredicate(
             ast_node=node,
             input_name=input_name,
@@ -377,18 +423,26 @@ class PredicateCompiler:
         )
 
     def _compile_composite(self, pred: dict) -> CompiledPredicate:
-        """Compile a composite predicate (AND/OR).
+        """Compile a composite predicate (AND/OR/NOT).
 
-        Composite predicates are compiled but evaluation may be deferred
-        to M3. The structure is fully supported in the AST.
+        NOT negates a single sub_predicate and requires exactly one entry
+        in sub_predicates.
         """
         combinator = pred.get("combinator", "AND")
-        if combinator not in ("AND", "OR"):
-            raise ValueError(f"Composite combinator must be 'AND' or 'OR', got '{combinator}'")
+        if combinator not in _VALID_COMBINATORS:
+            raise ValueError(
+                f"Composite combinator must be one of {sorted(_VALID_COMBINATORS)}, "
+                f"got '{combinator}'"
+            )
 
         sub_preds: list[dict] = pred.get("sub_predicates", [])
         if not sub_preds:
             raise ValueError("composite predicate must have at least one sub_predicate")
+
+        if combinator == "NOT" and len(sub_preds) != 1:
+            raise ValueError(
+                f"composite NOT operator requires exactly 1 sub_predicate, got {len(sub_preds)}"
+            )
 
         compiled_subs: list[CompiledPredicate] = []
         for i, sp in enumerate(sub_preds):
@@ -406,6 +460,66 @@ class PredicateCompiler:
             input_name="",  # composite has no single input
             unit="",
             predicate_type="composite",
+        )
+
+    def _compile_temporal(self, pred: dict) -> CompiledPredicate:
+        """Compile a temporal predicate.
+
+        The input is a precomputed DURATION IN MINUTES (e.g.
+        minutes_since_accept_atb) — no clock access happens here or at
+        evaluation time; "now" comes from upstream input, keeping the
+        predicate pure and deterministic.
+
+        Required fields: input, within_minutes (int), satisfied_when
+        ("within" | "overdue"). Optional: severity (canonical severity
+        override applied when met).
+        """
+        input_name = pred.get("input", "")
+        if not input_name:
+            raise ValueError("temporal predicate missing 'input' field")
+
+        raw_within = pred.get("within_minutes")
+        if raw_within is None:
+            raise ValueError("temporal predicate missing 'within_minutes' field")
+        try:
+            within_minutes = int(raw_within)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"temporal predicate 'within_minutes' must be an integer, got {raw_within!r}"
+            ) from exc
+        if within_minutes < 0:
+            raise ValueError(
+                f"temporal predicate 'within_minutes' must be >= 0, got {within_minutes}"
+            )
+
+        satisfied_when = pred.get("satisfied_when")
+        if satisfied_when not in _VALID_TEMPORAL_MODES:
+            raise ValueError(
+                f"temporal predicate 'satisfied_when' must be one of "
+                f"{sorted(_VALID_TEMPORAL_MODES)}, got {satisfied_when!r}"
+            )
+
+        severity: str | None = pred.get("severity")
+        if severity is not None and severity not in _VALID_SEVERITIES:
+            raise ValueError(
+                f"temporal predicate 'severity' must be one of "
+                f"{sorted(_VALID_SEVERITIES)}, got {severity!r}"
+            )
+
+        unit = pred.get("unit", "")
+
+        node = TemporalNode(
+            input_name=input_name,
+            within_minutes=within_minutes,
+            satisfied_when=satisfied_when,
+            severity=severity,
+            unit=unit,
+        )
+        return CompiledPredicate(
+            ast_node=node,
+            input_name=input_name,
+            unit=unit,
+            predicate_type="temporal",
         )
 
     # ── Evaluate helpers ───────────────────────────────────────────────
@@ -491,9 +605,15 @@ class PredicateCompiler:
         )
 
     def _evaluate_boolean(self, node: BooleanNode, patient_data: dict) -> EvaluationResult:
-        """Evaluate a boolean node against patient data."""
+        """Evaluate a boolean node against patient data.
+
+        If node.negate is True, the truthiness result is inverted:
+        met = NOT bool(value).
+        """
         actual_value = self._lookup(node.input_name, patient_data)
         met = bool(actual_value)
+        if node.negate:
+            met = not met
 
         severity = "urgent" if met else "normal"
         score = 1 if met else 0
@@ -507,10 +627,11 @@ class PredicateCompiler:
         )
 
     def _evaluate_composite(self, node: CompositeNode, patient_data: dict) -> EvaluationResult:
-        """Evaluate a composite (AND/OR) node.
+        """Evaluate a composite (AND/OR/NOT) node.
 
         For AND: all sub-predicates must be met.
         For OR: at least one sub-predicate must be met.
+        For NOT: negates the single sub-predicate's result.
 
         Severity is the maximum severity among sub-results.
         Score is the sum of sub-scores.
@@ -521,8 +642,10 @@ class PredicateCompiler:
 
         if node.combinator == "AND":
             met = all(r.met for r in sub_results)
-        else:  # OR
+        elif node.combinator == "OR":
             met = any(r.met for r in sub_results)
+        else:  # NOT
+            met = not sub_results[0].met
 
         # Aggregate severity: maximum severity across sub-results
         severity_order = {"normal": 0, "watch": 1, "urgent": 2, "critical": 3}
@@ -541,6 +664,52 @@ class PredicateCompiler:
             actual_value=[r.actual_value for r in sub_results],
             input_name="composite",
             unit="",
+        )
+
+    def _evaluate_temporal(self, node: TemporalNode, patient_data: dict) -> EvaluationResult:
+        """Evaluate a temporal node against patient data.
+
+        The input is treated as a duration in minutes, already computed
+        upstream — this method performs no clock access (deterministic,
+        pure function of patient_data).
+
+        satisfied_when="overdue": met when input > within_minutes (strict).
+        satisfied_when="within":  met when input <= within_minutes.
+        """
+        actual_value = self._lookup(node.input_name, patient_data)
+
+        try:
+            val = float(actual_value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Cannot evaluate temporal predicate: non-numeric value %r for input '%s'",
+                actual_value,
+                node.input_name,
+            )
+            return EvaluationResult(
+                met=False,
+                severity="normal",
+                score=0,
+                actual_value=actual_value,
+                input_name=node.input_name,
+                unit=node.unit,
+            )
+
+        if node.satisfied_when == "overdue":
+            met = val > node.within_minutes
+        else:  # "within"
+            met = val <= node.within_minutes
+
+        severity = (node.severity or "urgent") if met else "normal"
+        score = 1 if met else 0
+
+        return EvaluationResult(
+            met=met,
+            severity=severity,
+            score=score,
+            actual_value=actual_value,
+            input_name=node.input_name,
+            unit=node.unit,
         )
 
     # ── Utilities ──────────────────────────────────────────────────────

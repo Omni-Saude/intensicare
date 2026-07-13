@@ -2,18 +2,30 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from intensicare.auth.dependencies import get_current_user
+from intensicare.auth.abac import Action, ResourceType, require_abac
+from intensicare.auth.dependencies import get_current_tenant_id, get_current_user
 from intensicare.core.database import get_db
 from intensicare.models.alert import Alert
 from intensicare.models.user import User
+from intensicare.services.patient_encryption import resolve_display_name
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
+
+# ABAC enforcement (fix RBAC audit Dim A/C — clinical guards had zero
+# call-sites outside admin.py). Resolve/escalate are workflow transitions on
+# an already-acknowledged alert, not a distinct "write" in the ABACPolicy
+# matrix sense (only ADMIN has Action.WRITE for ResourceType.ALERTS). The
+# matrix's Action.ACKNOWLEDGE is the one non-admin action clinical roles
+# (physician/nurse/physiotherapist/nutritionist) hold for ALERTS beyond
+# READ, so acknowledge/resolve/escalate are all mapped to ACKNOWLEDGE here —
+# this preserves the exact set of roles the matrix already grants alert
+# workflow actions to, without inventing a new policy.
 
 
 class AlertResponse(BaseModel):
@@ -62,8 +74,17 @@ class EscalateRequest(BaseModel):
     reason: str | None = None
 
 
-def _to_alert_response(alert: Alert) -> AlertResponse:
-    """Build an AlertResponse from an Alert ORM instance."""
+async def _to_alert_response(db: AsyncSession, alert: Alert) -> AlertResponse:
+    """Build an AlertResponse from an Alert ORM instance.
+
+    ``alert.patient.display_name`` is PHI — on post-migration-0004 schemas
+    it is pgcrypto ciphertext (BYTEA), so it must go through
+    ``resolve_display_name`` (pgp_sym_decrypt), not a raw ``.decode("utf-8")``
+    which produces mojibake/garbage or raises on encrypted bytes and never
+    the real name. See ``patient_encryption.resolve_display_name`` for the
+    dual-schema (str passthrough vs. encrypted bytes) handling this shares
+    with the dashboard service.
+    """
     # Derive type from definition_version_id or default
     alert_type = "clinical"
     if alert.definition_version_id:
@@ -73,14 +94,7 @@ def _to_alert_response(alert: Alert) -> AlertResponse:
     # Extract patient_name from eager-loaded relationship
     patient_name: str | None = None
     if alert.patient and alert.patient.display_name:
-        try:
-            patient_name = (
-                alert.patient.display_name.decode("utf-8")
-                if isinstance(alert.patient.display_name, bytes)
-                else str(alert.patient.display_name)
-            )
-        except (UnicodeDecodeError, AttributeError):
-            patient_name = None
+        patient_name = await resolve_display_name(db, alert.patient.display_name)
 
     return AlertResponse(
         id=alert.id,
@@ -101,6 +115,7 @@ def _to_alert_response(alert: Alert) -> AlertResponse:
 
 @router.get("", response_model=AlertListResponse)
 async def list_alerts(
+    request: Request,
     status_filter: str = Query("active", alias="status"),
     unit: str | None = Query(
         None, alias="unit"
@@ -112,6 +127,15 @@ async def list_alerts(
     current_user: User = Depends(get_current_user),
 ) -> AlertListResponse:
     """List alerts with optional filters. Returns {alerts, total} (AUDIT-007)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     base_query = select(Alert).options(joinedload(Alert.patient))
 
     if status_filter:
@@ -129,8 +153,9 @@ async def list_alerts(
     result = await db.execute(data_query)
     alerts = result.scalars().all()
 
+    items = [await _to_alert_response(db, a) for a in alerts]
     return AlertListResponse(
-        items=[_to_alert_response(a) for a in alerts],
+        items=items,
         total=total,
     )
 
@@ -138,11 +163,21 @@ async def list_alerts(
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: int,
+    request: Request,
     request_body: AcknowledgeRequest | None = None,  # optional body accepted for API compatibility
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Acknowledge an alert (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -165,19 +200,35 @@ async def acknowledge_alert(
     alert.acknowledged_by = current_user.username
 
     await db.flush()
-    await db.refresh(alert)
+    # Scope the refresh to the columns just mutated. A bare db.refresh(alert)
+    # expires *every* attribute — including the eager-loaded `patient`
+    # relationship (lazy="raise", F-CODE-001) — so the subsequent
+    # _to_alert_response() access to alert.patient blows up with
+    # InvalidRequestError. attribute_names limits expiry to the named
+    # columns, leaving the joinedload'd relationship intact.
+    await db.refresh(alert, attribute_names=["status", "acknowledged_at", "acknowledged_by"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.post("/{alert_id}/resolve", response_model=AlertResponse)
 async def resolve_alert(
     alert_id: int,
     request_body: ResolveRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Resolve an alert — records the clinical outcome (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -216,19 +267,32 @@ async def resolve_alert(
     alert.resolution = request_body.resolution
 
     await db.flush()
-    await db.refresh(alert)
+    # See acknowledge_alert() above — scope the refresh to the mutated
+    # columns so the eager-loaded `patient` relationship (lazy="raise")
+    # survives for _to_alert_response().
+    await db.refresh(alert, attribute_names=["status", "resolved_at", "resolution"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.post("/{alert_id}/escalate", response_model=AlertResponse)
 async def escalate_alert(
     alert_id: int,
+    request: Request,
     request_body: EscalateRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Escalate an alert to the next response tier (authenticated)."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.ACKNOWLEDGE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -257,18 +321,31 @@ async def escalate_alert(
     alert.status = "escalated"
 
     await db.flush()
-    await db.refresh(alert)
+    # See acknowledge_alert() above — scope the refresh to the mutated
+    # column so the eager-loaded `patient` relationship (lazy="raise")
+    # survives for _to_alert_response().
+    await db.refresh(alert, attribute_names=["status"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.get("/{alert_id}/trace", response_model=AlertResponse)
 async def trace_alert(
     alert_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Get detailed trace of a specific alert."""
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=ResourceType.ALERTS,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     result = await db.execute(
         select(Alert).options(joinedload(Alert.patient)).where(Alert.id == alert_id)
     )
@@ -280,4 +357,4 @@ async def trace_alert(
             detail="Alert not found",
         )
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)

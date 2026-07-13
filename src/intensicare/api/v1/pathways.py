@@ -25,10 +25,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from intensicare.auth.dependencies import get_current_user
+from intensicare.auth.abac import Action, ResourceType, require_abac
+from intensicare.auth.dependencies import get_current_tenant_id, get_current_user
 from intensicare.core.database import get_db
 from intensicare.models.pathway import Pathway
 from intensicare.models.user import User
@@ -70,6 +71,25 @@ from intensicare.services.trilhas_engine import TrilhasEngine
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["pathways"])
+
+# ABAC enforcement (fix RBAC audit Dim A/C — clinical guards had zero
+# call-sites outside admin.py). ResourceType has no PATHWAY entry in
+# _ABAC_POLICY_MATRIX (auth/abac.py) and this router is out of scope for
+# adding one (LIMITE do audit). ResourceType.VITALS was chosen as the
+# nearest semantic analog rather than e.g. CLINICAL_SCORES:
+#   - Pathway enrollment/criteria updates are literally driven by
+#     vital-sign-like key/value inputs (see _criteria_to_patient_data)
+#     evaluated against the same TrilhasEngine that also scores vitals.
+#   - Critically, VITALS/WRITE is granted to physician, nurse,
+#     physiotherapist AND nutritionist (matching who actually enrolls/
+#     updates pathways clinically), whereas CLINICAL_SCORES/WRITE is
+#     admin+physician only — mapping pathways to CLINICAL_SCORES would
+#     have stripped nurses/physio/nutrition of enrollment access they
+#     need, violating the "don't take away needed access" rule.
+# This is a documented judgment call, not a matrix change — flagged for
+# follow-up: a dedicated ResourceType.PATHWAY should be added to abac.py
+# in a future change that touches auth/abac.py directly.
+_PATHWAY_RESOURCE = ResourceType.VITALS
 
 # ---------------------------------------------------------------------------
 # New stateless engine (primary for reads); falls back to legacy
@@ -123,7 +143,11 @@ def _pathway_def_to_flat_dict(pdef: Any) -> dict[str, Any]:
                 "id": c.get("id", ""),
                 "name": c.get("name", ""),
                 "category": c.get("category", ""),
-                "description": c.get("description", pred.get("rationale", "")),
+                # NOTE: fallback must NOT be pred.get("rationale", "") — the
+                # predicate's rationale can be a raw dict/AST fragment and
+                # leaking its repr() into the API response was a data leak.
+                # Fall back to the criterion's own name instead.
+                "description": c.get("description") or c.get("name", ""),
                 "unit": pred.get("unit"),
                 "normal_range": c.get("normal_range"),
                 "alert_threshold": c.get("alert_threshold"),
@@ -451,6 +475,7 @@ def _resolve_progress_criteria(
 
 @router.get("/pathways", response_model=PathwayListResponse)
 async def list_pathways(
+    request: Request,
     active_only: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -467,6 +492,15 @@ async def list_pathways(
     persistent ``pathways`` table (populated by the boot-time sync job)
     when the engine path is used.
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     engine = _get_engine()
     if engine is not None and engine.get_pathways():
         # Use new engine (YAML-driven), enriched with DB timestamps.
@@ -497,6 +531,7 @@ async def list_pathways(
 @router.get("/pathways/{pathway_id}", response_model=PathwaySchema)
 async def get_pathway(
     pathway_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PathwaySchema:
@@ -509,6 +544,15 @@ async def get_pathway(
     Sprint 1: enriches ``created_at``/``updated_at`` from the persistent
     ``pathways`` table when the engine path is used.
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     engine = _get_engine()
     pathway: dict[str, Any] | None = None
     if engine is not None:
@@ -542,6 +586,7 @@ async def get_pathway(
 )
 async def list_patient_pathways(
     mpi_id: str,
+    request: Request,
     status_filter: str = Query("active", alias="status"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -556,6 +601,15 @@ async def list_patient_pathways(
     Sprint 1: reads enrollments from the persistent
     ``pathway_enrollment.get_patient_pathways`` service (Postgres-backed).
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     all_pathways = await get_patient_pathways(db, mpi_id, status_filter=status_filter)
     total = len(all_pathways)
     paginated = all_pathways[offset : offset + limit]
@@ -576,6 +630,7 @@ async def list_patient_pathways(
 async def enroll_patient_in_pathway(
     mpi_id: str,
     body: EnrollPatientRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PatientPathwaySchema:
@@ -590,6 +645,15 @@ async def enroll_patient_in_pathway(
     ``intensicare.services.pathway_enrollment.enroll_patient``
     (Postgres-backed, replaces the deprecated in-memory PathwayStore).
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.WRITE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     engine = _get_engine()
 
     # ── Try new TrilhasEngine for pathway validation ──
@@ -687,6 +751,7 @@ async def update_pathway_criteria(
     mpi_id: str,
     patient_pathway_id: int,
     body: UpdateCriteriaRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PatientPathwaySchema:
@@ -702,6 +767,15 @@ async def update_pathway_criteria(
     ``intensicare.services.pathway_enrollment.evaluate_criteria``
     (Postgres-backed, replaces the deprecated in-memory PathwayStore).
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.WRITE,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     # Verify enrollment exists before evaluating
     enrollment = await _find_enrollment(db, mpi_id, patient_pathway_id)
     if enrollment is None:
@@ -783,6 +857,7 @@ async def update_pathway_criteria(
 async def get_pathway_progress_endpoint(
     mpi_id: str,
     patient_pathway_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PathwayProgressSchema:
@@ -795,6 +870,15 @@ async def get_pathway_progress_endpoint(
     ``intensicare.services.pathway_enrollment.get_pathway_progress``
     (Postgres-backed, replaces the deprecated in-memory PathwayStore).
     """
+    tenant_id = await get_current_tenant_id(request)
+    require_abac(
+        role_str=current_user.role,
+        resource=_PATHWAY_RESOURCE,
+        action=Action.READ,
+        tenant_id=tenant_id,
+        resource_tenant=tenant_id,
+    )
+
     progress = await get_pathway_progress(db, mpi_id, patient_pathway_id)
 
     # Fetch the enrollment once — used both for the not-found check and to

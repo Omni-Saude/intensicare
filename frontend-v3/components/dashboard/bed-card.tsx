@@ -54,7 +54,11 @@ export function BedCard({ patient, onClick }: BedCardProps) {
     last_vital_at,
   } = patient;
 
-  const borderColor = SEVERITY_BORDER[severity];
+  // Defensive fallback: the domain type declares `severity` non-nullable,
+  // but the backend has been observed sending it absent (audit Dim B/D).
+  // Without this guard, an unexpected value silently produces `undefined`
+  // border colour (no visible severity indicator on the card).
+  const borderColor = SEVERITY_BORDER[severity ?? 'normal'];
   const staleness = last_vital_at ? formatStaleness(last_vital_at) : null;
 
   return (
@@ -76,12 +80,20 @@ export function BedCard({ patient, onClick }: BedCardProps) {
       )}
       style={{
         backgroundColor: 'var(--surface-raised)',
-        borderLeftWidth: '4px',
-        borderLeftStyle: 'solid',
-        borderLeftColor: borderColor,
+        // NOTE: the border-* shorthand properties must come before the
+        // borderLeft* longhand overrides below. React assigns each style
+        // object key to the DOM's CSSStyleDeclaration in insertion order,
+        // and the `border-color`/`border-width` shorthands reset *all four*
+        // sides (including left) when applied — so setting them after
+        // borderLeftColor/borderLeftWidth silently clobbered the severity
+        // accent, leaving every card with a plain 1px neutral border and no
+        // visible severity indicator (found while verifying this task).
         borderColor: 'var(--border-default)',
         borderWidth: '1px',
         borderStyle: 'solid',
+        borderLeftWidth: '4px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: borderColor,
       }}
     >
       {/* Top row: severity dot + name + bed/unit */}

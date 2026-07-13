@@ -350,8 +350,11 @@ class TestRealYamlDefinitions:
         assert len(firings) >= 3
 
         # Verify stamping
+        # sepse.yaml v4.0.0 (Sprint 3 sepsis governance): version bumped from
+        # 3.0.0 when the rich domain_sepsis.py alert logic was ported to
+        # declarative criteria — see tests/test_sepse_yaml_parity.py.
         for f in firings:
-            assert f.definition_version == "3.0.0"
+            assert f.definition_version == "4.0.0"
             assert f.content_hash.startswith("sha256:")
 
     async def test_build_alert_from_real_yaml(

@@ -119,6 +119,13 @@ export interface PatientBedSummary {
   mews?: number;
   news2?: number;
   severity: SeverityLevel;
+  /**
+   * Highest severity among the patient's active alerts, independent of the
+   * aggregate `severity` field above. Backend may send null when there are
+   * no active alerts. (Dim B/D audit: backend field added alongside the
+   * always-present `severity`.)
+   */
+  highest_alert_severity?: string | null;
   last_vital_at?: string;
   active_pathways?: { slug: string; severity: SeverityLevel }[];
   vitals?: {
@@ -160,11 +167,20 @@ export interface AlertListResponse {
 }
 
 export interface UserInfo {
-  id: string;
+  // Backend UserResponse.id is the numeric DB PK (int). Kept as a union
+  // rather than switching fully to `number` because lib/auth.tsx also
+  // synthesizes a UserInfo client-side by decoding the JWT payload, where
+  // `id` is populated from the `sub` claim (the username, a string).
+  id: number | string;
   name: string;
   email: string;
   role: string;
   is_admin: boolean;
+  // Additive fields present on the backend UserResponse but not always
+  // populated by the JWT-decode fallback in lib/auth.tsx.
+  username?: string;
+  display_name?: string | null;
+  is_active?: boolean;
 }
 
 export interface LoginResponse {
@@ -218,15 +234,83 @@ export function setToken(token: string): void {
 
 function clearToken(): void {
   _token = null;
+  // A fresh bootstrap must be attempted (and hit the network again) after
+  // logout — the cached promise from a previous successful bootstrap
+  // already fired its setToken() side effect once and won't repeat it, so
+  // reusing it here would be harmless but stale. Resetting it means the
+  // next ensureSession() call re-checks the refresh_token cookie for real,
+  // which correctly comes back 401 once the backend has blacklisted it
+  // (see _perform_logout in src/intensicare/api/v1/auth.py).
+  _bootstrapPromise = null;
+}
+
+const API_BASE = '/api/v1';
+
+// ---------------------------------------------------------------------------
+// Session bootstrap — recover the in-memory access token from the HttpOnly
+// refresh_token cookie on mount (reload / deep-link).
+// ---------------------------------------------------------------------------
+// The JWT is intentionally in-memory only (see module header — XSS
+// hardening, never localStorage/sessionStorage). On a full page load this
+// module is re-instantiated with `_token = null`, even though the browser
+// may still hold a valid HttpOnly `refresh_token` cookie set by the backend
+// on login. Without recovering it, the *first* API call made by any page
+// (several pages fetch via useSWR immediately on mount, before
+// AuthProvider's own effect has a chance to run — see lib/auth.tsx) would
+// go out with no Authorization header, get a 401, and trip the hard
+// redirect below — discarding a perfectly valid session.
+//
+// `ensureSession()` is a memoized, single-flight bootstrap: whichever
+// caller reaches it first (AuthProvider's mount effect, or request<T> from
+// an eager page fetch) triggers exactly one POST /api/v1/auth/refresh;
+// every other concurrent caller awaits that same in-flight promise instead
+// of racing ahead with a token-less request or firing duplicate refreshes.
+interface RefreshResponse {
+  access_token: string;
+  token_type: string;
+  user: UserInfo;
+}
+
+let _bootstrapPromise: Promise<UserInfo | null> | null = null;
+
+export function ensureSession(): Promise<UserInfo | null> {
+  if (_token) {
+    // Already authenticated in this module instance (e.g. AuthProvider
+    // re-mounting during client-side navigation) — nothing to bootstrap.
+    return Promise.resolve(null);
+  }
+  if (!_bootstrapPromise) {
+    _bootstrapPromise = fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      // Same-origin via the Next.js rewrite proxy, so cookies flow by
+      // default — 'include' is explicit belt-and-suspenders documentation
+      // of that requirement, not strictly required for same-origin fetch.
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+        const data = (await response.json()) as RefreshResponse;
+        setToken(data.access_token);
+        return data.user;
+      })
+      .catch(() => null); // network error / no valid refresh cookie → stay unauthenticated
+  }
+  return _bootstrapPromise;
 }
 
 // ---------------------------------------------------------------------------
 // request<T> — generic fetch wrapper
 // ---------------------------------------------------------------------------
 
-const API_BASE = '/api/v1';
-
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  // Block on the session bootstrap so the very first request of a fresh
+  // page load doesn't race ahead of the refresh-cookie exchange (see
+  // ensureSession() above). Once a token is in memory this resolves
+  // synchronously-fast (no extra network round trip).
+  await ensureSession();
+
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -300,7 +384,45 @@ export async function login(username: string, password: string): Promise<LoginRe
 }
 
 export async function logout(): Promise<void> {
+  const token = getToken();
   clearToken();
+
+  // Best-effort server-side revocation: POST /api/v1/auth/logout blacklists
+  // the JWT in Redis (see src/intensicare/api/v1/auth.py) so it can no longer
+  // authenticate API requests even if leaked/replayed. The backend route is
+  // now mounted and reachable via the Next.js rewrite proxy. If the call fails
+  // (network error), it is non-fatal since client-side session state is already
+  // cleared.
+  if (token) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Network error or 404 (see note above) — non-fatal, session state
+      // is already cleared client-side.
+    }
+  }
+
+  // FIXED (was KNOWN LIMITATION, audit Dim B/D): the `token`, `access_token`
+  // and `refresh_token` cookies are HttpOnly, so client-side JS can never
+  // read or delete them — `document.cookie` writes below remain a no-op
+  // against them (kept only as defense-in-depth for any deployment that
+  // ever sets these non-HttpOnly). The real fix lives server-side: the
+  // /api/v1/auth/logout handler (`_perform_logout` in
+  // src/intensicare/api/v1/auth.py) now returns a `Response` that calls
+  // `delete_cookie(...)` for all three cookies, so as long as the POST
+  // above reaches the backend, the browser actually drops them — closing
+  // the ~30 min "still looks authenticated" window this comment used to
+  // describe, and (now that POST /auth/refresh exists to bootstrap a
+  // session from `refresh_token`) preventing a logged-out session from
+  // being silently resurrected on the next reload.
+  if (typeof document !== 'undefined') {
+    document.cookie = 'token=; Max-Age=0; path=/';
+    document.cookie = 'access_token=; Max-Age=0; path=/';
+    document.cookie = 'refresh_token=; Max-Age=0; path=/';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -379,10 +501,18 @@ export async function escalateAlert(id: number): Promise<AlertInfo> {
   return request<AlertInfo>(`/alerts/${id}/escalate`, { method: 'POST' });
 }
 
-export async function resolveAlert(id: number, resolution: string): Promise<AlertInfo> {
+// Backend enum — src/intensicare/api/v1/alerts.py ResolveRequest.resolution
+// (`valid_resolutions` set); any other value gets a 422.
+export type AlertResolution = 'true_positive' | 'false_positive' | 'intervention_done';
+
+export async function resolveAlert(
+  id: number,
+  resolution: AlertResolution,
+  note?: string,
+): Promise<AlertInfo> {
   return request<AlertInfo>(`/alerts/${id}/resolve`, {
     method: 'POST',
-    body: JSON.stringify({ resolution }),
+    body: JSON.stringify({ resolution, ...(note?.trim() ? { note: note.trim() } : {}) }),
   });
 }
 

@@ -75,7 +75,7 @@ export function CriteriaRow({ criterion, isExpanded, onToggle }: CriteriaRowProp
         )}
       >
         {/* Severity / status icon */}
-        <SeverityIcon met={met} severity={null} className="mt-0.5" />
+        <SeverityIcon met={met} severity={null} criterionName={name} className="mt-0.5" />
 
         {/* Name + category */}
         <div className="flex-1 min-w-0">
