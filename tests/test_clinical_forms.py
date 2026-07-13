@@ -3,8 +3,17 @@
 Covers:
 - Valid submissions for all three form types (RASS, CAM-ICU, BPS-NRS)
 - Invalid form_type → 422
-- Missing required field (patient_mpi_id) → 422
+- Missing required field (mpiId) → 422
 - Unauthenticated request → 401
+
+Contract note: ClinicalFormSubmission (src/intensicare/schemas/clinical_forms.py)
+declares validation_alias="formId"/"mpiId" WITHOUT populate_by_name=True, so the
+snake_case field names (form_type/patient_mpi_id) are rejected as input — only
+the camelCase aliases are accepted. This is a deliberate, self-documented
+contract (see the schema's own docstring) matching frontend JS/TS conventions;
+no consumer (frontend-v3, legacy frontend, docs/contracts/) posts snake_case to
+this endpoint, so the payloads below use the camelCase contract rather than
+adding populate_by_name=True.
 """
 
 from __future__ import annotations
@@ -15,20 +24,20 @@ from httpx import AsyncClient
 import pytest
 
 VALID_RASS_PAYLOAD = {
-    "form_type": "rass",
-    "patient_mpi_id": "MPI-001",
+    "formId": "rass",
+    "mpiId": "MPI-001",
     "data": {"score": -1, "description": "Drowsy"},
 }
 
 VALID_CAM_ICU_PAYLOAD = {
-    "form_type": "cam-icu",
-    "patient_mpi_id": "MPI-002",
+    "formId": "cam-icu",
+    "mpiId": "MPI-002",
     "data": {"feature_1": True, "feature_2": False, "feature_3": True, "feature_4": False},
 }
 
 VALID_BPS_NRS_PAYLOAD = {
-    "form_type": "bps-nrs",
-    "patient_mpi_id": "MPI-003",
+    "formId": "bps-nrs",
+    "mpiId": "MPI-003",
     "data": {"behavioral_score": 1, "nrs_score": 3},
 }
 
@@ -87,12 +96,12 @@ async def test_submit_valid_bps_nrs(client: AsyncClient, user_headers: dict[str,
 
 @pytest.mark.asyncio
 async def test_submit_invalid_form_type(client: AsyncClient, user_headers: dict[str, str]):
-    """POST /api/clinical-forms with invalid form_type → 422."""
+    """POST /api/clinical-forms with invalid formId → 422."""
     response = await client.post(
         "/api/clinical-forms",
         json={
-            "form_type": "invalid",
-            "patient_mpi_id": "MPI-001",
+            "formId": "invalid",
+            "mpiId": "MPI-001",
             "data": {},
         },
         headers=user_headers,
@@ -103,11 +112,11 @@ async def test_submit_invalid_form_type(client: AsyncClient, user_headers: dict[
 
 @pytest.mark.asyncio
 async def test_submit_missing_patient_mpi_id(client: AsyncClient, user_headers: dict[str, str]):
-    """POST /api/clinical-forms without patient_mpi_id → 422."""
+    """POST /api/clinical-forms without mpiId → 422."""
     response = await client.post(
         "/api/clinical-forms",
         json={
-            "form_type": "rass",
+            "formId": "rass",
             "data": {},
         },
         headers=user_headers,

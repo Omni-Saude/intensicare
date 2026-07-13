@@ -151,8 +151,13 @@ class TestBuildCameraRtspUrl:
     """RULE-MOVIMENTACAO-ADT-010."""
 
     def test_default(self) -> None:
+        # Default creds hardened from admin:admin to RTSP_USER default
+        # "intensicare_cam" / RTSP_PASS default "" — see
+        # domain_movimentacao.py:328-329 (build_camera_rtsp_url).
         url = build_camera_rtsp_url("192.168.1.100")
-        assert url == ("rtsp://admin:admin@192.168.1.100/cam/realmonitor?channel=1&subtype=0")
+        assert url == (
+            "rtsp://intensicare_cam:@192.168.1.100/cam/realmonitor?channel=1&subtype=0"
+        )
 
     def test_custom_creds(self) -> None:
         url = build_camera_rtsp_url("10.0.0.1", "user", "pass", 2, 1)
