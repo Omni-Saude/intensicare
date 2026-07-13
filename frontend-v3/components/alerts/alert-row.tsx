@@ -81,6 +81,9 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
         <SeverityBadge severity={alert.severity} />
 
         {/* Patient link */}
+        <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
+          Paciente
+        </span>
         {alert.mpi_id ? (
           <Link
             href={`/patient/${alert.mpi_id}`}
@@ -96,6 +99,9 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
         )}
 
         {/* Pathway link */}
+        <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
+          Trilha
+        </span>
         {alert.pathway_name ? (
           <Link
             href={`/pathways`}
@@ -111,17 +117,28 @@ export function AlertRow({ alert, onAlertUpdate, onError }: AlertRowProps) {
         )}
 
         {/* Message */}
+        <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
+          Mensagem
+        </span>
         <span className="flex-1 truncate text-sm text-[var(--text-primary)] min-w-0">
           {alert.message}
         </span>
 
         {/* Date */}
+        <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
+          Criado em
+        </span>
         <span className="flex items-center gap-1 text-xs text-[var(--text-secondary)] whitespace-nowrap">
           <Clock className="h-3 w-3" aria-hidden="true" />
           {createdAt}
         </span>
 
         {/* Status indicators */}
+        {(isAcknowledged || isResolved) && (
+          <span className="basis-full text-xs text-[var(--text-secondary)] sm:hidden">
+            Status
+          </span>
+        )}
         <span className="flex items-center gap-2">
           {isAcknowledged && (
             <span

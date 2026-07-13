@@ -96,7 +96,7 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
   }
 
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="Ações do alerta">
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Ações do alerta">
       {!alert.acknowledged_at && (
         <button
           onClick={handleAcknowledge}
@@ -115,7 +115,7 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
           ) : (
             <CheckCircle className="h-3 w-3" aria-hidden="true" />
           )}
-          <span className="hidden sm:inline">Reconhecer</span>
+          <span>Reconhecer</span>
         </button>
       )}
 
@@ -136,7 +136,7 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
         ) : (
           <ArrowUpCircle className="h-3 w-3" aria-hidden="true" />
         )}
-        <span className="hidden sm:inline">Escalar</span>
+        <span>Escalar</span>
       </button>
 
       {!alert.acknowledged_at && (
@@ -157,7 +157,7 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
           ) : (
             <XCircle className="h-3 w-3" aria-hidden="true" />
           )}
-          <span className="hidden sm:inline">Não procede</span>
+          <span>Não procede</span>
         </button>
       )}
 
@@ -175,10 +175,10 @@ export function QuickActions({ alert, onAction, onError }: QuickActionsProps) {
           title="Resolver"
         >
           <CircleCheckBig className="h-3 w-3" aria-hidden="true" />
-          <span className="hidden sm:inline">Resolver</span>
+          <span>Resolver</span>
         </button>
       ) : (
-        <div className="flex items-center gap-1" role="group" aria-label="Formulário de resolução">
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Formulário de resolução">
           <input
             type="text"
             value={note}

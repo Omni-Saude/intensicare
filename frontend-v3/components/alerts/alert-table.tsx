@@ -129,7 +129,13 @@ export function AlertTable({
       role="list"
       aria-label="Lista de alertas"
     >
-      {/* Header */}
+      {/*
+        Header — visual column guide for >=sm only (`hidden` below sm removes
+        it from the accessibility tree too, not just the viewport). This is
+        NOT the sole source of column meaning: AlertRow renders its own
+        inline `sm:hidden` labels per field (WCAG 1.3.1) so info/relationships
+        survive when this header disappears at <sm — see alert-row.tsx.
+      */}
       <div className="hidden sm:flex items-center gap-3 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
         <span className="w-4" aria-hidden="true" />
         <span className="w-[88px]">Severidade</span>

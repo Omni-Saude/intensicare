@@ -88,8 +88,22 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
       aria-label="Progresso dos estados da trilha"
       className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-4"
     >
-      {/* Scrollable container for mobile */}
-      <div className="overflow-x-auto -mx-1 px-1 scrollbar-thin">
+      {/*
+        Scrollable region — this component is read-only/presentational (no
+        onClick, no focusable controls inside the pills), so keyboard
+        reachability follows the WAI-ARIA scrolling-region pattern rather
+        than APG widget roles: the overflowing container itself is made
+        focusable (tabIndex=0) and named (role="region" + aria-label) so
+        keyboard users can Tab to it and use arrow/Page keys to scroll its
+        content into view. A bare `tabIndex={0}` with no role/label would be
+        focus-only theater; this gives it both a purpose and a name.
+      */}
+      <div
+        className="overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)]"
+        tabIndex={0}
+        role="region"
+        aria-label="Estados da trilha — role horizontalmente para ver todos"
+      >
         <div className="flex items-center min-w-max gap-0">
           {sorted.map((state, idx) => {
             const status = getStateStatus(state, currentStateId, history);
