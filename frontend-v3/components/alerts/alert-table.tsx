@@ -1,27 +1,21 @@
 'use client';
 
-import { cn } from '@/lib/utils';
-import type { AlertInfo } from '@/lib/api';
+import type { AlertGroup, AlertInfo } from '@/lib/api';
 import { AlertRow } from './alert-row';
+import { AlertGroupRow } from './alert-group-row';
 
-interface AlertTableProps {
-  alerts: AlertInfo[];
+interface AlertListStatusProps {
   isLoading: boolean;
   isEmpty: boolean;
   error: string | null;
-  onAlertUpdate: (updated: AlertInfo) => void;
-  onError: (message: string) => void;
 }
 
-export function AlertTable({
-  alerts,
-  isLoading,
-  isEmpty,
-  error,
-  onAlertUpdate,
-  onError,
-}: AlertTableProps) {
-  // Loading state
+// Shared loading/error/empty states for both the flat list (AlertTable)
+// and the grouped view (AlertGroupTable, FASE 2B.1/ADR-0039) — extracted so
+// the grouped view doesn't duplicate these three blocks. Returns null when
+// none of the three states apply, meaning the caller should render its
+// list instead.
+function renderListStatus({ isLoading, isEmpty, error }: AlertListStatusProps) {
   if (isLoading) {
     return (
       <div
@@ -57,7 +51,6 @@ export function AlertTable({
     );
   }
 
-  // Error state
   if (error) {
     return (
       <div
@@ -90,7 +83,6 @@ export function AlertTable({
     );
   }
 
-  // Empty state
   if (isEmpty) {
     return (
       <div
@@ -123,6 +115,29 @@ export function AlertTable({
     );
   }
 
+  return null;
+}
+
+interface AlertTableProps {
+  alerts: AlertInfo[];
+  isLoading: boolean;
+  isEmpty: boolean;
+  error: string | null;
+  onAlertUpdate: (updated: AlertInfo) => void;
+  onError: (message: string) => void;
+}
+
+export function AlertTable({
+  alerts,
+  isLoading,
+  isEmpty,
+  error,
+  onAlertUpdate,
+  onError,
+}: AlertTableProps) {
+  const status = renderListStatus({ isLoading, isEmpty, error });
+  if (status) return status;
+
   return (
     <div
       className="flex flex-col gap-2"
@@ -154,6 +169,65 @@ export function AlertTable({
           alert={alert}
           onAlertUpdate={onAlertUpdate}
           onError={onError}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Grouped view — FASE 2B.1 (ADR-0039). "Por paciente/sinal" is the /alerts
+// page's default view; AlertTable above is the flat fallback reachable via
+// the page's view toggle. Every member inside an expanded AlertGroupRow
+// renders through the existing, unmodified AlertRow — full reuse of the
+// per-alert ack/resolve/escalate actions and the APG disclosure pattern.
+// ---------------------------------------------------------------------------
+
+interface AlertGroupTableProps {
+  groups: AlertGroup[];
+  isLoading: boolean;
+  isEmpty: boolean;
+  error: string | null;
+  onAlertUpdate: (updated: AlertInfo) => void;
+  onError: (message: string) => void;
+  onGroupAcknowledged: () => void;
+}
+
+export function AlertGroupTable({
+  groups,
+  isLoading,
+  isEmpty,
+  error,
+  onAlertUpdate,
+  onError,
+  onGroupAcknowledged,
+}: AlertGroupTableProps) {
+  const status = renderListStatus({ isLoading, isEmpty, error });
+  if (status) return status;
+
+  return (
+    <div
+      className="flex flex-col gap-2"
+      role="list"
+      aria-label="Alertas agrupados por paciente e sinal"
+    >
+      <div className="hidden sm:flex items-center gap-3 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+        <span className="w-4" aria-hidden="true" />
+        <span className="w-[88px]">Severidade</span>
+        <span className="w-[160px]">Paciente</span>
+        <span className="w-[90px]">Sinal</span>
+        <span className="w-[110px]">Ocorrências</span>
+        <span className="flex-1">Janela</span>
+        <span className="w-[170px] text-right">Ações</span>
+      </div>
+
+      {groups.map((group) => (
+        <AlertGroupRow
+          key={`${group.mpi_id}::${group.score_type}`}
+          group={group}
+          onAlertUpdate={onAlertUpdate}
+          onError={onError}
+          onGroupAcknowledged={onGroupAcknowledged}
         />
       ))}
     </div>
