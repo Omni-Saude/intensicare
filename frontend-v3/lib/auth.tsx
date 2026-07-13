@@ -111,9 +111,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // BUG-F1-01 fix: logout() used to only call apiLogout() + setState, with
+  // no navigation. The backend was correctly invalidating the session, but
+  // the client stayed on the current route with the SWR-cached dashboard
+  // (patient names, vitals) still mounted and rendered — indefinite PHI
+  // exposure on a shared ICU terminal after clicking "Confirmar saída".
+  //
+  // Dashboard pages here don't gate rendering on isAuthenticated (e.g.
+  // app/page.tsx renders BedGrid straight off its own useSWR state), so
+  // clearing this context's state alone would not have hidden that grid.
+  // A `router.push('/login')` would swap the visible route, but SWR's
+  // in-memory cache is a module-level singleton that survives client-side
+  // navigation — a subsequent back-button press at this shared terminal
+  // could re-render the cached PHI instantly, before the 401 handler in
+  // lib/api.ts even has a chance to redirect. A full browser navigation
+  // (`window.location.assign`) tears down the entire JS realm — including
+  // that SWR cache and any component state — so nothing can be resurrected
+  // by in-app navigation. This mirrors the existing hard-redirect pattern
+  // used by the 401 handler in lib/api.ts.
   const logout = useCallback(() => {
-    apiLogout();
+    // Synchronous, immediate UI feedback (defense in depth): clear local
+    // auth state right away so anything gating on isAuthenticated (e.g.
+    // the sidebar user footer) stops rendering session info before the
+    // network round-trip below even starts.
     setState({ user: null, isLoading: false, isAuthenticated: false });
+
+    // Fail-closed for privacy: apiLogout() already clears the in-memory
+    // token synchronously (before its own network call) and treats its own
+    // fetch failure as non-fatal, but we still guard here — even if
+    // server-side revocation errors out for some other reason, the user
+    // must still end up on /login with no PHI left rendered.
+    apiLogout()
+      .catch(() => {
+        // Best-effort server-side revocation failed — session state is
+        // already cleared client-side (above); still navigate below.
+      })
+      .finally(() => {
+        window.location.assign('/login');
+      });
   }, []);
 
   return (
