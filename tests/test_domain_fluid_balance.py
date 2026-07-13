@@ -485,11 +485,12 @@ class TestFluidBalanceResult:
         """Should create a valid FluidBalanceResult."""
 
         result = FluidBalanceResult(
+            nursing_date="2026-07-06",
             total_intake_ml=1000.0,
             total_output_ml=500.0,
             net_balance_ml=500.0,
             urine_output_ml=300.0,
-            max_temperature=37.5,
+            max_temperature_c=37.5,
         )
         assert result.total_intake_ml == 1000.0
         assert result.total_output_ml == 500.0
@@ -500,13 +501,14 @@ class TestFluidBalanceResult:
         """Temperature can be None when no readings."""
 
         result = FluidBalanceResult(
+            nursing_date="2026-07-06",
             total_intake_ml=0.0,
             total_output_ml=0.0,
             net_balance_ml=0.0,
             urine_output_ml=0.0,
-            max_temperature=None,
+            max_temperature_c=None,
         )
-        assert result.max_temperature is None
+        assert result.max_temperature_c is None
 
 
 class TestNursingDayWindowModel:
@@ -523,7 +525,9 @@ class TestNursingDayWindowModel:
             nursing_date="2026-07-06",
         )
         assert w.nursing_date == "2026-07-06"
-        assert w.duration_hours() == 24.0
+        # NursingDayWindow has no duration_hours() helper — compute the span
+        # directly from start/end (the "nursing day is 24h" invariant).
+        assert (w.end - w.start).total_seconds() / 3600.0 == 24.0
 
 
 class TestFluidBalanceEmptyEntries:
@@ -592,9 +596,9 @@ class TestFluidBalanceEmptyEntries:
             nursing_date="2026-07-06",
         )
         temps = [
-            {"valor": 37.0, "data_hora": datetime(2026, 7, 6, 8, 0, 0, tzinfo=timezone.utc)},
-            {"valor": 38.5, "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)},
-            {"valor": 37.2, "data_hora": datetime(2026, 7, 6, 16, 0, 0, tzinfo=timezone.utc)},
+            {"temperatura": 37.0, "data_hora": datetime(2026, 7, 6, 8, 0, 0, tzinfo=timezone.utc)},
+            {"temperatura": 38.5, "data_hora": datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)},
+            {"temperatura": 37.2, "data_hora": datetime(2026, 7, 6, 16, 0, 0, tzinfo=timezone.utc)},
         ]
         result = compute_max_temperature(temps, window)
         assert result == 38.5
