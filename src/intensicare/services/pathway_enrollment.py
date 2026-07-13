@@ -507,11 +507,24 @@ async def get_pathway_progress(
     pathway_name = pathway.name if pathway else "Desconhecido"
 
     # ── Rule 14: Criteria summary ──
+    #
+    # BUG-F8-01 fix: a criterion with ``evaluated_at`` is None has never
+    # actually been assessed (no value/met result was ever recorded for
+    # it — see the enrollment/evaluate_criteria code above, where a
+    # criterion defaults to met=False, value=None, evaluated_at=None until
+    # someone evaluates it). Treating that default ``met=False`` as a real
+    # "not met" result is a clinical-safety misrepresentation: it implies
+    # active evaluation that never happened. Only criteria that carry an
+    # ``evaluated_at`` timestamp are classified as met/not_met; everything
+    # else is PENDING. This mirrors the "value is None -> pending" rule
+    # already used by ``_determine_severity`` below, applied here to the
+    # summary/reporting path instead of the severity path.
     criteria_data: list[dict[str, Any]] = [dict(c) for c in (enrollment.criteria_data or [])]
     total = len(criteria_data)
-    met = sum(1 for c in criteria_data if c.get("met", False))
-    not_met = sum(1 for c in criteria_data if c.get("met") is False)
-    pending = total - met - not_met
+    evaluated_criteria = [c for c in criteria_data if c.get("evaluated_at")]
+    met = sum(1 for c in evaluated_criteria if c.get("met") is True)
+    not_met = sum(1 for c in evaluated_criteria if c.get("met") is not True)
+    pending = total - len(evaluated_criteria)
 
     criteria_summary: dict[str, int] = {
         "total": total,
