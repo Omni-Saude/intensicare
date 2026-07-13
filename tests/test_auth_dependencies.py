@@ -138,17 +138,19 @@ class TestGetCurrentUser:
 class TestRequireAdmin:
     """Tests for the require_admin dependency."""
 
-    def test_admin_user_passes(self):
+    @pytest.mark.asyncio
+    async def test_admin_user_passes(self):
         """An admin user should pass the admin gate."""
         admin = _make_user(username="admin_user", is_admin=True)
-        result = require_admin(current_user=admin)
+        result = await require_admin(current_user=admin)
         assert result is admin
 
-    def test_non_admin_user_raises_403(self):
+    @pytest.mark.asyncio
+    async def test_non_admin_user_raises_403(self):
         """A non-admin user must raise 403 Forbidden."""
         nurse = _make_user(username="nurse", is_admin=False)
         with pytest.raises(HTTPException) as exc_info:
-            require_admin(current_user=nurse)
+            await require_admin(current_user=nurse)
         assert exc_info.value.status_code == 403
         assert "admin" in str(exc_info.value.detail).lower()
 
@@ -174,8 +176,13 @@ class TestGetCurrentUserWithIAM:
 
         with (
             patch("intensicare.auth.dependencies.settings.iam_enabled", True),
+            # get_current_user does `from intensicare.auth.iam import
+            # validate_iam_token` lazily inside the function body (see
+            # dependencies.py), so `validate_iam_token` is never a
+            # module-level attribute of `intensicare.auth.dependencies` —
+            # patch it at its source module instead.
             patch(
-                "intensicare.auth.dependencies.validate_iam_token",
+                "intensicare.auth.iam.validate_iam_token",
                 new_callable=AsyncMock,
             ) as mock_validate,
         ):
@@ -196,8 +203,13 @@ class TestGetCurrentUserWithIAM:
 
         with (
             patch("intensicare.auth.dependencies.settings.iam_enabled", True),
+            # get_current_user does `from intensicare.auth.iam import
+            # validate_iam_token` lazily inside the function body (see
+            # dependencies.py), so `validate_iam_token` is never a
+            # module-level attribute of `intensicare.auth.dependencies` —
+            # patch it at its source module instead.
             patch(
-                "intensicare.auth.dependencies.validate_iam_token",
+                "intensicare.auth.iam.validate_iam_token",
                 new_callable=AsyncMock,
             ) as mock_validate,
         ):
