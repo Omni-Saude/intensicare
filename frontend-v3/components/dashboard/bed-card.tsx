@@ -6,6 +6,7 @@ import { ScorePair } from './score-pair';
 import { PathwayBadges } from './pathway-badges';
 import { VitalsInline } from './vitals-inline';
 import { cn } from '@/lib/utils';
+import { computeStaleness } from '@/lib/vitals-staleness';
 
 const SEVERITY_BORDER: Record<SeverityLevel, string> = {
   normal: 'var(--severity-normal)',
@@ -17,28 +18,6 @@ const SEVERITY_BORDER: Record<SeverityLevel, string> = {
 interface BedCardProps {
   patient: PatientBedSummary;
   onClick: () => void;
-}
-
-function formatStaleness(lastVitalAt: string): { label: string; color: string } | null {
-  const diffMs = Date.now() - new Date(lastVitalAt).getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
-
-  if (diffMin < 0) return null;
-
-  let color: string;
-  if (diffMin < 30) {
-    color = 'var(--severity-normal)';
-  } else if (diffMin < 60) {
-    color = 'var(--severity-watch)';
-  } else {
-    color = 'var(--severity-critical)';
-  }
-
-  const label = diffMin < 60
-    ? `há ${diffMin} min`
-    : `há ${(diffMin / 60).toFixed(1)}h`;
-
-  return { label, color };
 }
 
 export function BedCard({ patient, onClick }: BedCardProps) {
@@ -59,7 +38,7 @@ export function BedCard({ patient, onClick }: BedCardProps) {
   // Without this guard, an unexpected value silently produces `undefined`
   // border colour (no visible severity indicator on the card).
   const borderColor = SEVERITY_BORDER[severity ?? 'normal'];
-  const staleness = last_vital_at ? formatStaleness(last_vital_at) : null;
+  const staleness = last_vital_at ? computeStaleness(last_vital_at) : null;
 
   return (
     <div
@@ -129,9 +108,9 @@ export function BedCard({ patient, onClick }: BedCardProps) {
           <span
             className="text-[10px] font-medium"
             style={{ color: staleness.color }}
-            aria-label={`Último vital registrado ${staleness.label}`}
+            aria-label={`Último vital registrado ${staleness.shortLabel}`}
           >
-            {staleness.label}
+            {staleness.shortLabel}
           </span>
         </div>
       )}
