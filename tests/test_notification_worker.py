@@ -228,18 +228,19 @@ class TestDeadLetterQueue:
     @pytest.mark.asyncio
     async def test_dlq_publishes_operational_alert(self):
         """Moving to DLQ should publish on the operational-alert channel."""
-        import redis.asyncio as aioredis
+        from intensicare.core.redis import get_redis
 
-        from intensicare.config import settings
+        redis_client = get_redis()
 
-        # We need a separate subscriber connection because the pub/sub
-        # model requires a dedicated connection for listening.
-        sub = aioredis.from_url(
-            settings.redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-        )
-        pubsub = sub.pubsub()
+        # The subscriber MUST live on the same Redis server the app under
+        # test publishes to — i.e. the conftest-managed test client behind
+        # get_redis() (pointed at REDIS_URL). Building a second client from
+        # ``settings.redis_url`` here would split-brain whenever REDIS_URL
+        # differs from the settings defaults (e.g. CI-repro on a disposable
+        # port): the publish lands on one server while we listen on another.
+        # ``pubsub()`` acquires its own dedicated connection from the client's
+        # pool, so publisher and subscriber still use separate connections.
+        pubsub = redis_client.pubsub()
         await pubsub.subscribe(DLQ_ALERT_CHANNEL)
 
         # Give Redis a moment to register the subscription
@@ -248,9 +249,6 @@ class TestDeadLetterQueue:
         await asyncio.sleep(0.05)
 
         try:
-            from intensicare.core.redis import get_redis
-
-            redis_client = get_redis()
             exhausted_try = MAX_RETRIES + 1
             ctx = _make_ctx(redis_client, job_id="dlq-pub-001", job_try=exhausted_try)
 
@@ -284,9 +282,10 @@ class TestDeadLetterQueue:
             payload = json.loads(str(data_messages[0]["data"]))
             assert payload["alert_id"] == "alert-dlq-pub"
         finally:
+            # Close only the pubsub (its dedicated connection returns to the
+            # pool); the client itself is session-scoped and owned by conftest.
             await pubsub.unsubscribe(DLQ_ALERT_CHANNEL)
             await pubsub.aclose()
-            await sub.aclose()
 
     @pytest.mark.asyncio
     async def test_move_to_dlq_helper(self):
