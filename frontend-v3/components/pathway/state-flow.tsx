@@ -99,7 +99,7 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
         focus-only theater; this gives it both a purpose and a name.
       */}
       <div
-        className="overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)]"
+        className="overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)] overflow-fade-gradient"
         tabIndex={0}
         role="region"
         aria-label="Estados da trilha — role horizontalmente para ver todos"
@@ -138,7 +138,7 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
 
                   {/* Terminal badge */}
                   {isTerminal && (
-                    <span className="text-[10px] opacity-70" aria-label="Estado terminal">
+                    <span className="text-2xs opacity-80" aria-label="Estado terminal">
                       (final)
                     </span>
                   )}
