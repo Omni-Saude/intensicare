@@ -2,8 +2,14 @@ openapi: 3.1.0
 info:
   title: IntensiCare Patients (base) API
   description: 'Endpoints base de consulta de paciente (detalhe, status legado). `/status` está marcado
-    DEPRECATED no código em favor de `/detail`. Extraído do openapi.json vivo (routers patients.py, dashboard.py)
-    — achado Dim A: endpoint vivo sem contrato.'
+    DEPRECATED no código em favor de `/detail`, mas preserva o contrato legado null-safe
+    (sempre 200; campos nulos quando o paciente não possui dados processados) — consulta
+    VitalSign/ClinicalScore diretamente via services/patients.py, sem depender de PatientCache.
+    Extraído do openapi.json vivo (routers patients.py, dashboard.py) — achado Dim A: endpoint
+    vivo sem contrato. Suite E fix: restaurado o roteamento original para get_patient_status
+    (services/patients.py) — havia sido repontado para get_patient_detail (services/dashboard.py,
+    depende de PatientCache) o que quebrava o contrato null-safe com 404 silencioso após
+    POST /vitals.'
   version: 1.0.0
 servers:
 - url: /api/v1
@@ -72,8 +78,11 @@ paths:
   /patients/{mpi_id}/status:
     get:
       summary: '[DEPRECATED] Status do paciente'
-      description: ⚠️ DEPRECATED — use GET /api/v1/patients/{mpi_id}/detail instead. Retorna dados detalhados
-        do paciente com histórico de sinais vitais (24h), scores (MEWS/NEWS2) e alertas ativos.
+      description: ⚠️ DEPRECATED — prefira GET /api/v1/patients/{mpi_id}/detail. Retorna o status
+        agregado do paciente — sinais vitais mais recentes, último score e tendência dos últimos
+        5 scores. Quando enrich=true e FHIR_BASE_URL está configurado, inclui dados demográficos
+        e clínicos do FHIR (HAPI FHIR / AMH Data Platform). Sempre retorna 200 — campos nulos
+        quando o paciente não possui dados processados ainda.
       operationId: patient_status_api_v1_patients__mpi_id__status_get
       deprecated: true
       parameters:
@@ -89,32 +98,26 @@ paths:
         schema:
           type: string
           maxLength: 16
-          description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
-          deprecated: true
+          description: Tipo de score a consultar (MEWS, NEWS2, SOFA, qSOFA)
           default: MEWS
           title: Score Type
-        description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
-        deprecated: true
+        description: Tipo de score a consultar (MEWS, NEWS2, SOFA, qSOFA)
       - name: enrich
         in: query
         required: false
         schema:
           type: boolean
-          description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
-          deprecated: true
+          description: Enriquecer com dados do FHIR (requer FHIR_BASE_URL configurado)
           default: false
           title: Enrich
-        description: '[DEPRECATED] Ignorado — use /api/v1/patients/{mpi_id}/detail'
-        deprecated: true
+        description: Enriquecer com dados do FHIR (requer FHIR_BASE_URL configurado)
       responses:
         '200':
-          description: Dados detalhados do paciente
+          description: Status do paciente (campos nulos quando não há dados)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PatientDetailResponse'
-        '404':
-          description: Paciente não encontrado
+                $ref: '#/components/schemas/PatientStatusResponse'
         '422':
           description: Validation Error
           content:
@@ -123,6 +126,213 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    PatientStatusResponse:
+      properties:
+        mpi_id:
+          type: string
+          title: Mpi Id
+          description: Master Patient Identifier
+        latest_vitals:
+          anyOf:
+          - $ref: '#/components/schemas/VitalSignSummary'
+          - type: 'null'
+          description: Sinais vitais mais recentes
+        latest_mews:
+          anyOf:
+          - $ref: '#/components/schemas/ScoreSummary'
+          - type: 'null'
+          description: Último score MEWS calculado
+        trend:
+          $ref: '#/components/schemas/TrendSummary'
+          description: Tendência de scores
+        last_updated:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Updated
+          description: Timestamp da última atualização
+        fhir:
+          anyOf:
+          - $ref: '#/components/schemas/FHIREnrichment'
+          - type: 'null'
+          description: FHIR enrichment data (only when enrich=true is requested and FHIR_BASE_URL
+            is configured).
+      type: object
+      required:
+      - mpi_id
+      title: PatientStatusResponse
+      description: Resposta completa do status do paciente.
+    VitalSignSummary:
+      properties:
+        id:
+          type: integer
+          title: Id
+        recorded_at:
+          type: string
+          format: date-time
+          title: Recorded At
+        heart_rate:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Heart Rate
+        systolic_bp:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Systolic Bp
+        diastolic_bp:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Diastolic Bp
+        temperature:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Temperature
+        spo2:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Spo2
+        respiratory_rate:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Respiratory Rate
+        avpu:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avpu
+        supplemental_o2:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Supplemental O2
+      type: object
+      required:
+      - id
+      - recorded_at
+      title: VitalSignSummary
+      description: Resumo dos sinais vitais mais recentes.
+    ScoreSummary:
+      properties:
+        id:
+          type: integer
+          title: Id
+        score_type:
+          type: string
+          title: Score Type
+        score_value:
+          type: integer
+          title: Score Value
+        calculated_at:
+          type: string
+          format: date-time
+          title: Calculated At
+        components:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Components
+        trend:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Trend
+        delta_from_previous:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Delta From Previous
+      type: object
+      required:
+      - id
+      - score_type
+      - score_value
+      - calculated_at
+      title: ScoreSummary
+      description: Resumo de um score clínico.
+    TrendSummary:
+      properties:
+        values:
+          items:
+            type: integer
+          type: array
+          title: Values
+          description: Últimos valores de score em ordem cronológica
+        current_trend:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Current Trend
+          description: 'Tendência atual: increasing, decreasing, stable'
+      type: object
+      title: TrendSummary
+      description: Resumo de tendência dos scores (últimos 5).
+    FHIREnrichment:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        gender:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Gender
+        birth_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Birth Date
+        marital_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Marital Status
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+        primary_condition:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Primary Condition
+        condition_list:
+          items:
+            type: string
+          type: array
+          title: Condition List
+        allergy_list:
+          items:
+            type: string
+          type: array
+          title: Allergy List
+        latest_observations:
+          additionalProperties: true
+          type: object
+          title: Latest Observations
+      type: object
+      title: FHIREnrichment
+      description: 'FHIR-enriched demographics and clinical context from HAPI FHIR.
+
+
+        Only populated when FHIR_BASE_URL is configured and enrichment
+
+        is requested (enrich=true query parameter).'
     HTTPValidationError:
       properties:
         detail:
