@@ -123,7 +123,11 @@ def _pathway_def_to_flat_dict(pdef: Any) -> dict[str, Any]:
                 "id": c.get("id", ""),
                 "name": c.get("name", ""),
                 "category": c.get("category", ""),
-                "description": c.get("description", pred.get("rationale", "")),
+                # NOTE: fallback must NOT be pred.get("rationale", "") — the
+                # predicate's rationale can be a raw dict/AST fragment and
+                # leaking its repr() into the API response was a data leak.
+                # Fall back to the criterion's own name instead.
+                "description": c.get("description") or c.get("name", ""),
                 "unit": pred.get("unit"),
                 "normal_range": c.get("normal_range"),
                 "alert_threshold": c.get("alert_threshold"),
