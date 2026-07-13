@@ -217,7 +217,11 @@ def _build_detail(pathway_name: str, progress: PathwayProgressResult) -> str:
         f"**{pathway_name}** — {summary.get('met', 0)}/{summary.get('total', 0)} "
         "critérios atendidos.",
     ]
-    unmet = [c for c in progress.criteria if c.get("met") is False]
+    # BUG-F8-01: a criterion with no evaluated_at was never assessed — it
+    # must not be listed as a "triggered"/not-met criterion (that would
+    # imply an active evaluation that never happened; see the matching
+    # PENDING-vs-not_met fix in pathway_enrollment.get_pathway_progress).
+    unmet = [c for c in progress.criteria if c.get("evaluated_at") and c.get("met") is False]
     if unmet:
         lines.append("\n**Critérios disparados:**")
         lines.extend(f"- {c.get('name') or c.get('id')}: {c.get('value')}" for c in unmet)
