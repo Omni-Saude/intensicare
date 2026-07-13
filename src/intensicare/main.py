@@ -22,6 +22,7 @@ from intensicare.api.v1 import (
     antimicrobial_router,
     api_v1_auth_router,
     auth_router,
+    cds_hooks_router,
     dashboard_router,
     deterioration_router,
     documentacao_router,
@@ -172,6 +173,10 @@ def create_app() -> FastAPI:
     # carry their own prefix internally.
     app.include_router(auth_router)
     app.include_router(api_v1_auth_router)
+    # CDS Hooks 2.0 (HL7) discovery + patient-view service — mounted
+    # unprefixed at /cds-services, matching the spec's conventional base
+    # path for third-party EHR discovery (see api/v1/cds_hooks.py).
+    app.include_router(cds_hooks_router)
     app.include_router(admin_router, prefix="/api/v1")
     app.include_router(alerts_router)
     app.include_router(antimicrobial_router)

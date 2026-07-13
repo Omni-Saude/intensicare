@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # O valor ["*"] NÃO é suportado em produção com allow_credentials=True.
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Frontend base URL — used to build absolute deep links back into the
+    # IntensiCare UI from external surfaces (e.g. CDS Hooks 2.0 cards
+    # consumed by third-party EHRs; see api/v1/cds_hooks.py). Defaults to
+    # the local dev frontend, matching the ``cors_origins`` default above.
+    frontend_base_url: str = "http://localhost:3000"
+
     # Content-Security-Policy (CSP) — header value for the SecurityHeadersMiddleware.
     # When empty, the built-in strict healthcare default is used.
     # Set explicitly to add trusted third-party origins (e.g. CDN for fonts,

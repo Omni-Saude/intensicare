@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: IntensiCare CDS Hooks API
+  description: 'CDS Hooks 2.0 (HL7 — https://cds-hooks.hl7.org) discovery + patient-view service. Interoperability
+    adapter: surfaces active IntensiCare care-pathway alerts (Trilhas Engine) as standard CDS Hooks cards
+    for third-party EHR consumption. Extraído do openapi.json vivo (router cds_hooks.py) — audit Dim E,
+    dedução -4: ''DSL não interoperável; zero Arden/CQL/CDS Hooks''.'
+  version: 1.0.0
+servers:
+- url: /
+  description: IntensiCare API — root mount (paths absolutos, fora de /api/v1, por convenção CDS Hooks)
+paths:
+  /cds-services:
+    get:
+      tags:
+      - cds-hooks
+      summary: CDS Hooks discovery endpoint
+      description: 'Advertise the CDS services this server exposes (CDS Hooks 2.0
+
+        discovery). Public by spec — no patient/auth context exists yet at
+
+        discovery time, and this response carries no PHI.'
+      operationId: discover_cds_services_cds_services_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CDSServicesDiscovery'
+  /cds-services/intensicare-pathway-alerts:
+    post:
+      tags:
+      - cds-hooks
+      summary: IntensiCare Pathway Alerts (patient-view)
+      description: 'CDS Hooks 2.0 ``patient-view`` service: returns one card per active
+
+        pathway with severity >= watch for the patient in ``context.patientId``.
+
+        Returns ``{"cards": []}`` when the patient has no clinically-relevant
+
+        active pathways.'
+      operationId: patient_view_pathway_alerts_cds_services_intensicare_pathway_alerts_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CDSHookRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CDSHooksCardResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+components:
+  schemas:
+    CDSHookContext:
+      properties:
+        patientId:
+          type: string
+          minLength: 1
+          title: Patientid
+          description: MPI id of the patient in view
+      additionalProperties: true
+      type: object
+      required:
+      - patientId
+      title: CDSHookContext
+      description: '``context`` object of a CDS Hooks request. Only ``patientId`` is
+
+        required by this service; other hook-specific context fields (e.g.
+
+        ``encounterId``, ``userId``) are accepted but unused.'
+    CDSHookRequest:
+      properties:
+        hook:
+          type: string
+          title: Hook
+          description: CDS Hooks hook name, e.g. 'patient-view'
+        hookInstance:
+          type: string
+          title: Hookinstance
+          description: Unique id for this hook invocation
+        context:
+          $ref: '#/components/schemas/CDSHookContext'
+        fhirServer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fhirserver
+        fhirAuthorization:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Fhirauthorization
+        prefetch:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Prefetch
+      additionalProperties: true
+      type: object
+      required:
+      - hook
+      - hookInstance
+      - context
+      title: CDSHookRequest
+      description: CDS Hooks 2.0 service-call request body.
+    CDSHooksCard:
+      properties:
+        uuid:
+          type: string
+          title: Uuid
+        summary:
+          type: string
+          maxLength: 140
+          title: Summary
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+        indicator:
+          type: string
+          enum:
+          - info
+          - warning
+          - critical
+          title: Indicator
+        source:
+          $ref: '#/components/schemas/CDSHooksSource'
+        links:
+          items:
+            $ref: '#/components/schemas/CDSHooksLink'
+          type: array
+          title: Links
+      type: object
+      required:
+      - uuid
+      - summary
+      - indicator
+      - source
+      title: CDSHooksCard
+      description: 'A single CDS Hooks 2.0 card — one per active, clinically-relevant
+
+        (severity >= watch) pathway enrollment.'
+    CDSHooksCardResponse:
+      properties:
+        cards:
+          items:
+            $ref: '#/components/schemas/CDSHooksCard'
+          type: array
+          title: Cards
+      type: object
+      required:
+      - cards
+      title: CDSHooksCardResponse
+    CDSHooksLink:
+      properties:
+        label:
+          type: string
+          title: Label
+        url:
+          type: string
+          title: Url
+        type:
+          type: string
+          enum:
+          - absolute
+          - smart
+          title: Type
+          default: absolute
+      type: object
+      required:
+      - label
+      - url
+      title: CDSHooksLink
+    CDSHooksSource:
+      properties:
+        label:
+          type: string
+          title: Label
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+      type: object
+      required:
+      - label
+      title: CDSHooksSource
+    CDSService:
+      properties:
+        hook:
+          type: string
+          title: Hook
+        title:
+          type: string
+          title: Title
+        description:
+          type: string
+          title: Description
+        id:
+          type: string
+          title: Id
+        prefetch:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Prefetch
+      type: object
+      required:
+      - hook
+      - title
+      - description
+      - id
+      title: CDSService
+    CDSServicesDiscovery:
+      properties:
+        services:
+          items:
+            $ref: '#/components/schemas/CDSService'
+          type: array
+          title: Services
+      type: object
+      required:
+      - services
+      title: CDSServicesDiscovery
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtido via endpoint de autenticação. Requerido em POST /cds-services/{id} (desvio
+        documentado do baseline CDS Hooks 2.0 — ver docstring de cds_hooks.py); GET /cds-services (discovery)
+        é público por spec.
