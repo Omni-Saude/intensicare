@@ -30,7 +30,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from 'react';
-import { getToken } from './api';
+import { getToken, onTokenAvailable } from './api';
 
 // ── Types ──
 
@@ -225,6 +225,34 @@ function setupVisibilityListeners(): void {
   });
 }
 
+// ── Token-available listener (BUG-F7-05) ──
+// connectWS() checks getToken() exactly once per attempt and gives up with
+// 'disconnected' if it's null. On a fresh reload/deep-link, the page's
+// useRealtimeChannel mount (and thus the first connectWS() call) typically
+// fires before lib/api.ts's async session bootstrap (ensureSession(), which
+// recovers the in-memory token from the HttpOnly refresh_token cookie) has
+// resolved — so that first attempt always sees no token and, without this,
+// nothing ever retries. Register once for the module's lifetime: when a
+// token later shows up (bootstrap resolves, or an explicit login()), retry
+// iff something is still actively waiting to connect. Mirrors the 'online'
+// listener's guards above: skip if there's no pending subscription (e.g. on
+// /login, which never mounts a useRealtimeChannel — see components/app-shell.tsx)
+// and skip if the disconnect was intentional (logout), to avoid ever looping
+// on the login screen or after a deliberate sign-out.
+let tokenListenerSetup = false;
+
+function setupTokenListener(): void {
+  if (tokenListenerSetup) return;
+  tokenListenerSetup = true;
+
+  onTokenAvailable(() => {
+    if (_connectionStatus === 'disconnected' && !intentionallyDisconnected && subscriptions.size > 0) {
+      reconnectAttempt = 0;
+      connectWS();
+    }
+  });
+}
+
 // ── Channel (un)subscribe wire messages ──
 // Every client message must re-include a valid token (per-message auth).
 
@@ -240,9 +268,11 @@ function sendChannelAction(action: 'subscribe' | 'unsubscribe', backendChannel: 
 function connectWS(): void {
   if (typeof window === 'undefined') return;
   setupVisibilityListeners();
+  setupTokenListener();
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
-  // Don't attempt reconnect if no valid token
+  // Don't attempt reconnect if no valid token (yet — see setupTokenListener
+  // above, which retries this call once the session bootstrap resolves one)
   const token = getToken();
   if (!token) {
     setStatus('disconnected');
@@ -336,6 +366,19 @@ function connectWS(): void {
   };
 
   ws.onclose = () => {
+    // BUG-F7-02 fix: cancel *this attempt's* WS_TIMEOUT watchdog. Without
+    // this, a fast-failing attempt (closes/errors well before its own 5s
+    // WS_TIMEOUT elapses — the common case) leaves that timer armed and
+    // uncancelled. If a subsequent reconnect then succeeds within that
+    // stale timer's remaining window (typical: reconnect delay + connect
+    // time « 5s), the orphaned timeout callback still fires later, reads
+    // the *global* `ws` (by then reassigned to the new, live, open socket),
+    // and — because it unconditionally calls setStatus('fallback') once its
+    // "not yet open" branch is skipped — forces the UI into "polling" even
+    // though the current socket is open and actively exchanging real
+    // ping/pong. This is exactly the measured symptom: status stuck on
+    // fallback while a live connection keeps working underneath it.
+    clearTimeout(timeoutId);
     ws = null;
     stopWatchdog();
     if (_connectionStatus === 'connected' || _connectionStatus === 'connecting') {

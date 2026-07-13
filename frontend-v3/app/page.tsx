@@ -26,6 +26,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <h1 className="sr-only">Dashboard</h1>
+
       {/* Stats bar */}
       {data && (
         <StatsBar

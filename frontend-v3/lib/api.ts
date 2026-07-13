@@ -193,11 +193,19 @@ export interface LoginResponse {
 // Filter types
 // ---------------------------------------------------------------------------
 
+// Backend contract — src/intensicare/api/v1/alerts.py list_alerts.
+// `status` supersedes the old acknowledged/resolved booleans; `type` was
+// never accepted by the backend and has been dropped.
+export type AlertStatusFilter =
+  | 'active'
+  | 'acknowledged'
+  | 'escalated'
+  | 'resolved'
+  | 'all';
+
 export interface AlertFilters {
+  status?: AlertStatusFilter;
   severity?: SeverityLevel;
-  type?: string;
-  acknowledged?: boolean;
-  resolved?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -219,6 +227,61 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Error detail normalization (handles Pydantic validation error arrays)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes API error detail into a human-readable string.
+ * Handles Pydantic validation error arrays (e.g., [{"type":"missing","loc":["body","username"],"msg":"Field required"}])
+ * as well as string, object, and fallback cases.
+ */
+function normalizeApiDetail(detail: unknown, fallback: string): string {
+  // String: return as-is
+  if (typeof detail === 'string') {
+    return detail;
+  }
+
+  // Array of Pydantic validation errors
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === 'object' && item !== null && 'msg' in item) {
+          const msg = item.msg;
+          // Extract the field name from loc (e.g., ["body", "username"] → "username")
+          const loc = Array.isArray(item.loc) && item.loc.length > 0
+            ? item.loc[item.loc.length - 1]
+            : null;
+
+          if (loc && msg) {
+            return `${loc}: ${msg}`;
+          }
+          return msg;
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (messages.length > 0) {
+      return messages.join('; ');
+    }
+  }
+
+  // Object with .msg or .message field
+  if (typeof detail === 'object' && detail !== null) {
+    const obj = detail as Record<string, unknown>;
+    if ('msg' in obj && typeof obj.msg === 'string') {
+      return obj.msg;
+    }
+    if ('message' in obj && typeof obj.message === 'string') {
+      return obj.message;
+    }
+  }
+
+  // Fallback for unknown types
+  return fallback;
+}
+
+// ---------------------------------------------------------------------------
 // JWT storage (in-memory)
 // ---------------------------------------------------------------------------
 
@@ -228,8 +291,26 @@ export function getToken(): string | null {
   return _token;
 }
 
+// BUG-F7-05 fix: notify listeners the moment a token becomes available.
+// lib/websocket.ts's connectWS() only checks getToken() once per connection
+// attempt; on a fresh reload/deep-link that attempt fires (from a page's
+// useRealtimeChannel mount) before the async session bootstrap below
+// (ensureSession(), via POST /auth/refresh) has resolved, sees no token, and
+// gives up permanently — no page ever explicitly retries. Rather than have
+// lib/websocket.ts poll or duplicate this module's session logic, it
+// subscribes here once and reattempts the connection when a token shows up.
+const tokenListeners = new Set<() => void>();
+
+export function onTokenAvailable(listener: () => void): () => void {
+  tokenListeners.add(listener);
+  return () => {
+    tokenListeners.delete(listener);
+  };
+}
+
 export function setToken(token: string): void {
   _token = token;
+  tokenListeners.forEach((fn) => fn());
 }
 
 function clearToken(): void {
@@ -339,7 +420,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     let detail = response.statusText;
     try {
       const body = await response.json();
-      detail = body.detail || detail;
+      detail = normalizeApiDetail(body.detail, detail);
     } catch {
       // ignore parse error
     }
@@ -373,7 +454,7 @@ export async function login(username: string, password: string): Promise<LoginRe
     let detail = 'Falha na autenticação';
     try {
       const body = await response.json();
-      detail = body.detail || detail;
+      detail = normalizeApiDetail(body.detail, detail);
     } catch {
       // ignore
     }
@@ -482,10 +563,8 @@ export async function fetchPathway(id: number): Promise<Pathway> {
 
 export async function fetchAlerts(params: AlertFilters = {}): Promise<AlertListResponse> {
   const searchParams = new URLSearchParams();
+  if (params.status) searchParams.set('status', params.status);
   if (params.severity) searchParams.set('severity', params.severity);
-  if (params.type) searchParams.set('type', params.type);
-  if (params.acknowledged !== undefined) searchParams.set('acknowledged', String(params.acknowledged));
-  if (params.resolved !== undefined) searchParams.set('resolved', String(params.resolved));
   if (params.limit) searchParams.set('limit', String(params.limit));
   if (params.offset) searchParams.set('offset', String(params.offset));
 
@@ -522,6 +601,51 @@ export async function resolveAlert(
 
 export async function fetchUsers(): Promise<{ items: UserInfo[]; total: number }> {
   return request<{ items: UserInfo[]; total: number }>('/admin/users');
+}
+
+// Backend enum — src/intensicare/auth/dependencies.py CLINICAL_ROLES; the
+// UserCreate.role validator in src/intensicare/api/v1/admin.py rejects any
+// other value with 422. Keep this list in sync with the backend.
+export type ClinicalRole =
+  | 'admin'
+  | 'medico'
+  | 'enfermeiro'
+  | 'fisioterapeuta'
+  | 'farmacia'
+  | 'nutricao'
+  | 'readonly';
+
+export const CLINICAL_ROLE_OPTIONS: { value: ClinicalRole; label: string }[] = [
+  { value: 'admin', label: 'Administrador' },
+  { value: 'medico', label: 'Médico' },
+  { value: 'enfermeiro', label: 'Enfermeiro' },
+  { value: 'fisioterapeuta', label: 'Fisioterapeuta' },
+  { value: 'farmacia', label: 'Farmácia' },
+  { value: 'nutricao', label: 'Nutrição' },
+  { value: 'readonly', label: 'Somente leitura' },
+];
+
+export interface UserCreatePayload {
+  username: string;
+  email: string;
+  password: string;
+  display_name?: string;
+  is_admin: boolean;
+  is_active: boolean;
+  role: ClinicalRole;
+}
+
+// POST /admin/users — 201 UserOut on success (shape matches UserInfo). 409
+// on duplicate username, 422 on validation failure (see UserCreate in
+// src/intensicare/api/v1/admin.py) — ApiError.detail carries the FastAPI
+// `detail` payload, which for 422s is a Pydantic error array rather than a
+// string; callers must not render it directly (see formatApiErrorDetail
+// in components/admin/user-manager.tsx).
+export async function createUser(payload: UserCreatePayload): Promise<UserInfo> {
+  return request<UserInfo>('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 // ---------------------------------------------------------------------------

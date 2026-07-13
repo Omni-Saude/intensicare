@@ -422,6 +422,12 @@ async def ingest_vitals(
             exc_info=True,
         )
 
+    # 7c. Publica bed_grid.updated no WebSocket (BUG-F7-03 — o grid de leitos
+    # do dashboard só era atualizado pelo polling de 30s porque nenhum
+    # publisher existia para este canal). Best-effort: nunca derruba a
+    # ingestão, que já persistiu vital/scores/alertas com sucesso.
+    await _publish_bed_grid_updated(mpi_id=data.mpi_id)
+
     # 8. Armazena idempotency key
     if idempotency_key:
         store.store_key(idempotency_key, vital.id)
@@ -444,6 +450,39 @@ async def ingest_vitals(
         alerts,
         False,
     )
+
+
+# ============================================================================
+# WebSocket notification (best-effort, non-fatal)
+# ============================================================================
+
+
+async def _publish_bed_grid_updated(*, mpi_id: str) -> None:
+    """Publish a ``bed_grid.updated`` WebSocket event after vitals ingestion.
+
+    Mirrors the pattern established by
+    ``pathway_enrollment._publish_pathway_updated``: lazy import of the WS
+    manager (avoids a circular import at module-load time) and a non-fatal
+    try/except so a WS/serialization failure never rolls back or fails the
+    clinical vitals ingestion that already committed.
+
+    Payload is intentionally minimal — the frontend's ``bed_grid.updated``
+    subscribers (see frontend-v3/app/page.tsx) only call SWR's ``mutate()``
+    on receipt and do not read the payload, so ``mpi_id`` is enough to keep
+    the event traceable/debuggable without inventing unread fields.
+    """
+    try:
+        from intensicare.api.v1.ws import get_ws_manager
+
+        manager = get_ws_manager()
+        await manager.publish("bed_grid.updated", {"mpi_id": mpi_id})
+    except Exception:
+        logger.warning(
+            "Failed to publish bed_grid.updated event for mpi_id=%s "
+            "(non-fatal, vitals ingestion already committed)",
+            mpi_id,
+            exc_info=True,
+        )
 
 
 async def _get_mews_for_vital(db: AsyncSession, vital_sign_id: int) -> int | None:

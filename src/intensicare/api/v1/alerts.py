@@ -1,6 +1,7 @@
 """Alert endpoints — list, acknowledge, resolve, escalate, trace."""
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -16,6 +17,26 @@ from intensicare.models.user import User
 from intensicare.services.patient_encryption import resolve_display_name
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
+
+# BUG-F5-01: GET /alerts only declared status/unit/mpi_id/limit/offset —
+# the frontend's severity/type/acknowledged/resolved were silently dropped
+# by FastAPI (unknown query params are ignored, not 422'd), so the Alerts
+# page's filters were no-ops and processed alerts (status != "active", the
+# default) were invisible forever. Target contract (orchestrator-adjudicated):
+# expand `status` to cover the full lifecycle plus an explicit "all" escape
+# hatch, and add `severity`. `type`/boolean acknowledged/resolved are
+# explicitly OUT of contract — not added here.
+#
+# Both are typed as Literal so FastAPI/Pydantic validate them against the
+# real enum (422 on bad input) instead of silently matching zero rows —
+# matches Alert.status's documented lifecycle (models/alert.py WO-015:
+# active, acting, escalated, acknowledged, resolved) and Alert.severity's
+# documented canonical set (WO-011: normal, watch, urgent, critical).
+# "acting" is intentionally excluded from the status filter — the target
+# contract enumerates only active/acknowledged/escalated/resolved/all, and
+# "all" already covers the case where a caller wants "acting" alerts too.
+AlertStatusFilter = Literal["active", "acknowledged", "escalated", "resolved", "all"]
+AlertSeverityFilter = Literal["normal", "watch", "urgent", "critical"]
 
 # ABAC enforcement (fix RBAC audit Dim A/C — clinical guards had zero
 # call-sites outside admin.py). Resolve/escalate are workflow transitions on
@@ -116,7 +137,10 @@ async def _to_alert_response(db: AsyncSession, alert: Alert) -> AlertResponse:
 @router.get("", response_model=AlertListResponse)
 async def list_alerts(
     request: Request,
-    status_filter: str = Query("active", alias="status"),
+    status_filter: AlertStatusFilter = Query("active", alias="status"),
+    severity: AlertSeverityFilter | None = Query(
+        None, description="Filter by alert severity: normal, watch, urgent, critical"
+    ),
     unit: str | None = Query(
         None, alias="unit"
     ),  # reserved unit filter; accepted for API compatibility
@@ -126,7 +150,13 @@ async def list_alerts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertListResponse:
-    """List alerts with optional filters. Returns {alerts, total} (AUDIT-007)."""
+    """List alerts with optional filters. Returns {alerts, total} (AUDIT-007).
+
+    BUG-F5-01: `status` now covers the full lifecycle (active/acknowledged/
+    escalated/resolved) plus `all` (no status predicate applied), and
+    `severity` filters by Alert.severity. See the module-level comment above
+    for why these are Literal-typed and why `all` subsumes `acting`.
+    """
     tenant_id = await get_current_tenant_id(request)
     require_abac(
         role_str=current_user.role,
@@ -138,8 +168,10 @@ async def list_alerts(
 
     base_query = select(Alert).options(joinedload(Alert.patient))
 
-    if status_filter:
+    if status_filter != "all":
         base_query = base_query.where(Alert.status == status_filter)
+    if severity:
+        base_query = base_query.where(Alert.severity == severity)
     if mpi_id:
         base_query = base_query.where(Alert.mpi_id == mpi_id)
 

@@ -416,7 +416,13 @@ class TestGetPathwayProgress:
     async def test_progress_criteria_summary(
         self, db_session: AsyncSession, synced_pathways: TrilhasEngine
     ) -> None:
-        """Rule 14: criteria_summary total/met/not_met/pending."""
+        """Rule 14: criteria_summary total/met/not_met/pending.
+
+        BUG-F8-01 regression guard: crit-vent-peep is never evaluated
+        (evaluated_at stays None) — it must be counted as PENDING, not
+        as not_met. Only crit-vent-pf (explicitly evaluated to met=True)
+        counts toward met/not_met.
+        """
         enrolled = await enroll_patient(db_session, mpi_id="MPI-ENR-300", pathway_id=VENTILACAO_ID)
         pp_id = enrolled.patient_pathway_id
         assert pp_id is not None
@@ -429,7 +435,57 @@ class TestGetPathwayProgress:
         )
 
         progress = await get_pathway_progress(db_session, "MPI-ENR-300", pp_id)
-        assert progress.criteria_summary == {"total": 2, "met": 1, "not_met": 1, "pending": 0}
+        assert progress.criteria_summary == {"total": 2, "met": 1, "not_met": 0, "pending": 1}
+
+    async def test_progress_never_evaluated_criterion_is_pending_not_not_met(
+        self, db_session: AsyncSession, synced_pathways: TrilhasEngine
+    ) -> None:
+        """BUG-F8-01: a criterion with value=None/evaluated_at=None (never
+        evaluated) must be classified as pending in criteria_summary, never
+        as not_met — counting it as not_met falsely implies an active
+        evaluation happened and failed.
+
+        Uses Sepse (15 criteria) mirroring the real-world case from
+        MPI-DEMO-001: only 2 of 15 criteria are ever evaluated, so the
+        summary must report met+not_met=2 and pending=13 — never
+        "0 met, 15 not_met, 0 pending".
+        """
+        enrolled = await enroll_patient(db_session, mpi_id="MPI-ENR-303", pathway_id=SEPSE_ID)
+        pp_id = enrolled.patient_pathway_id
+        assert pp_id is not None
+
+        # Before any evaluation at all: everything is pending.
+        progress0 = await get_pathway_progress(db_session, "MPI-ENR-303", pp_id)
+        assert progress0.criteria_summary == {
+            "total": len(SEPSE_CRITERIA),
+            "met": 0,
+            "not_met": 0,
+            "pending": len(SEPSE_CRITERIA),
+        }
+        for crit in progress0.criteria:
+            assert crit["evaluated_at"] is None
+
+        # Evaluate exactly 2 of the 15 criteria (1 met, 1 not met).
+        await evaluate_criteria(
+            db_session,
+            mpi_id="MPI-ENR-303",
+            patient_pathway_id=pp_id,
+            criteria_updates=[
+                {"id": "crit-sep-lactato", "met": True, "value": 2.0},
+                {"id": "crit-sep-pam", "met": False, "value": 58},
+            ],
+        )
+
+        progress1 = await get_pathway_progress(db_session, "MPI-ENR-303", pp_id)
+        assert progress1.criteria_summary == {
+            "total": len(SEPSE_CRITERIA),
+            "met": 1,
+            "not_met": 1,
+            "pending": len(SEPSE_CRITERIA) - 2,
+        }
+        # The recommendation must report the *real* evaluated count, not
+        # the full total ("2 de 15 critérios avaliados", never "15 de 15").
+        assert "2 de 15 critérios avaliados" in progress1.recommendation
 
     async def test_progress_trend_and_recommendation_across_transition(
         self, db_session: AsyncSession, synced_pathways: TrilhasEngine

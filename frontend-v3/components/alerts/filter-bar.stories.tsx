@@ -12,7 +12,7 @@ const defaultFilters: AlertFilterValues = {
 
 const activeFilters: AlertFilterValues = {
   severity: 'critical',
-  status: 'pending',
+  status: 'active',
   unit: 'UTI 1',
   pathway: 'Sepse',
   period: '24h',

@@ -3,15 +3,21 @@
 import { useState, useCallback } from 'react';
 import { Search, X, Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { SeverityLevel } from '@/lib/api';
+import type { AlertStatusFilter, SeverityLevel } from '@/lib/api';
 
 export interface AlertFilterValues {
   severity: SeverityLevel | '';
-  status: 'all' | 'acknowledged' | 'resolved' | 'pending';
+  // Mirrors the backend contract's AlertStatusFilter exactly, so page.tsx
+  // can pass filters.status straight through to fetchAlerts without
+  // translation. 'all' is what lets the user review processed alerts
+  // (acknowledged/escalated/resolved) that the default 'active' view hides.
+  status: AlertStatusFilter;
   unit: string;
   pathway: string;
   period: 'all' | '1h' | '6h' | '24h' | '7d';
 }
+
+const DEFAULT_STATUS: AlertStatusFilter = 'active';
 
 interface FilterBarProps {
   filters: AlertFilterValues;
@@ -26,10 +32,11 @@ const SEVERITY_OPTIONS: { value: SeverityLevel | ''; label: string }[] = [
   { value: 'critical', label: 'Crítico' },
 ];
 
-const STATUS_OPTIONS = [
+const STATUS_OPTIONS: { value: AlertStatusFilter; label: string }[] = [
   { value: 'all', label: 'Todos status' },
-  { value: 'pending', label: 'Pendentes' },
+  { value: 'active', label: 'Pendentes' },
   { value: 'acknowledged', label: 'Reconhecidos' },
+  { value: 'escalated', label: 'Escalados' },
   { value: 'resolved', label: 'Resolvidos' },
 ];
 
@@ -54,7 +61,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
   const clearFilters = useCallback(() => {
     onChange({
       severity: '',
-      status: 'all',
+      status: DEFAULT_STATUS,
       unit: '',
       pathway: '',
       period: 'all',
@@ -63,7 +70,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
 
   const hasActiveFilters =
     filters.severity !== '' ||
-    filters.status !== 'all' ||
+    filters.status !== DEFAULT_STATUS ||
     filters.unit !== '' ||
     filters.pathway !== '' ||
     filters.period !== 'all';

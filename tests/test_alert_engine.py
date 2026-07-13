@@ -1,6 +1,7 @@
 """Tests for the alert engine."""
 
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -281,3 +282,95 @@ class TestProcessClinicalScore:
         assert result is not None
         assert result.severity == "urgent"
         assert result.mpi_id == "MPI-1001"
+
+
+class TestPublishAlertRaised:
+    """BUG-F7-03: alert creation must publish `alert.raised` on the WS manager.
+
+    check_score_against_thresholds is the single call site that constructs
+    Alert() on the live request path (via process_clinical_score, invoked
+    for MEWS/NEWS2/SOFA/qSOFA in vitals.ingest_vitals).
+    """
+
+    @pytest.mark.asyncio
+    async def test_alert_creation_publishes_alert_raised(self, db_session: AsyncSession):
+        """Creating an alert should call manager.publish('alert.raised', ...)."""
+        await create_threshold_config(db_session, watch=3, urgent=5, critical=7)
+
+        score = ClinicalScore(
+            mpi_id="MPI-1001",
+            score_type="MEWS",
+            score_value=6,
+            algorithm_version="MEWS-v1.0",
+            calculated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(score)
+        await db_session.flush()
+
+        mock_manager = AsyncMock()
+        with patch("intensicare.api.v1.ws.get_ws_manager", return_value=mock_manager):
+            result = await check_score_against_thresholds(
+                db=db_session,
+                clinical_score=score,
+                tenant_id="austa",
+            )
+
+        assert result is not None
+        mock_manager.publish.assert_awaited_once_with(
+            "alert.raised",
+            {"alert_id": result.id, "mpi_id": "MPI-1001", "severity": "urgent"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_alert_created_does_not_publish(self, db_session: AsyncSession):
+        """When no threshold is exceeded, publish must not be called."""
+        await create_threshold_config(db_session, watch=3, urgent=5, critical=7)
+
+        score = ClinicalScore(
+            mpi_id="MPI-1001",
+            score_type="MEWS",
+            score_value=1,
+            algorithm_version="MEWS-v1.0",
+            calculated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(score)
+        await db_session.flush()
+
+        mock_manager = AsyncMock()
+        with patch("intensicare.api.v1.ws.get_ws_manager", return_value=mock_manager):
+            result = await check_score_against_thresholds(
+                db=db_session,
+                clinical_score=score,
+                tenant_id="austa",
+            )
+
+        assert result is None
+        mock_manager.publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_publish_failure_is_non_fatal(self, db_session: AsyncSession):
+        """A WS publish failure must not roll back or raise from alert creation."""
+        await create_threshold_config(db_session, watch=3, urgent=5, critical=7)
+
+        score = ClinicalScore(
+            mpi_id="MPI-1001",
+            score_type="MEWS",
+            score_value=6,
+            algorithm_version="MEWS-v1.0",
+            calculated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(score)
+        await db_session.flush()
+
+        mock_manager = AsyncMock()
+        mock_manager.publish.side_effect = RuntimeError("boom")
+        with patch("intensicare.api.v1.ws.get_ws_manager", return_value=mock_manager):
+            result = await check_score_against_thresholds(
+                db=db_session,
+                clinical_score=score,
+                tenant_id="austa",
+            )
+
+        # Alert creation must still succeed despite the publish failure.
+        assert result is not None
+        assert result.severity == "urgent"

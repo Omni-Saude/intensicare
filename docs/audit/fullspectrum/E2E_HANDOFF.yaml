@@ -1,0 +1,71 @@
+# E2E LIVE VERIFICATION — HANDOFF (FASE 0)
+# Gerado pelo orquestrador em 2026-07-13. Estado dos serviços locais para o ciclo E2E ao vivo.
+
+session:
+  date: 2026-07-13
+  branch: main
+  head: 0f98392  # docs(contracts): auth refresh endpoints (#43) — pulled fast-forward nesta sessão
+  orchestrator: claude-fable-5 (hive-mind queen, ciclo E2E browser real)
+
+services:
+  postgres:
+    status: up
+    how: container docker `intensicare-postgres` (healthy, TimescaleDB), porta 5432
+    alembic_current: [35c5eebda2c7 (head), 0040 (head)]  # duas heads, ambas aplicadas — upgrade head NÃO foi necessário
+  redis:
+    status: up
+    how: container docker `intensicare-redis` (healthy), porta 6379
+  backend:
+    status: up
+    how: .venv/bin/uvicorn intensicare.main:app --port 8000 --app-dir src (background, SEM --reload — Regra 6)
+    boot_fresco: "PYTHONPATH=src python -c 'from intensicare.main import app' → OK"
+    health: "GET /api/v1/health → 200"
+    login: "POST /api/v1/auth/login form-urlencoded admin/admin → 200; JWT com role=admin, name=Administrador"
+    log: scratchpad/backend.log (via task bxip7diwi)
+  frontend:
+    status: up
+    how: npm run dev em frontend-v3 (Next.js 16.2.10 Turbopack), porta 3000
+    ready: "✓ Ready in 512ms; GET /login → 200"
+    log: scratchpad/frontend.log
+    aviso: "middleware file convention deprecada no Next 16 (usar proxy) — warning, não erro"
+
+seed:
+  comando: make seed-demo
+  resultado:
+    patients: [MPI-DEMO-001, MPI-DEMO-002, MPI-DEMO-003, MPI-DEMO-004, MPI-DEMO-005]
+    vitals_ingested: 50
+    alerts_created: 53
+    enrollments:
+      - {mpi: MPI-DEMO-001, pathway: sepse, pp_id: 31, severity: critical}
+      - {mpi: MPI-DEMO-002, pathway: sedacao, pp_id: 32, severity: urgent}
+      - {mpi: MPI-DEMO-005, pathway: sepse, pp_id: 33, severity: critical}
+  atencao: "pp_ids são NOVOS nesta sessão (31/32/33) — docs antigos citam pp_id=22, ignorar"
+
+armadilhas_encontradas:
+  - "Portas 8000/3000 estavam ocupadas por servidores STALE de sessão anterior (uvicorn --reload de 2026-07-12 + next-server) — mortos e re-subidos frescos (Regra 6)"
+  - "seed_demo emitiu WARNING: patient_cache.display_name não é BYTEA neste DB (schema legacy) — fallback plaintext para namespace MPI-DEMO-*. Relacionado à pendência session-encryption-key (defeito pré-existente conhecido, não regressão)"
+  - "main estava 1 commit atrás de origin/main (docs-only #43) — fast-forward feito antes de tudo"
+  - "porta 5432/6379 também têm listeners ssh (tunnel) além do docker — não interferiu"
+
+credenciais:
+  admin: {username: admin, password: admin, login: "POST /api/v1/auth/login form-urlencoded"}
+
+browser_driver:
+  escolhido: Playwright (chromium-1228 já instalado em ~/Library/Caches/ms-playwright)
+  harness: scratchpad/e2e-live/harness.mjs (FASE 1)
+
+pacientes_chave:
+  - {mpi: MPI-DEMO-001, perfil: sepse critical, pp_id: 31, criterio_pivotal: "crit-sep-pam (PAM 58 → crítico)"}
+  - {mpi: MPI-DEMO-002, perfil: sedação urgent, pp_id: 32, criterio: "crit-sed-rass value 3"}
+  - {mpi: MPI-DEMO-004, perfil: controle normal}
+  - {mpi: LEITO-06, perfil: "MEWS 13, dados legados stale ~16 dias — testa fallback cutoff"}
+
+defeitos_preexistentes_nao_confundir:
+  - "cadeia alembic 0002 duplicada + 0016 VARCHAR(16) — quebra upgrade from-scratch; dev DB já em 0040; NÃO consertar"
+  - "ventilacao.yaml stub (description vazia, vaza repr interno graded(...) na API/UI)"
+  - "session-encryption-key não wired — PHI pode cair em fallback '—' em DB cifrado"
+  - "MPI-001 'Paciente Teste' vaza no dashboard clínico (DATA-2, não corrigido)"
+  - "leitos legados LEITO-01..06 sem enrollment → pathway view inacessível para eles (DATA-1 residual)"
+  - "logout não limpa cookies HttpOnly (AUTH-4 residual, baixo risco)"
+  - "~79 falhas + 46 erros de coleta pré-existentes na suíte completa (maezo, units_normalizer, gold_reader, testes de código depreciado)"
+  - "POST /admin/users permite is_admin×role incoerente (C-N1, write-surface)"
