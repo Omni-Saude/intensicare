@@ -228,8 +228,26 @@ export function getToken(): string | null {
   return _token;
 }
 
+// BUG-F7-05 fix: notify listeners the moment a token becomes available.
+// lib/websocket.ts's connectWS() only checks getToken() once per connection
+// attempt; on a fresh reload/deep-link that attempt fires (from a page's
+// useRealtimeChannel mount) before the async session bootstrap below
+// (ensureSession(), via POST /auth/refresh) has resolved, sees no token, and
+// gives up permanently — no page ever explicitly retries. Rather than have
+// lib/websocket.ts poll or duplicate this module's session logic, it
+// subscribes here once and reattempts the connection when a token shows up.
+const tokenListeners = new Set<() => void>();
+
+export function onTokenAvailable(listener: () => void): () => void {
+  tokenListeners.add(listener);
+  return () => {
+    tokenListeners.delete(listener);
+  };
+}
+
 export function setToken(token: string): void {
   _token = token;
+  tokenListeners.forEach((fn) => fn());
 }
 
 function clearToken(): void {
