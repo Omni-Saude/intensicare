@@ -114,6 +114,15 @@ class TestGetSecret:
     async def test_invalid_request_exception_returns_none(self):
         """InvalidRequestException should return None."""
         mock_client = MagicMock()
+        # get_secret's except-chain evaluates `client.exceptions.X` for every
+        # clause it walks through (even ones that don't ultimately match), so
+        # every exception attribute referenced by an `except` clause must be
+        # a real Exception subclass — not a bare MagicMock — or Python raises
+        # "catching classes that do not inherit from BaseException" before it
+        # ever gets a chance to match the exception actually raised below.
+        mock_client.exceptions.ResourceNotFoundException = type(
+            "ResourceNotFoundException", (Exception,), {}
+        )
         mock_client.exceptions.InvalidRequestException = type(
             "InvalidRequestException", (Exception,), {}
         )
@@ -132,6 +141,17 @@ class TestGetSecret:
     async def test_generic_exception_returns_none(self):
         """Unexpected errors should be logged and return None."""
         mock_client = MagicMock()
+        # As above: the earlier `except client.exceptions.<...>` clauses are
+        # evaluated while Python searches for a match, so both must be real
+        # Exception subclasses even though neither is the one raised here —
+        # otherwise the RuntimeError never gets a chance to fall through to
+        # the generic `except Exception:` clause.
+        mock_client.exceptions.ResourceNotFoundException = type(
+            "ResourceNotFoundException", (Exception,), {}
+        )
+        mock_client.exceptions.InvalidRequestException = type(
+            "InvalidRequestException", (Exception,), {}
+        )
         mock_client.get_secret_value.side_effect = RuntimeError("Boom")
 
         with patch(

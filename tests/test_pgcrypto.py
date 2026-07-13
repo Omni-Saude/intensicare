@@ -216,8 +216,11 @@ class TestComputeMrnBidx:
         """Different MRNs → different blind indices."""
 
         def side_effect(*args, **kwargs):
-            # Extract the data parameter from the call
-            data = kwargs.get("params", {}).get("data", "") if kwargs.get("params") else ""
+            # _hmac_raw calls `db.execute(text(...), {"data": ..., "guc": ...})`
+            # positionally — the params dict is args[1], not a `params=`
+            # kwarg — so extract it from the positional args.
+            params = args[1] if len(args) > 1 else {}
+            data = params.get("data", "")
             return_value = f"idx-{data}".encode().ljust(32, b"\x00")
             mock_result = MagicMock()
             mock_result.one.return_value.idx = return_value[:32]
@@ -238,9 +241,13 @@ class TestComputeMrnBidx:
 
         await compute_mrn_bidx(mock_db, "test")
         mock_db.execute.assert_called_once()
-        call_text = str(mock_db.execute.call_args)
-        assert "sha256" in call_text
-        assert "hmac" in call_text
+        # db.execute(text(...), {...}) is called positionally; the
+        # TextClause's repr doesn't include the SQL string (it's an object
+        # id), so pull the actual query text off the positional arg.
+        call = mock_db.execute.call_args
+        sql_text = str(call.args[0].text)
+        assert "sha256" in sql_text
+        assert "hmac" in sql_text
 
 
 # ─── Per-tenant key isolation tests ──────────────────────────────────────────
