@@ -35,7 +35,7 @@ export function PatientHeader({ patient }: PatientHeaderProps) {
   return (
     <header
       className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] p-5"
-      role="banner"
+      role="group"
       aria-label={`Cabeçalho do paciente ${patient.patient_name}`}
     >
       {/* Left: patient identity */}
@@ -45,15 +45,15 @@ export function PatientHeader({ patient }: PatientHeaderProps) {
         </h1>
         <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-secondary)]">
           <span className="inline-flex items-center gap-1">
-            <span className="text-xs uppercase tracking-wider opacity-60">MPI</span>
+            <span className="text-xs uppercase tracking-wider">MPI</span>
             <span className="font-mono text-[var(--text-primary)]">{patient.mpi_id}</span>
           </span>
           <span className="inline-flex items-center gap-1" aria-label={`Leito ${patient.bed}`}>
-            <span className="text-xs uppercase tracking-wider opacity-60">Leito</span>
+            <span className="text-xs uppercase tracking-wider">Leito</span>
             <span className="font-semibold text-[var(--text-primary)]">{patient.bed}</span>
           </span>
           <span className="inline-flex items-center gap-1" aria-label={`Unidade ${patient.unit}`}>
-            <span className="text-xs uppercase tracking-wider opacity-60">Unidade</span>
+            <span className="text-xs uppercase tracking-wider">Unidade</span>
             <span className="text-[var(--text-primary)]">{patient.unit}</span>
           </span>
         </div>

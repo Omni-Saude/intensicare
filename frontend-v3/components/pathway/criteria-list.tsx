@@ -113,9 +113,9 @@ export function CriteriaList({
     >
       {/* Summary header */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 px-4 py-3 border-b border-[var(--border-default)] bg-[var(--surface-canvas)]">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">
           Critérios ({total})
-        </h3>
+        </h2>
 
         <div className="flex flex-wrap items-center gap-3 text-xs">
           <span className="inline-flex items-center gap-1 text-[var(--severity-normal)]">
