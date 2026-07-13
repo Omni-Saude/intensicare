@@ -369,6 +369,24 @@ async def get_dashboard(
 
         patient_name = await resolve_display_name(db, p.display_name)
 
+        # GK2-NEW-01: last_vital_at must reflect the patient's actual most
+        # recent vital measurement (vitals_map is keyed off VitalSign.recorded_at,
+        # the same single source of truth already used to populate `vitals`
+        # above) — NOT PatientCache.synced_at, which only tracks when the
+        # cache row itself was last synced and is never touched by vitals
+        # ingestion. Using synced_at froze the bed-card staleness indicator
+        # even as fresh vitals kept arriving. Fall back to synced_at only
+        # when the patient has no vitals row at all, so beds are never left
+        # with a null timestamp. For patients whose newest vital is old
+        # (e.g. stale demo data), this intentionally still surfaces that old
+        # recorded_at — the staleness computation downstream depends on it.
+        patient_vitals = vitals_map.get(p.mpi_id)
+        last_vital_at = (
+            patient_vitals.recorded_at
+            if patient_vitals and patient_vitals.recorded_at
+            else (p.synced_at.isoformat() if p.synced_at else None)
+        )
+
         bed_summaries.append(
             PatientBedSummary(
                 mpi_id=p.mpi_id,
@@ -384,8 +402,8 @@ async def get_dashboard(
                 severity=derived_severity,
                 highest_alert_severity=highest_sev,
                 highest_alert_encoding=highest_encoding,
-                vitals=vitals_map.get(p.mpi_id),
-                last_vital_at=p.synced_at.isoformat() if p.synced_at else None,
+                vitals=patient_vitals,
+                last_vital_at=last_vital_at,
                 active_pathways=active_pathways,
             )
         )

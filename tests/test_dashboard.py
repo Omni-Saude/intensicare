@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -130,6 +130,109 @@ async def test_get_dashboard_unit_counts_unfiltered_by_unit_param(
 
     assert response.total == 2
     assert response.unit_counts == {"UTI-DEMO": 2, "UTI-B": 1}
+
+
+@pytest.mark.asyncio
+async def test_get_dashboard_last_vital_at_uses_latest_vital_not_synced_at(
+    db_session: AsyncSession,
+) -> None:
+    """GK2-NEW-01: last_vital_at must track the patient's newest VitalSign
+    row (the same single source of truth already used to populate `vitals`),
+    not PatientCache.synced_at — vitals ingestion never touches synced_at,
+    so using it froze the bed-card staleness indicator even as fresh vitals
+    kept arriving. Seed synced_at far in the past and two VitalSign rows
+    (older + newer); last_vital_at must equal the NEWER vital's recorded_at,
+    proving both that synced_at is ignored and that the latest row wins."""
+    from intensicare.models.patient_cache import PatientCache
+    from intensicare.models.vital_sign import VitalSign
+    from intensicare.services.dashboard import get_dashboard
+    from intensicare.services.patient_encryption import encrypt_phi
+
+    tenant_id = "tenant-last-vital-at-test"
+    await _ensure_pgcrypto(db_session)
+    await _set_dev_encryption_key(db_session, tenant_id)
+
+    enc_name = await encrypt_phi(db_session, "Paciente Last Vital")
+
+    stale_synced_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    older_vital_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    newest_vital_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    db_session.add(
+        PatientCache(
+            mpi_id="MPI-LASTVITAL-001",
+            tenant_id=tenant_id,
+            display_name=enc_name,
+            bed_id="B-LV-01",
+            unit="UTI-LASTVITAL",
+            is_active=True,
+            synced_at=stale_synced_at,
+        )
+    )
+    db_session.add_all(
+        [
+            VitalSign(
+                mpi_id="MPI-LASTVITAL-001",
+                recorded_at=older_vital_at,
+                ingested_at=older_vital_at,
+                heart_rate=80,
+                source_system="test",
+            ),
+            VitalSign(
+                mpi_id="MPI-LASTVITAL-001",
+                recorded_at=newest_vital_at,
+                ingested_at=newest_vital_at,
+                heart_rate=82,
+                source_system="test",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    response = await get_dashboard(db_session, unit="UTI-LASTVITAL")
+
+    assert response.total == 1
+    bed = response.patients[0]
+    assert bed.last_updated == newest_vital_at.isoformat()
+    assert bed.last_updated != stale_synced_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_get_dashboard_last_vital_at_falls_back_to_synced_at_when_no_vitals(
+    db_session: AsyncSession,
+) -> None:
+    """When a patient has no VitalSign rows at all, last_vital_at must fall
+    back to PatientCache.synced_at rather than being left null — documented
+    fallback for patients with a cache row but no ingested vitals yet."""
+    from intensicare.models.patient_cache import PatientCache
+    from intensicare.services.dashboard import get_dashboard
+    from intensicare.services.patient_encryption import encrypt_phi
+
+    tenant_id = "tenant-last-vital-fallback-test"
+    await _ensure_pgcrypto(db_session)
+    await _set_dev_encryption_key(db_session, tenant_id)
+
+    enc_name = await encrypt_phi(db_session, "Paciente Sem Vitais")
+    synced_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    db_session.add(
+        PatientCache(
+            mpi_id="MPI-LASTVITAL-002",
+            tenant_id=tenant_id,
+            display_name=enc_name,
+            bed_id="B-LV-02",
+            unit="UTI-LASTVITAL-FALLBACK",
+            is_active=True,
+            synced_at=synced_at,
+        )
+    )
+    await db_session.flush()
+
+    response = await get_dashboard(db_session, unit="UTI-LASTVITAL-FALLBACK")
+
+    assert response.total == 1
+    bed = response.patients[0]
+    assert bed.last_updated == synced_at.isoformat()
 
 
 @pytest.mark.asyncio
