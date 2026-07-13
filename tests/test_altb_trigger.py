@@ -136,7 +136,12 @@ class TestAltBTriggerIngestion:
     def test_add_observation_with_timestamp(self) -> None:
         """Deve aceitar timestamp customizado."""
         trigger = AltBTrigger()
-        ts = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        # Timestamp relativo (não hardcoded): add_observation() poda
+        # observações fora da janela rolante de window_days (default 7,
+        # ver altb_trigger.py:137-138) a cada chamada, então uma data fixa
+        # eventualmente cai fora da janela e o observations[0] abaixo
+        # lança IndexError. now() - 1 dia sempre fica dentro da janela.
+        ts = datetime.now(timezone.utc) - timedelta(days=1)
         trigger.add_observation(p95_seconds=10.0, timestamp=ts)
         assert trigger.state.observations[0].timestamp == ts
 
