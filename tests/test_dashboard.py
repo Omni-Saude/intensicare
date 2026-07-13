@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from intensicare.services.dashboard import (
     NEWS2_HIGH_RISK_THRESHOLD,
     NEWS2_MEDIUM_RISK_THRESHOLD,
-    _resolve_patient_display_name,
 )
 
 
@@ -87,72 +86,13 @@ async def test_get_patient_detail_not_found():
 
 
 # ---------------------------------------------------------------------------
-# _resolve_patient_display_name — dual-schema PHI decrypt (unit-level)
-# ---------------------------------------------------------------------------
-
-
-class TestResolvePatientDisplayNameUnit:
-    """Unit coverage of the dual-schema fallback logic in isolation
-    (mocked db/decrypt_phi — no real Postgres needed for these branches)."""
-
-    @pytest.mark.asyncio
-    async def test_legacy_plaintext_str_passthrough(self):
-        """Schema pre-migration-0004: driver returns str — used as-is,
-        decrypt_phi must NOT be called."""
-        mock_db = MagicMock()
-        mock_db.execute = AsyncMock(side_effect=AssertionError("must not query DB for str input"))
-
-        result = await _resolve_patient_display_name(mock_db, "DEMO Sepse Crítica")
-        assert result == "DEMO Sepse Crítica"
-
-    @pytest.mark.asyncio
-    async def test_encrypted_bytes_calls_decrypt_phi(self, monkeypatch):
-        """Schema post-migration-0004: bytes go through decrypt_phi."""
-        import intensicare.services.dashboard as dashboard_module
-
-        async def _fake_decrypt(db, ciphertext):
-            assert ciphertext == b"fake-ciphertext"
-            return "Maria Oliveira"
-
-        monkeypatch.setattr(dashboard_module, "decrypt_phi", _fake_decrypt)
-
-        mock_db = MagicMock()
-        result = await _resolve_patient_display_name(mock_db, b"fake-ciphertext")
-        assert result == "Maria Oliveira"
-
-    @pytest.mark.asyncio
-    async def test_decrypt_failure_falls_back_to_utf8_decode(self, monkeypatch):
-        """decrypt_phi raising ValueError (wrong key/corrupt/unset GUC) falls
-        back to a best-effort UTF-8 decode instead of raising/500ing."""
-        import intensicare.services.dashboard as dashboard_module
-
-        async def _failing_decrypt(db, ciphertext):
-            raise ValueError("Decryption failed — wrong key or corrupt ciphertext")
-
-        monkeypatch.setattr(dashboard_module, "decrypt_phi", _failing_decrypt)
-
-        mock_db = MagicMock()
-        result = await _resolve_patient_display_name(mock_db, "plain-ascii-bytes".encode())
-        assert result == "plain-ascii-bytes"
-
-    @pytest.mark.asyncio
-    async def test_decrypt_failure_and_undecodable_bytes_returns_placeholder(self, monkeypatch):
-        """Neither decrypt_phi nor a raw UTF-8 decode works — never 500s,
-        returns a safe placeholder instead."""
-        import intensicare.services.dashboard as dashboard_module
-
-        async def _failing_decrypt(db, ciphertext):
-            raise ValueError("Decryption failed — wrong key or corrupt ciphertext")
-
-        monkeypatch.setattr(dashboard_module, "decrypt_phi", _failing_decrypt)
-
-        mock_db = MagicMock()
-        result = await _resolve_patient_display_name(mock_db, b"\xff\xfe\x00\x01not-utf8")
-        assert result == "—"
-
-
-# ---------------------------------------------------------------------------
 # PHI dual-schema — end-to-end proof via real pgcrypto (encrypted path)
+#
+# Unit-level coverage of the dual-schema str/bytes fallback logic itself now
+# lives in test_patient_encryption.py (TestResolveDisplayNameUnit), alongside
+# resolve_display_name's other unit tests — the helper moved to
+# patient_encryption.py so both dashboard.py and alerts.py can share it
+# without importing from each other.
 # ---------------------------------------------------------------------------
 
 TENANT_PHI_DASH = "tenant-phi-dashboard-test"

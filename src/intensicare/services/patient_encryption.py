@@ -8,6 +8,8 @@ Oferece:
   - encrypt_phi / decrypt_phi: round-trip string ↔ BYTEA
   - compute_mrn_bidx: blind-index HMAC para lookup sem descriptografia
   - age_derivation: idade calculada a partir da data de nascimento criptografada
+  - resolve_display_name: dual-schema safe resolution de display_name
+    (str passthrough ou bytes → decrypt_phi), com fallback não-fatal
 """
 
 from __future__ import annotations
@@ -150,3 +152,48 @@ async def age_derivation(db: AsyncSession, birth_date_encrypted: bytes) -> int |
 
     today = date.today()
     return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+
+
+async def resolve_display_name(db: AsyncSession, display_name: bytes | str) -> str:
+    """Resolve a PHI display-name column to plaintext, dual-schema safe.
+
+    Several ``display_name``-carrying columns (e.g. ``patient_cache.
+    display_name``) are typed ``Mapped[bytes]`` (LargeBinary) —
+    post-migration-0004 databases store pgcrypto ciphertext
+    (``pgp_sym_encrypt``), and the driver returns ``bytes``. A database
+    that predates migration 0004 still has a plaintext VARCHAR column,
+    so the driver returns ``str`` directly (see ``scripts/dev/seed_demo.
+    py``'s ``_patient_cache_schema_supports_encrypted_phi``, which
+    detects this same drift via ``information_schema`` at seed time, and
+    its ``_upsert_patient_legacy_schema`` fallback, which is the reason a
+    pre-migration dev DB can hold a plain ``str`` here). This handles
+    both shapes on the read side, using ``decrypt_phi`` (pgp_sym_decrypt)
+    — no new crypto.
+
+    A naive ``isinstance(..., bytes)`` guard that falls through to a raw
+    ``.decode("utf-8")`` (rather than routing through ``decrypt_phi``)
+    is the exact PHI-decoding defect this helper exists to prevent:
+    against a pgcrypto-encrypted column that produces mojibake/garbage
+    or an outright ``UnicodeDecodeError`` — never the real name.
+
+    Never logs the decrypted value.
+    """
+    if isinstance(display_name, str):
+        return display_name
+
+    try:
+        return await decrypt_phi(db, display_name)
+    except ValueError:
+        # BYTEA holding bytes pgp_sym_decrypt rejects — wrong/unset
+        # app.encryption_key GUC, or a row that was never actually
+        # pgp-encrypted. Best-effort UTF-8 fallback instead of a 500;
+        # the exception message (never the payload) is logged only.
+        try:
+            return display_name.decode("utf-8")
+        except UnicodeDecodeError:
+            logger.warning(
+                "Could not resolve PHI display_name: decrypt_phi failed and "
+                "value is not valid UTF-8 plaintext either (identifier/value "
+                "omitted from log)."
+            )
+            return "—"

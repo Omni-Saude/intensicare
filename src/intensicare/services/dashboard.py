@@ -26,7 +26,7 @@ from intensicare.schemas.dashboard import (
     VitalsHistoryPoint,
 )
 from intensicare.schemas.severity import SeverityLevel, TripleEncoder, max_severity
-from intensicare.services.patient_encryption import decrypt_phi
+from intensicare.services.patient_encryption import resolve_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -45,45 +45,6 @@ FALLBACK_THRESHOLDS: dict[str, tuple[int, int, int]] = {
     "MEWS": (3, 4, 5),  # watch, urgent, critical
     "NEWS2": (3, 5, 7),
 }
-
-
-async def _resolve_patient_display_name(db: AsyncSession, display_name: bytes | str) -> str:
-    """Resolve ``patient_cache.display_name`` to plaintext, dual-schema safe.
-
-    ``PatientCache.display_name`` is typed ``Mapped[bytes]`` (LargeBinary) —
-    post-migration-0004 databases store it as pgcrypto ciphertext
-    (``pgp_sym_encrypt``, see models/patient_cache.py), and the driver
-    returns ``bytes`` for it. A database that predates migration 0004 still
-    has a plaintext VARCHAR column, so the driver returns ``str`` directly
-    (see ``scripts/dev/seed_demo.py``'s
-    ``_patient_cache_schema_supports_encrypted_phi``, which detects this
-    same drift via ``information_schema`` at seed time, and its
-    ``_upsert_patient_legacy_schema`` fallback, which is the reason a
-    pre-migration dev DB can hold a plain ``str`` here). This mirrors that
-    dual-schema handling on the read side, using the existing
-    ``decrypt_phi`` helper (pgp_sym_decrypt) — no new crypto.
-
-    Never logs the decrypted value.
-    """
-    if isinstance(display_name, str):
-        return display_name
-
-    try:
-        return await decrypt_phi(db, display_name)
-    except ValueError:
-        # BYTEA holding bytes pgp_sym_decrypt rejects — wrong/unset
-        # app.encryption_key GUC, or a row that was never actually
-        # pgp-encrypted. Best-effort UTF-8 fallback instead of a 500;
-        # the exception message (never the payload) is logged only.
-        try:
-            return display_name.decode("utf-8")
-        except UnicodeDecodeError:
-            logger.warning(
-                "Could not resolve patient_cache.display_name for dashboard "
-                "render: decrypt_phi failed and value is not valid UTF-8 "
-                "plaintext either (mpi_id/value omitted from log)."
-            )
-            return "—"
 
 
 async def _load_bed_severity_thresholds(
@@ -394,7 +355,7 @@ async def get_dashboard(
         if derived_severity == SeverityLevel.CRITICAL.value:
             critical_patient_count += 1
 
-        patient_name = await _resolve_patient_display_name(db, p.display_name)
+        patient_name = await resolve_display_name(db, p.display_name)
 
         bed_summaries.append(
             PatientBedSummary(
@@ -678,7 +639,7 @@ async def get_patient_detail(
             }
         )
 
-    patient_name = await _resolve_patient_display_name(db, patient.display_name)
+    patient_name = await resolve_display_name(db, patient.display_name)
 
     return PatientDetailResponse(
         mpi_id=patient.mpi_id,

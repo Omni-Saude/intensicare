@@ -13,6 +13,7 @@ from intensicare.auth.dependencies import get_current_tenant_id, get_current_use
 from intensicare.core.database import get_db
 from intensicare.models.alert import Alert
 from intensicare.models.user import User
+from intensicare.services.patient_encryption import resolve_display_name
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -73,8 +74,17 @@ class EscalateRequest(BaseModel):
     reason: str | None = None
 
 
-def _to_alert_response(alert: Alert) -> AlertResponse:
-    """Build an AlertResponse from an Alert ORM instance."""
+async def _to_alert_response(db: AsyncSession, alert: Alert) -> AlertResponse:
+    """Build an AlertResponse from an Alert ORM instance.
+
+    ``alert.patient.display_name`` is PHI — on post-migration-0004 schemas
+    it is pgcrypto ciphertext (BYTEA), so it must go through
+    ``resolve_display_name`` (pgp_sym_decrypt), not a raw ``.decode("utf-8")``
+    which produces mojibake/garbage or raises on encrypted bytes and never
+    the real name. See ``patient_encryption.resolve_display_name`` for the
+    dual-schema (str passthrough vs. encrypted bytes) handling this shares
+    with the dashboard service.
+    """
     # Derive type from definition_version_id or default
     alert_type = "clinical"
     if alert.definition_version_id:
@@ -84,14 +94,7 @@ def _to_alert_response(alert: Alert) -> AlertResponse:
     # Extract patient_name from eager-loaded relationship
     patient_name: str | None = None
     if alert.patient and alert.patient.display_name:
-        try:
-            patient_name = (
-                alert.patient.display_name.decode("utf-8")
-                if isinstance(alert.patient.display_name, bytes)
-                else str(alert.patient.display_name)
-            )
-        except (UnicodeDecodeError, AttributeError):
-            patient_name = None
+        patient_name = await resolve_display_name(db, alert.patient.display_name)
 
     return AlertResponse(
         id=alert.id,
@@ -150,8 +153,9 @@ async def list_alerts(
     result = await db.execute(data_query)
     alerts = result.scalars().all()
 
+    items = [await _to_alert_response(db, a) for a in alerts]
     return AlertListResponse(
-        items=[_to_alert_response(a) for a in alerts],
+        items=items,
         total=total,
     )
 
@@ -204,7 +208,7 @@ async def acknowledge_alert(
     # columns, leaving the joinedload'd relationship intact.
     await db.refresh(alert, attribute_names=["status", "acknowledged_at", "acknowledged_by"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.post("/{alert_id}/resolve", response_model=AlertResponse)
@@ -268,7 +272,7 @@ async def resolve_alert(
     # survives for _to_alert_response().
     await db.refresh(alert, attribute_names=["status", "resolved_at", "resolution"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.post("/{alert_id}/escalate", response_model=AlertResponse)
@@ -322,7 +326,7 @@ async def escalate_alert(
     # survives for _to_alert_response().
     await db.refresh(alert, attribute_names=["status"])
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)
 
 
 @router.get("/{alert_id}/trace", response_model=AlertResponse)
@@ -353,4 +357,4 @@ async def trace_alert(
             detail="Alert not found",
         )
 
-    return _to_alert_response(alert)
+    return await _to_alert_response(db, alert)

@@ -11,6 +11,8 @@ Cobre:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,7 @@ from intensicare.services.patient_encryption import (
     compute_mrn_bidx,
     decrypt_phi,
     encrypt_phi,
+    resolve_display_name,
 )
 
 # ---------------------------------------------------------------------------
@@ -447,3 +450,74 @@ async def test_patient_cache_no_plaintext_phi_in_db(
     assert plaintext_cpf not in bytes(db_cpf), (
         "DRILL-PHI-EGRESS-SCRUB FAIL: cpf plaintext found in DB column"
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_display_name — dual-schema PHI decrypt (unit-level)
+#
+# Shared by dashboard.py and alerts.py (both build a patient display name
+# from a column that is plaintext str pre-migration-0004 or pgcrypto BYTEA
+# post-migration-0004). Moved here from test_dashboard.py when the helper
+# itself moved out of dashboard.py to avoid alerts.py importing from the
+# dashboard service module.
+# ---------------------------------------------------------------------------
+
+
+class TestResolveDisplayNameUnit:
+    """Unit coverage of the dual-schema fallback logic in isolation
+    (mocked db/decrypt_phi — no real Postgres needed for these branches)."""
+
+    @pytest.mark.asyncio
+    async def test_legacy_plaintext_str_passthrough(self):
+        """Schema pre-migration-0004: driver returns str — used as-is,
+        decrypt_phi must NOT be called."""
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(side_effect=AssertionError("must not query DB for str input"))
+
+        result = await resolve_display_name(mock_db, "DEMO Sepse Crítica")
+        assert result == "DEMO Sepse Crítica"
+
+    @pytest.mark.asyncio
+    async def test_encrypted_bytes_calls_decrypt_phi(self, monkeypatch):
+        """Schema post-migration-0004: bytes go through decrypt_phi."""
+        import intensicare.services.patient_encryption as patient_encryption_module
+
+        async def _fake_decrypt(db, ciphertext):
+            assert ciphertext == b"fake-ciphertext"
+            return "Maria Oliveira"
+
+        monkeypatch.setattr(patient_encryption_module, "decrypt_phi", _fake_decrypt)
+
+        mock_db = MagicMock()
+        result = await resolve_display_name(mock_db, b"fake-ciphertext")
+        assert result == "Maria Oliveira"
+
+    @pytest.mark.asyncio
+    async def test_decrypt_failure_falls_back_to_utf8_decode(self, monkeypatch):
+        """decrypt_phi raising ValueError (wrong key/corrupt/unset GUC) falls
+        back to a best-effort UTF-8 decode instead of raising/500ing."""
+        import intensicare.services.patient_encryption as patient_encryption_module
+
+        async def _failing_decrypt(db, ciphertext):
+            raise ValueError("Decryption failed — wrong key or corrupt ciphertext")
+
+        monkeypatch.setattr(patient_encryption_module, "decrypt_phi", _failing_decrypt)
+
+        mock_db = MagicMock()
+        result = await resolve_display_name(mock_db, "plain-ascii-bytes".encode())
+        assert result == "plain-ascii-bytes"
+
+    @pytest.mark.asyncio
+    async def test_decrypt_failure_and_undecodable_bytes_returns_placeholder(self, monkeypatch):
+        """Neither decrypt_phi nor a raw UTF-8 decode works — never 500s,
+        returns a safe placeholder instead."""
+        import intensicare.services.patient_encryption as patient_encryption_module
+
+        async def _failing_decrypt(db, ciphertext):
+            raise ValueError("Decryption failed — wrong key or corrupt ciphertext")
+
+        monkeypatch.setattr(patient_encryption_module, "decrypt_phi", _failing_decrypt)
+
+        mock_db = MagicMock()
+        result = await resolve_display_name(mock_db, b"\xff\xfe\x00\x01not-utf8")
+        assert result == "—"
