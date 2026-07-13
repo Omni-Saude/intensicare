@@ -193,11 +193,19 @@ export interface LoginResponse {
 // Filter types
 // ---------------------------------------------------------------------------
 
+// Backend contract — src/intensicare/api/v1/alerts.py list_alerts.
+// `status` supersedes the old acknowledged/resolved booleans; `type` was
+// never accepted by the backend and has been dropped.
+export type AlertStatusFilter =
+  | 'active'
+  | 'acknowledged'
+  | 'escalated'
+  | 'resolved'
+  | 'all';
+
 export interface AlertFilters {
+  status?: AlertStatusFilter;
   severity?: SeverityLevel;
-  type?: string;
-  acknowledged?: boolean;
-  resolved?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -537,10 +545,8 @@ export async function fetchPathway(id: number): Promise<Pathway> {
 
 export async function fetchAlerts(params: AlertFilters = {}): Promise<AlertListResponse> {
   const searchParams = new URLSearchParams();
+  if (params.status) searchParams.set('status', params.status);
   if (params.severity) searchParams.set('severity', params.severity);
-  if (params.type) searchParams.set('type', params.type);
-  if (params.acknowledged !== undefined) searchParams.set('acknowledged', String(params.acknowledged));
-  if (params.resolved !== undefined) searchParams.set('resolved', String(params.resolved));
   if (params.limit) searchParams.set('limit', String(params.limit));
   if (params.offset) searchParams.set('offset', String(params.offset));
 
