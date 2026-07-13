@@ -41,7 +41,7 @@ export function PathwayBadges({ pathways }: PathwayBadgesProps) {
         <span
           role="listitem"
           aria-label={`Mais ${remaining} trilhas`}
-          className="inline-flex items-center justify-center size-3 shrink-0 rounded-full text-[8px] leading-none font-medium"
+          className="inline-flex items-center justify-center size-3 shrink-0 rounded-full text-2xs leading-none font-medium"
           style={{
             backgroundColor: 'var(--surface-overlay)',
             color: 'var(--text-secondary)',
