@@ -150,9 +150,7 @@ def create_app() -> FastAPI:
     from intensicare.auth.abac import ABACAccessDenied
 
     @app.exception_handler(ABACAccessDenied)
-    async def abac_access_denied_handler(
-        request: Request, exc: ABACAccessDenied
-    ) -> JSONResponse:
+    async def abac_access_denied_handler(request: Request, exc: ABACAccessDenied) -> JSONResponse:
         return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     # Health check — redirect /health to /api/v1/health for backward compat

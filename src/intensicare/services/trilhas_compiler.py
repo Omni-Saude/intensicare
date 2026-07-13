@@ -73,6 +73,7 @@ def compute_content_hash(definition: dict) -> str:
     canonical = json.dumps(definition, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+
 # ---------------------------------------------------------------------------
 # AST Nodes
 # ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ def compute_content_hash(definition: dict) -> str:
 
 class ASTNode:
     """Base class for predicate AST nodes."""
+
     __slots__ = ()
 
 
@@ -90,6 +92,7 @@ class Band:
     lower: inclusive lower bound
     upper: exclusive upper bound (None = +∞)
     """
+
     lower: float
     upper: float | None
     severity: str
@@ -100,14 +103,13 @@ class Band:
         """Check if value falls within this band: lower ≤ value < upper."""
         if value < self.lower:
             return False
-        if self.upper is not None and value >= self.upper:
-            return False
-        return True
+        return self.upper is None or value < self.upper
 
 
 @dataclass(frozen=True)
 class ThresholdNode(ASTNode):
     """Threshold predicate: single value comparison."""
+
     input_name: str
     operator: str
     value: float
@@ -120,6 +122,7 @@ class GradedNode(ASTNode):
 
     Bands are stored sorted by lower bound.
     """
+
     input_name: str
     bands: tuple[Band, ...]
     unit: str
@@ -128,6 +131,7 @@ class GradedNode(ASTNode):
 @dataclass(frozen=True)
 class BooleanNode(ASTNode):
     """Boolean predicate: check truthiness of a data field."""
+
     input_name: str
     negate: bool = False
 
@@ -139,6 +143,7 @@ class CompositeNode(ASTNode):
     Each sub_predicate is a CompiledPredicate instance. NOT requires
     exactly one sub_predicate and negates its result.
     """
+
     combinator: str  # "AND", "OR", or "NOT"
     sub_predicates: tuple[CompiledPredicate, ...]
 
@@ -159,6 +164,7 @@ class TemporalNode(ASTNode):
     severity: optional override applied when met is True. Defaults to
     "urgent" when not provided (mirrors ThresholdNode's convention).
     """
+
     input_name: str
     within_minutes: int
     satisfied_when: str  # "within" or "overdue"
@@ -188,6 +194,7 @@ class EvaluationResult:
         unit: Canonical unit string.
         band_label: Optional human-readable band label (graded only).
     """
+
     met: bool
     severity: str = "normal"
     score: int = 0
@@ -203,6 +210,7 @@ class CompiledPredicate:
 
     Holds the AST node plus metadata needed for evaluation.
     """
+
     ast_node: ASTNode
     input_name: str
     unit: str
@@ -257,9 +265,7 @@ class PredicateCompiler:
             return self._compile_temporal(predicate)
         raise ValueError(f"Unknown predicate type: {ptype}")
 
-    def evaluate(
-        self, compiled: CompiledPredicate, patient_data: dict
-    ) -> EvaluationResult:
+    def evaluate(self, compiled: CompiledPredicate, patient_data: dict) -> EvaluationResult:
         """Evaluate a compiled predicate against patient data.
 
         Args:
@@ -340,30 +346,28 @@ class PredicateCompiler:
         for i, bd in enumerate(raw_bands):
             rng: list = bd.get("range", [])
             if len(rng) != 2:
-                raise ValueError(
-                    f"Band {i} range must have exactly 2 elements [lower, upper]"
-                )
+                raise ValueError(f"Band {i} range must have exactly 2 elements [lower, upper]")
 
             lower = float(rng[0])
             upper_raw = rng[1]
             upper: float | None = None if upper_raw is None else float(upper_raw)
 
             if upper is not None and lower >= upper:
-                raise ValueError(
-                    f"Band {i} has invalid range: lower ({lower}) >= upper ({upper})"
-                )
+                raise ValueError(f"Band {i} has invalid range: lower ({lower}) >= upper ({upper})")
 
             severity = bd.get("severity", "normal")
             score = int(bd.get("score", 0))
             label = bd.get("label")
 
-            bands.append(Band(
-                lower=lower,
-                upper=upper,
-                severity=severity,
-                score=score,
-                label=label,
-            ))
+            bands.append(
+                Band(
+                    lower=lower,
+                    upper=upper,
+                    severity=severity,
+                    score=score,
+                    label=label,
+                )
+            )
 
         # Validate band continuity (Gate B logic inlined for efficiency)
         sorted_bands = sorted(bands, key=lambda b: b.lower)
@@ -382,9 +386,7 @@ class PredicateCompiler:
                 )
 
         if sorted_bands[-1].upper is not None:
-            raise ValueError(
-                "Last band must have null upper bound (cover to +∞)"
-            )
+            raise ValueError("Last band must have null upper bound (cover to +∞)")
 
         node = GradedNode(
             input_name=input_name,
@@ -410,9 +412,7 @@ class PredicateCompiler:
 
         negate = pred.get("negate", False)
         if not isinstance(negate, bool):
-            raise ValueError(
-                f"boolean predicate 'negate' must be a boolean, got {negate!r}"
-            )
+            raise ValueError(f"boolean predicate 'negate' must be a boolean, got {negate!r}")
 
         node = BooleanNode(input_name=input_name, negate=negate)
         return CompiledPredicate(
@@ -441,8 +441,7 @@ class PredicateCompiler:
 
         if combinator == "NOT" and len(sub_preds) != 1:
             raise ValueError(
-                f"composite NOT operator requires exactly 1 sub_predicate, "
-                f"got {len(sub_preds)}"
+                f"composite NOT operator requires exactly 1 sub_predicate, got {len(sub_preds)}"
             )
 
         compiled_subs: list[CompiledPredicate] = []
@@ -450,9 +449,7 @@ class PredicateCompiler:
             try:
                 compiled_subs.append(self.compile(sp))
             except ValueError as exc:
-                raise ValueError(
-                    f"sub_predicate[{i}]: {exc}"
-                ) from exc
+                raise ValueError(f"sub_predicate[{i}]: {exc}") from exc
 
         node = CompositeNode(
             combinator=combinator,
@@ -488,8 +485,7 @@ class PredicateCompiler:
             within_minutes = int(raw_within)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"temporal predicate 'within_minutes' must be an integer, "
-                f"got {raw_within!r}"
+                f"temporal predicate 'within_minutes' must be an integer, got {raw_within!r}"
             ) from exc
         if within_minutes < 0:
             raise ValueError(
@@ -528,9 +524,7 @@ class PredicateCompiler:
 
     # ── Evaluate helpers ───────────────────────────────────────────────
 
-    def _evaluate_threshold(
-        self, node: ThresholdNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_threshold(self, node: ThresholdNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a threshold node against patient data."""
         actual_value = self._lookup(node.input_name, patient_data)
         op_func = _OPS[node.operator]
@@ -541,7 +535,10 @@ class PredicateCompiler:
             # Non-numeric comparison attempt — treat as not met
             logger.warning(
                 "Cannot compare %r %s %r for input '%s'",
-                actual_value, node.operator, node.value, node.input_name,
+                actual_value,
+                node.operator,
+                node.value,
+                node.input_name,
             )
             met = False
 
@@ -557,9 +554,7 @@ class PredicateCompiler:
             unit=node.unit,
         )
 
-    def _evaluate_graded(
-        self, node: GradedNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_graded(self, node: GradedNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a graded node against patient data.
 
         Finds the band containing the actual value. If no band matches
@@ -609,9 +604,7 @@ class PredicateCompiler:
             band_label=matched_band.label,
         )
 
-    def _evaluate_boolean(
-        self, node: BooleanNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_boolean(self, node: BooleanNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a boolean node against patient data.
 
         If node.negate is True, the truthiness result is inverted:
@@ -633,9 +626,7 @@ class PredicateCompiler:
             input_name=node.input_name,
         )
 
-    def _evaluate_composite(
-        self, node: CompositeNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_composite(self, node: CompositeNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a composite (AND/OR/NOT) node.
 
         For AND: all sub-predicates must be met.
@@ -675,9 +666,7 @@ class PredicateCompiler:
             unit="",
         )
 
-    def _evaluate_temporal(
-        self, node: TemporalNode, patient_data: dict
-    ) -> EvaluationResult:
+    def _evaluate_temporal(self, node: TemporalNode, patient_data: dict) -> EvaluationResult:
         """Evaluate a temporal node against patient data.
 
         The input is treated as a duration in minutes, already computed
@@ -693,9 +682,9 @@ class PredicateCompiler:
             val = float(actual_value)
         except (TypeError, ValueError):
             logger.warning(
-                "Cannot evaluate temporal predicate: non-numeric value %r "
-                "for input '%s'",
-                actual_value, node.input_name,
+                "Cannot evaluate temporal predicate: non-numeric value %r for input '%s'",
+                actual_value,
+                node.input_name,
             )
             return EvaluationResult(
                 met=False,

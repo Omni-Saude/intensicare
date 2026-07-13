@@ -733,7 +733,8 @@ def _determine_severity(pathway_id: int, criteria_data: list[dict[str, Any]]) ->
         if value is None:
             continue  # Pending — excluded, per the corrected rule above.
 
-        predicate = predicate_by_criterion_id.get(crit.get("id"))
+        crit_id = crit.get("id")
+        predicate = predicate_by_criterion_id.get(crit_id) if crit_id is not None else None
         if not predicate:
             logger.warning(
                 "_determine_severity: no YAML predicate found for "

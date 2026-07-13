@@ -113,7 +113,10 @@ async def sync_pathway_definitions(db: AsyncSession, engine: TrilhasEngine) -> S
                     "Pathway '%s' (id=%d): declared pathway.content_hash (%s) does "
                     "not match the computed content hash (%s) — YAML content_hash "
                     "is stale or a placeholder; persisting the computed hash.",
-                    pdef.slug, pdef.id, declared_hash, real_hash,
+                    pdef.slug,
+                    pdef.id,
+                    declared_hash,
+                    real_hash,
                 )
                 report.hash_mismatches.append(pdef.slug)
 
@@ -142,7 +145,10 @@ async def sync_pathway_definitions(db: AsyncSession, engine: TrilhasEngine) -> S
         except Exception as exc:
             logger.error(
                 "Failed to sync pathway definition '%s' (id=%s): %s",
-                pdef.slug, pdef.id, exc, exc_info=True,
+                pdef.slug,
+                pdef.id,
+                exc,
+                exc_info=True,
             )
             report.failed.append(pdef.slug or str(pdef.id))
 

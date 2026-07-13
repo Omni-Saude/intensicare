@@ -72,9 +72,7 @@ async def _load_bed_severity_thresholds(
     return thresholds
 
 
-def _score_band_severity(
-    score: int | None, thresholds: tuple[int, int, int] | None
-) -> str | None:
+def _score_band_severity(score: int | None, thresholds: tuple[int, int, int] | None) -> str | None:
     """Map a MEWS/NEWS2 score to a severity band via watch/urgent/critical thresholds."""
     if score is None or thresholds is None:
         return None
