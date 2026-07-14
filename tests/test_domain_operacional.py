@@ -112,7 +112,8 @@ class TestComputeLengthOfStay:
     def test_date_input(self) -> None:
         from datetime import timedelta
 
-        past = date.today() - timedelta(days=5)
+        # Use UTC date like product to avoid timezone flake
+        past = datetime.now(timezone.utc).date() - timedelta(days=5)
         assert compute_length_of_stay(past) == 5
 
 
