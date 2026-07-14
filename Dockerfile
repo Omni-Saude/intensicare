@@ -70,7 +70,7 @@ WORKDIR /app
 # porque o pacote agora é instalado em modo não-editável (ver abaixo) — o
 # hatchling precisa do conteúdo real de src/intensicare e do README.md para
 # construir o wheel e validar os metadados do projeto.
-COPY pyproject.toml README.md .
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY alembic/ ./alembic/
 
