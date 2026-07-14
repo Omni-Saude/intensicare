@@ -88,20 +88,23 @@ class TestSeededVersions:
             assert row.semver == "1.0.0"
 
     async def test_registry_row_count(self, db_session: AsyncSession):
-        """Deve haver exatamente 7 versões seedadas.
+        """Deve haver exatamente 8 versões seedadas.
 
         A contagem real vem de tests/conftest.py:107-122 (fixture
-        create_tables), que seeda MEWS-v1.0/v2.0.0/v3.0.0, NEWS2-v1.0,
-        SOFA-v1.0/v2.0.0 e qSOFA-v1.0 — 7 linhas, não as 4 originais da
+        create_tables), que seeda MEWS-v1.0/v2.0.0/v3.0.0, NEWS2-v1.0/v3.0.0,
+        SOFA-v1.0/v2.0.0 e qSOFA-v1.0 — 8 linhas, não as 4 originais da
         migration 0005 (o seed local da fixture seed_algorithm_registry
         acima é um ON CONFLICT DO NOTHING sobre esse mesmo conjunto).
+        NEWS2-v3.0.0 foi adicionado junto com a correção de
+        services/vitals.py que parava de persistir o literal errado
+        "NEWS2-v1.0" (a engine real é NEWS2_VERSION = "NEWS2-v3.0.0").
         """
         from sqlalchemy import func, select
 
         stmt = select(func.count()).select_from(AlgorithmRegistry)
         result = await db_session.execute(stmt)
         count = result.scalar_one()
-        assert count == 7, f"Expected 7 versions, got {count}"
+        assert count == 8, f"Expected 8 versions, got {count}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

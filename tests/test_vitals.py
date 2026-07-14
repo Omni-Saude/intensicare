@@ -14,6 +14,14 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from intensicare.models.clinical_score import ClinicalScore
+from intensicare.services.mews import MEWS_VERSION
+from intensicare.services.news2 import NEWS2_VERSION
+from intensicare.services.qsofa import QSOFA_VERSION
+from intensicare.services.sofa import SOFA_VERSION
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -629,6 +637,51 @@ async def test_dual_scoring_idempotent_replay_returns_both_scores(
     assert data2["mews_score"] == data1["mews_score"]
     assert data2["news2_score"] == data1["news2_score"]
     assert data2["news2_risk_category"] == data1["news2_risk_category"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# algorithm_version traceability — clinical rastreabilidade (regression)
+#
+# services/vitals.py persisted a hardcoded "NEWS2-v1.0" literal for every
+# NEWS2 ClinicalScore row while the real scoring engine was already at
+# NEWS2_VERSION = "NEWS2-v3.0.0" (services/news2.py). algorithm_version is
+# the clinical traceability field — it must always name the algorithm that
+# actually produced score_value. Assert against the canonical constants
+# (never duplicate the literals here) so this can't silently regress again.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_persisted_algorithm_version_matches_canonical_constants(
+    client: AsyncClient, db_session: AsyncSession, user_headers: dict[str, str]
+):
+    """Cada um dos 4 scores persistidos deve gravar o algorithm_version da
+    constante canônica do respectivo módulo de scoring — nunca um literal
+    dessincronizado (ex.: NEWS2-v1.0 gravado enquanto a engine é v3.0.0)."""
+    mpi_id = "MPI-ALGOVER-01"
+    payload = {**VALID_VITALS_PAYLOAD, "mpi_id": mpi_id}
+
+    response = await client.post("/api/v1/vitals", json=payload, headers=user_headers)
+    assert response.status_code == 201
+
+    expected_versions = {
+        "MEWS": MEWS_VERSION,
+        "NEWS2": NEWS2_VERSION,
+        "SOFA": SOFA_VERSION,
+        "qSOFA": QSOFA_VERSION,
+    }
+
+    for score_type, expected_version in expected_versions.items():
+        stmt = select(ClinicalScore).where(
+            ClinicalScore.mpi_id == mpi_id, ClinicalScore.score_type == score_type
+        )
+        result = await db_session.execute(stmt)
+        row = result.scalar_one_or_none()
+        assert row is not None, f"No ClinicalScore persisted for score_type={score_type}"
+        assert row.algorithm_version == expected_version, (
+            f"{score_type} persisted algorithm_version={row.algorithm_version!r}, "
+            f"expected canonical {expected_version!r}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

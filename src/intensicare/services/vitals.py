@@ -23,7 +23,7 @@ from intensicare.models.vital_sign import VitalSign
 from intensicare.schemas.vitals import VitalSignCreate, VitalSignResponse
 from intensicare.services.alert_engine import process_clinical_score
 from intensicare.services.mews import MEWS_VERSION, calculate_mews
-from intensicare.services.news2 import calculate_news2
+from intensicare.services.news2 import NEWS2_VERSION, calculate_news2
 from intensicare.services.pathway_auto_evaluation import evaluate_enrolled_pathways
 from intensicare.services.qsofa import QSOFA_VERSION, calculate_qsofa
 from intensicare.services.sofa import SOFA_VERSION, calculate_sofa, classify_sofa_mortality_risk
@@ -321,7 +321,7 @@ async def ingest_vitals(
         mpi_id=data.mpi_id,
         score_type="NEWS2",
         score_value=news2_result.total_score,
-        algorithm_version="NEWS2-v1.0",
+        algorithm_version=NEWS2_VERSION,
         # calculated_at = vital.recorded_at — ver nota de fidelidade
         # temporal acima (score MEWS).
         calculated_at=vital.recorded_at,

@@ -68,7 +68,7 @@ export function VitalReadout({ vital, className }: VitalReadoutProps) {
         <span className="text-xs text-[var(--text-secondary)]">{unit}</span>
       </div>
       <time
-        className={cn('text-[10px]', showDate && 'font-semibold')}
+        className={cn('text-2xs', showDate && 'font-semibold')}
         style={{ color: timeColor }}
         dateTime={vital.measured_at}
       >

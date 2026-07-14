@@ -5,12 +5,12 @@ import useSWR from 'swr';
 import {
   fetchPatientDetail,
   fetchPatientPathways,
-  fetchAlerts,
+  fetchAlertGroups,
   acknowledgeAlert,
   escalateAlert,
   type PatientDetailResponse,
   type PatientPathway,
-  type AlertInfo,
+  type AlertGroupListResponse,
 } from '@/lib/api';
 import { useRealtimeChannel } from '@/lib/websocket';
 import { useSetBreadcrumbLabel } from '@/lib/breadcrumb-context';
@@ -58,15 +58,22 @@ export default function PatientDetailPage() {
     { revalidateOnFocus: false },
   );
 
-  // Alerts for this patient
+  // Alerts for this patient, grouped by clinical signal (ADR-0039 §1/§2 —
+  // FASE 2B.1 "painel do paciente com rollup coerente"). fetchAlertGroups
+  // applies `mpi_id` server-side BEFORE grouping (api/v1/alerts.py
+  // `_apply_alert_filters`), which fixes two things the prior flat
+  // `fetchAlerts({ limit: 50 })` + client-side `.filter(mpi_id)` had:
+  // (1) a single patient showed raw, ungrouped cards with no rollup, and
+  // (2) `limit: 50` was a GLOBAL pre-filter page — in a busy tenant the
+  // patient's own alerts could fall outside that page and vanish entirely.
   const {
-    data: alertsData,
+    data: alertGroupsData,
     error: alertsError,
     isLoading: alertsLoading,
     mutate: mutateAlerts,
-  } = useSWR<{ items: AlertInfo[]; total: number }>(
-    mpiId ? `patient-alerts-${mpiId}` : null,
-    () => fetchAlerts({ limit: 50 }),
+  } = useSWR<AlertGroupListResponse>(
+    mpiId ? `patient-alert-groups-${mpiId}` : null,
+    () => fetchAlertGroups({ mpi_id: mpiId! }),
     { revalidateOnFocus: false },
   );
 
@@ -84,11 +91,6 @@ export default function PatientDetailPage() {
 
   // Breadcrumb: show the patient's name instead of the raw MPI ID once loaded.
   useSetBreadcrumbLabel(mpiId, patient?.patient_name);
-
-  // Filter alerts to only those belonging to this patient
-  const patientAlerts = (alertsData?.items ?? []).filter(
-    (a) => a.mpi_id === mpiId,
-  );
 
   // --- No mpiId ---
   if (!mpiId) {
@@ -197,7 +199,7 @@ export default function PatientDetailPage() {
         {/* Sidebar */}
         <div className="space-y-6">
           <AlertsPanel
-            alerts={patientAlerts}
+            groups={alertGroupsData?.groups ?? []}
             isLoading={alertsLoading}
             error={alertsError ? getErrorMessage(alertsError) : null}
             onAcknowledge={handleAcknowledge}

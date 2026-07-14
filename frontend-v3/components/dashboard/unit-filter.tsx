@@ -56,7 +56,7 @@ export function UnitFilter({ units, selected, onChange }: UnitFilterProps) {
     <nav
       role="tablist"
       aria-label="Filtrar por unidade"
-      className="flex items-center gap-1"
+      className="flex flex-wrap items-center gap-1"
     >
       {allUnits.map((unit, index) => {
         const isSelected = unit === selected;

@@ -12,6 +12,7 @@ from intensicare.models.clinical_score import ClinicalScore
 from intensicare.models.patient_cache import PatientCache
 from intensicare.models.threshold_config import ThresholdConfig
 from intensicare.schemas.severity import CANONICAL_SEVERITIES
+from intensicare.services.alert_copy import build_alert_copy
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +82,19 @@ async def check_score_against_thresholds(
         if await redis_client.exists(cooldown_key):
             return None  # Still in cooldown
 
-    # Create the alert
-    title = f"{clinical_score.score_type} {severity.upper()}: {score_value}"
-    body = (
-        f"Patient {clinical_score.mpi_id} — {clinical_score.score_type} score: {score_value}\n"
-        f"Threshold: {getattr(config, severity + '_threshold')}\n"
-        f"Tenant: {tenant_id}, Unit: {unit or 'N/A'}"
+    # Create the alert. Title/body text is centralized in alert_copy.py
+    # (ADR-0039 §6 — humanization) rather than built inline here: a
+    # 3-part PT-BR clinical explanation (o que aconteceu / por que
+    # importa / o que verificar), tone-matched to
+    # pathway_enrollment._build_recommendation. tenant_id/unit are
+    # deliberately NOT included in the humanized body — see the "Scope
+    # decision" note in alert_copy.py's module docstring (they are
+    # session-scoped/administrative metadata, not clinical content).
+    title, body = build_alert_copy(
+        score_type=clinical_score.score_type,
+        severity=severity,
+        score_value=score_value,
+        threshold=getattr(config, severity + "_threshold"),
     )
 
     alert = Alert(

@@ -38,3 +38,33 @@ export function severityColor(severity: SeverityLevel): string {
       return 'var(--text-secondary)';
   }
 }
+
+export function severityWash(severity: SeverityLevel): string {
+  switch (severity) {
+    case 'normal':
+      return 'var(--severity-normal-wash)';
+    case 'watch':
+      return 'var(--severity-watch-wash)';
+    case 'urgent':
+      return 'var(--severity-urgent-wash)';
+    case 'critical':
+      return 'var(--severity-critical-wash)';
+    default:
+      return 'var(--bg-tertiary)';
+  }
+}
+
+export function severityRing(severity: SeverityLevel): string {
+  switch (severity) {
+    case 'normal':
+      return 'var(--severity-normal-ring)';
+    case 'watch':
+      return 'var(--severity-watch-ring)';
+    case 'urgent':
+      return 'var(--severity-urgent-ring)';
+    case 'critical':
+      return 'var(--severity-critical-ring)';
+    default:
+      return 'var(--border-tertiary)';
+  }
+}

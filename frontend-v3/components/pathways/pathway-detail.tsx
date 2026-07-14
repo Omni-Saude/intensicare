@@ -55,7 +55,7 @@ function StateItem({ state, index }: { state: PathwayState; index: number }) {
             {state.name}
           </span>
           {state.is_terminal && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wide bg-[var(--severity-critical-wash)] text-[var(--severity-critical)]">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs font-semibold uppercase tracking-wide bg-[var(--severity-critical-wash)] text-[var(--severity-critical)]">
               <AlertCircle className="h-2.5 w-2.5" />
               Terminal
             </span>
@@ -90,7 +90,7 @@ function CriteriaGroup({ category, criteria }: { category: string; criteria: Pat
         <span className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
           {category}
         </span>
-        <span className="text-[0.625rem] text-[var(--text-secondary)] ml-auto">
+        <span className="text-2xs text-[var(--text-secondary)] ml-auto">
           {criteria.length} {criteria.length === 1 ? 'critério' : 'critérios'}
         </span>
       </button>
@@ -115,17 +115,17 @@ function CriteriaGroup({ category, criteria }: { category: string; criteria: Pat
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {crit.unit && (
-                  <span className="text-[0.625rem] text-[var(--text-secondary)] bg-[var(--surface-overlay)] px-1.5 py-0.5 rounded font-mono">
+                  <span className="text-2xs text-[var(--text-secondary)] bg-[var(--surface-overlay)] px-1.5 py-0.5 rounded font-mono">
                     {crit.unit}
                   </span>
                 )}
                 {crit.normal_range && (
-                  <span className="text-[0.625rem] text-[var(--severity-normal)] bg-[var(--severity-normal-wash)] px-1.5 py-0.5 rounded font-mono">
+                  <span className="text-2xs text-[var(--severity-normal)] bg-[var(--severity-normal-wash)] px-1.5 py-0.5 rounded font-mono">
                     {crit.normal_range}
                   </span>
                 )}
                 {crit.alert_threshold && (
-                  <span className="text-[0.625rem] text-[var(--severity-urgent)] bg-[var(--severity-urgent-wash)] px-1.5 py-0.5 rounded font-mono">
+                  <span className="text-2xs text-[var(--severity-urgent)] bg-[var(--severity-urgent-wash)] px-1.5 py-0.5 rounded font-mono">
                     &ge; {crit.alert_threshold}
                   </span>
                 )}

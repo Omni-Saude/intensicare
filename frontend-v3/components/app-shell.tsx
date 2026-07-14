@@ -14,7 +14,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useConnectionStatus } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
@@ -63,19 +63,19 @@ function Breadcrumb() {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
-      <Link href="/" className="hover:text-[var(--text-primary)] transition-colors" aria-label="Início">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-sm text-[var(--text-secondary)]">
+      <Link href="/" className="shrink-0 hover:text-[var(--text-primary)] transition-colors" aria-label="Início">
         <Home className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
       {crumbs.map((crumb) => (
-        <span key={crumb.href} className="flex items-center gap-1">
-          <ChevronRight className="h-3 w-3" />
+        <span key={crumb.href} className={cn('flex items-center gap-1', !crumb.isLast && 'min-w-0')}>
+          <ChevronRight className="h-3 w-3 shrink-0" />
           {crumb.isLast ? (
             <span className="text-[var(--text-primary)] font-medium">{crumb.label}</span>
           ) : (
             <Link
               href={crumb.href}
-              className="hover:text-[var(--text-primary)] transition-colors"
+              className="min-w-0 truncate hover:text-[var(--text-primary)] transition-colors"
             >
               {crumb.label}
             </Link>
@@ -99,7 +99,7 @@ function ShortcutsHint() {
       className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
       aria-label="Ver atalhos de teclado"
     >
-      <kbd className="px-1.5 py-0.5 rounded border border-[var(--border-default)] bg-[var(--surface-overlay)] font-mono text-[10px]">
+      <kbd className="px-1.5 py-0.5 rounded border border-[var(--border-default)] bg-[var(--surface-overlay)] font-mono text-2xs">
         ?
       </kbd>
       atalhos
@@ -113,6 +113,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, user, logout } = useAuth();
   const { status: connStatus } = useConnectionStatus();
+
+  // Mobile drawer focus trap — pattern copied from KeyboardShortcutsHelp
+  // (lib/keyboard-shortcuts.tsx) / CreateUserDialog (admin/user-manager.tsx):
+  // Esc closes, Tab cycles within the drawer while open, and focus returns
+  // to the trigger (hamburger) button on close. On large screens the same
+  // <aside> renders as a persistent, non-modal sidebar (lg:relative
+  // lg:translate-x-0) — the trap and aria-modal/role="dialog" only kick in
+  // while `sidebarOpen` is true, which only happens via the hamburger
+  // button that is itself hidden at lg (`lg:hidden`), so desktop navigation
+  // is never affected.
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const wasSidebarOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      // Drawer just closed — return focus to whatever opened it.
+      if (wasSidebarOpenRef.current) {
+        menuButtonRef.current?.focus();
+      }
+      wasSidebarOpenRef.current = false;
+      return;
+    }
+    wasSidebarOpenRef.current = true;
+
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSidebarOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const container = sidebarRef.current;
+      if (!container) return;
+
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [sidebarOpen]);
 
   // Don't render sidebar on login page, but keep shortcuts active (e.g. so
   // typing "g" while focused on the login form correctly does nothing).
@@ -130,6 +188,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside
+        ref={sidebarRef}
+        id="app-sidebar"
+        role={sidebarOpen ? 'dialog' : undefined}
+        aria-modal={sidebarOpen ? 'true' : undefined}
+        aria-label={sidebarOpen ? 'Menu de navegação' : undefined}
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-64 bg-[var(--surface-raised)] border-r border-[var(--border-default)]',
           'transform transition-transform duration-200 ease-in-out',
@@ -143,8 +206,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Logo variant="full" theme="dark" className="h-8 w-auto" />
           </Link>
           <button
+            ref={closeButtonRef}
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 rounded hover:bg-[var(--surface-overlay)]"
+            className="lg:hidden p-2.5 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Fechar menu"
           >
             <X className="h-5 w-5" />
@@ -194,7 +258,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => { logout(); setConfirmLogout(false); }}
-                      className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-[#0a0e14] font-medium hover:opacity-90 transition-opacity"
+                      className="text-xs px-2 py-1 rounded bg-[var(--severity-critical)] text-[var(--surface-canvas)] font-medium hover:opacity-90 transition-opacity"
                       aria-label="Confirmar saída"
                     >
                       Sair
@@ -244,9 +308,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Top bar */}
         <header className="flex items-center h-16 px-4 border-b border-[var(--border-default)] bg-[var(--surface-canvas)]">
           <button
+            ref={menuButtonRef}
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden mr-3 p-1 rounded hover:bg-[var(--surface-overlay)]"
+            className="lg:hidden mr-3 p-2.5 rounded hover:bg-[var(--surface-overlay)]"
             aria-label="Abrir menu"
+            aria-expanded={sidebarOpen}
+            aria-controls="app-sidebar"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -264,7 +331,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-4 sm:p-6">
           {children}
         </main>
       </div>

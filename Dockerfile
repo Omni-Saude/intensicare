@@ -65,15 +65,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copia e instala apenas dependências de runtime
-COPY pyproject.toml .
-RUN pip install --upgrade pip \
-    && pip install -e ".[test]"  # test inclui httpx para healthcheck
-RUN pip uninstall -y pytest pytest-cov pytest-asyncio factory-boy faker ruff mypy pre-commit || true
-
-# Copia código fonte
+# Copia metadados do projeto e o código-fonte. O código (e o README, referenciado
+# como `readme` no pyproject.toml) precisa estar presente ANTES do pip install
+# porque o pacote agora é instalado em modo não-editável (ver abaixo) — o
+# hatchling precisa do conteúdo real de src/intensicare e do README.md para
+# construir o wheel e validar os metadados do projeto.
+COPY pyproject.toml README.md .
 COPY src/ ./src/
 COPY alembic/ ./alembic/
+
+# Instala o pacote como wheel real (não-editável). `pip install -e` é
+# anti-padrão para imagens de produção (o pacote instalado apontaria para o
+# source tree do estágio de build, que não deveria ser a fonte de verdade da
+# imagem final) e, neste ambiente, também aciona um AttributeError por
+# incompatibilidade entre os hooks PEP 660 do hatchling e o pip usado no
+# build isolation — atualizar pip/setuptools/wheel/hatchling antes do install
+# evita ambos os problemas.
+RUN pip install --upgrade pip setuptools wheel hatchling \
+    && pip install ".[test]"  # test inclui httpx para healthcheck
+RUN pip uninstall -y pytest pytest-cov pytest-asyncio factory-boy faker ruff mypy pre-commit || true
 
 # Cria usuário não-root
 RUN groupadd -r intensicare && useradd -r -g intensicare -d /app -s /sbin/nologin intensicare \

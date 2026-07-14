@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import type { PathwayState, StateTransition } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Check, Lock, Circle } from 'lucide-react';
@@ -69,6 +70,26 @@ const STATUS_STYLES: Record<StateStatus, {
 // ---------------------------------------------------------------------------
 
 export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
+  // RF-021 affordance: the fade-out mask only earns its keep when the pill
+  // track actually overflows its container. Measured on the client only
+  // (SSR/first paint default to `false`, i.e. no fade — clinical state stays
+  // fully legible by default) and re-checked whenever the container is
+  // resized (viewport/breakpoint changes) or the state list itself changes.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const checkOverflow = () => setHasOverflow(el.scrollWidth > el.clientWidth);
+    checkOverflow();
+
+    const observer = new ResizeObserver(checkOverflow);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [states]);
+
   if (!states || states.length === 0) {
     return (
       <div
@@ -88,8 +109,26 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
       aria-label="Progresso dos estados da trilha"
       className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-4"
     >
-      {/* Scrollable container for mobile */}
-      <div className="overflow-x-auto -mx-1 px-1 scrollbar-thin">
+      {/*
+        Scrollable region — this component is read-only/presentational (no
+        onClick, no focusable controls inside the pills), so keyboard
+        reachability follows the WAI-ARIA scrolling-region pattern rather
+        than APG widget roles: the overflowing container itself is made
+        focusable (tabIndex=0) and named (role="region" + aria-label) so
+        keyboard users can Tab to it and use arrow/Page keys to scroll its
+        content into view. A bare `tabIndex={0}` with no role/label would be
+        focus-only theater; this gives it both a purpose and a name.
+      */}
+      <div
+        ref={scrollRef}
+        className={cn(
+          'overflow-x-auto -mx-1 px-1 scrollbar-thin rounded-[var(--radius-sm)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--severity-watch)]',
+          hasOverflow && 'overflow-fade-gradient',
+        )}
+        tabIndex={0}
+        role="region"
+        aria-label="Estados da trilha — role horizontalmente para ver todos"
+      >
         <div className="flex items-center min-w-max gap-0">
           {sorted.map((state, idx) => {
             const status = getStateStatus(state, currentStateId, history);
@@ -124,7 +163,7 @@ export function StateFlow({ states, currentStateId, history }: StateFlowProps) {
 
                   {/* Terminal badge */}
                   {isTerminal && (
-                    <span className="text-[10px] opacity-70" aria-label="Estado terminal">
+                    <span className="text-2xs opacity-80" aria-label="Estado terminal">
                       (final)
                     </span>
                   )}

@@ -102,11 +102,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
+import sys
 from typing import Any
 
 # Make the repo root importable (`scripts.dev.seed_demo` is not an installed
@@ -119,7 +119,7 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -447,6 +447,70 @@ async def _upsert_demo_patients(db: AsyncSession, now: datetime) -> list[str]:
         mpi_client_module._mpi_client = original_client
 
 
+# ── Etapa 0.5 — thresholds ──────────────────────────────────────────────
+
+
+async def _seed_demo_thresholds(db: AsyncSession) -> None:
+    """Seed/upsert threshold_config for the demo tenant (austa) with cooldown=15min.
+
+    Sets MEWS and NEWS2 thresholds for the tenant-global scope (unit=NULL,
+    bed_id=NULL) with cooldown_minutes=15 per ADR-0039 §5 (0 disables the
+    sole anti-burst gate in alert_engine.py:77). Idempotent upsert via
+    unique constraint (tenant_id, unit, bed_id, score_type).
+    """
+    from intensicare.models.threshold_config import ThresholdConfig
+
+    thresholds = [
+        {
+            "score_type": "MEWS",
+            "watch_threshold": 3,
+            "urgent_threshold": 4,
+            "critical_threshold": 5,
+        },
+        {
+            "score_type": "NEWS2",
+            "watch_threshold": 3,
+            "urgent_threshold": 5,
+            "critical_threshold": 7,
+        },
+    ]
+
+    for threshold in thresholds:
+        # Upsert via ORM: check if already exists, update if so, insert if not.
+
+        existing = await db.execute(
+            select(ThresholdConfig).where(
+                and_(
+                    ThresholdConfig.tenant_id == DEMO_TENANT_ID,
+                    ThresholdConfig.unit.is_(None),
+                    ThresholdConfig.bed_id.is_(None),
+                    ThresholdConfig.score_type == threshold["score_type"],
+                )
+            )
+        )
+        config = existing.scalars().first()
+
+        if config:
+            # Update cooldown on existing threshold
+            config.cooldown_minutes = 15
+            db.add(config)
+        else:
+            # Create new threshold with cooldown
+            config = ThresholdConfig(
+                tenant_id=DEMO_TENANT_ID,
+                unit=None,
+                bed_id=None,
+                score_type=threshold["score_type"],
+                watch_threshold=threshold["watch_threshold"],
+                urgent_threshold=threshold["urgent_threshold"],
+                critical_threshold=threshold["critical_threshold"],
+                cooldown_minutes=15,  # ADR-0039 §5
+            )
+            db.add(config)
+
+    await db.flush()
+
+
 # ── Etapa B — wipe + vitals ──────────────────────────────────────────────
 
 
@@ -458,7 +522,7 @@ async def _wipe_demo_namespace(db: AsyncSession) -> None:
     """
     from intensicare.models.alert import Alert
     from intensicare.models.clinical_score import ClinicalScore
-    from intensicare.models.pathway import PatientPathway, PathwayStateTransition
+    from intensicare.models.pathway import PathwayStateTransition, PatientPathway
     from intensicare.models.vital_sign import VitalSign
 
     like_pattern = f"{DEMO_MPI_PREFIX}%"
@@ -551,7 +615,7 @@ async def _ensure_pathways_synced(db: AsyncSession, engine: Any) -> tuple[bool, 
     try:
         report = await sync_pathway_definitions(db, engine)
         await db.flush()
-    except Exception as exc:  # noqa: BLE001 - must not abort the whole seed
+    except Exception as exc:
         logger.exception("Inline pathway definitions sync failed")
         return False, f"pathway_definitions_sync raised: {exc}"
 
@@ -704,6 +768,9 @@ async def seed(db: AsyncSession, *, profile: str = "default", now: datetime | No
     # Etapa A — patients (idempotent upsert by mpi_id).
     report.patients = await _upsert_demo_patients(db, now)
 
+    # Etapa 0.5 — thresholds (must be before vitals ingestion for alert engine).
+    await _seed_demo_thresholds(db)
+
     # Etapa B — wipe + re-ingest the clinical trail for the DEMO namespace.
     await _wipe_demo_namespace(db)
     report.vitals_ingested, report.alerts_created = await _ingest_all_demo_vitals(db, now)
@@ -713,7 +780,7 @@ async def seed(db: AsyncSession, *, profile: str = "default", now: datetime | No
 
     try:
         engine = TrilhasEngine()
-    except Exception as exc:  # noqa: BLE001 - engine load failure must not sink A/B
+    except Exception as exc:
         logger.exception("TrilhasEngine failed to load — skipping enrollments")
         report.pathways_synced = False
         report.pathway_sync_message = f"TrilhasEngine() raised: {exc}"
