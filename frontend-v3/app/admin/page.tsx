@@ -61,7 +61,7 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div
-        className="flex gap-1 p-1 rounded-[var(--radius-md)] self-start"
+        className="flex flex-wrap gap-1 p-1 rounded-[var(--radius-md)] self-start"
         style={{
           backgroundColor: 'var(--surface-raised)',
           borderColor: 'var(--border-default)',

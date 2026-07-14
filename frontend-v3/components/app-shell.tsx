@@ -63,19 +63,19 @@ function Breadcrumb() {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
-      <Link href="/" className="hover:text-[var(--text-primary)] transition-colors" aria-label="Início">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-sm text-[var(--text-secondary)]">
+      <Link href="/" className="shrink-0 hover:text-[var(--text-primary)] transition-colors" aria-label="Início">
         <Home className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
       {crumbs.map((crumb) => (
-        <span key={crumb.href} className="flex items-center gap-1">
-          <ChevronRight className="h-3 w-3" />
+        <span key={crumb.href} className={cn('flex items-center gap-1', !crumb.isLast && 'min-w-0')}>
+          <ChevronRight className="h-3 w-3 shrink-0" />
           {crumb.isLast ? (
             <span className="text-[var(--text-primary)] font-medium">{crumb.label}</span>
           ) : (
             <Link
               href={crumb.href}
-              className="hover:text-[var(--text-primary)] transition-colors"
+              className="min-w-0 truncate hover:text-[var(--text-primary)] transition-colors"
             >
               {crumb.label}
             </Link>

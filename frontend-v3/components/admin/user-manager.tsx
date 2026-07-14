@@ -572,7 +572,7 @@ export function UserManager() {
         <div aria-label="Carregando usuários" aria-busy="true">
           {/* Table skeleton */}
           <div
-            className="overflow-hidden rounded-[var(--radius-lg)]"
+            className="overflow-x-auto rounded-[var(--radius-lg)]"
             style={{
               borderColor: 'var(--border-default)',
               borderWidth: '1px',
@@ -645,7 +645,7 @@ export function UserManager() {
 
       {/* Table */}
       <div
-        className="overflow-hidden rounded-[var(--radius-lg)]"
+        className="overflow-x-auto rounded-[var(--radius-lg)]"
         style={{
           borderColor: 'var(--border-default)',
           borderWidth: '1px',
