@@ -159,6 +159,14 @@ async def create_tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
             # MEWS-v2.0.0 is kept seeded too since other tests still reference it.
             ("MEWS-v3.0.0", "MEWS", "3.0.0", "mews"),
             ("NEWS2-v1.0", "NEWS2", "1.0.0", "news2"),
+            # NEWS2-v3.0.0 (RAT-NEWS2-SCALE-2 / AUDIT-002 — see
+            # alembic/versions/0021_activate_news2_v3_0_0.py): the currently
+            # active engine (intensicare.services.news2.NEWS2_VERSION) — every
+            # vitals ingestion FK's clinical_score.algorithm_version to it.
+            # Without this seed row, test_vitals.py and any fixture that
+            # ingests vitals (e.g. demo_patients) fail with an IntegrityError.
+            # NEWS2-v1.0 is kept seeded too since other tests still reference it.
+            ("NEWS2-v3.0.0", "NEWS2", "3.0.0", "news2"),
             ("SOFA-v1.0", "SOFA", "1.0.0", "sofa"),
             ("SOFA-v2.0.0", "SOFA", "2.0.0", "sofa"),
             ("qSOFA-v1.0", "qSOFA", "1.0.0", "qsofa"),
