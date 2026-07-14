@@ -5,6 +5,14 @@ Implements the Royal College of Physicians NEWS2 protocol with all 7 parameters.
 
 from dataclasses import dataclass
 
+# Canonical algorithm version identifier — single source of truth. This is the
+# FK target in algorithm_registry.algorithm_version (see migration
+# 0021_activate_news2_v3_0_0.py / tests/conftest.py seed) and MUST be imported
+# by call sites (e.g. services/vitals.py) instead of duplicating this literal —
+# a duplicated literal is how it drifted out of sync and persisted the wrong
+# algorithm_version ("NEWS2-v1.0") for every NEWS2 ClinicalScore row.
+NEWS2_VERSION = "NEWS2-v3.0.0"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Published NEWS2 thresholds (Royal College of Physicians, NEWS2, 2017). The
 # current implementation's values are authoritative and MUST NOT change; these
@@ -38,7 +46,7 @@ class NEWS2Result:
 
     total_score: int
     components: NEWS2Components
-    algorithm_version: str = "NEWS2-v3.0.0"
+    algorithm_version: str = NEWS2_VERSION
 
     @property
     def risk_category(self) -> str:
@@ -296,5 +304,5 @@ def calculate_news2(
     return NEWS2Result(
         total_score=total,
         components=components,
-        algorithm_version="NEWS2-v3.0.0",
+        algorithm_version=NEWS2_VERSION,
     )
